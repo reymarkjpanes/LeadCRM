@@ -11,7 +11,11 @@ export interface LoginPayload {
 export interface AuthResponse {
   success: boolean;
   data: {
-    user: Pick<User, 'id' | 'email' | 'role' | 'firstName' | 'lastName' | 'tenantId'>;
+    user: Pick<User, 'id' | 'email' | 'role' | 'firstName' | 'lastName' | 'tenantId'> & {
+      status?:             string;
+      tenantStatus?:       string;   // 'SANDBOX' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED'
+      subscriptionStatus?: string;   // 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED'
+    };
   };
 }
 
@@ -66,6 +70,7 @@ export const authApi = {
    * Patches the tenant record for a new Google OAuth user who needs to
    * complete their company profile. tenantId is read from the server-side
    * session cookie — never from the request body.
+   * Returns tenantStatus so the frontend can route to sandbox vs production.
    */
   completeOAuthProfile: (payload: {
     companyName:  string;
@@ -73,5 +78,11 @@ export const authApi = {
     companySize:  string;
     country:      string;
   }) =>
-    apiClient.patch<{ success: boolean }>('/auth/oauth/complete-profile', payload),
+    apiClient.patch<{
+      success: boolean;
+      data: {
+        tenantStatus:       string;   // 'SANDBOX' | 'ACTIVE' …
+        subscriptionStatus: string;
+      };
+    }>('/auth/oauth/complete-profile', payload),
 };

@@ -62,13 +62,38 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function me(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    // Fetch full user from DB so firstName/lastName are included
+    // Fetch full user + tenant status so the frontend can route sandbox vs production
     const user = await prisma.user.findFirst({
       where: { id: req.user!.userId, tenantId: req.user!.tenantId },
-      select: { id: true, email: true, role: true, firstName: true, lastName: true, tenantId: true, status: true },
+      select: {
+        id:        true,
+        email:     true,
+        role:      true,
+        firstName: true,
+        lastName:  true,
+        tenantId:  true,
+        status:    true,
+        tenant:    { select: { status: true, subscriptionStatus: true } },
+      },
     });
     if (!user) { res.status(401).json({ success: false, error: 'User not found' }); return; }
-    res.json({ success: true, data: { user } });
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id:                  user.id,
+          email:               user.email,
+          role:                user.role,
+          firstName:           user.firstName,
+          lastName:            user.lastName,
+          tenantId:            user.tenantId,
+          status:              user.status,
+          tenantStatus:        user.tenant.status,          // 'SANDBOX' | 'ACTIVE' | 'SUSPENDED' …
+          subscriptionStatus:  user.tenant.subscriptionStatus,
+        },
+      },
+    });
   } catch (err) { next(err); }
 }
 
@@ -449,7 +474,16 @@ export async function completeOAuthProfile(req: Request, res: Response, next: Ne
       metadata:   { companyName, industry },
     });
 
-    res.json({ success: true });
+    // Return tenantStatus so the frontend can redirect to the correct dashboard
+    // New Google OAuth users always have status SANDBOX — they stay in sandbox
+    // until a System Admin upgrades their account.
+    res.json({
+      success: true,
+      data: {
+        tenantStatus:       tenant.status,          // 'SANDBOX' | 'ACTIVE' …
+        subscriptionStatus: tenant.subscriptionStatus,
+      },
+    });
   } catch (err) {
     next(err);
   }

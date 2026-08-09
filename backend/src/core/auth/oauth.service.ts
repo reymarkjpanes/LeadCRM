@@ -249,6 +249,28 @@ export async function findOrCreateUserByOAuth(
       },
     });
 
+    // ── Seed a default Sales Pipeline so the sandbox CRM is immediately usable ──
+    // Without at least one pipeline + stages, the Kanban board throws errors.
+    await tx.pipeline.create({
+      data: {
+        tenantId:  tenant.id,
+        name:      'Sales Pipeline',
+        type:      'Sales',
+        isDefault: true,
+        currency:  'PHP',
+        stages: {
+          create: [
+            { name: 'Lead',        order: 1, isDefault: true, tenantId: tenant.id, color: '#64748b', probability: 10  },
+            { name: 'Contacted',   order: 2,                  tenantId: tenant.id, color: '#3b82f6', probability: 25  },
+            { name: 'Qualified',   order: 3,                  tenantId: tenant.id, color: '#8b5cf6', probability: 50  },
+            { name: 'Proposal',    order: 4,                  tenantId: tenant.id, color: '#f59e0b', probability: 70  },
+            { name: 'Won',         order: 5, isWon:  true,    tenantId: tenant.id, color: '#10b981', probability: 100 },
+            { name: 'Lost',        order: 6, isLost: true,    tenantId: tenant.id, color: '#ef4444', probability: 0   },
+          ],
+        },
+      },
+    });
+
     return user;
   });
 

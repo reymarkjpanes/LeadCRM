@@ -101,13 +101,16 @@ export default function CompleteProfilePage(): React.ReactElement {
       // Patch the tenant record with the company details the user just entered.
       // The backend reads tenantId from the authenticated session cookie — never
       // from the request body (tenant isolation is enforced server-side).
-      await authApi.completeOAuthProfile(parsed.data);
+      const profileRes = await authApi.completeOAuthProfile(parsed.data);
 
       // Re-hydrate the session so AuthContext picks up the updated tenant name
       await authApi.refreshSession();
 
       toast.success('Profile completed! Welcome to LeadCRM.');
-      router.replace('/dashboard');
+
+      // Hard navigate so AuthContext re-mounts and restoreSession re-runs
+      // with the already-set leadcrm_token cookie.
+      window.location.replace('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save profile. Please try again.');
     } finally {
@@ -284,10 +287,10 @@ export default function CompleteProfilePage(): React.ReactElement {
 
         </form>
 
-        {/* Skip link — lets users with all optional data bypass the form */}
+        {/* Skip link — lets users bypass the form; they land in sandbox dashboard */}
         <button
           type="button"
-          onClick={() => router.replace('/dashboard')}
+          onClick={() => window.location.replace('/dashboard')}
           className="w-full mt-4 text-sm text-slate-400 dark:text-slate-500
             hover:text-slate-600 dark:hover:text-slate-300 text-center transition-colors"
         >

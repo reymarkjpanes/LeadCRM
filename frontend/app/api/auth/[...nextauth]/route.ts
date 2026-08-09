@@ -1,7 +1,6 @@
 import NextAuth, { type NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { cookies } from 'next/headers';
 
 // Required for NextAuth v4 on Next.js 15 — prevents the route from being
 // statically optimised, which breaks cookie/header access during OAuth initiation.
@@ -188,14 +187,11 @@ export const authOptions: NextAuthOptions = {
           lcUser.accessToken               = result.data.token;
           lcUser.requiresProfileCompletion = result.data.requiresProfileCompletion;
 
-          // Set the backend token cookie in the browser
-          const cookieStore = await cookies();
-          cookieStore.set('leadcrm_token', result.data.token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60,
-          });
+          // NOTE: We do NOT set the leadcrm_token cookie here.
+          // cookies().set() does not work reliably inside NextAuth callbacks in
+          // Next.js 15. Instead, the token is stored in the NextAuth JWT
+          // (as accessToken above) and the /api/auth/session-sync route reads
+          // the NextAuth session server-side and writes the cookie correctly.
 
           return true;
         } catch (err) {

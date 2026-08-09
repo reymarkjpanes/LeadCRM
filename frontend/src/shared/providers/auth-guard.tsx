@@ -18,8 +18,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     if (user === null) {
-      // Store the intended path so we can redirect back after login
-      if (pathname !== '/login' && pathname !== '/register') {
+      // Store the intended path so we can redirect back after login.
+      // Exclude OAuth-flow paths to prevent redirect loops.
+      const isOAuthPath = pathname.startsWith('/auth/');
+      if (!isOAuthPath && pathname !== '/login' && pathname !== '/register') {
         sessionStorage.setItem('leadcrm_redirect_after_login', pathname);
       }
       router.replace('/login');
@@ -28,10 +30,19 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // Authenticated — check for a saved redirect target
     const savedRedirect = sessionStorage.getItem('leadcrm_redirect_after_login');
-    if (savedRedirect && savedRedirect !== '/login' && savedRedirect !== '/register') {
+    if (
+      savedRedirect &&
+      savedRedirect !== '/login' &&
+      savedRedirect !== '/register' &&
+      !savedRedirect.startsWith('/auth/')   // never redirect back to OAuth flow paths
+    ) {
       sessionStorage.removeItem('leadcrm_redirect_after_login');
       router.replace(savedRedirect);
       return;
+    }
+    // Clear stale OAuth-path redirects silently
+    if (savedRedirect?.startsWith('/auth/')) {
+      sessionStorage.removeItem('leadcrm_redirect_after_login');
     }
 
     // Role-based default landing: only redirect from root or login page

@@ -65,7 +65,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const apiUser = res.data.user as unknown as User;
             setUser(apiUser);
             if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-              setTenant({ id: apiUser.tenantId, name: '', status: 'active', environment: 'production' } as any);
+              // Populate tenant with status from /auth/me so sandbox vs production
+              // routing works correctly throughout the app.
+              const tenantStatus       = (res.data.user as any).tenantStatus       ?? 'ACTIVE';
+              const subscriptionStatus = (res.data.user as any).subscriptionStatus ?? 'ACTIVE';
+              setTenant({
+                id:          apiUser.tenantId,
+                name:        '',
+                status:      tenantStatus.toLowerCase(),        // 'sandbox' | 'active' | …
+                environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production',
+                subscriptionStatus,
+              } as any);
             }
           } else {
             setUser(null);
@@ -113,7 +123,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const apiUser = res.data.user as unknown as User;
         setUser(apiUser);
         if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          setTenant({ id: apiUser.tenantId, name: '', status: 'active', environment: 'production' } as any);
+          const tenantStatus       = (res.data.user as any).tenantStatus       ?? 'ACTIVE';
+          const subscriptionStatus = (res.data.user as any).subscriptionStatus ?? 'ACTIVE';
+          setTenant({
+            id:          apiUser.tenantId,
+            name:        '',
+            status:      tenantStatus.toLowerCase(),
+            environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production',
+            subscriptionStatus,
+          } as any);
         }
         return true;
       }
@@ -175,7 +193,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *   1. Redirect to Google consent screen
    *   2. On success, call our signIn callback which posts to /auth/oauth/google
    *   3. The backend sets the LeadCRM HttpOnly JWT cookie
-   *   4. NextAuth redirects to callbackUrl
+   *   4. NextAuth redirects to callbackUrl → /auth/oauth-callback
+   *
+   * The middleware intercepts /auth/oauth-callback and routes:
+   *   - New users (requiresProfileCompletion=true) → /auth/complete-profile
+   *   - Existing users                             → /dashboard
    *
    * After the redirect completes, the page re-mounts and restoreSession()
    * re-hydrates AuthContext from the new cookie via /auth/me.
@@ -184,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const loginWithGoogle = async (): Promise<void> => {
     if (USE_MOCK_AUTH) return;
-    await nextAuthSignIn('google', { callbackUrl: '/dashboard' });
+    await nextAuthSignIn('google', { callbackUrl: '/auth/oauth-callback' });
   };
 
   // ── Logout ────────────────────────────────────────────────────────
