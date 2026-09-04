@@ -246,6 +246,10 @@ model Tenant {
   leadImports        LeadImport[]
   accountImports     AccountImport[]
   contactImports     ContactImport[]
+  tenantGroups       TenantGroup[]
+  tenantGroupMembers TenantGroupMember[]
+  tenantDomains      TenantDomain[]
+  tenantDomainSettings TenantDomainSettings?
 }
 
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
@@ -359,6 +363,7 @@ model User {
   accountImports       AccountImport[]
   contactImports       ContactImport[]
   emailVerificationTokens EmailVerificationToken[]
+  groupMemberships TenantGroupMember[]
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -499,6 +504,70 @@ model TenantInvitation {
 }
 
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+// TENANT GROUP
+// ─────────────────────────────────────────────────────────────
+model TenantGroup {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id])
+  members TenantGroupMember[]
+
+  @@index([tenantId])
+}
+
+// TENANT GROUP MEMBER (junction: group ↔ user)
+// ─────────────────────────────────────────────────────────────
+model TenantGroupMember {
+  id       String @id @default(uuid())
+  groupId  String
+  userId   String
+  tenantId String
+
+  group  TenantGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant      @relation(fields: [tenantId], references: [id])
+
+  @@unique([groupId, userId])
+  @@index([tenantId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+// TENANT DOMAIN
+// ─────────────────────────────────────────────────────────────
+model TenantDomain {
+  id         String    @id @default(uuid())
+  tenantId   String
+  domain     String
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+}
+
+// TENANT DOMAIN SETTINGS
+// ─────────────────────────────────────────────────────────────
+model TenantDomainSettings {
+  id                     String   @id @default(uuid())
+  tenantId               String   @unique
+  restrictToEmailDomains Boolean  @default(false)
+  joinPolicy             String   @default("after_approval") // "instantly" | "after_approval"
+  defaultRole            String   @default("Sales Rep")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
 // TENANT DOCUMENT (onboarding files, contracts, etc.)
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 model TenantDocument {

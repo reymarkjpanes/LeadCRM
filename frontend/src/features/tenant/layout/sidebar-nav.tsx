@@ -109,7 +109,7 @@ export default function SidebarNav({
             }
           });
 
-          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing', 'Administration'];
+          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing'];
 
           // Merge Operations/Marketing/Automation/Billing into "WORKSPACE"
           const mergedGroups: { label: string; items: typeof filteredNav }[] = [];
