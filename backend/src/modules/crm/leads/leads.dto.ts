@@ -15,7 +15,6 @@ export const CreateLeadSchema = z.object({
   source:         z.string().optional(),
   notes:          z.string().optional(),
   doNotLead:   z.boolean().default(false),
-  organizationId: id().optional(),
   assignedUserId: id().optional(),
   productInterests: z.array(z.string()).optional(),
   address:        z.string().optional(),
@@ -40,7 +39,6 @@ export const UpdateLeadSchema = z.object({
   source:         z.string().optional(),
   notes:          z.string().optional(),
   doNotLead:   z.boolean().optional(),
-  organizationId: id().optional(),
   assignedUserId: id().optional(),
   productInterests: z.array(z.string()).optional(),
   address:        z.string().optional(),
@@ -54,9 +52,9 @@ export type UpdateLeadDto = z.infer<typeof UpdateLeadSchema>;
 
 // ── Convert Lead (Lead → Contact + Account + optional Deal) ────────
 export const ConvertLeadSchema = z.object({
-  // Account handling
-  organizationId:  z.string().min(1).optional(), // link to existing org
-  organizationName: z.string().min(1).optional(), // or create a new one
+  // Account handling — accountId links to existing Account, accountName creates a new one
+  accountId:       z.string().min(1).optional(), // link to existing account
+  accountName:     z.string().min(1).optional(), // or create a new one
   // Contact handling
   createContact:   z.boolean().default(true),
   contactId:       z.string().min(1).optional(), // link to existing contact
@@ -68,8 +66,8 @@ export const ConvertLeadSchema = z.object({
   dealPriority:    z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
   dealId:          z.string().min(1).optional(), // link to existing deal
 }).refine(
-  (data) => data.organizationId || data.organizationName,
-  { message: 'Either organizationId or organizationName is required', path: ['organizationId'] },
+  (data) => data.accountId || data.accountName,
+  { message: 'Either accountId or accountName is required', path: ['accountId'] },
 );
 
 export type ConvertLeadDto = z.infer<typeof ConvertLeadSchema>;

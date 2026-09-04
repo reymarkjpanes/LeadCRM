@@ -27,7 +27,7 @@ const CONTACT_LIFECYCLE_VALUES = ['LEAD', 'QUALIFIED', 'CONTACT', 'CUSTOMER', 'C
 // Fields that exist on the Contact model (schema ground truth). Any create-data key outside
 // this set would be an "Unknown argument" at runtime — the exact class of bug we are guarding.
 const VALID_CONTACT_FIELDS = new Set([
-  'tenantId', 'organizationId', 'accountId', 'assignedUserId', 'ownerId',
+  'tenantId', 'accountId', 'assignedUserId', 'ownerId',
   'firstName', 'lastName', 'email', 'phone', 'company', 'jobTitle', 'linkedinUrl',
   'status', 'score', 'source', 'notes', 'lastContactedAt', 'convertedAt', 'doNotContact',
   'isArchived', 'archiveReason', 'deletedAt', 'deletedBy',

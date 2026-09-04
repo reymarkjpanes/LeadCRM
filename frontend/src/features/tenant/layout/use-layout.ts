@@ -6,9 +6,9 @@ import { useData } from '@/store/DataContext';
 import { usePermissions, PERMISSION_BRIDGE } from '@/shared/hooks/use-permissions';
 import { PATHNAME_TO_PATH, PATH_TO_PATHNAME } from '@/lib/route-map';
 import {
-  LayoutDashboard, Briefcase, Workflow, Mail,
+  LayoutDashboard, Briefcase, Workflow, Mail, Settings,
   Receipt, Building2, CreditCard, Activity, ListTodo,
-  UserCheck, Building, Target, Users, Shield,
+  UserCheck, Building, Target, Users,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -24,12 +24,13 @@ export const NAV_ITEMS = [
   { name: 'Campaigns',         path: 'campaigns',         icon: Mail,            permission: 'campaigns.view', roles: null,          group: 'Marketing' },
   // ── Automation ──────────────────────────────────────
   { name: 'Workflows',         path: 'workflows',         icon: Workflow,        permission: 'workflows.view', roles: null,          group: 'Automation' },
-  // ── Billing (tenant self-service) ────────────────────
-  { name: 'Billing',           path: 'client-billing',    icon: CreditCard,      permission: 'billing.view',   roles: null,          group: 'Billing' },
   // ── Administration ──────────────────────────────────
+  // Billing and Roles are accessed through Settings — not duplicated here.
   { name: 'Users',             path: 'users',             icon: Users,           permission: 'users.view',     roles: null,          group: 'Administration' },
-  { name: 'Roles',             path: 'roles',             icon: Shield,          permission: 'roles.manage',   roles: null,          group: 'Administration' },
   { name: 'Audit Trail',       path: 'audit-log',         icon: Activity,        permission: 'audit.view',     roles: null,          group: 'Administration' },
+  // ── Settings ────────────────────────────────────────
+  // Single entry point for all configuration including Billing and Roles & Permissions.
+  { name: 'Settings',          path: 'settings',          icon: Settings,        permission: 'settings.view',  roles: null,          group: 'Settings' },
   // ── System Admin (separate portal) ──────────────────
   { name: 'Dashboard',         path: 'admin-dashboard',   icon: LayoutDashboard, permission: null,             roles: ['System Admin'] as const, group: null },
   { name: 'Client Management', path: 'admin-clients',     icon: Building2,       permission: null,             roles: ['System Admin'] as const, group: null },
@@ -40,10 +41,9 @@ export const NAV_ITEMS = [
 
 type NavItem = (typeof NAV_ITEMS)[number];
 
-// Paths that should be hidden for SANDBOX tenants regardless of RBAC.
-// Sandbox users should not manage other users, roles, or see audit logs —
-// they should focus on exploring the CRM and upgrading.
-const SANDBOX_HIDDEN_PATHS = new Set(['users', 'roles', 'audit-log']);
+// Paths hidden for SANDBOX tenants regardless of RBAC.
+// Sandbox users focus on the CRM + Settings (where they can upgrade via the Plan tab).
+const SANDBOX_HIDDEN_PATHS = new Set(['users', 'audit-log']);
 
 export function useLayout() {
   const router = useRouter();
@@ -62,8 +62,7 @@ export function useLayout() {
   const isSuper = userPermissions.includes('*');
   const isSystemAdminUser = user?.role === 'System Admin' || user?.tenantId === 'system' || user?.tenantId === 'leadcrm-system-demo';
 
-  // Detect sandbox tenants via tenantStatus from /auth/me (Task 8 added this field).
-  // Used to restrict the nav for demo/sandbox workspaces to CRM + Billing only.
+  // Sandbox tenants: identified by tenantStatus from /auth/me.
   const isSandboxTenant = (user as any)?.tenantStatus === 'SANDBOX';
 
   const featureEnabled = (flag?: 'billing') => {
@@ -84,10 +83,8 @@ export function useLayout() {
       return itemRoles.includes(user?.role ?? '');
     }
 
-    // Sandbox tenants: hide admin/audit paths regardless of RBAC.
-    // Billing is explicitly allowed (they need to upgrade).
-    // All CRM paths (leads, contacts, accounts, deals, tasks, campaigns, workflows)
-    // are shown if the user's permissions allow them.
+    // Sandbox tenants: hide user management and audit trail.
+    // Settings (including Plan/Billing tab) remains accessible so they can upgrade.
     if (isSandboxTenant && SANDBOX_HIDDEN_PATHS.has(itemPath)) {
       return false;
     }

@@ -70,12 +70,11 @@ export async function getLeadRelationships(id: string, tenantId: string, limit =
 export async function getContactRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT) {
   const contact = await prisma.contact.findFirst({
     where: { id, tenantId },
-    select: { id: true, accountId: true, organizationId: true },
+    select: { id: true, accountId: true },
   });
   if (!contact) throw new NotFoundError('Contact');
 
-  // Canonical company link is Account (ADR-001). Fall back to the legacy organizationId
-  // only while the contract phase (removal) has not yet run.
+  // Canonical company link is Account (ADR-001).
   const companyAccountId = contact.accountId ?? null;
 
   const [sourceLead, account, contactDeals, activities, tasks] = await Promise.all([
@@ -121,8 +120,6 @@ export async function getContactRelationships(id: string, tenantId: string, limi
   return {
     sourceLead,
     account,
-    // Deprecated alias for frontend compatibility during the expand->contract migration.
-    organization: account,
     deals: contactDeals.map((cd) => cd.deal),
     activities,
     tasks,

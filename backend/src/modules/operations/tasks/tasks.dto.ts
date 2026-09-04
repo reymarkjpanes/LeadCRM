@@ -10,8 +10,7 @@ export const CreateTaskSchema = z.object({
   dueDate:        z.string().datetime(),
   reminderAt:     z.string().datetime().optional(),
   dealId:         id().optional(),
-  leadId:      id().optional(),
-  organizationId: id().optional(),
+  leadId:         id().optional(),
   assignedUserId: id(),
 });
 

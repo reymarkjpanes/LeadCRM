@@ -10,7 +10,7 @@ export async function findAllActivities(tenantId: string, query: Record<string, 
   
   if (query.contactId) where.contactId = String(query.contactId);
   if (query.dealId) where.dealId = String(query.dealId);
-  if (query.organizationId) where.organizationId = String(query.organizationId);
+  if (query.accountId) where.accountId = String(query.accountId);
   if (query.taskId) where.taskId = String(query.taskId);
   if (query.type) where.type = String(query.type);
 

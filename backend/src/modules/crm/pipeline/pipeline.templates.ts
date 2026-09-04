@@ -33,7 +33,7 @@ export const PIPELINE_TEMPLATES: PipelineTemplate[] = [
     type: 'Sales',
     isDefault: true,
     stages: [
-      { name: 'New Inquiry',    order: 1, probability: 10, color: '#6366f1', isDefault: true, requiredFields: ['organizationId'], rottenAfterDays: 3 },
+      { name: 'New Inquiry',    order: 1, probability: 10, color: '#6366f1', isDefault: true, requiredFields: ['accountId'], rottenAfterDays: 3 },
       { name: 'Contacted',      order: 2, probability: 20, color: '#8b5cf6', requiredFields: [], rottenAfterDays: 7 },
       { name: 'Qualified',      order: 3, probability: 40, color: '#0ea5e9', requiredFields: ['value', 'expectedCloseDate'], rottenAfterDays: 14 },
       { name: 'Proposal Sent',  order: 4, probability: 60, color: '#3b82f6', requiredFields: [], rottenAfterDays: 10 },
@@ -61,7 +61,7 @@ export const PIPELINE_TEMPLATES: PipelineTemplate[] = [
     name: 'Project Implementation',
     type: 'Onboarding',
     stages: [
-      { name: 'Kickoff',         order: 1, probability: 10, color: '#6366f1', isDefault: true, requiredFields: ['organizationId'], rottenAfterDays: 3 },
+      { name: 'Kickoff',         order: 1, probability: 10, color: '#6366f1', isDefault: true, requiredFields: ['accountId'], rottenAfterDays: 3 },
       { name: 'Planning',        order: 2, probability: 30, color: '#8b5cf6', requiredFields: [], rottenAfterDays: 7 },
       { name: 'Execution',       order: 3, probability: 60, color: '#3b82f6', requiredFields: [], rottenAfterDays: 14 },
       { name: 'Testing',         order: 4, probability: 80, color: '#f59e0b', requiredFields: [], rottenAfterDays: 7 },
