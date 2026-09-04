@@ -1,4 +1,11 @@
 'use client';
-import dynamic from 'next/dynamic';
-const AuditLogsPage = dynamic(() => import('../../../../src/features/tenant/administration/audit/ui/audit-logs-page'), { ssr: false });
-export default AuditLogsPage;
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+// This route is no longer the primary entry point for audit logs.
+// Settings → Audit Trail is the canonical destination.
+export default function AuditRedirect(): null {
+  const router = useRouter();
+  useEffect(() => { router.replace('/settings?tab=audit'); }, [router]);
+  return null;
+}

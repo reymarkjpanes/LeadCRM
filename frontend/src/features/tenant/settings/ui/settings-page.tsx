@@ -37,6 +37,7 @@ import {
   Check,
   Banknote,
   PhoneCall,
+  Activity,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
@@ -46,6 +47,7 @@ import { FormsTab } from './forms-tab';
 import { TeamManagement } from './team-management';
 import { RolesPermissions } from './roles-permissions';
 import { PlanUsageTab } from './plan-usage-tab';
+import AuditLogsPage from '@/features/tenant/administration/audit/ui/audit-logs-page';
 
 type SettingsTab =
   | 'profile'
@@ -59,7 +61,8 @@ type SettingsTab =
   | 'account-details'
   | 'plan'
   | 'billing'
-  | 'forms';
+  | 'forms'
+  | 'audit';
 
 interface NavGroup {
   label: string;
@@ -105,6 +108,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'SYSTEM',
+    items: [
+      { id: 'audit', label: 'Audit Trail', icon: Activity },
+    ],
+  },
+  {
     label: 'BILLING',
     icon: Banknote,
     isTree: true,
@@ -116,7 +125,7 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 export default function SettingsPage(): React.ReactElement {
-  const { user, tenant, updateProfile } = useAuth();
+  const { user, tenant, updateProfile, userCan } = useAuth();
   const {
     organizations,
     contacts,
@@ -138,6 +147,16 @@ export default function SettingsPage(): React.ReactElement {
   const isClientAdmin = user?.role === "Client Admin";
   const canEditSettings = isClientAdmin || userPerms.includes("p28");
 
+  // RBAC-filtered nav groups — hide Audit Trail from non-admin roles
+  const canViewAudit = isClientAdmin || user?.role === "Administrator" || user?.role === "Admin" || userCan('audit', 'canView');
+  const visibleNavGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) => {
+      if ((item as { id: string }).id === 'audit') return canViewAudit;
+      return true;
+    }),
+  })).filter((g) => g.items.length > 0) as typeof NAV_GROUPS;
+
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [isFormBuilderActive, setIsFormBuilderActive] = useState(false);
   const [isRolesViewActive, setIsRolesViewActive] = useState(false);
@@ -146,7 +165,7 @@ export default function SettingsPage(): React.ReactElement {
 
   // Dispatch breadcrumb event to topbar when settings tab changes
   useEffect(() => {
-    const group = NAV_GROUPS.find(g => g.items.some(i => i.id === activeTab));
+    const group = visibleNavGroups.find(g => g.items.some(i => i.id === activeTab));
     const item = group?.items.find(i => i.id === activeTab);
     if (group && item) {
       window.dispatchEvent(new CustomEvent('settings-tab-change', {
@@ -869,7 +888,7 @@ export default function SettingsPage(): React.ReactElement {
     </div>
   );
 
-  const tabContentMap: Record<Exclude<SettingsTab, 'forms' | 'roles'>, () => React.ReactElement> = {
+  const tabContentMap: Record<Exclude<SettingsTab, 'forms' | 'roles' | 'audit'>, () => React.ReactElement> = {
     'profile': renderProfileTab,
     'appearance': renderAppearanceTab,
     'memberships': renderMembershipsTab,
@@ -882,13 +901,15 @@ export default function SettingsPage(): React.ReactElement {
     'billing': renderBillingTab,
   };
 
+  const VALID_TABS: SettingsTab[] = ['profile', 'appearance', 'memberships', 'org-general', 'users', 'roles', 'custom-fields', 'archived', 'account-details', 'plan', 'billing', 'forms', 'audit'];
   useEffect(() => {
-    if (tabFromUrl && tabFromUrl in tabContentMap) {
+    if (tabFromUrl && VALID_TABS.includes(tabFromUrl as SettingsTab)) {
       setActiveTab(tabFromUrl as SettingsTab);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabFromUrl]);
 
-  const activeGroup = NAV_GROUPS.find((g) => g.items.some((i) => i.id === activeTab));
+  const activeGroup = visibleNavGroups.find((g) => g.items.some((i) => i.id === activeTab));
   const activeItem = activeGroup?.items.find((i) => i.id === activeTab);
 
   return (
@@ -903,7 +924,7 @@ export default function SettingsPage(): React.ReactElement {
             onChange={(e) => { setActiveTab(e.target.value as SettingsTab); setIsFormBuilderActive(false); setIsRolesViewActive(false); }}
             className="w-full bg-slate-50 dark:bg-[#1B252F] border border-gray-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-3 pr-9 py-2.5 text-sm font-medium focus:outline-none focus:border-[#3B82F6] transition-colors appearance-none"
           >
-            {NAV_GROUPS.map((group) => (
+            {visibleNavGroups.map((group) => (
               <optgroup key={group.label} label={group.label}>
                 {group.items.map((item) => (
                   <option key={item.id} value={item.id}>{item.label}</option>
@@ -917,7 +938,7 @@ export default function SettingsPage(): React.ReactElement {
 
       {/* Left Sub-Nav (Close CRM #121418) — hidden on mobile */}
       <aside className="hidden lg:block w-52 shrink-0 border-r border-gray-200 dark:border-[#262A33] bg-white dark:bg-[#121418] overflow-y-auto custom-scrollbar py-4 transition-colors">
-        {NAV_GROUPS.map((group) => (
+        {visibleNavGroups.map((group) => (
           <div key={group.label} className="mb-4">
             {group.isTree ? (
               <div>
@@ -982,6 +1003,7 @@ export default function SettingsPage(): React.ReactElement {
         const hasOwnHeader =
           activeTab === 'users' ||
           activeTab === 'roles' ||
+          activeTab === 'audit' ||
           activeTab === 'plan' ||
           (activeTab === 'forms' && isFormBuilderActive);
 
@@ -994,9 +1016,11 @@ export default function SettingsPage(): React.ReactElement {
             )}
             {activeTab === 'forms'
               ? <FormsTab onBuilderActiveChange={setIsFormBuilderActive} />
+              : activeTab === 'audit'
+              ? <AuditLogsPage />
               : activeTab === 'roles'
               ? <RolesPermissions onViewActiveChange={setIsRolesViewActive} />
-              : tabContentMap[activeTab as Exclude<SettingsTab, 'forms' | 'roles'>]()
+              : tabContentMap[activeTab as Exclude<SettingsTab, 'forms' | 'roles' | 'audit'>]()
             }
           </div>
         );
