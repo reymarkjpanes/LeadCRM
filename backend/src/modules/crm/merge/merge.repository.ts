@@ -34,13 +34,14 @@ export async function countContactRelationships(id: string, tenantId: string): P
  * Count relationships for an Account record.
  */
 export async function countAccountRelationships(id: string, tenantId: string): Promise<RelationshipCounts> {
-  const [activities, deals, leads] = await Promise.all([
+  const [activities, deals, leads, contacts] = await Promise.all([
     prisma.activity.count({ where: { accountId: id, tenantId } }),
     prisma.deal.count({ where: { accountId: id, tenantId, isArchived: false } }),
     prisma.lead.count({ where: { accountId: id, tenantId } }),
-    // Note: contacts now link to Organization (not Account) — excluded from Account counts
+    // Contacts link to Account via Contact.accountId (ADR-001 canonical path).
+    prisma.contact.count({ where: { accountId: id, tenantId, isArchived: false } }),
   ]);
-  return { activities, tasks: 0, deals, leads, contacts: 0 };
+  return { activities, tasks: 0, deals, leads, contacts };
 }
 
 /**
@@ -218,8 +219,13 @@ export async function reassignAccountRelationships(
     data: { accountId: primaryId },
   });
 
-  // Contacts — contacts link to Organization, not Account; skip reassignment here
-  // (organizationId is a separate FK from accountId on Lead/Deal)
+  // Contacts — reassign Contact.accountId from secondary to primary (ADR-001 canonical path).
+  // relationships.service.ts getAccountRelationships() queries Contact.accountId, so
+  // this reassignment ensures the surviving account's contact list is complete.
+  const contacts = await tx.contact.updateMany({
+    where: { accountId: secondaryId, tenantId },
+    data: { accountId: primaryId },
+  });
 
   // Deals
   const deals = await tx.deal.updateMany({
@@ -238,6 +244,6 @@ export async function reassignAccountRelationships(
     tasks: 0,
     deals: deals.count,
     leads: leads.count,
-    contacts: 0,
+    contacts: contacts.count,
   };
 }

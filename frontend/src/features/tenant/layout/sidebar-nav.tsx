@@ -180,6 +180,23 @@ export default function SidebarNav({
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-[var(--sidebar-border)]">
+        {/* Sandbox badge — shown for SANDBOX tenants only, non-collapsed */}
+        {!isCollapsed && (user as any)?.tenantStatus === 'SANDBOX' && (
+          <div className="px-3 pt-2.5">
+            <div className="flex items-center justify-between rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-2.5 py-1.5">
+              <span className="text-[10.5px] font-semibold text-amber-700 dark:text-amber-400">
+                Demo Workspace
+              </span>
+              <button
+                type="button"
+                onClick={() => { navigate('settings'); onCloseSidebar(); }}
+                className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+              >
+                Upgrade
+              </button>
+            </div>
+          </div>
+        )}
         {/* User card + Collapse control */}
         <div className="px-3 py-3 flex items-center gap-2">
           {!isCollapsed && (

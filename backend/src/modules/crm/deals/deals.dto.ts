@@ -15,7 +15,7 @@ export const CreateDealSchema = z.object({
   expectedCloseDate: z.string().datetime().optional(),
   description:       z.string().optional(),
   leadSource:        z.string().optional(),
-  organizationId:    id().optional(),
+  accountId:         id().optional(),
   assignedUserId:    id().optional(),
   contactIds:        z.array(id()).optional(),
   leadIds:           z.array(id()).optional(),
@@ -73,7 +73,8 @@ export const DealsQuerySchema = z.object({
   pipelineId:     z.string().min(1).optional(),
   priority:       z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
   assignedUserId: z.string().min(1).optional(),
-  organizationId: z.string().min(1).optional(),
+  organizationId: z.string().min(1).optional(), // deprecated alias — maps to accountId in repository
+  accountId:      z.string().min(1).optional(),
   contactId:      z.string().min(1).optional(),
   leadId:         z.string().min(1).optional(),
   dateFrom:       z.string().datetime().optional(),

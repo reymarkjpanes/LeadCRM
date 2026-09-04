@@ -7,6 +7,14 @@ import * as invitationsController from './invitations.controller';
 
 const router = Router();
 
+// GET /api/v1/invitations/validate/:token — PUBLIC, no auth required
+// Rate-limited to prevent token enumeration. Must be registered before /:id routes.
+router.get(
+  '/validate/:token',
+  registerRateLimiter,
+  invitationsController.validateInvitation,
+);
+
 // POST /api/v1/invitations — create + send invitations (requires users.manage permission)
 router.post(
   '/',

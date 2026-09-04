@@ -13,7 +13,7 @@ export const ONBOARDING_COMPLETE_KEY    = 'leadcrm_onboarding_complete';
 export const NEEDS_COMPANY_SETUP_KEY    = 'leadcrm_needs_company_setup';
 
 // Routes that are exempt from onboarding/verification gates
-const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/billing', '/settings', '/company-setup'];
+const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/billing', '/settings', '/company-setup', '/invite'];
 
 /**
  * AuthGuard — protects tenant routes and enforces email verification + onboarding gates.

@@ -94,8 +94,8 @@ export async function createInvitations(
       },
     });
 
-    // Build invitation URL
-    const inviteUrl = `${appUrl}/register?invitation=${token}&email=${encodeURIComponent(email)}`;
+    // Build invitation URL — points to the dedicated accept page
+    const inviteUrl = `${appUrl}/invite/accept?token=${token}`;
 
     // Send invitation email (non-blocking per email — continue even if one fails)
     try {
@@ -161,4 +161,66 @@ export async function revokeInvitation(invitationId: string, tenantId: string): 
     where: { id: invitationId },
     data: { revokedAt: new Date() },
   });
+}
+
+// ── Token validation result type ─────────────────────────────────────────
+
+export type InvitationValidationError = 'not_found' | 'expired' | 'revoked' | 'already_accepted';
+
+export interface InvitationValidationResult {
+  valid: boolean;
+  error?: InvitationValidationError;
+  invitation?: {
+    email: string;
+    roleId: string;
+    role: { id: string; name: string };
+    tenant: { name: string };
+  };
+}
+
+/**
+ * Validates an invitation token without consuming it (read-only).
+ *
+ * Tokens are stored raw (not hashed) in TenantInvitation.token.
+ * Returns a structured result suitable for rendering the accept form.
+ * Exposes only: email, role name + id, tenant name — no internal IDs beyond roleId.
+ */
+export async function validateInvitationToken(token: string): Promise<InvitationValidationResult> {
+  if (!token || token.length < 16) {
+    return { valid: false, error: 'not_found' };
+  }
+
+  const invitation = await prisma.tenantInvitation.findFirst({
+    where: { token },
+    include: {
+      role:   { select: { id: true, name: true } },
+      tenant: { select: { name: true } },
+    },
+  });
+
+  if (!invitation) {
+    return { valid: false, error: 'not_found' };
+  }
+
+  if (invitation.revokedAt) {
+    return { valid: false, error: 'revoked' };
+  }
+
+  if (invitation.acceptedAt) {
+    return { valid: false, error: 'already_accepted' };
+  }
+
+  if (invitation.expiresAt < new Date()) {
+    return { valid: false, error: 'expired' };
+  }
+
+  return {
+    valid: true,
+    invitation: {
+      email:    invitation.email,
+      roleId:   invitation.roleId,
+      role:     { id: invitation.role.id, name: invitation.role.name },
+      tenant:   { name: invitation.tenant.name },
+    },
+  };
 }

@@ -8,6 +8,7 @@ import { ConflictError } from '../../shared/errors/http-error';
 import { sendMail, buildPasswordResetEmail, buildRegistrationOtpEmail, buildVerificationEmail } from '../../shared/services/email.service';
 import type { ForgotPasswordDto, ResetPasswordDto } from './auth.dto';
 import { seedSystemRoles } from '../../database/seeders/roles.seed';
+import { seedSandboxData } from '../../database/seeders/sandbox.seed';
 
 
 
@@ -48,6 +49,7 @@ export interface AuthUserSource {
   emailVerified?: Date | null;
   tenant?: {
     name?: string | null;
+    status?: string | null;
     industry?: string | null;
     companySize?: string | null;
     onboardingStep?: number | null;
@@ -73,6 +75,7 @@ export interface AuthUserResponse {
   status: string | null;
   emailVerified: Date | null;
   tenantName: string | null;
+  tenantStatus: string | null;
   industry: string | null;
   companySize: string | null;
   onboardingStep: number;
@@ -98,6 +101,7 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
     status:                user.status ?? null,
     emailVerified:         user.emailVerified ?? null,
     tenantName:            tenant?.name                 ?? null,
+    tenantStatus:          tenant?.status               ?? null,
     industry:              tenant?.industry             ?? null,
     companySize:           tenant?.companySize          ?? null,
     onboardingStep:        tenant?.onboardingStep       ?? 0,
@@ -111,7 +115,7 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
     include: {
       tenant: {
         select: {
-          name: true, industry: true, companySize: true,
+          name: true, industry: true, companySize: true, status: true,
           onboardingStep: true, onboardingCompletedAt: true,
         },
       },
@@ -277,15 +281,18 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     return registerWithInvitation(dto, normalizedEmail, passwordHash, 'Client Admin');
   }
 
+  // At this point, invitationToken is absent, so companyName is guaranteed by Zod superRefine
+  const companyName = dto.companyName ?? '';
+
   // Generate a unique slug for the tenant
-  const slug = dto.companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + crypto.randomBytes(3).toString('hex');
+  const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + crypto.randomBytes(3).toString('hex');
 
   // Create tenant + user in transaction — user starts as PENDING until email verified
   const result = await prisma.$transaction(async (tx) => {
     // 1. Create Tenant (SANDBOX until onboarding completes)
     const tenant = await tx.tenant.create({
       data: {
-        name: dto.companyName,
+        name: companyName,
         slug,
         industry: dto.industry,
         companySize: dto.companySize,
@@ -314,7 +321,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     await tx.account.create({
       data: {
         tenantId: tenant.id,
-        name: dto.companyName,
+        name: companyName,
         industry: dto.industry,
         size: dto.companySize,
         country: dto.country,
@@ -347,6 +354,26 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     console.error('[Auth] Failed to seed system roles for new tenant:', err instanceof Error ? err.message : err);
     // Non-blocking — registration should still succeed even if role seeding fails
   });
+
+  // Create UserRole junction for the founding user so the live DB RBAC path works.
+  // The founding user is 'Client Admin' (a super role — bypasses all checks at middleware level).
+  // We link to the 'Admin' RoleDefinition which was seeded by seedSystemRoles above.
+  // Tenant safety: role is looked up within the same tenant as the user — never cross-tenant.
+  try {
+    const adminRoleDef = await prisma.roleDefinition.findFirst({
+      where: { tenantId: result.tenant.id, name: 'Admin' },
+    });
+    if (adminRoleDef && adminRoleDef.tenantId === result.tenant.id) {
+      await prisma.userRole.upsert({
+        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id } },
+        update: {},
+        create: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id },
+      });
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to create UserRole for new client admin:', err instanceof Error ? err.message : err);
+    // Non-blocking — the user can still log in via the User.role string fallback
+  }
 
   // Generate dual verification tokens (outside transaction — non-blocking on failure)
   const { token, otpCode } = await generateVerificationCredentials(normalizedEmail, result.user.id);
@@ -435,6 +462,35 @@ export async function registerGuest(dto: GuestRegisterDto) {
     return { tenant, user };
   });
 
+  // Seed system roles for the guest's new sandbox tenant
+  await seedSystemRoles(result.tenant.id).catch((err) => {
+    console.error('[Auth] Failed to seed system roles for guest tenant:', err instanceof Error ? err.message : err);
+    // Non-blocking — registration should still succeed even if role seeding fails
+  });
+
+  // Create UserRole junction for the guest/founding user (Client Admin — super role).
+  // Link to 'Admin' RoleDefinition seeded above. Tenant safety: same-tenant lookup only.
+  try {
+    const adminRoleDef = await prisma.roleDefinition.findFirst({
+      where: { tenantId: result.tenant.id, name: 'Admin' },
+    });
+    if (adminRoleDef && adminRoleDef.tenantId === result.tenant.id) {
+      await prisma.userRole.upsert({
+        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id } },
+        update: {},
+        create: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id },
+      });
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to create UserRole for guest user:', err instanceof Error ? err.message : err);
+    // Non-blocking — the user can still log in via the User.role string fallback
+  }
+
+  // Seed sandbox CRM data atomically — failure propagates to fail registration.
+  // This ensures the guest workspace is fully populated on first login.
+  // seedSandboxData checks idempotency first (returns early if already seeded).
+  await seedSandboxData(result.tenant.id, result.user.id);
+
   // Generate dual verification tokens
   const { token, otpCode } = await generateVerificationCredentials(normalizedEmail, result.user.id);
   const emailSent = await sendVerificationEmail(normalizedEmail, token, otpCode);
@@ -452,19 +508,24 @@ export async function registerGuest(dto: GuestRegisterDto) {
  * Handles registration with an invitation token.
  * Validates the invitation, creates the user in the inviting tenant,
  * marks the invitation as accepted, and sends verification email.
+ *
+ * Looks up the invitation by the raw token value (tokens are stored raw,
+ * not hashed, in TenantInvitation.token). The token is the authoritative
+ * credential — email alone is not sufficient to accept an invitation.
  */
 async function registerWithInvitation(
-  dto: { firstName: string; lastName: string; email: string },
+  dto: { firstName: string; lastName: string; email: string; invitationToken?: string },
   normalizedEmail: string,
   passwordHash: string,
   defaultRole: string,
 ): Promise<{ id: string; email: string; role: string; tenantId: string; emailSent: boolean }> {
+  if (!dto.invitationToken) {
+    throw new AppError('Invitation token is required.', 400);
+  }
+
+  // Look up by token — the token is the authoritative credential, not the email alone.
   const invitation = await prisma.tenantInvitation.findFirst({
-    where: {
-      email: normalizedEmail,
-      acceptedAt: null,
-      revokedAt: null,
-    },
+    where: { token: dto.invitationToken },
     include: {
       tenant: { select: { id: true, name: true } },
       role: { select: { id: true, name: true } },
@@ -472,17 +533,31 @@ async function registerWithInvitation(
   });
 
   if (!invitation) {
-    throw new AppError('Invalid or expired invitation. Please request a new one from your administrator.', 400);
+    throw new AppError('Invalid invitation link. Please request a new one from your administrator.', 400);
+  }
+
+  // Validate all terminal states with explicit messages
+  if (invitation.revokedAt) {
+    throw new AppError('This invitation has been revoked. Please request a new one from your administrator.', 400);
+  }
+
+  if (invitation.acceptedAt) {
+    throw new AppError('This invitation has already been accepted.', 400);
   }
 
   if (invitation.expiresAt < new Date()) {
     throw new AppError('This invitation has expired. Please request a new one from your administrator.', 400);
   }
 
+  // Email on the invitation must match the registering email (case-insensitive)
+  if (invitation.email.toLowerCase() !== normalizedEmail) {
+    throw new AppError('The email address does not match the invitation. Please use the email address the invitation was sent to.', 400);
+  }
+
   const roleName = invitation.role?.name ?? defaultRole;
 
   const result = await prisma.$transaction(async (tx) => {
-    // Create user in the inviting tenant
+    // Create user in the inviting tenant — tenantId always from invitation, never from request body
     const user = await tx.user.create({
       data: {
         tenantId: invitation.tenantId,
@@ -495,7 +570,7 @@ async function registerWithInvitation(
       },
     });
 
-    // Mark invitation as accepted
+    // Mark invitation as accepted atomically with user creation
     await tx.tenantInvitation.update({
       where: { id: invitation.id },
       data: { acceptedAt: new Date() },
@@ -503,6 +578,31 @@ async function registerWithInvitation(
 
     return { user, tenant: invitation.tenant };
   });
+
+  // Create UserRole junction for the invited user.
+  // Tenant safety: RoleDefinition is looked up within invitation.tenantId only.
+  try {
+    if (invitation.role?.id && invitation.role.id === invitation.roleId) {
+      await prisma.userRole.upsert({
+        where: {
+          userId_roleId_tenantId: {
+            userId: result.user.id,
+            roleId: invitation.roleId,
+            tenantId: invitation.tenantId,
+          },
+        },
+        update: {},
+        create: {
+          userId: result.user.id,
+          roleId: invitation.roleId,
+          tenantId: invitation.tenantId,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to create UserRole for invited user:', err instanceof Error ? err.message : err);
+    // Non-blocking — user can still log in via User.role string fallback
+  }
 
   // Generate dual verification tokens
   const { token, otpCode } = await generateVerificationCredentials(normalizedEmail, result.user.id);

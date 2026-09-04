@@ -145,7 +145,7 @@ export async function getUserPermissions(
   const isSuperRole = superRoles.some(r => r.toLowerCase().replace(/[\s_\-]/g, '') === normalizedRole);
 
   if (isSuperRole) {
-    const modules = ['dashboard','contacts','organizations','deals','tasks','campaigns','workflows','settings','users','roles','reports','billing','audit'];
+    const modules = ['dashboard','contacts','accounts','deals','tasks','campaigns','workflows','settings','users','roles','reports','billing','audit'];
     return Object.fromEntries(modules.map(m => [m, FULL_ACCESS]));
   }
 

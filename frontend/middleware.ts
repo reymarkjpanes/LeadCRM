@@ -62,6 +62,7 @@ const PUBLIC_ROUTES = [
   '/reset-password',
   '/verify-email',
   '/email-verification',
+  '/invite',
   '/',
 ];
 

@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 const USER_PERMISSIONS = [
   { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'contacts',      canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
-  { module: 'organizations', canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'accounts',      canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
   { module: 'deals',         canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
   { module: 'tasks',         canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
   { module: 'campaigns',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
@@ -19,14 +19,14 @@ const USER_PERMISSIONS = [
   { module: 'reports',       canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'users',         canView: false, canCreate: false, canEdit: false, canDelete: false },
   { module: 'roles',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  { module: 'billing',       canView: false, canCreate: false, canEdit: false, canDelete: false },
+  { module: 'billing',       canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 
 const RESTRICTED_USER_PERMISSIONS = [
   { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'contacts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'organizations', canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  { module: 'accounts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'deals',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'tasks',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'campaigns',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
@@ -35,7 +35,10 @@ const RESTRICTED_USER_PERMISSIONS = [
   { module: 'reports',       canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'users',         canView: false, canCreate: false, canEdit: false, canDelete: false },
   { module: 'roles',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  { module: 'billing',       canView: false, canCreate: false, canEdit: false, canDelete: false },
+  // canEdit: true enables billing.manage — required to initiate a Stripe checkout/upgrade
+  // from a sandbox workspace. Restricted Users cannot manage other users or roles,
+  // but they must be able to upgrade their own workspace to a paid plan.
+  { module: 'billing',       canView: true,  canCreate: false, canEdit: true,  canDelete: false },
   { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 

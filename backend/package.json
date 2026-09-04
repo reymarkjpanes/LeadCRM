@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "ts-node prisma/seed.ts",
+    "db:repair": "ts-node src/database/scripts/repair-role-permissions.ts",
     "db:seed:demo": "ts-node src/database/seeders/demo.seed.ts",
     "db:seed:full": "ts-node src/database/seeders/demo-full.seed.ts",
     "db:seed:reymark": "ts-node src/database/seeders/reymark.seed.ts",

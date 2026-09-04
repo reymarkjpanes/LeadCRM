@@ -213,7 +213,6 @@ model Tenant {
   organizations      Account[]
   leads              Lead[]
   contacts           Contact[]
-  orgContacts        Organization[]
   pipelines          Pipeline[]
   stages             Stage[]
   deals              Deal[]
@@ -341,7 +340,6 @@ model User {
   convertedLeads     Lead[]             @relation("ConvertedLeads")
   assignedCustomers  Contact[]          @relation("AssignedCustomers")
   ownedContacts      Contact[]          @relation("OwnedContacts")
-  assignedOrgs       Organization[]     @relation("OrganizationAssignedUser")
 
   assignedDeals        Deal[]             @relation("AssignedDeals")
   ownedDeals           Deal[]             @relation("OwnedDeals")
@@ -647,51 +645,16 @@ model Lead {
 // -----------------------------------------------------
 // CONTACT
 // ─────────────────────────────────────────────────────────────────────────────
-// ORGANIZATION (separate from Account — used as the company link for Contacts)
-// Maps to the Organization table in the database.
+// CONTRACT PHASE COMPLETE (ADR-001) — Organization model and Contact.organizationId removed.
+// The canonical company link for Contact is now Contact.accountId → Account exclusively.
+// Migration: remove_organization_model
 // ─────────────────────────────────────────────────────────────────────────────
-model Organization {
-  id               String    @id @default(uuid())
-  tenantId         String
-  assignedUserId   String?
-  name             String
-  industry         String?
-  size             String?
-  website          String?
-  taxId            String?
-  tags             String[]
-  address          String?
-  city             String?
-  province         String?
-  country          String?
-  isArchived       Boolean   @default(false)
-  deletedAt        DateTime?
-  deletedBy        String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  activeProducts   String[]
-  customerSince    DateTime?
-  customerType     String    @default("Prospect")
-  internalNotes    String?
-  notes            String?
-  productInterests String[]
-
-  tenant       Tenant    @relation(fields: [tenantId], references: [id])
-  assignedUser User?     @relation("OrganizationAssignedUser", fields: [assignedUserId], references: [id])
-  contacts     Contact[]
-
-  @@index([tenantId, name])
-  @@index([tenantId, isArchived])
-  @@map("Organization")
-}
 
 // -----------------------------------------------------
 model Contact {
   id                  String               @id @default(uuid())
   tenantId            String
-  organizationId      String?
-  // Canonical company link (ADR-001). organizationId is retained during the
-  // expand->contract migration and removed in the contract phase.
+  // Canonical company link (ADR-001) — Contact.accountId → Account
   accountId           String?
   assignedUserId      String?
   ownerId             String?
@@ -726,7 +689,6 @@ model Contact {
   disqualifiedReason  String?
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  organization Organization? @relation(fields: [organizationId], references: [id])
   account      Account?      @relation(fields: [accountId], references: [id])
   assignedUser User?         @relation("AssignedCustomers", fields: [assignedUserId], references: [id])
   owner        User?         @relation("OwnedContacts", fields: [ownerId], references: [id])
@@ -745,7 +707,6 @@ model Contact {
   @@index([tenantId, assignedUserId])
   @@index([tenantId, email])
   @@index([tenantId, createdAt])
-  @@index([tenantId, organizationId])
   @@index([tenantId, accountId])
   @@map("Contact")
 }

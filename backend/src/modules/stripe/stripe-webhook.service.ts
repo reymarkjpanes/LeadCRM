@@ -155,6 +155,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
       data: {
         plan:               plan.planType,
         subscriptionStatus: 'ACTIVE',
+        status:             'ACTIVE', // promote SANDBOX tenant to ACTIVE on first successful payment
         subscriptionEndsAt: periodEnd,
       },
     });

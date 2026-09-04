@@ -6,9 +6,9 @@ import { useData } from '@/store/DataContext';
 import { usePermissions, PERMISSION_BRIDGE } from '@/shared/hooks/use-permissions';
 import { PATHNAME_TO_PATH, PATH_TO_PATHNAME } from '@/lib/route-map';
 import {
-  LayoutDashboard, Briefcase, Workflow, Mail,
-  Receipt, Building2, CreditCard, Activity, ListTodo, Settings,
-  UserCheck, Building, Target, Users, Shield,
+  LayoutDashboard, Briefcase, Workflow, Mail, Settings,
+  Receipt, Building2, CreditCard, Activity, ListTodo,
+  UserCheck, Building, Target, Users,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -25,9 +25,12 @@ export const NAV_ITEMS = [
   // ── Automation ──────────────────────────────────────
   { name: 'Workflows',         path: 'workflows',         icon: Workflow,        permission: 'workflows.view', roles: null,          group: 'Automation' },
   // ── Administration ──────────────────────────────────
+  // Billing and Roles are accessed through Settings — not duplicated here.
   { name: 'Users',             path: 'users',             icon: Users,           permission: 'users.view',     roles: null,          group: 'Administration' },
-  { name: 'Roles',             path: 'roles',             icon: Shield,          permission: 'roles.manage',   roles: null,          group: 'Administration' },
   { name: 'Audit Trail',       path: 'audit-log',         icon: Activity,        permission: 'audit.view',     roles: null,          group: 'Administration' },
+  // ── Settings ────────────────────────────────────────
+  // Single entry point for all configuration including Billing and Roles & Permissions.
+  { name: 'Settings',          path: 'settings',          icon: Settings,        permission: 'settings.view',  roles: null,          group: 'Settings' },
   // ── System Admin (separate portal) ──────────────────
   { name: 'Dashboard',         path: 'admin-dashboard',   icon: LayoutDashboard, permission: null,             roles: ['System Admin'] as const, group: null },
   { name: 'Client Management', path: 'admin-clients',     icon: Building2,       permission: null,             roles: ['System Admin'] as const, group: null },
@@ -37,6 +40,10 @@ export const NAV_ITEMS = [
 ] as const;
 
 type NavItem = (typeof NAV_ITEMS)[number];
+
+// Paths hidden for SANDBOX tenants regardless of RBAC.
+// Sandbox users focus on the CRM + Settings (where they can upgrade via the Plan tab).
+const SANDBOX_HIDDEN_PATHS = new Set(['users', 'audit-log']);
 
 export function useLayout() {
   const router = useRouter();
@@ -55,6 +62,9 @@ export function useLayout() {
   const isSuper = userPermissions.includes('*');
   const isSystemAdminUser = user?.role === 'System Admin' || user?.tenantId === 'system' || user?.tenantId === 'leadcrm-system-demo';
 
+  // Sandbox tenants: identified by tenantStatus from /auth/me.
+  const isSandboxTenant = (user as any)?.tenantStatus === 'SANDBOX';
+
   const featureEnabled = (flag?: 'billing') => {
     if (!flag) return true;
     if (flag === 'billing') return isBillingModuleEnabled;
@@ -64,6 +74,7 @@ export function useLayout() {
   const hasAccess = (item: NavItem): boolean => {
     if (!featureEnabled((item as any).featureFlag)) return false;
 
+    const itemPath = (item as any).path as string;
     const itemRoles = (item as any).roles as string[] | null | undefined;
 
     if (isSystemAdminUser) return itemRoles?.includes('System Admin') ?? false;
@@ -71,11 +82,14 @@ export function useLayout() {
     if (itemRoles && !itemRoles.includes('System Admin')) {
       return itemRoles.includes(user?.role ?? '');
     }
-    if (isSuper) return true;
-    if (user?.role === 'Guest') {
-      // Sandbox accounts have read access to all modules except Audit Trail
-      return (item as any).path !== 'audit-log';
+
+    // Sandbox tenants: hide user management and audit trail.
+    // Settings (including Plan/Billing tab) remains accessible so they can upgrade.
+    if (isSandboxTenant && SANDBOX_HIDDEN_PATHS.has(itemPath)) {
+      return false;
     }
+
+    if (isSuper) return true;
     if (!item.permission) return true;
     const legacyIds = (PERMISSION_BRIDGE as Record<string, string[]>)[item.permission] ?? [];
     return userPermissions.includes(item.permission) || legacyIds.some(id => userPermissions.includes(id));

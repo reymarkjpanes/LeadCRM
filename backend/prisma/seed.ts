@@ -15,12 +15,18 @@ import { PrismaClient } from '@prisma/client';
 import { seedDemoAccounts } from '../src/database/seeders/demo.seed';
 import { seedPricingPlans } from '../src/database/seeders/pricing-plans.seed';
 import { generateTenants } from '../src/database/seeders/tenant-generator';
+import { runRepairs } from '../src/database/scripts/repair-role-permissions';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('[Seed] Starting database seed...');
   console.log(`[Seed] NODE_ENV=${process.env.NODE_ENV ?? 'development'}`);
+
+  // 0. Data repairs — idempotent, safe on every run.
+  //    Fixes any legacy 'organizations' RolePermission rows and backfills
+  //    missing UserRole junction records without requiring a separate manual step.
+  await runRepairs();
 
   // 1. Demo accounts — idempotent upserts, safe on every deploy
   //    Creates: admin@gmail.com, super@leadcrm.com, admin@democorp.com,

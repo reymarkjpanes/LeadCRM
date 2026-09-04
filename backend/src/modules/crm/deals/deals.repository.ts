@@ -17,7 +17,7 @@ export async function findAllDeals(tenantId: string, params: DealsQueryParams) {
     ...(params.pipelineId     ? { pipelineId: params.pipelineId }         : {}),
     ...(params.priority       ? { priority: params.priority }             : {}),
     ...(params.assignedUserId ? { assignedUserId: params.assignedUserId } : {}),
-    ...(params.organizationId ? { organizationId: params.organizationId } : {}),
+    ...(params.organizationId ? { accountId: params.organizationId }     : {}),
     ...(params.contactId      ? { contactDeals: { some: { contactId: params.contactId } } } : {}),
     ...(params.leadId         ? { leadDeals: { some: { leadId: params.leadId } } }          : {}),
     ...(params.search ? { title: { contains: params.search, mode: 'insensitive' as const } } : {}),

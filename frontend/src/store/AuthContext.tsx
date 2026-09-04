@@ -179,6 +179,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount only — session restore is not NextAuth-dependent
 
+  // ── Periodic permission refresh (every 5 minutes) ─────────────────
+  // Propagates role/permission changes made by admins without requiring
+  // the affected user to log out and back in.
+  // Uses a ref for the user ID to avoid re-creating the interval on every
+  // render — Context arrays in useEffect deps cause infinite loops.
+  const userIdRef = React.useRef<string | undefined>(undefined);
+  userIdRef.current = user?.id;
+
+  useEffect(() => {
+    if (USE_MOCK_AUTH) return;
+
+    const PERMISSION_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+    const intervalId = setInterval(async () => {
+      const uid = userIdRef.current;
+      if (!uid) return; // Not logged in — skip
+      try {
+        const r = await rolesApi.getUserPermissions(uid);
+        if (r?.data) {
+          setPermissions(r.data);
+        }
+      } catch {
+        // Non-critical — keep cached permissions until next tick
+      }
+    }, PERMISSION_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, []); // Deliberately empty — interval is stable, userIdRef.current is read live
+
   // ── Refresh permissions ───────────────────────────────────────────
   const refreshPermissions = useCallback(async (): Promise<void> => {
     if (USE_MOCK_AUTH || !user?.id) return;

@@ -20,6 +20,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     Permission.CONTACTS_CREATE,
     Permission.CONTACTS_EDIT,
     Permission.CONTACTS_EXPORT,
+    Permission.ACCOUNTS_VIEW,
+    Permission.ACCOUNTS_CREATE,
+    Permission.ACCOUNTS_EDIT,
     Permission.DEALS_VIEW,
     Permission.DEALS_CREATE,
     Permission.DEALS_EDIT,
@@ -27,12 +30,16 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     Permission.WORKFLOWS_VIEW,
     Permission.WORKFLOWS_ACTIVATE,
     Permission.REPORTS_VIEW,
+    Permission.BILLING_VIEW,
     Permission.SETTINGS_VIEW,
   ],
 
   [Role.RESTRICTED_USER]: [
     Permission.CONTACTS_VIEW,
     Permission.DEALS_VIEW,
+    Permission.ACCOUNTS_VIEW,
+    Permission.BILLING_VIEW,
+    Permission.BILLING_MANAGE,  // enables billing.manage → checkout/upgrade from sandbox workspace
   ],
   
   // Legacy mappings to support existing JWT tokens before users log out
@@ -41,6 +48,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     Permission.CONTACTS_CREATE,
     Permission.CONTACTS_EDIT,
     Permission.CONTACTS_EXPORT,
+    Permission.ACCOUNTS_VIEW,
+    Permission.ACCOUNTS_CREATE,
+    Permission.ACCOUNTS_EDIT,
     Permission.DEALS_VIEW,
     Permission.DEALS_CREATE,
     Permission.DEALS_EDIT,
@@ -48,6 +58,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     Permission.WORKFLOWS_VIEW,
     Permission.WORKFLOWS_ACTIVATE,
     Permission.REPORTS_VIEW,
+    Permission.BILLING_VIEW,
     Permission.SETTINGS_VIEW,
   ],
   'Technician': [

@@ -94,7 +94,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
         tenantId: true, status: true, emailVerified: true,
         tenant: {
           select: {
-            name: true, industry: true, companySize: true,
+            name: true, industry: true, companySize: true, status: true,
             onboardingStep: true, onboardingCompletedAt: true,
           },
         },

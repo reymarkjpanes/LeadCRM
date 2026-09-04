@@ -36,6 +36,7 @@ export const PERMISSION_BRIDGE: Record<PermissionKey, string[]> = {
   'workflows.create':    ['p13'],
   'workflows.edit':      ['p14'],
   'workflows.delete':    ['p15'],
+  'workflows.activate':  ['p14'],  // activate maps to canEdit — same bridge
   'users.view':          ['p22'],
   'users.manage':        ['p23', 'p24', 'p25', 'p26'],
   'reports.view':        ['p31'],
@@ -43,6 +44,7 @@ export const PERMISSION_BRIDGE: Record<PermissionKey, string[]> = {
   'billing.view':        ['p29'],
   'billing.manage':      ['p29'],
   'settings.view':       ['p27'],
+  'settings.edit':       ['p27'],  // no distinct legacy p-ID — mirrors settings.view
   'roles.manage':        ['p26'],
   'audit.view':          ['p30'],
   'admin.access':        [],

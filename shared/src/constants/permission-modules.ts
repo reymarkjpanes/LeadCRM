@@ -8,7 +8,7 @@ import type { PermissionModuleDefinition } from '../types/roles';
 export const PERMISSION_MODULES: PermissionModuleDefinition[] = [
   { key: 'dashboard',     label: 'Dashboard',           actions: ['canView'] },
   { key: 'contacts',      label: 'Contacts',            actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },
-  { key: 'organizations', label: 'Accounts',            actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },
+  { key: 'accounts',      label: 'Accounts',            actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },
   { key: 'deals',         label: 'Deals & Pipeline',    actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },
   { key: 'tasks',         label: 'Tasks',               actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },
   { key: 'campaigns',     label: 'Campaigns',           actions: ['canView', 'canCreate', 'canEdit', 'canDelete'] },

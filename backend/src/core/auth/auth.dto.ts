@@ -25,14 +25,31 @@ export const ClientAdminRegisterSchema = z.object({
   lastName: z.string().min(2, 'Last name is required'),
   email: z.string().email('Valid email required'),
   password: strongPasswordSchema,
-  companyName: z.string().min(2, 'Company name is required'),
+  companyName: z.string().optional(),
   companySize: z.string().optional(),
   industry: z.string().optional(),
   country: z.string().optional(),
   acceptTerms: z.boolean().refine((val) => val === true, {
     message: 'You must accept the terms and conditions',
-  }),
+  }).optional(), // optional when joining via invitation token
   invitationToken: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // companyName is only required when NOT joining via an invitation token
+  if (!data.invitationToken && (!data.companyName || data.companyName.trim().length < 2)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Company name is required',
+      path: ['companyName'],
+    });
+  }
+  // acceptTerms is only required when NOT joining via an invitation token
+  if (!data.invitationToken && data.acceptTerms !== true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'You must accept the terms and conditions',
+      path: ['acceptTerms'],
+    });
+  }
 });
 
 export const GuestRegisterSchema = z.object({
