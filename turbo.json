@@ -10,7 +10,10 @@
         "NEXTAUTH_SECRET",
         "NEXTAUTH_URL",
         "GEMINI_API_KEY",
-        "APP_URL"
+        "APP_URL",
+        "API_URL",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET"
       ]
     },
     "dev": {
