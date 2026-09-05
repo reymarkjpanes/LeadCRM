@@ -54,13 +54,18 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
       const accessToken = await getSystemAccessToken();
       if (accessToken) {
         await sendEmailWithToken(accessToken, options.to, options.subject, options.html);
+        // eslint-disable-next-line no-console
+        console.info(`[EmailService] ✓ Sent via Gmail OAuth2 to ${options.to}`);
         return;
       }
+      // accessToken null — warnings already logged in getSystemAccessToken()
+      // eslint-disable-next-line no-console
+      console.warn('[EmailService] Gmail OAuth2 token unavailable — falling through to next transport');
     } catch (err: unknown) {
       if (err instanceof AppError) throw err;
       const message = err instanceof Error ? err.message : 'Unknown error';
       // eslint-disable-next-line no-console
-      console.error('[EmailService] Gmail send failed, trying Resend fallback:', message);
+      console.error('[EmailService] Gmail OAuth2 send failed, trying next transport:', message);
     }
   }
 
@@ -83,11 +88,13 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
         subject: options.subject,
         html: options.html,
       });
+      // eslint-disable-next-line no-console
+      console.info(`[EmailService] ✓ Sent via SMTP to ${options.to}`);
       return;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       // eslint-disable-next-line no-console
-      console.error('[EmailService] SMTP send failed, trying Resend fallback:', message);
+      console.error('[EmailService] SMTP send failed (likely blocked on Render free tier), trying Resend fallback:', message);
     }
   }
 
@@ -102,6 +109,8 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
         subject: options.subject,
         html: options.html,
       });
+      // eslint-disable-next-line no-console
+      console.info(`[EmailService] ✓ Sent via Resend to ${options.to}`);
       return;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';

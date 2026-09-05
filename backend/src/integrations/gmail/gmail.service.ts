@@ -69,13 +69,27 @@ export async function getValidAccessToken(tenantId: string, userId: string): Pro
  */
 export async function getSystemAccessToken(): Promise<string | null> {
   const systemUserId = process.env.GMAIL_SYSTEM_SENDER_USER_ID;
-  if (!systemUserId) return null;
+  if (!systemUserId) {
+    // eslint-disable-next-line no-console
+    console.warn('[GmailSystem] GMAIL_SYSTEM_SENDER_USER_ID is not set — Gmail transport disabled');
+    return null;
+  }
 
   const account = await prisma.emailAccount.findUnique({
     where: { tenantId_userId_provider: { tenantId: 'system', userId: systemUserId, provider: 'gmail' } },
   });
 
-  if (!account || !account.isActive) return null;
+  if (!account) {
+    // eslint-disable-next-line no-console
+    console.warn(`[GmailSystem] No EmailAccount row found for tenantId='system' userId='${systemUserId}'. Run: npm run gmail:setup-system-sender`);
+    return null;
+  }
+
+  if (!account.isActive) {
+    // eslint-disable-next-line no-console
+    console.warn(`[GmailSystem] EmailAccount for tenantId='system' is inactive — re-run gmail:setup-system-sender`);
+    return null;
+  }
 
   const decryptedAccessToken = decryptToken(account.accessToken);
 
@@ -89,7 +103,11 @@ export async function getSystemAccessToken(): Promise<string | null> {
     return decryptedAccessToken;
   }
 
-  if (!account.refreshToken) return null;
+  if (!account.refreshToken) {
+    // eslint-disable-next-line no-console
+    console.warn('[GmailSystem] Access token expired and no refresh token stored — re-run gmail:setup-system-sender');
+    return null;
+  }
 
   try {
     const decryptedRefreshToken = decryptToken(account.refreshToken);
@@ -110,8 +128,13 @@ export async function getSystemAccessToken(): Promise<string | null> {
       },
     });
 
+    // eslint-disable-next-line no-console
+    console.info('[GmailSystem] Access token refreshed successfully');
     return tokens.access_token;
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    // eslint-disable-next-line no-console
+    console.error('[GmailSystem] Token refresh failed — falling back to next transport:', message);
     return null;
   }
 }
@@ -454,12 +477,22 @@ function parseGmailMessage(data: GmailApiMessage): GmailEmail {
   };
 }
 
-function createRawMessage(to: string, subject: string, body: string): string {
+function createRawMessage(to: string, subject: string, body: string, from?: string): string {
+  // Gmail API requires a valid RFC 2822 From header — without it the API
+  // returns 400 and the message is never delivered.
+  // Fall back to the system sender Gmail address if no explicit from is provided.
+  const fromAddress = from
+    ?? process.env.SMTP_FROM
+    ?? (process.env.GMAIL_SYSTEM_SENDER_GMAIL_EMAIL
+        ? `LeadCRM <${process.env.GMAIL_SYSTEM_SENDER_GMAIL_EMAIL}>`
+        : 'LeadCRM <noreply@leadcrm.io>');
+
   const message = [
+    `From: ${fromAddress}`,
     `To: ${to}`,
     `Subject: ${subject}`,
-    'Content-Type: text/html; charset=utf-8',
     'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
     '',
     body,
   ].join('\r\n');

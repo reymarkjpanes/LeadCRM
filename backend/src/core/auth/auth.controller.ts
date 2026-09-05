@@ -166,7 +166,11 @@ export async function seedDemo(_req: Request, res: Response, next: NextFunction)
 export async function registerClientAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await registerClientAdminService(req.body);
-    res.status(201).json({ success: true, data: { user: result } });
+    res.status(201).json({
+      success: true,
+      data: { user: result },
+      ...(result.emailSent === false ? { warning: 'Account created but verification email could not be sent. Use the resend option on the verification page.' } : {}),
+    });
   } catch (err) {
     next(err);
   }
@@ -175,7 +179,11 @@ export async function registerClientAdmin(req: Request, res: Response, next: Nex
 export async function registerGuest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await registerGuestService(req.body);
-    res.status(201).json({ success: true, data: { user: result } });
+    res.status(201).json({
+      success: true,
+      data: { user: result },
+      ...(result.emailSent === false ? { warning: 'Account created but verification email could not be sent. Use the resend option on the verification page.' } : {}),
+    });
   } catch (err) {
     next(err);
   }

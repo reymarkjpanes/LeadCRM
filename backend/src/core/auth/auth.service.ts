@@ -252,6 +252,7 @@ async function generateVerificationCredentials(email: string, userId: string): P
 /**
  * Sends the combined verification email (magic link button + OTP code).
  * Returns true if email was sent, false if send failed (non-blocking).
+ * Logs prominently on failure so the issue is visible in production logs.
  */
 async function sendVerificationEmail(email: string, token: string, otpCode: string): Promise<boolean> {
   const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
@@ -263,11 +264,17 @@ async function sendVerificationEmail(email: string, token: string, otpCode: stri
       subject: `${otpCode} — Verify your LeadCRM email`,
       html:    buildVerificationEmail(verificationUrl, otpCode),
     });
+    // eslint-disable-next-line no-console
+    console.info(`[Auth] Verification email sent successfully to ${email}`);
     return true;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     // eslint-disable-next-line no-console
-    console.error(`[Auth] Failed to send verification email to ${email}:`, message);
+    console.error(
+      `[Auth] ⚠️  FAILED to send verification email to ${email}. User is stuck in PENDING status.\n` +
+      `[Auth] Error: ${message}\n` +
+      `[Auth] Check: GMAIL_SYSTEM_SENDER_USER_ID, ENCRYPTION_KEY, RESEND_API_KEY env vars on Render.`,
+    );
     return false;
   }
 }
