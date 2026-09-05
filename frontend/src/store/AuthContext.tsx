@@ -453,7 +453,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true; // Simplified mock
     } else {
       try {
-        // Register the guest account
+        // Register the guest account.
+        // The registerGuest endpoint already generates the OTP and sends the
+        // combined magic-link + OTP verification email — no second send needed.
         await authApi.registerGuest({
           firstName: guestData.firstName,
           lastName: guestData.lastName,
@@ -464,9 +466,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           companySize: guestData.companySize,
           businessWebsite: guestData.businessWebsite,
         });
-
-        // Send email verification OTP
-        await authApi.sendRegistrationOtp(guestData.email);
 
         return true;
       } catch (err: unknown) {
