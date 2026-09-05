@@ -148,13 +148,11 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
 // ─── Shared email layout helpers ──────────────────────────────────────────────
 
 /**
- * Shared CSS + Google Fonts import injected into every outbound email.
- * Uses Plus Jakarta Sans (enterprise SaaS design system) with a system-font
- * fallback chain so the email renders well even when fonts are blocked.
+ * Shared CSS injected into every outbound email.
+ * Uses a safe system-font stack — no external @import which can trigger
+ * spam filters and is blocked by many email clients anyway.
  */
-const EMAIL_FONT_IMPORT = `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap');
-`;
+const EMAIL_FONT_IMPORT = ``;
 
 /**
  * Wraps email body content in the shared LeadCRM branded outer shell.
@@ -179,7 +177,7 @@ function wrapEmailShell(bodyContent: string, footerNote?: string): string {
     ${EMAIL_FONT_IMPORT}
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       background: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%);
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
@@ -314,7 +312,7 @@ function wrapEmailShell(bodyContent: string, footerNote?: string): string {
             <path d="M14 10L8 13V18C8 20.76 10.34 23.37 14 24C17.66 23.37 20 20.76 20 18V13L14 10Z" fill="#2563eb"/>
             <path d="M11 17L13 19L17 15" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             <!-- Text -->
-            <text x="34" y="25" font-family="'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#1e293b" letter-spacing="-0.5">LeadCRM</text>
+            <text x="34" y="25" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="800" fill="#1e293b" letter-spacing="-0.5">LeadCRM</text>
           </svg>
         </div>
         <div class="brand-bar"></div>
@@ -361,62 +359,59 @@ function wrapEmailShell(bodyContent: string, footerNote?: string): string {
 // ─── Email template builders ───────────────────────────────────────────────────
 
 /**
- * Builds the combined verification email with both a magic link button and OTP code.
- * Stripe-style: primary CTA button + fallback code entry.
- * Full implementation in Task 5 — this is a functional version.
+ * Builds the combined verification email — clean, minimal, enterprise style.
+ * Two paths: magic link button (primary) + large copyable OTP code (fallback).
  */
 export function buildVerificationEmail(verificationUrl: string, otpCode: string): string {
-  const digits = otpCode.split('');
-  const digitBoxes = digits.map(d => `
-    <td style="width:44px;height:52px;background:#f8fafc;border:2px solid #e2e8f0;border-radius:10px;text-align:center;font-size:24px;font-weight:700;color:#1e293b;font-family:'Plus Jakarta Sans',monospace;">
-      ${d}
-    </td>
-  `).join('<td style="width:8px;"></td>');
-
+  // Large monospace OTP — displayed as one block so it's easy to read and copy
   const bodyContent = `
-    <!-- Hero Icon + Heading -->
-    <div style="text-align:center;padding:8px 0 24px;">
-      <div style="width:64px;height:64px;background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:20px;">
-        <span style="font-size:28px;color:#ffffff;">✉</span>
-      </div>
-      <h1 style="font-size:24px;font-weight:800;color:#0f172a;margin:0 0 8px;">Verify your email address</h1>
-      <p style="font-size:15px;color:#64748b;margin:0;line-height:1.6;">
-        Click the button below to verify your email and get started with LeadCRM.
-      </p>
-    </div>
+    <!-- Greeting -->
+    <p style="font-size:16px;color:#374151;margin:0 0 24px;line-height:1.6;">
+      Hi there,
+    </p>
+    <p style="font-size:16px;color:#374151;margin:0 0 32px;line-height:1.6;">
+      Thanks for signing up for <strong>LeadCRM</strong>. Please verify your email address to activate your account.
+    </p>
 
-    <!-- Primary CTA Button (Magic Link) -->
-    <div style="text-align:center;margin:32px 0;">
-      <a href="${verificationUrl}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
-        Verify Email
+    <!-- Primary CTA -->
+    <div style="text-align:center;margin:0 0 36px;">
+      <a href="${verificationUrl}"
+         target="_blank"
+         style="display:inline-block;background:#2563eb;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;padding:14px 48px;border-radius:8px;letter-spacing:0.01em;">
+        Verify my email
       </a>
     </div>
 
-    <!-- Divider with "or" -->
-    <div style="text-align:center;margin:28px 0;position:relative;">
-      <div style="border-top:1px solid #e2e8f0;margin:0 20px;"></div>
-      <span style="position:relative;top:-10px;background:#ffffff;padding:0 16px;font-size:13px;color:#94a3b8;font-weight:500;">
-        or enter this code manually
+    <!-- Divider -->
+    <div style="border-top:1px solid #e5e7eb;margin:0 0 28px;"></div>
+
+    <!-- OTP fallback -->
+    <p style="font-size:14px;color:#6b7280;margin:0 0 16px;text-align:center;">
+      Or copy and enter this code on the verification page:
+    </p>
+
+    <!-- Code block — large, easy to read, easy to copy -->
+    <div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:20px;text-align:center;margin:0 0 32px;">
+      <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:700;color:#111827;letter-spacing:0.25em;">
+        ${otpCode}
       </span>
     </div>
 
-    <!-- OTP Code Display -->
-    <div style="text-align:center;margin:0 0 28px;">
-      <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-        <tr>${digitBoxes}</tr>
-      </table>
-    </div>
+    <!-- Expiry info -->
+    <table cellpadding="0" cellspacing="0" style="width:100%;background:#fefce8;border:1px solid #fde68a;border-radius:8px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:14px 16px;">
+          <p style="font-size:13px;color:#92400e;margin:0;line-height:1.5;">
+            <strong>Note:</strong> The button link expires in <strong>24 hours</strong>. The verification code expires in <strong>10 minutes</strong>.
+          </p>
+        </td>
+      </tr>
+    </table>
 
-    <!-- Expiry Notes -->
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin:24px 0;">
-      <p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;">
-        <strong style="color:#475569;">⏱ Expiry:</strong> The button link is valid for 24 hours. The verification code expires in 10 minutes.
-      </p>
-    </div>
-
-    <!-- Security Note -->
-    <p style="font-size:12px;color:#94a3b8;text-align:center;margin:20px 0 0;">
-      If you didn't create a LeadCRM account, you can safely ignore this email.
+    <!-- Security footer -->
+    <p style="font-size:13px;color:#9ca3af;margin:0;line-height:1.6;text-align:center;">
+      If you did not create a LeadCRM account, you can safely ignore this email.<br>
+      No action is required.
     </p>
   `;
 

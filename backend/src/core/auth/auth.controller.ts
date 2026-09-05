@@ -511,7 +511,7 @@ export async function resendVerification(req: Request, res: Response, next: Next
 
     await sendMail({
       to: email,
-      subject: `${otpCode} — Verify your LeadCRM email`,
+      subject: `${otpCode} - Verify your LeadCRM email`,
       html: buildVerifEmailTemplate(verificationUrl, otpCode),
     });
 

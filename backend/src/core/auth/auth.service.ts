@@ -261,7 +261,7 @@ async function sendVerificationEmail(email: string, token: string, otpCode: stri
   try {
     await sendMail({
       to:      email,
-      subject: `${otpCode} — Verify your LeadCRM email`,
+      subject: `${otpCode} - Verify your LeadCRM email`,
       html:    buildVerificationEmail(verificationUrl, otpCode),
     });
     // eslint-disable-next-line no-console
