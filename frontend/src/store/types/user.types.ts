@@ -35,10 +35,18 @@ export interface User {
   org?: string; // keeping org for legacy compatibility temporarily if used elsewhere
   team?: string; // keeping team for legacy compatibility temporarily
   role: Role;
-  status: 'active' | 'pending' | 'inactive';
+  status: 'active' | 'pending' | 'inactive' | 'ACTIVE' | 'PENDING' | 'INACTIVE';
   lastLogin?: string;
   lastLoginAt?: string;
   isArchived?: boolean;
+  // Auth-response fields — populated from /auth/me and POST /auth/login
+  emailVerified?: string | null;
+  tenantName?: string | null;
+  tenantStatus?: string | null;
+  subscriptionStatus?: string | null;
+  plan?: string | null;
+  onboardingStep?: number;
+  onboardingCompletedAt?: string | null;
 }
 
 export interface Tenant {

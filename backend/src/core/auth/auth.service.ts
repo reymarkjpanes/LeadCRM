@@ -1,4 +1,4 @@
-import prisma from '../../config/database.config';
+﻿import prisma from '../../config/database.config';
 import crypto from 'crypto';
 import { comparePassword, hashPassword } from '../../shared/helpers/crypto';
 import { signToken } from './jwt.service';
@@ -50,6 +50,8 @@ export interface AuthUserSource {
   tenant?: {
     name?: string | null;
     status?: string | null;
+    subscriptionStatus?: string | null;
+    plan?: string | null;
     industry?: string | null;
     companySize?: string | null;
     onboardingStep?: number | null;
@@ -76,6 +78,8 @@ export interface AuthUserResponse {
   emailVerified: Date | null;
   tenantName: string | null;
   tenantStatus: string | null;
+  subscriptionStatus: string | null;
+  plan: string | null;
   industry: string | null;
   companySize: string | null;
   onboardingStep: number;
@@ -102,6 +106,8 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
     emailVerified:         user.emailVerified ?? null,
     tenantName:            tenant?.name                 ?? null,
     tenantStatus:          tenant?.status               ?? null,
+    subscriptionStatus:    tenant?.subscriptionStatus   ?? null,
+    plan:                  tenant?.plan                 ?? null,
     industry:              tenant?.industry             ?? null,
     companySize:           tenant?.companySize          ?? null,
     onboardingStep:        tenant?.onboardingStep       ?? 0,
@@ -116,6 +122,7 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
       tenant: {
         select: {
           name: true, industry: true, companySize: true, status: true,
+          subscriptionStatus: true, plan: true,
           onboardingStep: true, onboardingCompletedAt: true,
         },
       },
@@ -299,8 +306,9 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         status: 'SANDBOX',
         subscriptionStatus: 'TRIAL',
         plan: 'FREE',
-        onboardingStep: 3,
-        onboardingCompletedAt: new Date(),
+        onboardingStep: 0,
+        onboardingCompletedAt: null,
+        trialEndsAt: new Date(Date.now() + parseInt(process.env.TRIAL_PERIOD_DAYS ?? '14', 10) * 24 * 60 * 60 * 1000),
       },
     });
 
@@ -417,8 +425,9 @@ export async function registerGuest(dto: GuestRegisterDto) {
         status: 'SANDBOX',
         subscriptionStatus: 'TRIAL',
         plan: 'FREE',
-        onboardingStep: 3,
-        onboardingCompletedAt: new Date(),
+        onboardingStep: 0,
+        onboardingCompletedAt: null,
+        trialEndsAt: new Date(Date.now() + parseInt(process.env.TRIAL_PERIOD_DAYS ?? '14', 10) * 24 * 60 * 60 * 1000),
       },
     });
 
@@ -509,9 +518,9 @@ export async function registerGuest(dto: GuestRegisterDto) {
  * Validates the invitation, creates the user in the inviting tenant,
  * marks the invitation as accepted, and sends verification email.
  *
- * Looks up the invitation by the raw token value (tokens are stored raw,
- * not hashed, in TenantInvitation.token). The token is the authoritative
- * credential — email alone is not sufficient to accept an invitation.
+ * Looks up the invitation by SHA-256 hash of the raw token (tokens are
+ * stored as tokenHash in TenantInvitation, never as plaintext). The token
+ * is the authoritative credential � email alone is not sufficient.
  */
 async function registerWithInvitation(
   dto: { firstName: string; lastName: string; email: string; invitationToken?: string },
@@ -523,9 +532,11 @@ async function registerWithInvitation(
     throw new AppError('Invitation token is required.', 400);
   }
 
-  // Look up by token — the token is the authoritative credential, not the email alone.
+  // Hash the raw token before lookup � tokens are stored as SHA-256 hashes (tokenHash), never raw.
+  const tokenHash = crypto.createHash('sha256').update(dto.invitationToken).digest('hex');
+
   const invitation = await prisma.tenantInvitation.findFirst({
-    where: { token: dto.invitationToken },
+    where: { tokenHash },
     include: {
       tenant: { select: { id: true, name: true } },
       role: { select: { id: true, name: true } },

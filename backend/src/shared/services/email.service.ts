@@ -1,14 +1,17 @@
+import nodemailer from 'nodemailer';
 import { AppError } from '../errors/app-error';
 import { getSystemAccessToken, sendEmailWithToken } from '../../integrations/gmail/gmail.service';
 import { Resend } from 'resend';
 
 /**
  * Email service — multi-transport with fallback chain:
- *   1. Gmail OAuth2 (if GMAIL_SYSTEM_SENDER_USER_ID is set)
- *   2. Resend HTTP API (if RESEND_API_KEY is set — works on Render free tier)
- *   3. Console log (development only — never in production)
+ *   1. Gmail OAuth2 (if GMAIL_SYSTEM_SENDER_USER_ID is set — HTTP API, works on Render free tier)
+ *   2. SMTP / Nodemailer (if SMTP_HOST + SMTP_USER + SMTP_PASS are set — blocked on Render free tier, works locally)
+ *   3. Resend HTTP API (if RESEND_API_KEY is set — works on Render free tier)
+ *   4. Console log (development only — never in production)
  *
  * At least one transport must be configured for production deployments.
+ * For Render free tier: configure Gmail OAuth2 (Transport 1) or Resend (Transport 3).
  */
 
 export interface SendMailOptions {
@@ -22,6 +25,15 @@ export interface SendMailOptions {
  */
 function isGmailConfigured(): boolean {
   return !!process.env.GMAIL_SYSTEM_SENDER_USER_ID;
+}
+
+/**
+ * Returns true when SMTP credentials are configured.
+ * Note: SMTP is blocked on Render free tier (ports 25/465/587 are blocked).
+ * Use this transport for local development or paid hosting.
+ */
+function isSmtpConfigured(): boolean {
+  return !!process.env.SMTP_HOST && !!process.env.SMTP_USER && !!process.env.SMTP_PASS;
 }
 
 /**
@@ -52,7 +64,34 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
     }
   }
 
-  // ── 2. Try Resend HTTP API ──────────────────────────────────────────
+  // ── 2. Try SMTP / Nodemailer ────────────────────────────────────────
+  // Works on localhost and paid hosting. Blocked on Render free tier.
+  if (isSmtpConfigured()) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT ?? '587', 10),
+        secure: process.env.SMTP_PORT === '465',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM ?? `LeadCRM <${process.env.SMTP_USER}>`,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+      });
+      return;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      // eslint-disable-next-line no-console
+      console.error('[EmailService] SMTP send failed, trying Resend fallback:', message);
+    }
+  }
+
+  // ── 3. Try Resend HTTP API ──────────────────────────────────────────
   if (isResendConfigured()) {
     try {
       const resend = new Resend(process.env.RESEND_API_KEY);
@@ -74,7 +113,7 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
     }
   }
 
-  // ── 3. Development fallback — log to console ────────────────────────
+  // ── 4. Development fallback — log to console ────────────────────────
   if (process.env.NODE_ENV !== 'production') {
     // eslint-disable-next-line no-console
     console.log(`\n[DEV] Email would be sent to: ${options.to}`);
@@ -85,9 +124,9 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
     return;
   }
 
-  // ── 4. Production with no transport configured — error ──────────────
+  // ── 5. Production with no transport configured — error ──────────────
   throw new AppError(
-    'Email service is not configured. Set GMAIL_SYSTEM_SENDER_USER_ID or RESEND_API_KEY in your environment.',
+    'Email service is not configured. Set GMAIL_SYSTEM_SENDER_USER_ID, SMTP_HOST/USER/PASS, or RESEND_API_KEY in your environment.',
     503,
   );
 }

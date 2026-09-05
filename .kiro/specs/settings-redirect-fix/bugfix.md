@@ -1,3 +1,14 @@
+## Status: RESOLVED
+
+**Fix applied:** `frontend/middleware.ts` and `frontend/src/shared/providers/auth-guard.tsx`
+
+- **Middleware:** `/settings` added to `isCompletionExempt` — Google OAuth users with `requiresProfileCompletion: true` are no longer redirected to `/onboarding` when navigating to `/settings` or any `/settings/*` sub-route.
+- **AuthGuard:** Removed unused `nextAuthSession?.requiresProfileCompletion` dep from `useEffect` and the `useSession()` hook call. Routing after OAuth profile completion is handled by `company-setup/page.tsx` directly via `router.push('/dashboard')` after `updateSession()`.
+
+All 7 acceptance criteria satisfied. `npm run lint` passes.
+
+---
+
 # Bugfix Requirements Document
 
 ## Introduction

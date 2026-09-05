@@ -1,4 +1,4 @@
-ï»¿import prisma from '../../../config/database.config';
+import prisma from '../../../config/database.config';
 import { CreatePipelineDto, UpdatePipelineDto, CreateStageDto, UpdateStageDto } from './pipeline.dto';
 
 export async function findAllPipelines(tenantId: string) {
@@ -52,7 +52,7 @@ export async function deletePipeline(id: string, tenantId: string) {
 export async function createStage(tenantId: string, dto: CreateStageDto) {
   const pipeline = await prisma.pipeline.findFirst({ where: { id: dto.pipelineId, tenantId } });
   if (!pipeline) return null;
-  // tenantId derived from the parent pipeline â€” never independently settable
+  // tenantId derived from the parent pipeline — never independently settable
   return prisma.stage.create({ data: { ...dto, tenantId } });
 }
 
@@ -81,7 +81,8 @@ export async function reorderStages(pipelineId: string, tenantId: string, stageI
 
   await prisma.$transaction(
     stageIds.map((stageId, index) =>
-      prisma.stage.update({ where: { id: stageId }, data: { order: index + 1 } }),
+      // SEC: filter by both id and tenantId — prevents cross-tenant stage writes
+      prisma.stage.update({ where: { id: stageId, tenantId }, data: { order: index + 1 } }),
     ),
   );
 
@@ -94,7 +95,8 @@ export async function reorderDeals(pipelineId: string, tenantId: string, dealIds
 
   await prisma.$transaction(
     dealIds.map((dealId, index) =>
-      prisma.deal.update({ where: { id: dealId }, data: { order: index } }),
+      // SEC: filter by both id and tenantId — prevents cross-tenant deal writes
+      prisma.deal.update({ where: { id: dealId, tenantId }, data: { order: index } }),
     ),
   );
 

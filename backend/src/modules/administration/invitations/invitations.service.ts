@@ -13,6 +13,9 @@ export interface CreateInvitationResult {
 /**
  * Creates TenantInvitation records and sends invitation emails.
  * Skips emails that already belong to a tenant member or have a pending invitation.
+ *
+ * Security: The raw token is only ever sent in the invitation email link.
+ * The DB stores SHA-256(token) in tokenHash -- consistent with Session.tokenHash.
  */
 export async function createInvitations(
   tenantId: string,
@@ -78,26 +81,28 @@ export async function createInvitations(
       continue;
     }
 
-    // Generate invitation token
+    // Generate raw invitation token and compute SHA-256 hash for storage.
+    // The raw token is sent in the email link only -- never stored in the DB.
     const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-    // Create invitation record
+    // Create invitation record -- store tokenHash, not the raw token
     await prisma.tenantInvitation.create({
       data: {
         tenantId,
         email,
         roleId,
-        token,
+        tokenHash,
         invitedById,
         expiresAt,
       },
     });
 
-    // Build invitation URL — points to the dedicated accept page
+    // Build invitation URL using the raw token -- points to the dedicated accept page
     const inviteUrl = `${appUrl}/invite/accept?token=${token}`;
 
-    // Send invitation email (non-blocking per email — continue even if one fails)
+    // Send invitation email (non-blocking per email -- continue even if one fails)
     try {
       await sendMail({
         to: email,
@@ -146,7 +151,7 @@ export async function listPendingInvitations(tenantId: string) {
 }
 
 /**
- * Revokes an invitation (sets revokedAt — doesn't delete for audit trail).
+ * Revokes an invitation (sets revokedAt -- doesn't delete for audit trail).
  */
 export async function revokeInvitation(invitationId: string, tenantId: string): Promise<void> {
   const invitation = await prisma.tenantInvitation.findFirst({
@@ -163,7 +168,7 @@ export async function revokeInvitation(invitationId: string, tenantId: string): 
   });
 }
 
-// ── Token validation result type ─────────────────────────────────────────
+// -- Token validation result type -----------------------------------------
 
 export type InvitationValidationError = 'not_found' | 'expired' | 'revoked' | 'already_accepted';
 
@@ -181,17 +186,21 @@ export interface InvitationValidationResult {
 /**
  * Validates an invitation token without consuming it (read-only).
  *
- * Tokens are stored raw (not hashed) in TenantInvitation.token.
+ * Tokens are stored as SHA-256 hashes in TenantInvitation.tokenHash.
+ * The raw token only exists in the invitation email link -- never in the DB.
  * Returns a structured result suitable for rendering the accept form.
- * Exposes only: email, role name + id, tenant name — no internal IDs beyond roleId.
+ * Exposes only: email, role name + id, tenant name -- no internal IDs beyond roleId.
  */
 export async function validateInvitationToken(token: string): Promise<InvitationValidationResult> {
   if (!token || token.length < 16) {
     return { valid: false, error: 'not_found' };
   }
 
+  // Hash the raw token to look up the stored hash
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
   const invitation = await prisma.tenantInvitation.findFirst({
-    where: { token },
+    where: { tokenHash },
     include: {
       role:   { select: { id: true, name: true } },
       tenant: { select: { name: true } },

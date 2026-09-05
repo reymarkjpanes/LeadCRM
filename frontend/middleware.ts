@@ -128,7 +128,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   const isCompletionExempt =
     pathname.startsWith('/onboarding') ||
     pathname.startsWith('/company-setup') ||
-    pathname.startsWith('/settings') ||
+    pathname.startsWith('/settings') ||  // exempt: users must be able to configure workspace before completing profile (settings-redirect-fix)
     pathname.startsWith('/billing');
 
   if (isProtected && isGoogleSession) {

@@ -2,6 +2,8 @@ import 'dotenv/config';
 import app from './app';
 import { startCampaignScheduler } from './core/scheduler/campaign-scheduler.service';
 import { purgeExpiredSessions } from './core/auth/session.service';
+import { startTrialExpirationJob } from './jobs/trial-expiration.job';
+import { startPendingDowngradeJob } from './jobs/pending-downgrade.job';
 
 // Guard against missing required env vars at startup
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
@@ -53,4 +55,6 @@ app.listen(PORT, () => {
   // Start background services
   startCampaignScheduler();
   startSessionPurgeScheduler();
+  startTrialExpirationJob();
+  startPendingDowngradeJob();
 });
