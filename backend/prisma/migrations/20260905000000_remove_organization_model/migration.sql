@@ -38,7 +38,17 @@ DROP INDEX IF EXISTS "Contact_tenantId_organizationId_idx";
 -- 3. Drop the organizationId column from Contact
 ALTER TABLE "Contact" DROP COLUMN IF EXISTS "organizationId";
 
--- 4. Drop the FK constraints on Organization table (outgoing)
+-- 4. Drop any FK constraints on other tables that reference Organization
+--    (Deal.organizationId_fkey blocks the table drop if it still exists)
+DO $$ BEGIN
+  ALTER TABLE "Deal"
+    DROP CONSTRAINT IF EXISTS "Deal_organizationId_fkey";
+EXCEPTION WHEN undefined_object THEN NULL; END $$;
+
+-- Drop the Deal.organizationId column if it still exists
+ALTER TABLE "Deal" DROP COLUMN IF EXISTS "organizationId";
+
+-- 5. Drop the FK constraints on Organization table (outgoing)
 DO $$ BEGIN
   ALTER TABLE "Organization"
     DROP CONSTRAINT IF EXISTS "Organization_tenantId_fkey";
@@ -49,9 +59,9 @@ DO $$ BEGIN
     DROP CONSTRAINT IF EXISTS "Organization_assignedUserId_fkey";
 EXCEPTION WHEN undefined_object THEN NULL; END $$;
 
--- 5. Drop indexes on Organization
+-- 6. Drop indexes on Organization
 DROP INDEX IF EXISTS "Organization_tenantId_name_idx";
 DROP INDEX IF EXISTS "Organization_tenantId_isArchived_idx";
 
--- 6. Drop the Organization table
+-- 7. Drop the Organization table
 DROP TABLE IF EXISTS "Organization";
