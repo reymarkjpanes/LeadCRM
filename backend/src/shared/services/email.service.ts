@@ -71,12 +71,17 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
 
   // ── 2. Try SMTP / Nodemailer ────────────────────────────────────────
   // Works on localhost and paid hosting. Blocked on Render free tier.
+  // connectionTimeout + greetingTimeout set to 5 s so Render's port block
+  // fails fast instead of waiting the full TCP timeout (~2 minutes).
   if (isSmtpConfigured()) {
     try {
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT ?? '587', 10),
         secure: process.env.SMTP_PORT === '465',
+        connectionTimeout: 5_000,   // fail in 5 s if port is blocked
+        greetingTimeout:   5_000,
+        socketTimeout:     5_000,
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
