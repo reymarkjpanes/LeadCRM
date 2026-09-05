@@ -1,9 +1,11 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import SidebarNav from './sidebar-nav';
 import Topbar from './topbar';
 import { useLayout } from './use-layout';
+import { useAuth } from '@/store/AuthContext';
+import { PaymentFailureBanner } from '@/shared/components/payment-failure-banner';
 
 const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
 
@@ -16,6 +18,11 @@ const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
  */
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const { navigate } = useLayout();
+  const { user } = useAuth();
+
+  // Billing state — subscriptionStatus comes from /auth/me response (Task 4a)
+  // null-safe: defaults to 'ACTIVE' so the banner is never shown for normal/new sessions
+  const subscriptionStatus = user?.subscriptionStatus ?? 'ACTIVE';
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);       // mobile overlay open
   const [isCollapsed, setIsCollapsed] = useState(false);       // desktop collapsed
@@ -120,6 +127,9 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenInbox={() => navigate('inbox')}
         />
+
+        {/* Billing state banner — only renders for PAST_DUE, CANCELLED, EXPIRED */}
+        <PaymentFailureBanner subscriptionStatus={subscriptionStatus} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}

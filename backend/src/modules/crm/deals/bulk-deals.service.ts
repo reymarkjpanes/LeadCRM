@@ -30,8 +30,9 @@ export async function bulkArchive(
         continue;
       }
 
+      // SEC: tenantId in where clause closes the TOCTOU gap between findFirst and update
       await prisma.deal.update({
-        where: { id: dealId },
+        where: { id: dealId, tenantId },
         data: { isArchived: true, archiveReason: dto.archiveReason ?? null },
       });
 
@@ -85,8 +86,9 @@ export async function bulkReassign(
       }
 
       const previousAssignee = deal.assignedUserId;
+      // SEC: tenantId in where clause closes the TOCTOU gap between findFirst and update
       await prisma.deal.update({
-        where: { id: dealId },
+        where: { id: dealId, tenantId },
         data: { assignedUserId: dto.assignedUserId },
       });
 

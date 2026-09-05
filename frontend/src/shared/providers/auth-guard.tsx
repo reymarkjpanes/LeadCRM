@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/store/AuthContext';
 import { cn } from '@/lib/utils';
@@ -32,7 +31,6 @@ const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authError, retryAuthInit } = useAuth();
-  const { data: nextAuthSession } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -52,7 +50,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     // Note: tenantId is always a UUID — cannot compare against slug strings.
     // We also check tenantName from /auth/me for extra safety.
     const isSystemAdmin = user.role === 'System Admin'
-      || (user as any).tenantName?.toLowerCase().includes('system');
+      || user.tenantName?.toLowerCase().includes('system');
 
     // Check if current route is exempt from gates
     const isExempt = EXEMPT_ROUTES.some((r) => pathname.startsWith(r));
@@ -64,10 +62,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       // (either via standard verification or the demo-mode bypass in loginUser).
       // Redirecting ACTIVE users to /verify-email would incorrectly gate seeded
       // and demo accounts that the backend has already admitted (RC-05 fix).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const emailVerified = (user as any).emailVerified;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userStatus = (user as any).status;
+      const emailVerified = user.emailVerified;
+      const userStatus = user.status;
       if (!emailVerified && userStatus !== 'ACTIVE') {
         sessionStorage.removeItem('leadcrm_redirect_after_login');
         router.replace(`/verify-email?email=${encodeURIComponent(user.email)}`);
@@ -80,10 +76,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       // This is set during onboarding when the user provides company details.
       // localStorage ONBOARDING_COMPLETE_KEY acts as an immediate post-completion
       // signal before the AuthContext cache refreshes from /auth/me.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tenantName = (user as any).tenantName;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const onboardingCompletedAt = (user as any).onboardingCompletedAt;
+      const tenantName = user.tenantName;
+      const onboardingCompletedAt = user.onboardingCompletedAt;
       const localOnboardingDone = typeof window !== 'undefined'
         ? localStorage.getItem(ONBOARDING_COMPLETE_KEY)
         : null;
@@ -129,7 +123,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         router.replace('/dashboard');
       }
     }
-  }, [user, isLoading, pathname, router, nextAuthSession?.requiresProfileCompletion]);
+  // Note: requiresProfileCompletion is intentionally NOT a dep here.
+  // Routing after OAuth profile completion is handled by company-setup/page.tsx
+  // which calls router.push('/dashboard') directly after updateSession().
+  // The middleware (middleware.ts) enforces the /settings exemption at the edge.
+  }, [user, isLoading, pathname, router]);
 
   // ── Visible resolution states (never a silent blank screen) ───────────
   // While auth is resolving, show a visible loading state instead of null.

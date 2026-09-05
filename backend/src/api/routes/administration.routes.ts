@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { subscriptionGate } from '../middleware/subscription-gate.middleware';
+import { recordLimitGate } from '../middleware/plan-gate.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
 import * as userController       from '../../modules/administration/users/users.controller';
@@ -17,12 +19,13 @@ const router = Router();
 
 router.use(authMiddleware);
 router.use(tenantMiddleware);
+router.use(subscriptionGate);
 
-// ── Users ─────────────────────────────────────────────
+// -- Users ---------------------------------------------
 router.get(   '/users',                  authorize('users.view'),   userController.getAll);
 router.get(   '/users/:id/permissions',  authMiddleware,            roleController.getUserPermissions);
 router.get(   '/users/:id',              authorize('users.view'),   userController.getById);
-router.post(  '/users',                  authorize('users.manage'), userController.create);
+router.post(  '/users',                  authorize('users.manage'), recordLimitGate('users'), userController.create);
 router.put(   '/users/:id',              authorize('users.manage'), userController.update);
 router.delete('/users/:id',              authorize('users.manage'), userController.deleteRecord);
 router.patch( '/users/:id/archive',      authorize('users.manage'), userController.archive);
@@ -30,7 +33,7 @@ router.patch( '/users/:id/restore',      authorize('users.manage'), userControll
 router.post(  '/users/bulk-update',      authorize('users.manage'), userController.bulkUpdate);
 router.post(  '/users/bulk-delete',      authorize('users.manage'), userController.bulkDelete);
 
-// ── Roles (RoleDefinition) ────────────────────────────
+// -- Roles (RoleDefinition) ----------------------------
 router.get(   '/roles',                authorize('roles.manage'), roleController.getRoles);
 router.get(   '/roles/:id',            authorize('roles.manage'), roleController.getRoleById);
 router.post(  '/roles',                authorize('roles.manage'), validate(CreateRoleSchema), roleController.createRole);
@@ -39,13 +42,13 @@ router.patch( '/roles/:id/archive',    authorize('roles.manage'), roleController
 router.post(  '/roles/assign',         authorize('roles.manage'), validate(AssignRoleSchema), roleController.assignRoleToUser);
 router.delete('/roles/unassign',       authorize('roles.manage'), validate(AssignRoleSchema), roleController.removeRoleFromUser);
 
-// ── Permissions (read-only reference for role builder) ─
+// -- Permissions (read-only reference for role builder) -
 router.get(   '/permissions',          authorize('roles.manage'), permController.getPermissions);
 
-// ── Audit Log ─────────────────────────────────────────
+// -- Audit Log -----------------------------------------
 router.get(   '/audit',                authorize('audit.view'),   auditController.getAuditLogs);
 
-// ── Groups ─────────────────────────────────────────────
+// -- Groups ---------------------------------------------
 router.get(   '/groups',                     authorize('users.manage'), groupController.getAll);
 router.post(  '/groups',                     authorize('users.manage'), validate(CreateGroupSchema), groupController.create);
 router.put(   '/groups/:id',                 authorize('users.manage'), validate(UpdateGroupSchema), groupController.update);
@@ -53,7 +56,7 @@ router.delete('/groups/:id',                 authorize('users.manage'), groupCon
 router.post(  '/groups/:id/members',         authorize('users.manage'), validate(GroupMemberSchema), groupController.addMember);
 router.delete('/groups/:id/members/:userId', authorize('users.manage'), groupController.removeMember);
 
-// ── Domains ─────────────────────────────────────────────
+// -- Domains ---------------------------------------------
 router.get(   '/domains',               authorize('users.manage'), domainController.getAll);
 router.post(  '/domains',               authorize('users.manage'), validate(CreateDomainSchema), domainController.create);
 router.delete('/domains/:id',           authorize('users.manage'), domainController.remove);

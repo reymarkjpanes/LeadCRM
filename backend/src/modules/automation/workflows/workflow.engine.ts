@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Workflow Execution Engine
  *
  * Evaluates WorkflowCondition JSON as pure data — NEVER eval()'d as code.
@@ -167,9 +167,9 @@ async function actionUpdateField(
   if (!entityId) return { success: false, error: `No ${entity}.id in context` };
 
   if (entity === 'contact') {
-    await prisma.lead.update({ where: { id: entityId }, data: { [field]: value } as never });
+    await prisma.lead.update({ where: { id: entityId, tenantId }, data: { [field]: value } as never });
   } else if (entity === 'deal') {
-    await prisma.deal.update({ where: { id: entityId }, data: { [field]: value } });
+    await prisma.deal.update({ where: { id: entityId, tenantId }, data: { [field]: value } });
   }
   return { success: true, output: { updated: { [field]: value } } };
 }
@@ -184,7 +184,7 @@ async function actionAssignOwner(
 
   const dealId = context['deal.id'] ? String(context['deal.id']) : undefined;
   if (dealId) {
-    await prisma.deal.update({ where: { id: dealId }, data: { assignedUserId: newOwnerId } });
+    await prisma.deal.update({ where: { id: dealId, tenantId }, data: { assignedUserId: newOwnerId } });
   }
   return { success: true, output: { assignedUserId: newOwnerId } };
 }
@@ -198,11 +198,11 @@ async function actionMoveDealStage(
   const stageId  = String(config.stageId ?? '');
   if (!dealId || !stageId) return { success: false, error: 'deal.id and stageId required' };
 
-  const stage = await prisma.stage.findFirst({ where: { id: stageId } });
+  const stage = await prisma.stage.findFirst({ where: { id: stageId, tenantId } });
   if (!stage) return { success: false, error: 'Stage not found' };
 
   await prisma.deal.update({
-    where: { id: dealId },
+    where: { id: dealId, tenantId },
     data: {
       stageId,
       ...(stage.isWon || stage.isLost ? { closedAt: new Date() } : {}),

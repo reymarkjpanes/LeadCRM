@@ -488,7 +488,7 @@ model TenantInvitation {
   tenantId    String
   email       String
   roleId      String
-  token       String    @unique
+  tokenHash   String    @unique
   invitedById String
   expiresAt   DateTime
   acceptedAt  DateTime?
@@ -499,7 +499,7 @@ model TenantInvitation {
   invitedBy User           @relation("InvitedByUser", fields: [invitedById], references: [id])
   role      RoleDefinition @relation(fields: [roleId], references: [id])
 
-  @@index([token])
+  @@index([tokenHash])
   @@index([email, tenantId])
 }
 
