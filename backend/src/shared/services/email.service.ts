@@ -1,16 +1,15 @@
-import { AppError } from '../errors/app-error';
-import { Resend } from 'resend';
+﻿import { AppError } from '../errors/app-error';
 
 /**
- * Email service — transport chain:
- *   1. Resend HTTP API (HTTPS :443) — sole production transport; works on Render Free.
- *      SMTP ports 25/465/587 are intentionally NOT used (blocked on Render Free).
- *   2. Console log — development fallback when Resend is not configured locally.
+ * Email service — Brevo HTTP API transport.
+ *   Uses Brevo transactional email API over HTTPS :443.
+ *   No SMTP ports required — fully compatible with Render Free tier.
+ *   Falls back to console log in development when not configured.
  *
- * Sandbox allowlist (dev/staging only):
- *   Set RESEND_SANDBOX_EMAILS=email1@example.com,email2@example.com in .env to
- *   limit outbound delivery to those addresses during development. Non-listed
- *   recipients are logged and skipped. DO NOT set this variable on Render/production.
+ * Required env vars (set on Render):
+ *   BREVO_API_KEY      — starts with xkeysib-
+ *   BREVO_FROM_EMAIL   — verified sender email in your Brevo account
+ *   BREVO_FROM_NAME    — display name (optional, defaults to LeadCRM)
  */
 
 export interface SendMailOptions {
@@ -19,10 +18,7 @@ export interface SendMailOptions {
   html: string;
 }
 
-/**
- * Masks an email address for safe logging — never log full recipient addresses.
- * e.g. "john.doe@example.com" → "jo***@example.com"
- */
+/** Masks an email address for safe logging. */
 function maskEmail(email: string): string {
   const parts = email.split('@');
   const local  = parts[0] ?? '';
@@ -31,112 +27,94 @@ function maskEmail(email: string): string {
   return `${local.slice(0, 2)}***@${domain}`;
 }
 
-/**
- * Returns the parsed RESEND_SANDBOX_EMAILS allowlist, or null when not configured.
- * When non-null, only addresses in this set will receive real email in dev/staging.
- */
+/** Returns sandbox allowlist from BREVO_SANDBOX_EMAILS, or null when unset. */
 function getSandboxAllowlist(): Set<string> | null {
-  const raw = process.env.RESEND_SANDBOX_EMAILS;
+  const raw = process.env.BREVO_SANDBOX_EMAILS;
   if (!raw || raw.trim() === '') return null;
   const allowed = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
   return allowed.length > 0 ? new Set(allowed) : null;
 }
 
-/**
- * Returns true when a valid (non-placeholder) Resend API key is configured.
- */
-function isResendConfigured(): boolean {
-  const key = process.env.RESEND_API_KEY;
-  return (
-    !!key &&
-    key.trim() !== '' &&
-    !key.startsWith('re_your') &&
-    !key.toLowerCase().includes('your_resend_key') &&
-    !key.toLowerCase().includes('your-resend') &&
-    key !== 'YOUR_RESEND_API_KEY'
-  );
+/** Returns true when a valid Brevo API key is configured. */
+function isBrevoConfigured(): boolean {
+  const key = process.env.BREVO_API_KEY;
+  return !!key && key.startsWith('xkeysib-') && key.trim().length > 20;
 }
 
 /**
- * Sends a transactional email via Resend HTTP API (HTTPS :443).
- *
- * Transport chain:
- *   1. Sandbox allowlist check (dev/staging only — skipped in production)
- *   2. Resend HTTP API
- *   3. Console log fallback (dev only — never reached in production)
+ * Sends a transactional email via Brevo HTTP API (HTTPS :443).
+ * Works on Render Free tier — no SMTP ports required.
  */
 export async function sendMail(options: SendMailOptions): Promise<void> {
   // ── Sandbox allowlist guard (dev/staging only — NEVER active in production) ──
-  // Prevents accidental delivery to real users during development.
-  // Set RESEND_SANDBOX_EMAILS=your@email.com in backend/.env for local testing.
-  // Non-listed recipients are logged and skipped — no Resend call is made.
-  // DO NOT set RESEND_SANDBOX_EMAILS on Render or any production environment.
   if (process.env.NODE_ENV !== 'production') {
     const allowlist = getSandboxAllowlist();
     if (allowlist !== null && !allowlist.has(options.to.toLowerCase())) {
       // eslint-disable-next-line no-console
       console.log(
-        `[EmailService] [SANDBOX] Blocked → recipient=${maskEmail(options.to)} | ` +
-        `subject="${options.subject}" | reason=not in RESEND_SANDBOX_EMAILS`,
+        `[EmailService] [SANDBOX] Blocked -> recipient=${maskEmail(options.to)} | subject="${options.subject}" | reason=not in BREVO_SANDBOX_EMAILS`,
       );
       return;
     }
   }
 
-  // ── 1. Resend HTTP API ──────────────────────────────────────────────────────
-  // Sole production transport. Uses HTTPS :443 — no SMTP ports required.
-  // Compatible with Render Free tier.
-  if (isResendConfigured()) {
+  // ── 1. Brevo HTTP API ───────────────────────────────────────────────────────
+  if (isBrevoConfigured()) {
     try {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const from = process.env.RESEND_FROM || 'LeadCRM <onboarding@resend.dev>';
-      const result = await resend.emails.send({
-        from,
-        to:      options.to,
-        subject: options.subject,
-        html:    options.html,
+      const fromEmail = process.env.BREVO_FROM_EMAIL || 'reymarkjpanes@gmail.com';
+      const fromName  = process.env.BREVO_FROM_NAME  || 'LeadCRM';
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept':       'application/json',
+          'api-key':      process.env.BREVO_API_KEY!,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender:      { name: fromName, email: fromEmail },
+          to:          [{ email: options.to }],
+          subject:     options.subject,
+          htmlContent: options.html,
+        }),
       });
-      const messageId = (result.data as { id?: string } | null)?.id ?? 'unknown';
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Brevo API ${response.status}: ${errorBody}`);
+      }
+      const result = await response.json() as { messageId?: string };
+      const messageId = result.messageId ?? 'unknown';
       // eslint-disable-next-line no-console
       console.info(
-        `[EmailService] ✓ Sent via Resend | recipient=${maskEmail(options.to)} | messageId=${messageId} | subject="${options.subject}"`,
+        `[EmailService] Sent via Brevo | recipient=${maskEmail(options.to)} | messageId=${messageId} | subject="${options.subject}"`,
       );
       return;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       // eslint-disable-next-line no-console
       console.error(
-        `[EmailService] ✗ Resend send failed | recipient=${maskEmail(options.to)} | subject="${options.subject}" | error=${message}`,
+        `[EmailService] Brevo send failed | recipient=${maskEmail(options.to)} | subject="${options.subject}" | error=${message}`,
       );
       if (process.env.NODE_ENV === 'production') {
-        // Surface a safe error to the caller — never expose raw provider details.
         throw new AppError('Email delivery failed. Please try again later.', 502);
       }
-      // In dev: fall through to console fallback so development continues.
     }
   }
 
-  // ── 2. Development fallback — log to console ────────────────────────────────
-  // Only reached when Resend is not configured or fails in a non-production env.
+  // ── 2. Development fallback ─────────────────────────────────────────────────
   if (process.env.NODE_ENV !== 'production') {
     // eslint-disable-next-line no-console
     console.log(
-      `\n[EmailService] [DEV FALLBACK] Email not sent (Resend not configured or failed)\n` +
-      `  To:      ${options.to}\n` +
-      `  Subject: ${options.subject}\n`,
+        `\n[EmailService] [DEV FALLBACK] Email not sent (Brevo not configured)\n  To:      ${options.to}\n  Subject: ${options.subject}\n`,
     );
     return;
   }
 
-  // ── 3. Production with no configured transport — hard error ─────────────────
-  // Should never be reached in production if startup validation in server.ts
-  // is working correctly. Acts as a last-resort safety net.
+  // ── 3. Production — no transport configured ─────────────────────────────────
   throw new AppError(
-    'Email service is not configured. Set RESEND_API_KEY in your Render environment variables.',
+    'Email service is not configured. Set BREVO_API_KEY in your Render environment variables.',
     503,
   );
 }
-
 // ─── Shared email layout helpers ──────────────────────────────────────────────
 
 /**

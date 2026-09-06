@@ -1,4 +1,4 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import app from './app';
 import { startCampaignScheduler } from './core/scheduler/campaign-scheduler.service';
 import { purgeExpiredSessions } from './core/auth/session.service';
@@ -13,22 +13,15 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-// Email service — fail fast in production if Resend is not configured.
+// Email service — fail fast in production if Brevo is not configured.
 // Discovering a missing API key on the first registration attempt is worse
 // than a clean startup failure with a clear diagnostic message.
 if (process.env.NODE_ENV === 'production') {
-  const resendKey = process.env.RESEND_API_KEY;
-  const isPlaceholder =
-    !resendKey ||
-    resendKey.trim() === '' ||
-    resendKey.startsWith('re_your') ||
-    resendKey.toLowerCase().includes('your_resend_key') ||
-    resendKey.toLowerCase().includes('your-resend') ||
-    resendKey === 'YOUR_RESEND_API_KEY';
-  if (isPlaceholder) {
+  const brevoKey = process.env.BREVO_API_KEY;
+  if (!brevoKey || !brevoKey.startsWith('xkeysib-') || brevoKey.trim().length < 20) {
     throw new Error(
-      '[EmailService] RESEND_API_KEY is missing or is a placeholder. ' +
-      'Set the real key in your Render environment variables before starting the server.',
+      '[EmailService] BREVO_API_KEY is missing or invalid. ' +
+      'Set the real xkeysib-... key in your Render environment variables before starting the server.',
     );
   }
 }
