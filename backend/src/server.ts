@@ -13,6 +13,26 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
+// Email service — fail fast in production if Resend is not configured.
+// Discovering a missing API key on the first registration attempt is worse
+// than a clean startup failure with a clear diagnostic message.
+if (process.env.NODE_ENV === 'production') {
+  const resendKey = process.env.RESEND_API_KEY;
+  const isPlaceholder =
+    !resendKey ||
+    resendKey.trim() === '' ||
+    resendKey.startsWith('re_your') ||
+    resendKey.toLowerCase().includes('your_resend_key') ||
+    resendKey.toLowerCase().includes('your-resend') ||
+    resendKey === 'YOUR_RESEND_API_KEY';
+  if (isPlaceholder) {
+    throw new Error(
+      '[EmailService] RESEND_API_KEY is missing or is a placeholder. ' +
+      'Set the real key in your Render environment variables before starting the server.',
+    );
+  }
+}
+
 const PORT = process.env.PORT ?? 4000;
 
 /**

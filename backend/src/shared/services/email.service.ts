@@ -1,16 +1,16 @@
-import nodemailer from 'nodemailer';
 import { AppError } from '../errors/app-error';
 import { Resend } from 'resend';
 
 /**
- * Email service — transport chain (priority order):
- *   1. Resend HTTP API — works on Render free tier, no SMTP ports needed
- *   2. SMTP / Nodemailer — works locally; blocked on Render free tier
- *   3. Console log — development fallback only
+ * Email service — transport chain:
+ *   1. Resend HTTP API (HTTPS :443) — sole production transport; works on Render Free.
+ *      SMTP ports 25/465/587 are intentionally NOT used (blocked on Render Free).
+ *   2. Console log — development fallback when Resend is not configured locally.
  *
- * Gmail OAuth2 transport removed: tokens expire hourly and require DB
- * re-seeding whenever ENCRYPTION_KEY changes — fragile in production.
- * Resend is more reliable and works without token management.
+ * Sandbox allowlist (dev/staging only):
+ *   Set RESEND_SANDBOX_EMAILS=email1@example.com,email2@example.com in .env to
+ *   limit outbound delivery to those addresses during development. Non-listed
+ *   recipients are logged and skipped. DO NOT set this variable on Render/production.
  */
 
 export interface SendMailOptions {
@@ -20,94 +20,119 @@ export interface SendMailOptions {
 }
 
 /**
- * Returns true when SMTP credentials are configured.
- * Note: SMTP is blocked on Render free tier (ports 25/465/587 are blocked).
- * Use this transport for local development or paid hosting.
+ * Masks an email address for safe logging — never log full recipient addresses.
+ * e.g. "john.doe@example.com" → "jo***@example.com"
  */
-function isSmtpConfigured(): boolean {
-  return !!process.env.SMTP_HOST && !!process.env.SMTP_USER && !!process.env.SMTP_PASS;
+function maskEmail(email: string): string {
+  const parts = email.split('@');
+  const local  = parts[0] ?? '';
+  const domain = parts[1] ?? '***.***';
+  if (!local) return '***@***.***';
+  return `${local.slice(0, 2)}***@${domain}`;
 }
 
 /**
- * Returns true when Resend API is configured.
+ * Returns the parsed RESEND_SANDBOX_EMAILS allowlist, or null when not configured.
+ * When non-null, only addresses in this set will receive real email in dev/staging.
+ */
+function getSandboxAllowlist(): Set<string> | null {
+  const raw = process.env.RESEND_SANDBOX_EMAILS;
+  if (!raw || raw.trim() === '') return null;
+  const allowed = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return allowed.length > 0 ? new Set(allowed) : null;
+}
+
+/**
+ * Returns true when a valid (non-placeholder) Resend API key is configured.
  */
 function isResendConfigured(): boolean {
   const key = process.env.RESEND_API_KEY;
-  return !!key && !key.startsWith('re_your');
+  return (
+    !!key &&
+    key.trim() !== '' &&
+    !key.startsWith('re_your') &&
+    !key.toLowerCase().includes('your_resend_key') &&
+    !key.toLowerCase().includes('your-resend') &&
+    key !== 'YOUR_RESEND_API_KEY'
+  );
 }
 
 /**
- * Sends an email using the configured transport (Resend → SMTP → console fallback).
+ * Sends a transactional email via Resend HTTP API (HTTPS :443).
+ *
+ * Transport chain:
+ *   1. Sandbox allowlist check (dev/staging only — skipped in production)
+ *   2. Resend HTTP API
+ *   3. Console log fallback (dev only — never reached in production)
  */
 export async function sendMail(options: SendMailOptions): Promise<void> {
-  // ── 1. Try Resend HTTP API ──────────────────────────────────────────
-  // Works on Render free tier. No SMTP ports. No tokens to rotate.
+  // ── Sandbox allowlist guard (dev/staging only — NEVER active in production) ──
+  // Prevents accidental delivery to real users during development.
+  // Set RESEND_SANDBOX_EMAILS=your@email.com in backend/.env for local testing.
+  // Non-listed recipients are logged and skipped — no Resend call is made.
+  // DO NOT set RESEND_SANDBOX_EMAILS on Render or any production environment.
+  if (process.env.NODE_ENV !== 'production') {
+    const allowlist = getSandboxAllowlist();
+    if (allowlist !== null && !allowlist.has(options.to.toLowerCase())) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[EmailService] [SANDBOX] Blocked → recipient=${maskEmail(options.to)} | ` +
+        `subject="${options.subject}" | reason=not in RESEND_SANDBOX_EMAILS`,
+      );
+      return;
+    }
+  }
+
+  // ── 1. Resend HTTP API ──────────────────────────────────────────────────────
+  // Sole production transport. Uses HTTPS :443 — no SMTP ports required.
+  // Compatible with Render Free tier.
   if (isResendConfigured()) {
     try {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const from = process.env.RESEND_FROM || 'LeadCRM <onboarding@resend.dev>';
-      await resend.emails.send({
+      const result = await resend.emails.send({
         from,
         to:      options.to,
         subject: options.subject,
         html:    options.html,
       });
+      const messageId = (result.data as { id?: string } | null)?.id ?? 'unknown';
       // eslint-disable-next-line no-console
-      console.info(`[EmailService] ✓ Sent via Resend to ${options.to}`);
+      console.info(
+        `[EmailService] ✓ Sent via Resend | recipient=${maskEmail(options.to)} | messageId=${messageId} | subject="${options.subject}"`,
+      );
       return;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       // eslint-disable-next-line no-console
-      console.error('[EmailService] Resend send failed:', message);
+      console.error(
+        `[EmailService] ✗ Resend send failed | recipient=${maskEmail(options.to)} | subject="${options.subject}" | error=${message}`,
+      );
       if (process.env.NODE_ENV === 'production') {
-        throw new AppError(`Failed to send email via Resend: ${message}`, 502);
+        // Surface a safe error to the caller — never expose raw provider details.
+        throw new AppError('Email delivery failed. Please try again later.', 502);
       }
+      // In dev: fall through to console fallback so development continues.
     }
   }
 
-  // ── 2. Try SMTP / Nodemailer ────────────────────────────────────────
-  // Works on localhost and paid hosting. Blocked on Render free tier.
-  // connectionTimeout set to 5 s so port blocks fail fast.
-  if (isSmtpConfigured()) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-        secure: process.env.SMTP_PORT === '465',
-        connectionTimeout: 5_000,
-        greetingTimeout:   5_000,
-        socketTimeout:     5_000,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      });
-      await transporter.sendMail({
-        from:    process.env.SMTP_FROM ?? `LeadCRM <${process.env.SMTP_USER}>`,
-        to:      options.to,
-        subject: options.subject,
-        html:    options.html,
-      });
-      // eslint-disable-next-line no-console
-      console.info(`[EmailService] ✓ Sent via SMTP to ${options.to}`);
-      return;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      // eslint-disable-next-line no-console
-      console.error('[EmailService] SMTP send failed:', message);
-    }
-  }
-
-  // ── 3. Development fallback — log to console ────────────────────────
+  // ── 2. Development fallback — log to console ────────────────────────────────
+  // Only reached when Resend is not configured or fails in a non-production env.
   if (process.env.NODE_ENV !== 'production') {
     // eslint-disable-next-line no-console
-    console.log(`\n[DEV] Email to: ${options.to} | Subject: ${options.subject}\n`);
+    console.log(
+      `\n[EmailService] [DEV FALLBACK] Email not sent (Resend not configured or failed)\n` +
+      `  To:      ${options.to}\n` +
+      `  Subject: ${options.subject}\n`,
+    );
     return;
   }
 
-  // ── 4. No transport configured — error ─────────────────────────────
+  // ── 3. Production with no configured transport — hard error ─────────────────
+  // Should never be reached in production if startup validation in server.ts
+  // is working correctly. Acts as a last-resort safety net.
   throw new AppError(
-    'Email service is not configured. Set RESEND_API_KEY or SMTP_HOST/USER/PASS in your environment.',
+    'Email service is not configured. Set RESEND_API_KEY in your Render environment variables.',
     503,
   );
 }
