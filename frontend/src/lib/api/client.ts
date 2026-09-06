@@ -61,7 +61,7 @@ async function request<T>(
         const { dispatchPlanUpgradeRequired } = await import('@/shared/hooks/use-billing-interceptor');
         dispatchPlanUpgradeRequired({
           feature: (rawError as Record<string, unknown>).feature as string ?? 'unknown',
-          currentPlan: (rawError as Record<string, unknown>).currentPlan as string ?? 'FREE',
+          currentPlan: (rawError as Record<string, unknown>).currentPlan as string ?? 'STARTER',
           requiredPlan: (rawError as Record<string, unknown>).requiredPlan as string ?? 'PRO',
         });
       }

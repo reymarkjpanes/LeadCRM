@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -11,8 +11,23 @@ import { AuthLoadingScreen } from '@/shared/components/auth-loading-screen';
 export const ONBOARDING_COMPLETE_KEY    = 'leadcrm_onboarding_complete';
 export const NEEDS_COMPANY_SETUP_KEY    = 'leadcrm_needs_company_setup';
 
-// Routes that are exempt from onboarding/verification gates
+// Routes that are exempt from all gates (verification, onboarding, subscription)
 const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/billing', '/settings', '/company-setup', '/invite'];
+
+/**
+ * isSandboxUser — returns true when the authenticated user is in the pre-subscription
+ * sandbox state (Restricted User + SANDBOX tenant + NONE subscription).
+ *
+ * Used by CRM layout components to conditionally render the upgrade banner.
+ * The backend subscriptionGate enforces the actual API-level restriction —
+ * this helper is for UI hints only. Never use it as an authorization boundary.
+ */
+export function isSandboxUser(user: { role?: string; tenantStatus?: string | null; subscriptionStatus?: string | null } | null): boolean {
+  if (!user) return false;
+  const tenantStatus      = (user as any).tenantStatus;
+  const subscriptionStatus = (user as any).subscriptionStatus;
+  return tenantStatus === 'SANDBOX' && (!subscriptionStatus || subscriptionStatus === 'NONE');
+}
 
 /**
  * AuthGuard — protects tenant routes and enforces email verification + onboarding gates.
@@ -23,11 +38,15 @@ const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/
  *   3. Saved redirect — restore the originally intended URL after login
  *   4. Role-based default — System Admin → /admin/dashboard, others → /dashboard
  *
+ * Sandbox (Guest) users are NOT blocked by the guard — they land on /dashboard
+ * where the SandboxBillingBanner guides them to /billing.
+ * The backend subscriptionGate handles API-level enforcement.
+ *
  * Source of truth for gates:
- *   - emailVerified: from /auth/me response (server-backed)
- *   - tenantName: from /auth/me response (server-backed via Tenant model)
- *   - localStorage ONBOARDING_COMPLETE_KEY: acts as immediate 'just completed' signal so the
- *     AuthGuard doesn't redirect back to /onboarding before the cached AuthContext user refreshes
+ *   - emailVerified:    from /auth/me response (server-backed)
+ *   - tenantName:       from /auth/me response (server-backed via Tenant model)
+ *   - tenantStatus:     from /auth/me response (SANDBOX | ACTIVE | ...)
+ *   - subscriptionStatus: from /auth/me response (NONE | ACTIVE | PAST_DUE | ...)
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authError, retryAuthInit } = useAuth();
@@ -38,7 +57,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     if (user === null) {
-      // Store the intended path so we can redirect back after login
       if (pathname !== '/login' && pathname !== '/register') {
         sessionStorage.setItem('leadcrm_redirect_after_login', pathname);
       }
@@ -46,22 +64,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Determine System Admin (bypasses all onboarding/verification checks)
-    // Note: tenantId is always a UUID — cannot compare against slug strings.
-    // We also check tenantName from /auth/me for extra safety.
+    // System Admin — platform operator, bypasses all customer-side gates.
+    // Uses role string from /auth/me (server-backed JWT).
     const isSystemAdmin = user.role === 'System Admin'
       || user.tenantName?.toLowerCase().includes('system');
 
-    // Check if current route is exempt from gates
     const isExempt = EXEMPT_ROUTES.some((r) => pathname.startsWith(r));
 
     if (!isSystemAdmin && !isExempt) {
       // ── Gate 1: Email verification (server-backed) ─────────────────────
-      // If emailVerified is null/falsy, user must verify their email first.
-      // Exception: ACTIVE users have passed the backend's verification check
-      // (either via standard verification or the demo-mode bypass in loginUser).
-      // Redirecting ACTIVE users to /verify-email would incorrectly gate seeded
-      // and demo accounts that the backend has already admitted (RC-05 fix).
       const emailVerified = user.emailVerified;
       const userStatus = user.status;
       if (!emailVerified && userStatus !== 'ACTIVE') {
@@ -71,44 +82,34 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       }
 
       // ── Gate 2: First-time workspace setup ─────────────────────────────────
-      // Redirect to onboarding only if tenant has not completed workspace setup.
-      // Source of truth: tenantName from /auth/me (server-backed).
-      // This is set during onboarding when the user provides company details.
-      // localStorage ONBOARDING_COMPLETE_KEY acts as an immediate post-completion
-      // signal before the AuthContext cache refreshes from /auth/me.
       const tenantName = user.tenantName;
       const onboardingCompletedAt = user.onboardingCompletedAt;
       const localOnboardingDone = typeof window !== 'undefined'
         ? localStorage.getItem(ONBOARDING_COMPLETE_KEY)
         : null;
 
-      // RC-07 fix: also check onboardingCompletedAt so invited users whose
-      // tenant completed onboarding are not incorrectly sent to /onboarding.
-      // Route to onboarding only when ALL three signals indicate the tenant
-      // workspace is genuinely not yet set up:
-      //   1. No tenantName from /auth/me (tenant hasn't completed setup)
-      //   2. No local onboarding completion flag (not just finished onboarding)
-      //   3. No server-side onboardingCompletedAt timestamp
       if (!tenantName && !localOnboardingDone && !onboardingCompletedAt) {
         sessionStorage.removeItem('leadcrm_redirect_after_login');
         router.replace('/onboarding');
         return;
       }
+
+      // ── Gate 3: Sandbox awareness (informational — no hard redirect) ───────
+      // Sandbox users (tenantStatus=SANDBOX, subscriptionStatus=NONE) are allowed
+      // to navigate freely. The backend subscriptionGate blocks mutations.
+      // The SandboxBillingBanner in crm-layout.tsx shows the upgrade prompt.
+      // We do NOT redirect sandbox users away from CRM routes here.
     }
 
-    // ── Saved redirect (post-login or returning users) ────────────────────
+    // ── Saved redirect ────────────────────────────────────────────────────
     const isEntryPoint = pathname === '/' || pathname === '/login' || pathname === '/dashboard';
 
     const savedRedirect = sessionStorage.getItem('leadcrm_redirect_after_login');
     sessionStorage.removeItem('leadcrm_redirect_after_login');
     if (savedRedirect && savedRedirect !== '/login' && savedRedirect !== '/register') {
       const isAdminPath = savedRedirect.startsWith('/admin');
-      // RC-06 fix: System Admins must ALWAYS land on /admin/* paths.
-      // A saved redirect to /dashboard (or any non-admin path) must be ignored
-      // for System Admins so they are routed through the role-based default
-      // below (/admin/dashboard). Regular users follow any saved path.
       if (isSystemAdmin && !isAdminPath) {
-        // Fall through to role-based default routing below
+        // Fall through to role-based default
       } else if (!isAdminPath || isSystemAdmin) {
         router.replace(savedRedirect);
         return;
@@ -120,13 +121,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       if (isSystemAdmin) {
         router.replace('/admin/dashboard');
       } else {
+        // Sandbox users and active users both land on /dashboard.
+        // The dashboard adapts its content based on tenantStatus.
         router.replace('/dashboard');
       }
     }
-  // Note: requiresProfileCompletion is intentionally NOT a dep here.
-  // Routing after OAuth profile completion is handled by company-setup/page.tsx
-  // which calls router.push('/dashboard') directly after updateSession().
-  // The middleware (middleware.ts) enforces the /settings exemption at the edge.
   }, [user, isLoading, pathname, router]);
 
   // ── Visible resolution states (never a silent blank screen) ───────────

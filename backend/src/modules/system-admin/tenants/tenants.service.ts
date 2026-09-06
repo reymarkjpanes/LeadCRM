@@ -101,11 +101,11 @@ export async function createTenant(dto: CreateTenantDto, actorId: string) {
   let plan = await prisma.pricingPlan.findFirst({
     where: { planType: dto.plan, isActive: true },
   });
-  if (!plan && dto.plan === 'FREE') {
+  if (!plan && dto.plan === 'STARTER') {
     plan = await prisma.pricingPlan.upsert({
-      where: { name: 'Free' },
-      update: { planType: 'FREE', isActive: true },
-      create: { name: 'Free', planType: 'FREE', monthlyPrice: 0, isActive: true },
+      where: { name: 'Starter' },
+      update: { planType: 'STARTER', isActive: true },
+      create: { name: 'Starter', planType: 'STARTER', monthlyPrice: 1350, isActive: true },
     });
   }
   if (!plan) throw new NotFoundError('Subscription plan');

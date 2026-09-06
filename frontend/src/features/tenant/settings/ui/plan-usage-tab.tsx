@@ -24,21 +24,21 @@ interface PlanInfo {
 }
 
 const PLAN_INFO: Record<string, PlanInfo> = {
-  FREE: {
-    name: 'Free',
-    planType: 'FREE',
+  STARTER: {
+    name: 'Starter',
+    planType: 'STARTER',
     features: [
       'Basic CRM (Leads, Contacts, Deals)',
-      'Up to 3 team members',
-      '1,000 contacts limit',
-      'Community support',
+      'Up to 5 team members',
+      '10,000 contacts limit',
+      'Standard support',
     ],
   },
   PRO: {
     name: 'Professional',
     planType: 'PRO',
     features: [
-      'Everything in Free',
+      'Everything in Starter',
       'Workflow Automation',
       'Advanced Reporting & Export',
       'Up to 15 team members',
@@ -92,8 +92,8 @@ export function PlanUsageTab(): React.ReactElement {
   const { subscription, isLoading, error } = useBillingData();
 
   // Derive display values from the live subscription — never from hardcoded PLAN_INFO
-  const planName = subscription?.plan?.name ?? (isLoading ? '' : 'Free');
-  const planType = subscription?.plan?.planType ?? (isLoading ? '' : 'FREE');
+  const planName = subscription?.plan?.name ?? (isLoading ? '' : 'No active plan');
+  const planType = subscription?.plan?.planType ?? (isLoading ? '' : 'STARTER');
   const billingCycle = subscription ? formatBillingCycle(subscription.billingCycle) : null;
   const nextBillingDate = formatDate(subscription?.nextBillingDate);
   const statusLabel = subscription?.status
@@ -102,7 +102,7 @@ export function PlanUsageTab(): React.ReactElement {
 
   // Match the active plan type to the feature list for display
   const currentPlanFeatures = useMemo(
-    () => PLAN_INFO[planType]?.features ?? PLAN_INFO.FREE.features,
+    () => PLAN_INFO[planType]?.features ?? PLAN_INFO.STARTER.features,
     [planType],
   );
 
@@ -154,7 +154,7 @@ export function PlanUsageTab(): React.ReactElement {
             <div className="mb-6 space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {planName || 'Free'}
+                  {planName || 'No active plan'}
                 </span>
                 {subscription?.status && (
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -238,7 +238,7 @@ export function PlanUsageTab(): React.ReactElement {
             <div className="mb-5">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs font-semibold text-indigo-600 dark:text-indigo-300">
                 <Sparkles className="h-3 w-3" />
-                {planName || 'Free'} plan
+                {planName || 'Starter'} plan
               </span>
             </div>
           )}

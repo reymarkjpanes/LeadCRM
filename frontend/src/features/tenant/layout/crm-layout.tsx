@@ -6,6 +6,7 @@ import Topbar from './topbar';
 import { useLayout } from './use-layout';
 import { useAuth } from '@/store/AuthContext';
 import { PaymentFailureBanner } from '@/shared/components/payment-failure-banner';
+import { SandboxBillingBanner } from '@/shared/components/sandbox-billing-banner';
 
 const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
 
@@ -20,9 +21,10 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const { navigate } = useLayout();
   const { user } = useAuth();
 
-  // Billing state — subscriptionStatus comes from /auth/me response (Task 4a)
-  // null-safe: defaults to 'ACTIVE' so the banner is never shown for normal/new sessions
-  const subscriptionStatus = user?.subscriptionStatus ?? 'ACTIVE';
+  // Billing state — comes from /auth/me response via AuthContext
+  // null-safe defaults: NONE so sandbox banner shows for brand-new users
+  const subscriptionStatus = user?.subscriptionStatus ?? 'NONE';
+  const tenantStatus = user?.tenantStatus;
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);       // mobile overlay open
   const [isCollapsed, setIsCollapsed] = useState(false);       // desktop collapsed
@@ -128,7 +130,13 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
           onOpenInbox={() => navigate('inbox')}
         />
 
-        {/* Billing state banner — only renders for PAST_DUE, CANCELLED, EXPIRED */}
+        {/* Sandbox banner — shown for pre-subscription (SANDBOX/NONE) users */}
+        <SandboxBillingBanner
+          tenantStatus={tenantStatus}
+          subscriptionStatus={subscriptionStatus}
+        />
+
+        {/* Payment failure banner — shown for PAST_DUE, CANCELLED, EXPIRED */}
         <PaymentFailureBanner subscriptionStatus={subscriptionStatus} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">

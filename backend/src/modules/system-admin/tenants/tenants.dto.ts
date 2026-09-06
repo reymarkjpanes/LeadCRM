@@ -4,7 +4,7 @@ export const CreateTenantSchema = z.object({
   name: z.string().trim().min(2, 'Company name is required'),
   industry: z.string().trim().min(1, 'Industry is required'),
   companySize: z.string().trim().min(1, 'Company size is required'),
-  plan: z.enum(['FREE', 'PRO', 'ENTERPRISE']),
+  plan: z.enum(['STARTER', 'PRO', 'ENTERPRISE']),
   firstName: z.string().trim().min(2, 'First name is required'),
   lastName: z.string().trim().min(2, 'Last name is required'),
   email: z.string().trim().email('Valid admin email required'),

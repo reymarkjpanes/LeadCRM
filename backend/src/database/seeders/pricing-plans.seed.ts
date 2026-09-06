@@ -16,7 +16,7 @@ interface PlanSeed {
 const PLANS: PlanSeed[] = [
   {
     name:           'Starter',
-    planType:       'FREE',
+    planType:       'STARTER',
     monthlyPrice:   1350,
     quarterlyPrice: 3645,   // 1350 * 3 * 0.90
     annualPrice:    12960,  // 1350 * 12 * 0.80

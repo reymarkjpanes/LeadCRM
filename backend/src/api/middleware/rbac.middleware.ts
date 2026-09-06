@@ -3,6 +3,28 @@ import { AppError } from '../../shared/errors/app-error';
 import type { PermissionKey } from '../../shared/constants/permissions';
 import prisma from '../../config/database.config';
 import { DEFAULT_ROLE_PERMISSIONS } from '../../core/permissions/permission.registry';
+import { isSuperRole } from '../../shared/utils/is-super-role';
+
+/**
+ * ROLE STATE INVARIANT
+ *
+ * User.role (string on the User table, encoded into JWT at login) is the
+ * authoritative gate for super-role bypass in this middleware.
+ *
+ * UserRole → RoleDefinition → RolePermission is the authoritative gate for
+ * permission-flag resolution for all non-super roles (two live DB queries per request).
+ *
+ * DEFAULT_ROLE_PERMISSIONS is a fallback ONLY when UserRole rows are absent
+ * (migration gap). Once all users have UserRole rows, this branch is unreachable.
+ *
+ * INVARIANT: Whenever a user's role is changed, BOTH User.role AND the UserRole
+ * junction row must be updated in the same Prisma $transaction. Never update one
+ * without the other.
+ *
+ * isSuperRole() controls RBAC permission evaluation ONLY.
+ * It must NEVER be used for subscription/environment access decisions.
+ * See environmentGate middleware for the separate environment bypass (System Admin only).
+ */
 
 /**
  * RBAC middleware — live DB reads from RolePermission table.
@@ -25,19 +47,6 @@ import { DEFAULT_ROLE_PERMISSIONS } from '../../core/permissions/permission.regi
  *   .manage / .export / .send / .activate → canEdit (privileged write)
  */
 
-// Roles that bypass ALL RolePermission checks — matched case-insensitively, separator-normalized.
-const SUPER_ROLES = [
-  'admin', 'super user', 'client admin', 'system admin',
-  'client_admin', 'clientadmin', 'superuser', 'systemadmin',
-];
-
-function isSuperRole(role: string): boolean {
-  const norm = role.toLowerCase().trim().replace(/[_\-]/g, ' ').replace(/\s+/g, ' ');
-  if (SUPER_ROLES.includes(norm)) return true;
-  // Also check with all separators stripped (e.g. CLIENT_ADMIN → clientadmin)
-  const compact = role.toLowerCase().replace(/[\s_\-]/g, '');
-  return SUPER_ROLES.includes(compact);
-}
 
 /**
  * Derive the DB column name (canView / canCreate / canEdit / canDelete)

@@ -5,7 +5,7 @@ export interface Tenant {
   name: string;
   slug: string;
   status: TenantStatus;
-  plan: 'FREE' | 'PRO' | 'ENTERPRISE';
+  plan: 'STARTER' | 'PRO' | 'ENTERPRISE' | null;
   createdAt: string;
   updatedAt: string;
 }

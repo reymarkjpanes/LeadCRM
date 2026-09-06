@@ -26,6 +26,7 @@ enum TenantStatus {
 }
 
 enum SubscriptionStatus {
+  NONE       // pre-subscription / unsubscribed state (new registrations start here)
   TRIAL
   ACTIVE
   PAST_DUE
@@ -34,7 +35,7 @@ enum SubscriptionStatus {
 }
 
 enum PlanType {
-  FREE
+  STARTER    // previously FREE — renamed; Starter is the entry-level paid plan (₱1,350/mo)
   PRO
   ENTERPRISE
 }
@@ -186,8 +187,8 @@ model Tenant {
   phone              String?
   address            String?
   status             TenantStatus       @default(SANDBOX)
-  subscriptionStatus SubscriptionStatus @default(TRIAL)
-  plan               PlanType           @default(FREE) // denorm cache G�� source of truth = Subscription
+  subscriptionStatus SubscriptionStatus @default(NONE)
+  plan               PlanType?          // denorm cache � source of truth = Subscription; null when no active subscription
   trialEndsAt        DateTime?
   subscriptionEndsAt DateTime?
   maxUsers           Int?
@@ -200,6 +201,7 @@ model Tenant {
   onboardingCompletedAt DateTime?
   // -- Stripe --------------------------------------------------------
   stripeCustomerId   String?            @unique // cus_xxx � one customer per tenant
+  ownerUserId        String?            // ID of the founding/registering user — set once at registration, immutable
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

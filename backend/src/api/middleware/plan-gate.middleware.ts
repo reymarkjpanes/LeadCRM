@@ -5,7 +5,7 @@ import { getTenantPlanData } from '../../shared/utils/plan-cache';
 // ─── Plan Tier Hierarchy ──────────────────────────────────────────────────────
 
 const PLAN_TIER_ORDER: Record<string, number> = {
-  FREE: 0,
+  STARTER: 0,
   PRO: 1,
   ENTERPRISE: 2,
 };
@@ -47,7 +47,9 @@ export function planGate(featureKey: string) {
 
     try {
       const planData = await getTenantPlanData(req.user.tenantId);
-      const currentTier = PLAN_TIER_ORDER[planData.plan] ?? 0;
+      // plan is null for unsubscribed tenants — treat as tier 0 (no plan = Starter level)
+      const planKey: string = planData.plan ?? '';
+      const currentTier = PLAN_TIER_ORDER[planKey] ?? 0;
 
       // 1. Check explicit PlanFeature override
       const normalizedFeature = featureKey.toLowerCase().replace(/\s+/g, '_');

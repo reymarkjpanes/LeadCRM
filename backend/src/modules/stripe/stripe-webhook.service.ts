@@ -4,6 +4,7 @@ import prisma from '../../config/database.config';
 import { AppError } from '../../shared/errors/app-error';
 import { writeAuditLog } from '../../core/audit/audit.service';
 import { invalidatePlanCache } from '../../shared/utils/plan-cache';
+import { Role } from '../../shared/constants/roles';
 
 // ─── Signature Verification ───────────────────────────────────────────────────
 
@@ -149,16 +150,51 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
       },
     });
 
-    // Update tenant's denormalized plan cache
+    // Update tenant: promote SANDBOX→ACTIVE, set plan from Stripe
     await tx.tenant.update({
       where: { id: tenantId },
       data: {
         plan:               plan.planType,
         subscriptionStatus: 'ACTIVE',
-        status:             'ACTIVE', // promote SANDBOX tenant to ACTIVE on first successful payment
+        status:             'ACTIVE',
         subscriptionEndsAt: periodEnd,
       },
     });
+
+    // ── Founding-user promotion (ROLE STATE INVARIANT) ──────────────────────
+    // Use Tenant.ownerUserId — the authoritative founding-user reference set at registration.
+    // Update BOTH User.role AND UserRole junction in this transaction to keep them in sync.
+    // A new user starts as Restricted User (sandbox). Payment is the only trigger for
+    // promotion to Client Admin. Never trust frontend-supplied role data for this.
+    const tenantRecord = await tx.tenant.findUnique({
+      where:  { id: tenantId },
+      select: { ownerUserId: true },
+    });
+
+    if (tenantRecord?.ownerUserId) {
+      const ownerId = tenantRecord.ownerUserId;
+
+      // 1. Update User.role string (drives JWT super-role bypass on next login)
+      await tx.user.update({
+        where: { id: ownerId },
+        data:  { role: Role.CLIENT_ADMIN },
+      });
+
+      // 2. Update UserRole junction (drives live RolePermission lookup for non-super roles)
+      const clientAdminDef = await tx.roleDefinition.findFirst({
+        where: { tenantId, name: Role.CLIENT_ADMIN },
+      });
+      if (clientAdminDef) {
+        // Remove the old Restricted User junction row
+        await tx.userRole.deleteMany({
+          where: { userId: ownerId, tenantId },
+        });
+        // Create the Client Admin junction row
+        await tx.userRole.create({
+          data: { userId: ownerId, roleId: clientAdminDef.id, tenantId },
+        });
+      }
+    }
 
     await writeAuditLog({
       tenantId,
@@ -166,7 +202,14 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
       action:     'stripe.subscription.activated',
       entityType: 'Subscription',
       entityId:   subscription.id,
-      metadata:   { stripeSubscriptionId, checkoutSessionId: session.id },
+      metadata:   {
+        stripeSubscriptionId,
+        checkoutSessionId: session.id,
+        planType:          plan.planType,
+        billingCycle:      bc,
+        amount,
+        ownerPromoted:     !!tenantRecord?.ownerUserId,
+      },
     });
   });
 
@@ -391,9 +434,11 @@ async function handleSubscriptionUpdated(
   if (!subscription) return;
 
   const statusMap: Record<string, string> = {
-    active:            'ACTIVE',
-    trialing:          'TRIAL',
-    past_due:          'PAST_DUE',
+    active:             'ACTIVE',
+    // LeadCRM does not configure trial_period_days on Stripe subscriptions.
+    // A 'trialing' event is unexpected — map to NONE so production access is NOT granted.
+    trialing:           'NONE',
+    past_due:           'PAST_DUE',
     canceled:          'CANCELLED',
     incomplete:        'PAST_DUE',
     incomplete_expired: 'EXPIRED',
@@ -477,9 +522,12 @@ async function handleSubscriptionDeleted(
       where: { id: subscription.id },
       data:  { status: 'CANCELLED', cancelledAt: new Date() },
     }),
+    // Return tenant to Guest state — no subscription, no plan, sandbox only.
+    // subscriptionStatus: NONE (not CANCELLED) so the billing UI shows "no plan"
+    // rather than a confusing "cancelled" state for a re-subscribable tenant.
     prisma.tenant.update({
       where: { id: subscription.tenantId },
-      data:  { subscriptionStatus: 'CANCELLED', plan: 'FREE' },
+      data:  { subscriptionStatus: 'NONE', plan: null, status: 'SANDBOX' },
     }),
   ]);
 

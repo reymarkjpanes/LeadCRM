@@ -24,14 +24,17 @@ interface TopbarProps {
 export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): React.ReactElement {
   const { unreadCount: notificationCount } = useNotifications();
   const { currentPath } = useLayout();
-  const { tenant } = useAuth();
+  const { tenant, user } = useAuth();
   const pathname = usePathname();
   const [inboxCount, setInboxCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [settingsBreadcrumb, setSettingsBreadcrumb] = useState<{ group: string; tab: string }>({ group: 'General', tab: 'Profile Settings' });
   const notificationButtonRef = useRef<HTMLButtonElement>(null!);
 
-  const isSandbox = tenant?.environment === 'sandbox' || tenant?.environment === 'both' || process.env.NODE_ENV === 'development';
+  // isSandbox: derived from server-backed tenantStatus (SANDBOX = pre-subscription).
+  // Reads from user.tenantStatus — same source sidebar uses correctly.
+  // Never reads tenant.environment which was previously hardcoded to 'production'.
+  const isSandbox = (user as any)?.tenantStatus === 'SANDBOX';
 
   // Fetch unread email count for inbox badge
   useEffect(() => {

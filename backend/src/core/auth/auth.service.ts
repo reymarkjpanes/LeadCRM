@@ -9,6 +9,20 @@ import { sendMail, buildPasswordResetEmail, buildRegistrationOtpEmail, buildVeri
 import type { ForgotPasswordDto, ResetPasswordDto } from './auth.dto';
 import { seedSystemRoles } from '../../database/seeders/roles.seed';
 import { seedSandboxData } from '../../database/seeders/sandbox.seed';
+import { Role } from '../../shared/constants/roles';
+
+/**
+ * ROLE STATE INVARIANT (see also rbac.middleware.ts)
+ *
+ * When assigning or changing a user's role, always update BOTH:
+ *   1. User.role (string column) — drives JWT payload and super-role bypass in rbac.middleware.ts
+ *   2. UserRole junction row    — drives RolePermission lookup for non-super roles (live DB query)
+ * These two must be updated in the same Prisma $transaction.
+ *
+ * Never update one without the other. A stale User.role in the JWT retains the previous
+ * super-role bypass until the user logs out and back in (JWTs are not auto-invalidated
+ * on role change — force re-login or revoke the session if immediate effect is required).
+ */
 
 
 
@@ -303,7 +317,8 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
 
   // Create tenant + user in transaction — user starts as PENDING until email verified
   const result = await prisma.$transaction(async (tx) => {
-    // 1. Create Tenant (SANDBOX until onboarding completes)
+    // 1. Create Tenant — SANDBOX state, no subscription yet (NONE), no plan.
+    //    Tenant will be promoted to ACTIVE only after Stripe payment is confirmed via webhook.
     const tenant = await tx.tenant.create({
       data: {
         name: companyName,
@@ -311,15 +326,16 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         industry: dto.industry,
         companySize: dto.companySize,
         status: 'SANDBOX',
-        subscriptionStatus: 'TRIAL',
-        plan: 'FREE',
+        subscriptionStatus: 'NONE', // No subscription until Stripe checkout completes
+        plan: null,                  // No plan until payment — never pre-assign a plan
         onboardingStep: 0,
         onboardingCompletedAt: null,
-        trialEndsAt: new Date(Date.now() + parseInt(process.env.TRIAL_PERIOD_DAYS ?? '14', 10) * 24 * 60 * 60 * 1000),
       },
     });
 
-    // 2. Create User as PENDING (will be ACTIVE after email verification)
+    // 2. Create User as PENDING (will be ACTIVE after email verification).
+    //    Role: Restricted User — the sandbox/pre-subscription role.
+    //    Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
         tenantId: tenant.id,
@@ -327,12 +343,17 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: 'Client Admin',
+        role: Role.RESTRICTED_USER, // Sandbox role — NOT Client Admin until payment confirmed
         status: 'PENDING',
       },
     });
 
-    // 3. Create Account (organization record)
+    // 3. Set ownerUserId — immutable after registration, authoritative founding-user reference.
+    //    The Stripe webhook uses this to promote the correct user to Client Admin on payment.
+    await tx.tenant.update({
+      where: { id: tenant.id },
+      data: { ownerUserId: user.id },
+    });
     await tx.account.create({
       data: {
         tenantId: tenant.id,
@@ -370,23 +391,23 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction for the founding user so the live DB RBAC path works.
-  // The founding user is 'Client Admin' (a super role — bypasses all checks at middleware level).
-  // We link to the 'Admin' RoleDefinition which was seeded by seedSystemRoles above.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
+  // ↔ UserRole → Restricted User RoleDefinition. Both are in sync from registration.
+  // The Stripe webhook promotes this user to Client Admin by updating BOTH transactionally.
   // Tenant safety: role is looked up within the same tenant as the user — never cross-tenant.
   try {
-    const adminRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: 'Admin' },
+    const restrictedRoleDef = await prisma.roleDefinition.findFirst({
+      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
     });
-    if (adminRoleDef && adminRoleDef.tenantId === result.tenant.id) {
+    if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({
-        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id } },
+        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: restrictedRoleDef.id, tenantId: result.tenant.id } },
         update: {},
-        create: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id },
+        create: { userId: result.user.id, roleId: restrictedRoleDef.id, tenantId: result.tenant.id },
       });
     }
   } catch (err) {
-    console.error('[Auth] Failed to create UserRole for new client admin:', err instanceof Error ? err.message : err);
+    console.error('[Auth] Failed to create UserRole for new user (sandbox):', err instanceof Error ? err.message : err);
     // Non-blocking — the user can still log in via the User.role string fallback
   }
 
@@ -423,6 +444,7 @@ export async function registerGuest(dto: GuestRegisterDto) {
   const slug = 'sandbox-' + crypto.randomBytes(4).toString('hex');
 
   const result = await prisma.$transaction(async (tx) => {
+    // Tenant — SANDBOX state, no subscription yet (NONE), no plan
     const tenant = await tx.tenant.create({
       data: {
         name: dto.companyName || 'Demo Sandbox',
@@ -430,14 +452,15 @@ export async function registerGuest(dto: GuestRegisterDto) {
         industry: dto.industry,
         companySize: dto.companySize,
         status: 'SANDBOX',
-        subscriptionStatus: 'TRIAL',
-        plan: 'FREE',
+        subscriptionStatus: 'NONE', // No subscription until Stripe checkout completes
+        plan: null,                  // No plan until payment
         onboardingStep: 0,
         onboardingCompletedAt: null,
-        trialEndsAt: new Date(Date.now() + parseInt(process.env.TRIAL_PERIOD_DAYS ?? '14', 10) * 24 * 60 * 60 * 1000),
       },
     });
 
+    // Role: Restricted User — sandbox/pre-subscription role, NOT Client Admin.
+    // Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
         tenantId: tenant.id,
@@ -445,9 +468,16 @@ export async function registerGuest(dto: GuestRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: 'Client Admin', // First user in tenant is always Client Admin
-        status: 'PENDING', // Set to PENDING until email is verified
+        role: Role.RESTRICTED_USER, // Sandbox role — not Client Admin until payment confirmed
+        status: 'PENDING',
       },
+    });
+
+    // Set ownerUserId — immutable after registration, authoritative founding-user reference.
+    // The Stripe webhook uses this to promote the correct user to Client Admin on payment.
+    await tx.tenant.update({
+      where: { id: tenant.id },
+      data: { ownerUserId: user.id },
     });
 
     await tx.account.create({
@@ -484,21 +514,21 @@ export async function registerGuest(dto: GuestRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction for the guest/founding user (Client Admin — super role).
-  // Link to 'Admin' RoleDefinition seeded above. Tenant safety: same-tenant lookup only.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
+  // ↔ UserRole → Restricted User RoleDefinition. Tenant safety: same-tenant lookup only.
   try {
-    const adminRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: 'Admin' },
+    const restrictedRoleDef = await prisma.roleDefinition.findFirst({
+      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
     });
-    if (adminRoleDef && adminRoleDef.tenantId === result.tenant.id) {
+    if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({
-        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id } },
+        where: { userId_roleId_tenantId: { userId: result.user.id, roleId: restrictedRoleDef.id, tenantId: result.tenant.id } },
         update: {},
-        create: { userId: result.user.id, roleId: adminRoleDef.id, tenantId: result.tenant.id },
+        create: { userId: result.user.id, roleId: restrictedRoleDef.id, tenantId: result.tenant.id },
       });
     }
   } catch (err) {
-    console.error('[Auth] Failed to create UserRole for guest user:', err instanceof Error ? err.message : err);
+    console.error('[Auth] Failed to create UserRole for guest (sandbox):', err instanceof Error ? err.message : err);
     // Non-blocking — the user can still log in via the User.role string fallback
   }
 
