@@ -3,7 +3,7 @@ import prisma from '../../config/database.config';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TenantPlanData {
-  plan: string;             // PlanType enum value: FREE | PRO | ENTERPRISE
+  plan: string | null;      // PlanType enum value: STARTER | PRO | ENTERPRISE, or null when unsubscribed
   subscriptionStatus: string; // SubscriptionStatus enum value
   maxUsers: number | null;
   maxContacts: number | null;
@@ -75,8 +75,8 @@ async function fetchTenantPlanData(tenantId: string): Promise<TenantPlanData> {
 
   if (!tenant) {
     return {
-      plan: 'FREE',
-      subscriptionStatus: 'TRIAL',
+      plan: 'STARTER',
+      subscriptionStatus: 'NONE',
       maxUsers: null,
       maxContacts: null,
       maxDeals: null,
@@ -86,29 +86,32 @@ async function fetchTenantPlanData(tenantId: string): Promise<TenantPlanData> {
   }
 
   // Fetch feature keys from PlanFeature for the tenant's current plan
-  const planRecord = await prisma.pricingPlan.findFirst({
-    where: { planType: tenant.plan, isActive: true },
-    select: {
-      id: true,
-      features: { select: { name: true, isEnabled: true } },
-    },
-  });
+  // plan may be null for unsubscribed tenants — skip feature lookup in that case
+  const planRecord = tenant.plan
+    ? await prisma.pricingPlan.findFirst({
+        where: { planType: tenant.plan, isActive: true },
+        select: {
+          id: true,
+          features: { select: { name: true, isEnabled: true } },
+        },
+      })
+    : null;
 
   const features = planRecord?.features
-    .filter((f) => f.isEnabled)
-    .map((f) => f.name.toLowerCase().replace(/\s+/g, '_')) ?? [];
+    .filter((f: { isEnabled: boolean }) => f.isEnabled)
+    .map((f: { name: string }) => f.name.toLowerCase().replace(/\s+/g, '_')) ?? [];
 
   // Fetch additional seats from active subscription
   let additionalSeats = 0;
   const activeSubscription = await prisma.subscription.findFirst({
-    where: { tenantId, status: { in: ['ACTIVE', 'TRIAL'] } },
+    where: { tenantId, status: { in: ['ACTIVE'] } },
     select: { additionalSeats: true },
     orderBy: { createdAt: 'desc' },
   });
   additionalSeats = activeSubscription?.additionalSeats ?? 0;
 
   return {
-    plan: tenant.plan,
+    plan: tenant.plan ?? null,
     subscriptionStatus: tenant.subscriptionStatus,
     maxUsers: tenant.maxUsers,
     maxContacts: tenant.maxContacts,

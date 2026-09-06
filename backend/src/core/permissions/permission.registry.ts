@@ -5,9 +5,19 @@ import { Role } from '../../shared/constants/roles';
  * DEFAULT_ROLE_PERMISSIONS
  *
  * Maps each built-in role to its allowed permission keys.
- * - Client Admin: bypasses this entirely (handled at middleware level).
- * - System Admin: bypasses this entirely (handled at middleware level).
- * - All other roles: checked here.
+ *
+ * Lifecycle roles:
+ *   - Restricted User: used during the sandbox/guest phase (pre-subscription).
+ *     Can browse sandbox CRM data and initiate a billing checkout to upgrade.
+ *     This is the role assigned at registration — NOT Client Admin.
+ *
+ *   - Client Admin: bypasses this registry entirely (handled at middleware level via isSuperRole).
+ *     Assigned ONLY after a successful Stripe subscription payment via the webhook.
+ *
+ *   - System Admin: bypasses this registry entirely (handled at middleware level via isSuperRole).
+ *     Platform-level operator, independent of any customer subscription.
+ *
+ *   - Admin / Super User: bypass this registry via isSuperRole (existing behaviour preserved).
  *
  * Adding a new role or permission:
  *   1. Add the permission key to shared/constants/permissions.ts
@@ -15,6 +25,7 @@ import { Role } from '../../shared/constants/roles';
  *   3. Add the mapping here — zero other files change.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
+  // ── Active paid-plan roles ──────────────────────────────────────────────────
   [Role.USER]: [
     Permission.CONTACTS_VIEW,
     Permission.CONTACTS_CREATE,
@@ -34,15 +45,19 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     Permission.SETTINGS_VIEW,
   ],
 
+  // ── Sandbox / pre-subscription role (assigned at registration) ──────────────
+  // Restricted User can browse demo CRM data and access billing to subscribe.
+  // They cannot create, edit, or delete real CRM records.
+  // isSuperRole('Restricted User') === false — this IS evaluated via RolePermission.
   [Role.RESTRICTED_USER]: [
     Permission.CONTACTS_VIEW,
     Permission.DEALS_VIEW,
     Permission.ACCOUNTS_VIEW,
     Permission.BILLING_VIEW,
-    Permission.BILLING_MANAGE,  // enables billing.manage → checkout/upgrade from sandbox workspace
+    Permission.BILLING_MANAGE,  // required to initiate checkout and upgrade from sandbox
   ],
-  
-  // Legacy mappings to support existing JWT tokens before users log out
+
+  // ── Legacy mappings — support existing JWT tokens issued before UserRole rows ─
   'Sales Rep': [
     Permission.CONTACTS_VIEW,
     Permission.CONTACTS_CREATE,

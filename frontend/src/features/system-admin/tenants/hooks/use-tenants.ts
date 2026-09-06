@@ -31,8 +31,8 @@ export function useTenants({ tenants }: UseTenantsOptions) {
       const matchesStatus =
         statusFilter === 'all' || normalizedStatus === statusFilter;
 
-      const rawTenantPlan = String((t as any).plan || 'FREE').toLowerCase();
-      const tenantPlan = rawTenantPlan === 'free' ? 'basic' : rawTenantPlan;
+      const rawTenantPlan = String((t as any).plan || 'STARTER').toLowerCase();
+      const tenantPlan = rawTenantPlan === 'starter' ? 'starter' : rawTenantPlan;
       const matchesPlan =
         planFilter === 'all' || tenantPlan === planFilter.toLowerCase();
 

@@ -646,7 +646,7 @@ function AddClientModal({ isOpen, onClose, onCreated }: AddClientModalProps): Re
         name: formData.companyName,
         industry: formData.industry,
         companySize: formData.companySize,
-        plan: formData.plan as 'FREE' | 'PRO' | 'ENTERPRISE',
+        plan: formData.plan as 'STARTER' | 'PRO' | 'ENTERPRISE',
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.adminEmail,

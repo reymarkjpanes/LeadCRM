@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { getTenantPlanData } from '../../shared/utils/plan-cache';
+import { Role } from '../../shared/constants/roles';
 
 // ─── Whitelisted Paths ────────────────────────────────────────────────────────
 // These paths are always accessible regardless of subscription status.
@@ -16,51 +17,54 @@ const WHITELISTED_PATH_PREFIXES = [
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 // Statuses that allow full access
-const FULL_ACCESS_STATUSES = new Set(['ACTIVE', 'TRIAL']);
+// NOTE: 'TRIAL' is intentionally excluded — LeadCRM has no trial period.
+// New tenants start as NONE (sandbox). Production access requires ACTIVE.
+const FULL_ACCESS_STATUSES = new Set(['ACTIVE']);
 
-// Statuses that allow reads but block writes (soft restriction)
+// Statuses that allow reads but block writes (grace period)
 const READ_ONLY_WRITES_STATUSES = new Set(['PAST_DUE']);
-
-// Statuses that block ALL mutations including edits (hard restriction)
-// CANCELLED, EXPIRED — full read-only mode
-// const FULL_READ_ONLY_STATUSES covers everything else
 
 // ─── subscriptionGate Middleware ──────────────────────────────────────────────
 
 /**
- * subscriptionGate — Middleware that restricts access based on tenant subscription status.
+ * subscriptionGate — Restricts CRM API access based on tenant subscription status.
  *
- * Access levels:
- *   ACTIVE / TRIAL     → Full access (no restrictions)
- *   PAST_DUE           → Read-only for business data (GET passes, POST/PUT/PATCH/DELETE blocked)
- *   CANCELLED / EXPIRED → All mutations blocked (full read-only mode)
+ * Access policy:
+ *   ACTIVE             → Full access
+ *   NONE               → Sandbox read-only (GET passes; mutations blocked with 403)
+ *   PAST_DUE           → Reads pass; mutations blocked with 402
+ *   CANCELLED / EXPIRED → Reads pass; mutations blocked with 402
  *
+ * System Admin (role === 'System Admin') bypasses this gate entirely.
  * Whitelisted paths always pass (billing, auth, preferences).
- * Returns 402 Payment Required when blocked.
  *
- * Placement in middleware chain:
- *   authMiddleware → tenantMiddleware → subscriptionGate → authorize → planGate → controller
+ * ╔══════════════════════════════════════════════════════════════════╗
+ * ║  IMPORTANT: The sandbox/NONE check (403 SUBSCRIPTION_REQUIRED)  ║
+ * ║  is the environment gate for the Guest lifecycle.                ║
+ * ║  A new user starts as Restricted User + SANDBOX/NONE.           ║
+ * ║  They must subscribe via Stripe before mutations are allowed.    ║
+ * ╚══════════════════════════════════════════════════════════════════╝
+ *
+ * Placement: authMiddleware → tenantMiddleware → subscriptionGate → authorize → planGate → controller
  */
 export function subscriptionGate(
   req: Request,
   res: Response,
   next: NextFunction,
 ): void {
-  // Skip if no authenticated user (let auth middleware handle it)
-  if (!req.user?.tenantId) {
-    return next();
-  }
+  // Skip if no authenticated user
+  if (!req.user?.tenantId) return next();
 
-  // Check if path is whitelisted
+  // System Admin bypasses subscription gate — platform operator, not a customer
+  if (req.user.role === Role.SYSTEM_ADMIN) return next();
+
+  // Whitelisted paths always pass
   const requestPath = req.originalUrl || req.path;
   const isWhitelisted = WHITELISTED_PATH_PREFIXES.some((prefix) =>
     requestPath.startsWith(prefix),
   );
-  if (isWhitelisted) {
-    return next();
-  }
+  if (isWhitelisted) return next();
 
-  // Check subscription status asynchronously
   checkSubscriptionAccess(req, res, next);
 }
 
@@ -73,18 +77,29 @@ async function checkSubscriptionAccess(
     const planData = await getTenantPlanData(req.user!.tenantId);
     const status = planData.subscriptionStatus;
 
-    // Full access statuses — no restrictions
-    if (FULL_ACCESS_STATUSES.has(status)) {
-      return next();
-    }
+    // Full access — active paid subscription
+    if (FULL_ACCESS_STATUSES.has(status)) return next();
 
-    // Read-only methods always pass (regardless of status)
+    // Read-only methods always pass regardless of subscription state
     const isReadMethod = READ_METHODS.has(req.method.toUpperCase());
-    if (isReadMethod) {
-      return next();
+    if (isReadMethod) return next();
+
+    // NONE — sandbox/pre-subscription state. Reads allowed (above), mutations blocked.
+    // This is the Guest lifecycle gate: subscribe to unlock mutations.
+    if (status === 'NONE' || !status) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'SUBSCRIPTION_REQUIRED',
+          message: "You're exploring LeadCRM Sandbox. Choose a plan to unlock full CRM access.",
+          subscriptionStatus: status ?? 'NONE',
+          billingUrl: '/billing/client',
+        },
+      });
+      return;
     }
 
-    // PAST_DUE: block writes (creates, edits, deletes on business data)
+    // PAST_DUE — grace period: reads pass (handled above), mutations blocked
     if (READ_ONLY_WRITES_STATUSES.has(status)) {
       res.status(402).json({
         success: false,
@@ -98,7 +113,7 @@ async function checkSubscriptionAccess(
       return;
     }
 
-    // CANCELLED / EXPIRED: block ALL mutations (full read-only)
+    // CANCELLED / EXPIRED and any other non-ACTIVE state — block mutations
     res.status(402).json({
       success: false,
       error: {
@@ -108,7 +123,7 @@ async function checkSubscriptionAccess(
         billingUrl: '/billing/client',
       },
     });
-  } catch (err) {
+  } catch {
     // On cache/DB errors, fail open — don't block the user
     next();
   }

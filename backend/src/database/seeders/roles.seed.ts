@@ -47,6 +47,15 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
 
   const systemRoles = [
     {
+      // Lifecycle role: assigned at registration (sandbox/pre-subscription state).
+      // Promoted to Client Admin only after successful Stripe payment via webhook.
+      // No RolePermission rows — bypasses checks via isSuperRole() after promotion.
+      name: Role.CLIENT_ADMIN,
+      description: 'Full tenant ownership. Manages users, roles, billing, and all CRM data. Assigned after successful subscription.',
+      isSystemRole: true,
+      permissions: null, // Client Admin bypasses all RolePermission checks via isSuperRole()
+    },
+    {
       name: Role.ADMIN,
       description: 'Full administrative access to all features and settings within the tenant.',
       isSystemRole: true,
@@ -65,8 +74,11 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       permissions: USER_PERMISSIONS,
     },
     {
+      // Lifecycle role: used during the sandbox/guest phase (pre-subscription).
+      // This is the role assigned at registration — NOT Client Admin.
+      // Can browse demo CRM data and access billing to upgrade.
       name: Role.RESTRICTED_USER,
-      description: 'Limited access, typically view-only or restricted to specific assigned records.',
+      description: 'Sandbox/pre-subscription access. Can view demo CRM data and initiate a plan subscription.',
       isSystemRole: true,
       permissions: RESTRICTED_USER_PERMISSIONS,
     },

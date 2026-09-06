@@ -1,4 +1,4 @@
-export type PlanType = 'FREE' | 'PRO' | 'ENTERPRISE';
+export type PlanType = 'STARTER' | 'PRO' | 'ENTERPRISE';
 export type PaymentStatus = 'PAID' | 'PENDING' | 'FAILED' | 'REFUNDED';
 export type BillingCycle = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 

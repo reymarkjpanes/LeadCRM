@@ -1,17 +1,15 @@
-import nodemailer from 'nodemailer';
-import { AppError } from '../errors/app-error';
-import { getSystemAccessToken, sendEmailWithToken } from '../../integrations/gmail/gmail.service';
-import { Resend } from 'resend';
+﻿import { AppError } from '../errors/app-error';
 
 /**
- * Email service — multi-transport with fallback chain:
- *   1. Gmail OAuth2 (if GMAIL_SYSTEM_SENDER_USER_ID is set — HTTP API, works on Render free tier)
- *   2. SMTP / Nodemailer (if SMTP_HOST + SMTP_USER + SMTP_PASS are set — blocked on Render free tier, works locally)
- *   3. Resend HTTP API (if RESEND_API_KEY is set — works on Render free tier)
- *   4. Console log (development only — never in production)
+ * Email service — Brevo HTTP API transport.
+ *   Uses Brevo transactional email API over HTTPS :443.
+ *   No SMTP ports required — fully compatible with Render Free tier.
+ *   Falls back to console log in development when not configured.
  *
- * At least one transport must be configured for production deployments.
- * For Render free tier: configure Gmail OAuth2 (Transport 1) or Resend (Transport 3).
+ * Required env vars (set on Render):
+ *   BREVO_API_KEY      — starts with xkeysib-
+ *   BREVO_FROM_EMAIL   — verified sender email in your Brevo account
+ *   BREVO_FROM_NAME    — display name (optional, defaults to LeadCRM)
  */
 
 export interface SendMailOptions {
@@ -20,131 +18,103 @@ export interface SendMailOptions {
   html: string;
 }
 
-/**
- * Returns true when a system Gmail sender account is configured.
- */
-function isGmailConfigured(): boolean {
-  return !!process.env.GMAIL_SYSTEM_SENDER_USER_ID;
+/** Masks an email address for safe logging. */
+function maskEmail(email: string): string {
+  const parts = email.split('@');
+  const local  = parts[0] ?? '';
+  const domain = parts[1] ?? '***.***';
+  if (!local) return '***@***.***';
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+/** Returns sandbox allowlist from BREVO_SANDBOX_EMAILS, or null when unset. */
+function getSandboxAllowlist(): Set<string> | null {
+  const raw = process.env.BREVO_SANDBOX_EMAILS;
+  if (!raw || raw.trim() === '') return null;
+  const allowed = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return allowed.length > 0 ? new Set(allowed) : null;
+}
+
+/** Returns true when a valid Brevo API key is configured. */
+function isBrevoConfigured(): boolean {
+  const key = process.env.BREVO_API_KEY;
+  return !!key && key.startsWith('xkeysib-') && key.trim().length > 20;
 }
 
 /**
- * Returns true when SMTP credentials are configured.
- * Note: SMTP is blocked on Render free tier (ports 25/465/587 are blocked).
- * Use this transport for local development or paid hosting.
- */
-function isSmtpConfigured(): boolean {
-  return !!process.env.SMTP_HOST && !!process.env.SMTP_USER && !!process.env.SMTP_PASS;
-}
-
-/**
- * Returns true when Resend API is configured.
- */
-function isResendConfigured(): boolean {
-  const key = process.env.RESEND_API_KEY;
-  return !!key && !key.startsWith('re_your');
-}
-
-/**
- * Sends an email using the configured transport (Gmail → Resend → console fallback).
+ * Sends a transactional email via Brevo HTTP API (HTTPS :443).
+ * Works on Render Free tier — no SMTP ports required.
  */
 export async function sendMail(options: SendMailOptions): Promise<void> {
-  // ── 1. Try Gmail OAuth2 ─────────────────────────────────────────────
-  if (isGmailConfigured()) {
-    try {
-      const accessToken = await getSystemAccessToken();
-      if (accessToken) {
-        await sendEmailWithToken(accessToken, options.to, options.subject, options.html);
-        // eslint-disable-next-line no-console
-        console.info(`[EmailService] ✓ Sent via Gmail OAuth2 to ${options.to}`);
-        return;
-      }
-      // accessToken null — warnings already logged in getSystemAccessToken()
+  // ── Sandbox allowlist guard (dev/staging only — NEVER active in production) ──
+  if (process.env.NODE_ENV !== 'production') {
+    const allowlist = getSandboxAllowlist();
+    if (allowlist !== null && !allowlist.has(options.to.toLowerCase())) {
       // eslint-disable-next-line no-console
-      console.warn('[EmailService] Gmail OAuth2 token unavailable — falling through to next transport');
-    } catch (err: unknown) {
-      if (err instanceof AppError) throw err;
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      // eslint-disable-next-line no-console
-      console.error('[EmailService] Gmail OAuth2 send failed, trying next transport:', message);
+      console.log(
+        `[EmailService] [SANDBOX] Blocked -> recipient=${maskEmail(options.to)} | subject="${options.subject}" | reason=not in BREVO_SANDBOX_EMAILS`,
+      );
+      return;
     }
   }
 
-  // ── 2. Try SMTP / Nodemailer ────────────────────────────────────────
-  // Works on localhost and paid hosting. Blocked on Render free tier.
-  // connectionTimeout + greetingTimeout set to 5 s so Render's port block
-  // fails fast instead of waiting the full TCP timeout (~2 minutes).
-  if (isSmtpConfigured()) {
+  // ── 1. Brevo HTTP API ───────────────────────────────────────────────────────
+  if (isBrevoConfigured()) {
     try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-        secure: process.env.SMTP_PORT === '465',
-        connectionTimeout: 5_000,   // fail in 5 s if port is blocked
-        greetingTimeout:   5_000,
-        socketTimeout:     5_000,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
+      const fromEmail = process.env.BREVO_FROM_EMAIL || 'reymarkjpanes@gmail.com';
+      const fromName  = process.env.BREVO_FROM_NAME  || 'LeadCRM';
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept':       'application/json',
+          'api-key':      process.env.BREVO_API_KEY!,
+          'content-type': 'application/json',
         },
+        body: JSON.stringify({
+          sender:      { name: fromName, email: fromEmail },
+          to:          [{ email: options.to }],
+          subject:     options.subject,
+          htmlContent: options.html,
+        }),
       });
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM ?? `LeadCRM <${process.env.SMTP_USER}>`,
-        to: options.to,
-        subject: options.subject,
-        html: options.html,
-      });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Brevo API ${response.status}: ${errorBody}`);
+      }
+      const result = await response.json() as { messageId?: string };
+      const messageId = result.messageId ?? 'unknown';
       // eslint-disable-next-line no-console
-      console.info(`[EmailService] ✓ Sent via SMTP to ${options.to}`);
+      console.info(
+        `[EmailService] Sent via Brevo | recipient=${maskEmail(options.to)} | messageId=${messageId} | subject="${options.subject}"`,
+      );
       return;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       // eslint-disable-next-line no-console
-      console.error('[EmailService] SMTP send failed (likely blocked on Render free tier), trying Resend fallback:', message);
-    }
-  }
-
-  // ── 3. Try Resend HTTP API ──────────────────────────────────────────
-  if (isResendConfigured()) {
-    try {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const from = process.env.RESEND_FROM || 'LeadCRM <onboarding@resend.dev>';
-      await resend.emails.send({
-        from,
-        to: options.to,
-        subject: options.subject,
-        html: options.html,
-      });
-      // eslint-disable-next-line no-console
-      console.info(`[EmailService] ✓ Sent via Resend to ${options.to}`);
-      return;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      // eslint-disable-next-line no-console
-      console.error('[EmailService] Resend send failed:', message);
+      console.error(
+        `[EmailService] Brevo send failed | recipient=${maskEmail(options.to)} | subject="${options.subject}" | error=${message}`,
+      );
       if (process.env.NODE_ENV === 'production') {
-        throw new AppError(`Failed to send email via Resend: ${message}`, 502);
+        throw new AppError('Email delivery failed. Please try again later.', 502);
       }
     }
   }
 
-  // ── 4. Development fallback — log to console ────────────────────────
+  // ── 2. Development fallback ─────────────────────────────────────────────────
   if (process.env.NODE_ENV !== 'production') {
     // eslint-disable-next-line no-console
-    console.log(`\n[DEV] Email would be sent to: ${options.to}`);
-    // eslint-disable-next-line no-console
-    console.log(`[DEV] Subject: ${options.subject}`);
-    // eslint-disable-next-line no-console
-    console.log('');
+    console.log(
+        `\n[EmailService] [DEV FALLBACK] Email not sent (Brevo not configured)\n  To:      ${options.to}\n  Subject: ${options.subject}\n`,
+    );
     return;
   }
 
-  // ── 5. Production with no transport configured — error ──────────────
+  // ── 3. Production — no transport configured ─────────────────────────────────
   throw new AppError(
-    'Email service is not configured. Set GMAIL_SYSTEM_SENDER_USER_ID, SMTP_HOST/USER/PASS, or RESEND_API_KEY in your environment.',
+    'Email service is not configured. Set BREVO_API_KEY in your Render environment variables.',
     503,
   );
 }
-
 // ─── Shared email layout helpers ──────────────────────────────────────────────
 
 /**

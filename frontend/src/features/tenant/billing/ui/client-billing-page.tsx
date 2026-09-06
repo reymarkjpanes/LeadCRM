@@ -96,11 +96,11 @@ export default function ClientBillingPage() {
       setCheckoutLoading(true);
 
       // Determine if this is an upgrade, downgrade, or fresh checkout
-      const PLAN_TIER: Record<string, number> = { FREE: 0, PRO: 1, ENTERPRISE: 2 };
-      const currentPlanType = subscription?.plan?.planType ?? 'FREE';
+      const PLAN_TIER: Record<string, number> = { STARTER: 0, PRO: 1, ENTERPRISE: 2 };
+      const currentPlanType = subscription?.plan?.planType ?? 'STARTER';
       const targetPlan = plans.find((p) => p.id === planId);
       const currentTier = PLAN_TIER[currentPlanType] ?? 0;
-      const targetTier = PLAN_TIER[targetPlan?.planType ?? 'FREE'] ?? 0;
+      const targetTier = PLAN_TIER[targetPlan?.planType ?? 'STARTER'] ?? 0;
 
       if (!subscription) {
         // No subscription — use checkout flow
@@ -231,8 +231,8 @@ export default function ClientBillingPage() {
 
   // ─── Derived values ─────────────────────────────────────────────────────────
 
-  const planName = subscription?.plan.name ?? 'Free';
-  const statusBadge = subscription ? getStatusBadge(subscription.status) : getStatusBadge('FREE');
+  const planName = subscription?.plan.name ?? 'No active plan';
+  const statusBadge = subscription ? getStatusBadge(subscription.status) : getStatusBadge('NONE');
   const isCancelled = !!subscription?.cancelledAt;
   const isActive = subscription?.status === 'ACTIVE' || subscription?.status === 'TRIAL';
 
@@ -313,7 +313,7 @@ export default function ClientBillingPage() {
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">Current Plan</h3>
                   <span className={`px-3 py-1 text-xs font-bold rounded-full border ${statusBadge.className}`}>
-                    {subscription ? statusBadge.text : 'Free'}
+                    {subscription ? statusBadge.text : 'No plan'}
                   </span>
                 </div>
 

@@ -54,6 +54,66 @@ export async function repairRolePermissions(): Promise<void> {
   }
 }
 
+/**
+ * repairClientAdminRoleDefinitions
+ *
+ * Ensures every tenant has a 'Client Admin' RoleDefinition (isSystemRole: true, no permissions).
+ * This was added to seedSystemRoles() after initial deployment, so older tenants need it backfilled.
+ * Client Admin is a super-role bypass — it has no RolePermission rows; bypass is in rbac.middleware.ts.
+ *
+ * Also re-points any UserRole junction row that points to an 'Admin' RoleDefinition
+ * for a user whose User.role = 'Client Admin', switching it to the 'Client Admin' RoleDefinition.
+ * This aligns the data with the Role State Invariant.
+ */
+export async function repairClientAdminRoleDefinitions(): Promise<void> {
+  console.log('[Repair] Backfilling Client Admin RoleDefinitions for all tenants...');
+
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  let created = 0;
+
+  for (const tenant of tenants) {
+    await prisma.roleDefinition.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: 'Client Admin' } },
+      update: { isSystemRole: true },
+      create: {
+        tenantId:     tenant.id,
+        name:         'Client Admin',
+        description:  'Full tenant ownership. Manages users, roles, billing, and all CRM data. Assigned after successful subscription.',
+        isSystemRole: true,
+      },
+    });
+    created++;
+  }
+
+  console.log(`[Repair] Client Admin RoleDefinition ensured for ${created} tenant(s).`);
+
+  // Re-point UserRole junctions: users with User.role='Client Admin' should link
+  // to the 'Client Admin' RoleDefinition, not 'Admin'.
+  const clientAdminUsers = await prisma.user.findMany({
+    where: { role: 'Client Admin' },
+    select: { id: true, tenantId: true },
+  });
+
+  let repointed = 0;
+  for (const user of clientAdminUsers) {
+    const clientAdminDef = await prisma.roleDefinition.findFirst({
+      where: { tenantId: user.tenantId, name: 'Client Admin' },
+    });
+    if (!clientAdminDef) continue;
+
+    // Remove any existing UserRole rows for this user (may point to 'Admin')
+    await prisma.userRole.deleteMany({ where: { userId: user.id, tenantId: user.tenantId } });
+
+    // Create the correct UserRole → Client Admin RoleDefinition
+    await prisma.userRole.create({
+      data: { userId: user.id, roleId: clientAdminDef.id, tenantId: user.tenantId },
+    });
+    repointed++;
+  }
+
+  console.log(`[Repair] Re-pointed UserRole for ${repointed} Client Admin user(s).`);
+}
+
 export async function backfillUserRoles(): Promise<void> {
   console.log('[Repair] Backfilling missing UserRole junction rows...');
 
@@ -116,6 +176,7 @@ export async function backfillUserRoles(): Promise<void> {
  */
 export async function runRepairs(): Promise<void> {
   await repairRolePermissions();
+  await repairClientAdminRoleDefinitions();
   await backfillUserRoles();
   console.log('[Repair] Complete.');
 }

@@ -121,7 +121,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const apiUser = res.data.user as unknown as User;
           setUser(apiUser);
           if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-            setTenant({ id: apiUser.tenantId, name: '', status: 'active', environment: 'production' } as any);
+            const tenantStatus = (apiUser as any).tenantStatus as string | null;
+            setTenant({
+              id:                 apiUser.tenantId,
+              name:               (apiUser as any).tenantName ?? '',
+              status:             tenantStatus ?? 'active',
+              // Derive environment from server-backed tenantStatus — never hardcode.
+              // SANDBOX = pre-subscription (Guest). ACTIVE = paid subscription confirmed.
+              environment:        tenantStatus === 'SANDBOX' ? 'sandbox' : 'production',
+              subscriptionStatus: (apiUser as any).subscriptionStatus as string | null,
+              plan:               (apiUser as any).plan as string | null,
+            } as any);
           }
           // Fetch effective permissions non-blocking — failure doesn't break auth
           if (apiUser.id) {
@@ -220,7 +230,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id]);
 
   // ── userCan — permission guard helper ─────────────────────────────
-  // Super roles always return true. Falls back to false when not loaded.
+  // Super roles bypass RolePermission evaluation.
+  // NOTE: Client Admin is a super role for RBAC (bypasses permission checks) but
+  // is NOT exempt from the subscription gate — a Client Admin on a SANDBOX/NONE
+  // tenant is still a sandbox user until Stripe payment is confirmed.
   const SUPER_ROLE_NAMES = ['Admin', 'Super User', 'Client Admin', 'System Admin'];
   const userCan = useCallback((module: string, action: PermissionAction): boolean => {
     if (!user) return false;
@@ -249,7 +262,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const apiUser = res.data.user as unknown as User;
         setUser(apiUser);
         if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          setTenant({ id: apiUser.tenantId, name: '', status: 'active', environment: 'production' } as any);
+          const tenantStatus = (apiUser as any).tenantStatus as string | null;
+          setTenant({ id: apiUser.tenantId, name: (apiUser as any).tenantName ?? '', status: tenantStatus ?? 'active', environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production', subscriptionStatus: (apiUser as any).subscriptionStatus as string | null, plan: (apiUser as any).plan as string | null } as any);
         }
         setAuthError(null);
       }
@@ -288,7 +302,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setUser(apiUser);
         if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          setTenant({ id: apiUser.tenantId, name: '', status: 'active', environment: 'production' } as any);
+          const tenantStatus = (apiUser as any).tenantStatus as string | null;
+          setTenant({ id: apiUser.tenantId, name: (apiUser as any).tenantName ?? '', status: tenantStatus ?? 'active', environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production', subscriptionStatus: (apiUser as any).subscriptionStatus as string | null, plan: (apiUser as any).plan as string | null } as any);
         }
         setAuthError(null);
         return true;

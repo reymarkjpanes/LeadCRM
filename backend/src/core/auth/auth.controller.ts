@@ -804,13 +804,16 @@ export async function completeOnboarding(req: Request, res: Response, next: Next
     const tenantId = req.user!.tenantId;
     const userId = req.user!.userId;
 
-    // Set onboarding complete + activate tenant
+    // Set onboarding complete — do NOT promote tenant to ACTIVE here.
+    // Tenant.status = ACTIVE is set exclusively by the Stripe webhook
+    // (checkout.session.completed) after a successful subscription payment.
+    // Onboarding is a workspace setup step, not a subscription activation step.
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
       data: {
         onboardingCompletedAt: new Date(),
         onboardingStep: 3,
-        status: 'ACTIVE',
+        // status intentionally NOT set here — remains SANDBOX until Stripe payment confirmed
       },
     });
 
