@@ -72,8 +72,8 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
     try {
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-        secure: process.env.SMTP_PORT === '465',
+        port: parseInt(process.env.SMTP_PORT ?? '465', 10),
+        secure: (process.env.SMTP_PORT ?? '465') === '465',
         connectionTimeout: 5_000,
         greetingTimeout:   5_000,
         socketTimeout:     5_000,
