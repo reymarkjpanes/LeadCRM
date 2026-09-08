@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -24,8 +24,8 @@ const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/
  */
 export function isSandboxUser(user: { role?: string; tenantStatus?: string | null; subscriptionStatus?: string | null } | null): boolean {
   if (!user) return false;
-  const tenantStatus      = (user as any).tenantStatus;
-  const subscriptionStatus = (user as any).subscriptionStatus;
+  const tenantStatus      = user.tenantStatus;
+  const subscriptionStatus = user.subscriptionStatus;
   return tenantStatus === 'SANDBOX' && (!subscriptionStatus || subscriptionStatus === 'NONE');
 }
 

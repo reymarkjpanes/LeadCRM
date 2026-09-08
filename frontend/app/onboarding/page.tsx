@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/store/AuthContext';
@@ -11,7 +11,7 @@ const OnboardingPage = dynamic(
   { ssr: false },
 );
 
-export default function OnboardingRoute() {
+export default function OnboardingRoute(): React.ReactElement {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 

@@ -147,7 +147,7 @@ export default function CompanySetupPage({ onNavigate }: CompanySetupPageProps):
           {setupComplete ? (
             <SetupCompleteCard
               companyName={completedCompanyName}
-              onViewPlans={() => onNavigate('billing')}
+              onViewPlans={() => { void onNavigate('billing'); }}
             />
           ) : (
             <div className="space-y-6">

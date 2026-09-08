@@ -50,8 +50,10 @@ export default function OnboardingPage({ onNavigate }: OnboardingPageProps): Rea
         if (response?.data) {
           const { step, completedAt, tenant } = response.data;
 
-          // Already completed — show the success card (handles page refresh after setup)
+          // Already completed — show the success card (handles page refresh after setup).
+          // Also populate companyName so the card shows the name after a page refresh.
           if (completedAt) {
+            if (tenant.name) setCompanyName(tenant.name);
             setSetupComplete(true);
             setIsLoading(false);
             return;
