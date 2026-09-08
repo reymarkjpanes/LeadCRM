@@ -17,3 +17,20 @@ export const CreateTenantSchema = z.object({
 });
 
 export type CreateTenantDto = z.infer<typeof CreateTenantSchema>;
+
+// ─── PATCH /admin/tenants/:id/activate-subscription ──────────────────────────
+
+/**
+ * ActivateSubscriptionSchema
+ *
+ * Used by the System Admin dev bypass endpoint.
+ * Requires ADMIN_BILLING_BYPASS_ENABLED=true in environment.
+ * Only valid for SANDBOX tenants — ACTIVE/SUSPENDED tenants are rejected.
+ */
+export const ActivateSubscriptionSchema = z.object({
+  planType: z.enum(['STARTER', 'PRO', 'ENTERPRISE'], {
+    errorMap: () => ({ message: 'planType must be STARTER, PRO, or ENTERPRISE' }),
+  }),
+});
+
+export type ActivateSubscriptionDto = z.infer<typeof ActivateSubscriptionSchema>;

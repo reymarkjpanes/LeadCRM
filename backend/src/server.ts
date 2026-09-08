@@ -4,6 +4,7 @@ import { startCampaignScheduler } from './core/scheduler/campaign-scheduler.serv
 import { purgeExpiredSessions } from './core/auth/session.service';
 import { startTrialExpirationJob } from './jobs/trial-expiration.job';
 import { startPendingDowngradeJob } from './jobs/pending-downgrade.job';
+import { checkStripeReadiness } from './config/stripe-readiness';
 
 // Guard against missing required env vars at startup
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
@@ -70,4 +71,9 @@ app.listen(PORT, () => {
   startSessionPurgeScheduler();
   startTrialExpirationJob();
   startPendingDowngradeJob();
+
+  // Stripe readiness check — non-blocking, read-only diagnostics
+  checkStripeReadiness().catch((err: unknown) => {
+    console.warn('[Stripe] Readiness check failed:', err instanceof Error ? err.message : err);
+  });
 });
