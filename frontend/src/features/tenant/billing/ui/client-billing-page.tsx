@@ -190,8 +190,8 @@ export default function ClientBillingPage() {
     } catch (err) {
       const code = (err as { code?: string })?.code;
       if (code === 'BILLING_NOT_CONFIGURED') {
-        toast.error('Billing isn\'t set up yet', {
-          description: 'Online plan changes aren\'t available in this environment. Please contact your administrator to enable billing.',
+        toast.error('Billing configuration is incomplete', {
+          description: 'Stripe plan pricing is not yet configured. If you are an administrator, go to Admin → Billing → Sync Plans to Stripe to enable checkout.',
         });
         setShowPlanModal(false);
       } else {
