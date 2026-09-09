@@ -84,6 +84,13 @@ interface AuthContextType {
   userCan: (module: string, action: PermissionAction) => boolean;
   /** Re-fetches the current user's permissions from the API. */
   refreshPermissions: () => Promise<void>;
+  /**
+   * Re-hydrates AuthContext by calling GET /auth/me.
+   * Safe to call from any component — does not toggle the full-screen loading state.
+   * Use after a server-side change that should be reflected immediately
+   * (e.g. post-payment Stripe redirect, role promotion, plan activation).
+   */
+  restoreSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -569,7 +576,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, tenant, isLoading, authError, retryAuthInit, refreshUser, login, loginWithGoogle, logout, registerTenant, registerGuestAccount, requestPasswordReset, confirmPasswordReset, switchRole, updateProfile, switchDemoAccount, permissions, isPermissionsLoaded, userCan, refreshPermissions }}>
+    <AuthContext.Provider value={{ user, tenant, isLoading, authError, retryAuthInit, refreshUser, login, loginWithGoogle, logout, registerTenant, registerGuestAccount, requestPasswordReset, confirmPasswordReset, switchRole, updateProfile, switchDemoAccount, permissions, isPermissionsLoaded, userCan, refreshPermissions, restoreSession }}>
       {children}
     </AuthContext.Provider>
   );

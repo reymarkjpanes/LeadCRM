@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { AppError } from '../../../shared/errors/app-error';
 import * as service from './tenants.service';
+import { ActivateSubscriptionSchema } from './tenants.dto';
 
 export async function list(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -33,6 +35,34 @@ export async function create(req: Request, res: Response, next: NextFunction): P
       data: {
         tenant: result.tenant,
         adminUser: result.user,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function activateSubscription(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = ActivateSubscriptionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError(parsed.error.errors[0]?.message ?? 'Invalid input', 400);
+    }
+    const result = await service.manuallyActivateTenantSubscription(
+      String(req.params.id),
+      parsed.data.planType,
+      req.user!.userId,
+    );
+    res.json({
+      success: true,
+      data: {
+        message: `Tenant activated to ${result.planType} plan via System Admin bypass`,
+        tenantId: result.tenantId,
+        planType: result.planType,
       },
     });
   } catch (err) {

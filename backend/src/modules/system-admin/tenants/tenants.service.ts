@@ -1,7 +1,9 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import { hashPassword } from '../../../shared/helpers/crypto';
+import { AppError } from '../../../shared/errors/app-error';
 import { ConflictError, NotFoundError } from '../../../shared/errors/http-error';
+import { activateTenantSubscription } from '../../billing/subscriptions/subscription-activation.service';
 import type { CreateTenantDto } from './tenants.dto';
 
 function createSlug(name: string): string {
@@ -179,4 +181,82 @@ export async function createTenant(dto: CreateTenantDto, actorId: string) {
   });
 
   return result;
+}
+
+// ─── System Admin Dev Bypass ──────────────────────────────────────────────────
+
+/**
+ * manuallyActivateTenantSubscription
+ *
+ * Manually activates a SANDBOX tenant to a chosen plan and promotes its
+ * founding user to Client Admin — without going through Stripe.
+ *
+ * Requires: ADMIN_BILLING_BYPASS_ENABLED=true in environment.
+ * Only allowed for tenants in SANDBOX state. ACTIVE/SUSPENDED tenants are rejected.
+ * The tenant must have ownerUserId set (required for Client Admin promotion).
+ *
+ * Uses the shared activateTenantSubscription() service — identical transaction
+ * to the Stripe webhook path. activationSource='SYSTEM_ADMIN_BYPASS' in audit log
+ * distinguishes these activations from real Stripe activations.
+ */
+export async function manuallyActivateTenantSubscription(
+  tenantId: string,
+  planType: 'STARTER' | 'PRO' | 'ENTERPRISE',
+  actorId:  string,
+): Promise<{ tenantId: string; planType: string }> {
+  // 1. Environment guard — only enabled when explicitly opted in
+  if (process.env.ADMIN_BILLING_BYPASS_ENABLED !== 'true') {
+    throw new AppError(
+      'Admin billing bypass is not enabled in this environment. ' +
+      'Set ADMIN_BILLING_BYPASS_ENABLED=true in backend/.env to use this endpoint.',
+      403,
+    );
+  }
+
+  // 2. Validate tenant exists
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new NotFoundError('Tenant');
+
+  // 3. Validate allowed state transition: SANDBOX → ACTIVE only
+  if (tenant.status === 'ACTIVE') {
+    throw new AppError('Tenant is already active', 400);
+  }
+  if (tenant.status === 'SUSPENDED') {
+    throw new AppError('Cannot activate a suspended tenant via bypass — contact support', 400);
+  }
+  if (tenant.status !== 'SANDBOX') {
+    throw new AppError(`Tenant is not in SANDBOX state (current: ${tenant.status})`, 400);
+  }
+
+  // 4. Validate ownerUserId is set — required for Client Admin promotion
+  if (!tenant.ownerUserId) {
+    throw new AppError(
+      'Tenant has no owner assigned (ownerUserId is null) — cannot promote to Client Admin',
+      400,
+    );
+  }
+
+  // 5. Validate plan exists and is active
+  const plan = await prisma.pricingPlan.findFirst({
+    where: { planType, isActive: true },
+  });
+  if (!plan) throw new NotFoundError('Pricing plan');
+
+  // 6. Activate via shared service — same atomic transaction as Stripe webhook
+  //    periodEnd: 1 year from now as a nominal billing period for bypass activations
+  const periodEnd = new Date();
+  periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
+  await activateTenantSubscription({
+    tenantId,
+    planId:                  plan.id,
+    billingCycle:            'MONTHLY',
+    periodEnd,
+    stripeSubscriptionId:    null,
+    stripeCheckoutSessionId: null,
+    activationSource:        'SYSTEM_ADMIN_BYPASS',
+    actorId,
+  });
+
+  return { tenantId, planType };
 }

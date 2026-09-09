@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
@@ -14,7 +14,7 @@ const CompanySetupPage = dynamic(
   { ssr: false },
 );
 
-export default function CompanySetupRoute() {
+export default function CompanySetupRoute(): React.ReactElement {
   const { user, isLoading } = useAuth();
   const { data: nextAuthSession, update: updateSession } = useSession();
   const router = useRouter();
@@ -25,14 +25,19 @@ export default function CompanySetupRoute() {
     if (!user && !nextAuthSession) {
       router.replace('/login');
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, nextAuthSession, router]);
 
   if (isLoading || (!user && !nextAuthSession)) return <AuthLoadingScreen />;
 
-  const handleNavigate = async (path: string) => {
+  const handleNavigate = async (path: string): Promise<void> => {
+    if (path === 'billing') {
+      // Company setup complete — guide user to plan selection
+      router.push('/billing/client');
+      return;
+    }
+
     if (path === 'dashboard') {
-      // Company setup complete — clear localStorage flags so the user never
-      // sees the onboarding or company-setup screens again on subsequent logins.
+      // Fallback: clear localStorage flags so setup screens don't reappear
       if (typeof window !== 'undefined') {
         localStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
         localStorage.removeItem(NEEDS_COMPANY_SETUP_KEY);
@@ -41,9 +46,11 @@ export default function CompanySetupRoute() {
       // Without this, AuthGuard will see requiresProfileCompletion=true on the
       // next /dashboard visit and redirect back to /onboarding (infinite loop).
       await updateSession({ requiresProfileCompletion: false });
-      return router.push('/dashboard');
+      router.push('/dashboard');
+      return;
     }
-    return router.push(PATH_TO_PATHNAME[path] ?? '/dashboard');
+
+    router.push(PATH_TO_PATHNAME[path] ?? '/dashboard');
   };
 
   return <CompanySetupPage onNavigate={handleNavigate} />;

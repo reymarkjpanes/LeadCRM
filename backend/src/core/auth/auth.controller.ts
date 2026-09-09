@@ -653,9 +653,11 @@ export async function completeOAuthProfile(req: Request, res: Response, next: Ne
       return;
     }
 
-    const { companyName, industry, companySize, country } = parsed.data;
-    // tenantId comes from the verified JWT — never trust the request body
+    // country is accepted by the DTO schema for future use but not yet persisted
+    // (Tenant model has no country column). tenantId/userId always from JWT — never body.
+    const { companyName, industry, companySize } = parsed.data;
     const tenantId = req.user!.tenantId;
+    const userId   = req.user!.userId;
 
     const tenant = await prisma.tenant.findFirst({ where: { id: tenantId } });
     if (!tenant) {
@@ -663,22 +665,48 @@ export async function completeOAuthProfile(req: Request, res: Response, next: Ne
       return;
     }
 
+    // Update company details and mark workspace setup as complete.
+    // status intentionally NOT set here — remains SANDBOX until the Stripe
+    // checkout.session.completed webhook fires and calls activateTenantSubscription().
+    // onboardingCompletedAt = workspace setup done. NOT subscription activation.
     await prisma.tenant.update({
       where: { id: tenantId },
       data:  {
-        name:        companyName,
+        name:                  companyName,
         industry,
         companySize,
+        onboardingCompletedAt: new Date(),
+        onboardingStep:        3,
       },
     });
 
+    // Fetch user for welcome email — select only what's needed, no sensitive fields
+    const user = await prisma.user.findFirst({
+      where:  { id: userId },
+      select: { firstName: true, email: true },
+    });
+
+    // Send welcome email — non-blocking: a mail failure must never fail company setup.
+    // Matches the exact pattern used in completeOnboarding (credentials path).
+    if (user) {
+      sendMail({
+        to:      user.email,
+        subject: `Welcome to LeadCRM, ${user.firstName}!`,
+        html:    buildWelcomeEmail(user.firstName, companyName),
+      }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        // eslint-disable-next-line no-console
+        console.error('[OAuthProfile] Welcome email failed (non-blocking):', message);
+      });
+    }
+
     await writeAuditLog({
       tenantId,
-      userId:     req.user!.userId,
-      action:     'OAUTH_PROFILE_COMPLETED',
+      userId,
+      action:     'ONBOARDING_COMPLETED',
       entityType: 'Tenant',
       entityId:   tenantId,
-      metadata:   { companyName, industry },
+      metadata:   { companyName, industry, source: 'oauth_profile' },
     });
 
     res.json({ success: true });

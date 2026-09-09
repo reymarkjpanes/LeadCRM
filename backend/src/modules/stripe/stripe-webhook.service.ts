@@ -4,7 +4,7 @@ import prisma from '../../config/database.config';
 import { AppError } from '../../shared/errors/app-error';
 import { writeAuditLog } from '../../core/audit/audit.service';
 import { invalidatePlanCache } from '../../shared/utils/plan-cache';
-import { Role } from '../../shared/constants/roles';
+import { activateTenantSubscription } from '../billing/subscriptions/subscription-activation.service';
 
 // ─── Signature Verification ───────────────────────────────────────────────────
 
@@ -88,6 +88,8 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<void> {
  *
  * Fired when a customer completes Stripe Checkout.
  * This is the authoritative signal to activate a subscription.
+ * Delegates to activateTenantSubscription() — the shared domain service
+ * used by both this webhook and the System Admin dev bypass.
  * Never activate a subscription from a frontend success redirect.
  */
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
@@ -108,113 +110,24 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
     return;
   }
 
-  // Idempotency: check if already processed
-  const existingSub = await prisma.subscription.findFirst({
-    where: { stripeSubscriptionId },
-  });
-  if (existingSub) return;
-
-  // Resolve billing cycle enum
-  const bc = (billingCycle as string).toUpperCase() as 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
-  const plan = await prisma.pricingPlan.findUnique({ where: { id: planId } });
-  if (!plan) {
-    console.error('[Stripe Webhook] Plan not found for checkout.session.completed', planId);
-    return;
-  }
-
-  const amount =
-    bc === 'MONTHLY'   ? plan.monthlyPrice   :
-    bc === 'QUARTERLY' ? plan.quarterlyPrice  :
-                         plan.annualPrice;
-
-  const now = new Date();
-
-  // Retrieve subscription from Stripe to get period dates
+  // Retrieve subscription from Stripe to get period end date
   const stripe = getStripe();
   const stripeSub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
   const periodEnd = new Date((stripeSub.current_period_end ?? 0) * 1000);
 
-  await prisma.$transaction(async (tx) => {
-    // Create the Subscription record
-    const subscription = await tx.subscription.create({
-      data: {
-        tenantId,
-        planId,
-        billingCycle:           bc,
-        status:                 'ACTIVE',
-        amount,
-        startDate:              now,
-        nextBillingDate:        periodEnd,
-        stripeSubscriptionId,
-        stripeCheckoutSessionId: session.id,
-      },
-    });
+  const bc = (billingCycle as string).toUpperCase() as 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 
-    // Update tenant: promote SANDBOX→ACTIVE, set plan from Stripe
-    await tx.tenant.update({
-      where: { id: tenantId },
-      data: {
-        plan:               plan.planType,
-        subscriptionStatus: 'ACTIVE',
-        status:             'ACTIVE',
-        subscriptionEndsAt: periodEnd,
-      },
-    });
-
-    // ── Founding-user promotion (ROLE STATE INVARIANT) ──────────────────────
-    // Use Tenant.ownerUserId — the authoritative founding-user reference set at registration.
-    // Update BOTH User.role AND UserRole junction in this transaction to keep them in sync.
-    // A new user starts as Restricted User (sandbox). Payment is the only trigger for
-    // promotion to Client Admin. Never trust frontend-supplied role data for this.
-    const tenantRecord = await tx.tenant.findUnique({
-      where:  { id: tenantId },
-      select: { ownerUserId: true },
-    });
-
-    if (tenantRecord?.ownerUserId) {
-      const ownerId = tenantRecord.ownerUserId;
-
-      // 1. Update User.role string (drives JWT super-role bypass on next login)
-      await tx.user.update({
-        where: { id: ownerId },
-        data:  { role: Role.CLIENT_ADMIN },
-      });
-
-      // 2. Update UserRole junction (drives live RolePermission lookup for non-super roles)
-      const clientAdminDef = await tx.roleDefinition.findFirst({
-        where: { tenantId, name: Role.CLIENT_ADMIN },
-      });
-      if (clientAdminDef) {
-        // Remove the old Restricted User junction row
-        await tx.userRole.deleteMany({
-          where: { userId: ownerId, tenantId },
-        });
-        // Create the Client Admin junction row
-        await tx.userRole.create({
-          data: { userId: ownerId, roleId: clientAdminDef.id, tenantId },
-        });
-      }
-    }
-
-    await writeAuditLog({
-      tenantId,
-      userId:     'stripe_webhook',
-      action:     'stripe.subscription.activated',
-      entityType: 'Subscription',
-      entityId:   subscription.id,
-      metadata:   {
-        stripeSubscriptionId,
-        checkoutSessionId: session.id,
-        planType:          plan.planType,
-        billingCycle:      bc,
-        amount,
-        ownerPromoted:     !!tenantRecord?.ownerUserId,
-      },
-    });
+  // Delegate to shared activation service — idempotency guards are inside
+  await activateTenantSubscription({
+    tenantId,
+    planId,
+    billingCycle:            bc,
+    periodEnd,
+    stripeSubscriptionId,
+    stripeCheckoutSessionId: session.id,
+    activationSource:        'STRIPE_WEBHOOK',
+    actorId:                 'stripe_webhook',
   });
-
-  // Invalidate plan cache so middleware reflects new subscription immediately
-  invalidatePlanCache(tenantId);
 }
 
 /**

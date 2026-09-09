@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { CreditCard, Download, CheckCircle2, Calculator, Sparkles, TrendingUp, ExternalLink, AlertTriangle, Loader2, XCircle } from 'lucide-react';
-import { motion } from 'motion/react';
+import { CreditCard, Download, CheckCircle2, Sparkles, TrendingUp, ExternalLink, AlertTriangle, Loader2, XCircle, Check, Star } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useBillingData } from '../hooks/use-billing-data';
 import { billingService } from '../services/billing.service';
@@ -53,10 +53,14 @@ function getStatusBadge(status: string): { text: string; className: string } {
   }
 }
 
+// Retry delays for post-payment activation polling (ms).
+// Declared at module scope — never changes, no need to recreate per render.
+const ACTIVATION_RETRY_DELAYS = [0, 1000, 2000, 4000, 6000] as const;
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ClientBillingPage() {
-  const { tenant } = useAuth();
+  const { tenant, userCan, restoreSession } = useAuth();
   const { subscription, plans, seats, isLoading, error, refetch, refetchSeats } = useBillingData();
   const [activeTab, setActiveTab] = useState<'overview' | 'history' | 'payment-methods'>('overview');
 
@@ -77,17 +81,73 @@ export default function ClientBillingPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [invoicesTotal, setInvoicesTotal] = useState(0);
 
-  // Check for checkout success redirect
+  // Post-payment activation polling state
+  const [activationPending, setActivationPending] = useState(false);
+  const [activationStalled, setActivationStalled] = useState(false);
+
+  // ─── Post-payment activation polling ────────────────────────────────────────
+  // Stripe redirects back with ?session_id= after checkout.
+  // The webhook fires asynchronously — we poll /auth/me with bounded exponential
+  // backoff until tenant.status becomes ACTIVE, then clear the pending state.
+  // The frontend is READ-ONLY here — it never activates the account itself.
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
-    if (sessionId) {
-      toast.success('Subscription activated! Your plan is now active.');
-      // Clean up the URL
-      window.history.replaceState({}, '', window.location.pathname);
+    if (!sessionId) return;
+
+    // Clean the URL immediately — do not leave session_id in browser history
+    window.history.replaceState({}, '', window.location.pathname);
+
+    setActivationPending(true);
+    setActivationStalled(false);
+
+    let attempt = 0;
+    let cancelled = false;
+
+    const pollOnce = async (): Promise<void> => {
+      // Read-only — GET /auth/me and GET /billing/subscription. Never activates.
+      await restoreSession();
+      await refetch();
+    };
+
+    const scheduleNext = (): void => {
+      if (cancelled) return;
+      if (attempt >= ACTIVATION_RETRY_DELAYS.length) {
+        setActivationPending(false);
+        setActivationStalled(true);
+        return;
+      }
+      const delay = ACTIVATION_RETRY_DELAYS[attempt++];
+      setTimeout(() => {
+        if (cancelled) return;
+        pollOnce().catch(() => {
+          // Non-fatal — watcher below resolves when tenant.status updates
+        });
+        scheduleNext();
+      }, delay);
+    };
+
+    scheduleNext();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Runs once on mount — session_id detection is a one-time bootstrap
+
+  // Watch for account activation — resolves pending state when the webhook fires.
+  // Checks tenant.environment (set by AuthContext from tenantStatus) rather than
+  // tenant.status directly, because the frontend Tenant type uses lowercase status values
+  // while the backend returns uppercase ('ACTIVE'). environment is always correctly mapped.
+  useEffect(() => {
+    if (activationPending && tenant?.environment === 'production') {
+      setActivationPending(false);
+      setActivationStalled(false);
+      toast.success('Your account is now active!');
       refetch();
     }
-  }, [refetch]);
+  }, [tenant?.environment, activationPending, refetch]);
 
   // ─── Actions ────────────────────────────────────────────────────────────────
 
@@ -130,8 +190,8 @@ export default function ClientBillingPage() {
     } catch (err) {
       const code = (err as { code?: string })?.code;
       if (code === 'BILLING_NOT_CONFIGURED') {
-        toast.error('Billing isn\'t set up yet', {
-          description: 'Online plan changes aren\'t available in this environment. Please contact your administrator to enable billing.',
+        toast.error('Billing configuration is incomplete', {
+          description: 'Stripe plan pricing is not yet configured. If you are an administrator, go to Admin → Billing → Sync Plans to Stripe to enable checkout.',
         });
         setShowPlanModal(false);
       } else {
@@ -231,13 +291,56 @@ export default function ClientBillingPage() {
 
   // ─── Derived values ─────────────────────────────────────────────────────────
 
-  const planName = subscription?.plan.name ?? 'No active plan';
   const statusBadge = subscription ? getStatusBadge(subscription.status) : getStatusBadge('NONE');
   const isCancelled = !!subscription?.cancelledAt;
   const isActive = subscription?.status === 'ACTIVE' || subscription?.status === 'TRIAL';
 
   return (
     <div className="p-6 lg:p-8 space-y-8 max-w-[1200px] mx-auto">
+      {/* ─── Post-payment activation notices ─────────────────────────────── */}
+      {activationPending && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-3 px-4 py-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-xl"
+        >
+          <div
+            className="h-4 w-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0"
+            aria-hidden="true"
+          />
+          <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">
+            Finalizing your account… Please wait.
+          </p>
+        </div>
+      )}
+
+      {activationStalled && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl"
+        >
+          <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
+            Payment received. We&apos;re still confirming your subscription. Please refresh in a moment.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setActivationStalled(false);
+              setActivationPending(true);
+              restoreSession()
+                .then(() => refetch())
+                .catch(() => {
+                  setActivationPending(false);
+                  setActivationStalled(true);
+                });
+            }}
+            className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer"
+          >
+            Refresh Status
+          </button>
+        </div>
+      )}
+
       {/* PAST_DUE Warning Banner */}
       {subscription?.status === 'PAST_DUE' && (
         <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex items-start gap-3">
@@ -268,12 +371,14 @@ export default function ClientBillingPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Manage your plan, payment methods, and billing history.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowPlanModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
-          >
-            {subscription ? 'Change Plan' : 'Upgrade Plan'}
-          </button>
+          {userCan('billing', 'canCreate') && (
+            <button
+              onClick={() => setShowPlanModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
+            >
+              {subscription ? 'Change Plan' : 'Upgrade Plan'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -623,6 +728,32 @@ interface PlanSelectionModalProps {
   loading: boolean;
 }
 
+// Savings calculated from DB prices — never hardcoded
+function getQuarterlySavings(plan: PricingPlan): number {
+  if (!plan.monthlyPrice) return 0;
+  return Math.round((1 - plan.quarterlyPrice / (plan.monthlyPrice * 3)) * 100);
+}
+
+function getAnnualSavings(plan: PricingPlan): number {
+  if (!plan.monthlyPrice) return 0;
+  return Math.round((1 - plan.annualPrice / (plan.monthlyPrice * 12)) * 100);
+}
+
+function getPriceForCycle(plan: PricingPlan, cycle: BillingCycle): number {
+  switch (cycle) {
+    case 'MONTHLY':   return plan.monthlyPrice;
+    case 'QUARTERLY': return plan.quarterlyPrice;
+    case 'ANNUAL':    return plan.annualPrice;
+  }
+}
+
+// Cycle label for CTA — must match exactly, never show annual/quarterly prices as "/month"
+const CYCLE_CTA_LABELS: Record<BillingCycle, string> = {
+  MONTHLY:   '/month',
+  QUARTERLY: '/3 months',
+  ANNUAL:    '/year',
+};
+
 function PlanSelectionModal({
   plans,
   currentPlanId,
@@ -632,21 +763,36 @@ function PlanSelectionModal({
   onClose,
   loading,
 }: PlanSelectionModalProps) {
-  function getPriceForCycle(plan: PricingPlan, cycle: BillingCycle): number {
-    switch (cycle) {
-      case 'MONTHLY': return plan.monthlyPrice;
-      case 'QUARTERLY': return plan.quarterlyPrice;
-      case 'ANNUAL': return plan.annualPrice;
+  const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
+
+  const activePlan = selectedPlanId
+    ? plans.find((p) => p.id === selectedPlanId) ?? null
+    : null;
+
+  const handleSelect = (planId: string) => {
+    setSelectedPlanId(planId);
+  };
+
+  const handleConfirm = () => {
+    if (selectedPlanId) {
+      onSelect(selectedPlanId);
     }
-  }
+  };
+
+  // Compute savings for each cycle button — use first plan as representative
+  // (all plans share the same discount structure)
+  const representativePlan = plans[0];
+  const quarterlySavingsPct = representativePlan ? getQuarterlySavings(representativePlan) : 0;
+  const annualSavingsPct    = representativePlan ? getAnnualSavings(representativePlan) : 0;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      {/* Backdrop click target */}
+      {/* Backdrop */}
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
 
-      {/* Modal */}
-      <div className="relative bg-gray-50 dark:bg-slate-950 rounded-2xl border border-gray-300 dark:border-white/[0.1] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+      {/* Modal panel */}
+      <div className="relative bg-gray-50 dark:bg-slate-950 rounded-2xl border border-gray-300 dark:border-white/[0.08] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-white/[0.05] shrink-0">
           <div className="flex items-center gap-3">
@@ -655,117 +801,224 @@ function PlanSelectionModal({
             </div>
             <div>
               <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Choose a Plan</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Select a plan and billing cycle to proceed to checkout.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                Select a plan and billing cycle to proceed to checkout.
+              </p>
             </div>
           </div>
           <ModalCloseButton onClose={onClose} ariaLabel="Close plan selection modal" size={20} />
         </div>
 
         {/* Scrollable body */}
-        <div className="overflow-y-auto custom-scrollbar">
-        {/* Billing cycle toggle */}
-        <div className="px-6 pt-6">
-          <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-            {(['MONTHLY', 'QUARTERLY', 'ANNUAL'] as BillingCycle[]).map((cycle) => (
-              <button
-                key={cycle}
-                onClick={() => onCycleChange(cycle)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-                  selectedCycle === cycle
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {cycle === 'MONTHLY' ? 'Monthly' : cycle === 'QUARTERLY' ? 'Quarterly (10% off)' : 'Annual (20% off)'}
-              </button>
-            ))}
+        <div className="overflow-y-auto flex-1">
+
+          {/* Billing cycle toggle */}
+          <div className="px-6 pt-6">
+            <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl gap-1">
+              {(['MONTHLY', 'QUARTERLY', 'ANNUAL'] as BillingCycle[]).map((cycle) => {
+                const savings =
+                  cycle === 'QUARTERLY' ? quarterlySavingsPct :
+                  cycle === 'ANNUAL'    ? annualSavingsPct    : 0;
+                const isActive = selectedCycle === cycle;
+
+                return (
+                  <button
+                    key={cycle}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => onCycleChange(cycle)}
+                    className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {cycle === 'MONTHLY' ? 'Monthly' : cycle === 'QUARTERLY' ? 'Quarterly' : 'Annual'}
+                    {savings > 0 && (
+                      <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                        Save {savings}%
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Plan cards */}
-        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          {plans.map((plan) => {
-            const price = getPriceForCycle(plan, selectedCycle);
-            const isCurrent = plan.id === currentPlanId;
+          {/* Plan cards */}
+          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            {plans.map((plan) => {
+              const price      = getPriceForCycle(plan, selectedCycle);
+              const isCurrent  = plan.id === currentPlanId;
+              const isSelected = plan.id === selectedPlanId;
+              const isPopular  = plan.planType === 'PRO';
 
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-xl p-5 border transition-all ${
-                  isCurrent
-                    ? 'border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20'
-                    : 'border-gray-200 dark:border-white/[0.05] bg-white dark:bg-white/[0.02] hover:border-blue-300 dark:hover:border-blue-500/50'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-slate-900 dark:text-white">{plan.name}</h3>
-                  {isCurrent && (
-                    <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full">
-                      Current
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-end gap-1 mb-4">
-                  <span className="text-2xl font-extrabold text-slate-900 dark:text-white">
-                    {formatCurrency(price)}
-                  </span>
-                  <span className="text-slate-500 dark:text-slate-400 text-sm mb-0.5">
-                    / {getCycleLabel(selectedCycle)}
-                  </span>
-                </div>
-
-                {/* Features */}
-                <div className="space-y-2 mb-5">
-                  {plan.maxUsers && (
-                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                      Up to {plan.maxUsers} users
-                    </div>
-                  )}
-                  {plan.storageLimit && (
-                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                      {plan.storageLimit >= 1024 ? `${(plan.storageLimit / 1024).toFixed(0)}GB` : `${plan.storageLimit}MB`} storage
-                    </div>
-                  )}
-                  {plan.features.filter((f) => f.isEnabled).slice(0, 4).map((feature) => (
-                    <div key={feature.id} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                      {feature.name}
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => onSelect(plan.id)}
-                  disabled={isCurrent || loading}
-                  className={`w-full py-2.5 rounded-xl font-bold text-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+              return (
+                <div
+                  key={plan.id}
+                  className={`relative rounded-xl p-5 border transition-all ${
                     isCurrent
-                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                      ? 'border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20 cursor-default'
+                      : isSelected
+                        ? 'border-blue-500 dark:border-blue-400 bg-white dark:bg-slate-900/80 shadow-md cursor-pointer'
+                        : 'border-gray-200 dark:border-white/[0.05] bg-white dark:bg-white/[0.02] hover:border-blue-300 dark:hover:border-blue-500/50 cursor-pointer'
                   }`}
+                  onClick={() => !isCurrent && handleSelect(plan.id)}
+                  role={isCurrent ? undefined : 'button'}
+                  tabIndex={isCurrent ? undefined : 0}
+                  onKeyDown={(e) => {
+                    if (!isCurrent && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      handleSelect(plan.id);
+                    }
+                  }}
+                  aria-label={isCurrent ? `${plan.name} — current plan` : `Select ${plan.name}`}
                 >
-                  {loading ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 size={14} className="animate-spin" /> Redirecting...
+                  {/* Animated selection ring */}
+                  <AnimatePresence>
+                    {isSelected && (
+                      <motion.div
+                        key="ring"
+                        layoutId="plan-selection-ring"
+                        className="absolute inset-0 rounded-xl border-2 border-blue-500 dark:border-blue-400 pointer-events-none"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                      />
+                    )}
+                  </AnimatePresence>
+
+                  {/* Badges */}
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-slate-900 dark:text-white">{plan.name}</h3>
+                    <div className="flex items-center gap-1.5">
+                      {isPopular && !isCurrent && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300">
+                          <Star size={9} className="fill-current" />
+                          Popular
+                        </span>
+                      )}
+                      {isCurrent && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full">
+                          Current
+                        </span>
+                      )}
+                      {isSelected && !isCurrent && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">
+                          <Check size={9} />
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Price */}
+                  <div className="flex items-end gap-1 mb-4">
+                    <span className="text-2xl font-extrabold text-slate-900 dark:text-white">
+                      {formatCurrency(price)}
                     </span>
-                  ) : isCurrent ? (
-                    'Current Plan'
-                  ) : (
-                    'Select Plan'
-                  )}
-                </button>
-              </div>
-            );
-          })}
+                    <span className="text-slate-500 dark:text-slate-400 text-sm mb-0.5">
+                      {CYCLE_CTA_LABELS[selectedCycle]}
+                    </span>
+                  </div>
+
+                  {/* Features */}
+                  <div className="space-y-2 mb-5">
+                    {plan.maxUsers != null && (
+                      <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                        {plan.maxUsers === 0 ? 'Unlimited users' : `Up to ${plan.maxUsers} users`}
+                      </div>
+                    )}
+                    {plan.storageLimit != null && (
+                      <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                        {plan.storageLimit >= 1024
+                          ? `${(plan.storageLimit / 1024).toFixed(0)} GB storage`
+                          : `${plan.storageLimit} MB storage`}
+                      </div>
+                    )}
+                    {plan.features
+                      .filter((f) => f.isEnabled)
+                      .slice(0, 4)
+                      .map((feature) => (
+                        <div key={feature.id} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                          <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                          {feature.name}
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Per-card action */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isCurrent) handleSelect(plan.id);
+                    }}
+                    disabled={isCurrent}
+                    className={`w-full py-2.5 rounded-xl font-bold text-sm transition-colors cursor-pointer disabled:cursor-default ${
+                      isCurrent
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
+                        : isSelected
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400'
+                    }`}
+                    aria-label={isCurrent ? 'Current plan' : isSelected ? `${plan.name} selected` : `Select ${plan.name}`}
+                  >
+                    {isCurrent ? 'Current Plan' : isSelected ? 'Selected ✓' : 'Select'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {plans.length === 0 && (
+            <div className="p-12 text-center text-slate-500 dark:text-slate-400">
+              No plans available. Contact support for assistance.
+            </div>
+          )}
         </div>
 
-        {plans.length === 0 && (
-          <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-            No plans available. Contact support for assistance.
-          </div>
-        )}
+        {/* Footer CTA — always shows the correct per-cycle price and interval */}
+        <div className="shrink-0 px-6 py-4 border-t border-gray-200 dark:border-white/[0.05] bg-white dark:bg-slate-900/50">
+          {activePlan ? (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                <span className="font-semibold text-slate-900 dark:text-white">{activePlan.name}</span>
+                {' — '}
+                <span className="font-bold text-blue-600 dark:text-blue-400">
+                  {formatCurrency(getPriceForCycle(activePlan, selectedCycle))}
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {CYCLE_CTA_LABELS[selectedCycle]}
+                </span>
+              </p>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Processing…
+                  </>
+                ) : (
+                  <>
+                    Continue with {activePlan.name}
+                    <TrendingUp size={15} />
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
+              Select a plan above to continue.
+            </p>
+          )}
         </div>
       </div>
     </div>
