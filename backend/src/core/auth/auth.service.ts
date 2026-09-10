@@ -133,8 +133,25 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
 }
 
 export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
-  const user = await prisma.user.findFirst({
-    where: { email: dto.email },
+  // Normalise the incoming email so casing differences never cause a lookup
+  // failure (e.g. "Admin@Gmail.com" → "admin@gmail.com").
+  const normalisedEmail = dto.email.toLowerCase().trim();
+
+  // Fetch ALL rows for this email across tenants, ordered oldest-first so the
+  // canonical seeded account is preferred when duplicates exist.
+  //
+  // Background: the email column is unique per (tenantId, email) pair, not
+  // globally unique. A seed refactor previously wrote admin@gmail.com into two
+  // different tenants (leadcrm-system-demo and leadcrm-system). A plain
+  // findFirst() with no ordering would non-deterministically pick either row,
+  // causing "invalid credentials" whenever the stale row came first.
+  //
+  // The fix: fetch all candidates and find the first whose password hash
+  // actually matches the supplied password. This is safe because bcrypt.compare
+  // is constant-time — iterating a small list of candidates does not leak
+  // timing information about which row matched.
+  const candidates = await prisma.user.findMany({
+    where: { email: normalisedEmail },
     include: {
       tenant: {
         select: {
@@ -145,16 +162,25 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
         },
       },
     },
+    orderBy: { createdAt: 'asc' },
   });
 
-  // Generic message — do not reveal whether email exists
+  // Generic message — do not reveal whether the email exists.
+  if (candidates.length === 0) throw new AppError('Invalid email or password', 401);
+
+  // Find the first candidate whose password hash matches.
+  let user: typeof candidates[0] | null = null;
+  for (const candidate of candidates) {
+    if (!candidate.passwordHash) continue;
+    const matches = await comparePassword(dto.password, candidate.passwordHash);
+    if (matches) {
+      user = candidate;
+      break;
+    }
+  }
+
+  // No candidate matched the password — use a generic 401.
   if (!user) throw new AppError('Invalid email or password', 401);
-
-  // OAuth-only users have no password — reject password login attempts
-  if (!user.passwordHash) throw new AppError('Invalid email or password', 401);
-
-  const valid = await comparePassword(dto.password, user.passwordHash);
-  if (!valid) throw new AppError('Invalid email or password', 401);
 
   // Block unverified users — they must complete email verification first.
   // DEMO/DEV bypass: allowed only in non-production environments.
