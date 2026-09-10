@@ -5,6 +5,7 @@ import { purgeExpiredSessions } from './core/auth/session.service';
 import { startTrialExpirationJob } from './jobs/trial-expiration.job';
 import { startPendingDowngradeJob } from './jobs/pending-downgrade.job';
 import { checkStripeReadiness } from './config/stripe-readiness';
+import { seedDemoAccounts } from './database/seeders/demo.seed';
 
 // Guard against missing required env vars at startup
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
@@ -65,7 +66,26 @@ function startSessionPurgeScheduler(): void {
 app.listen(PORT, () => {
   console.log(`[server] LeadCRM API running on http://localhost:${PORT}`);
   console.log(`[server] Environment: ${process.env.NODE_ENV ?? 'development'}`);
-  
+
+  // ── Startup seed: repair system admin account ─────────────────────────
+  // Runs the idempotent demo account seeder on every boot so the system
+  // admin password hash in the DB always matches SYSTEM_ADMIN_PASSWORD from
+  // the current environment variables. This is the only reliable mechanism
+  // on Render's free plan (no shell access, no post-deploy hooks).
+  //
+  // Safety: all operations are upserts — never destructive. The seeder skips
+  // faker tenant generation when SKIP_DEMO_TENANTS=true. Takes ~200ms and
+  // runs non-blocking so it does not delay the server accepting connections.
+  seedDemoAccounts()
+    .then(() => {
+      console.log('[server] ✓ System admin seed completed.');
+    })
+    .catch((err: unknown) => {
+      // Non-fatal — the server continues running. Log clearly so Render logs
+      // show exactly what went wrong (e.g. wrong SYSTEM_ADMIN_PASSWORD format).
+      console.error('[server] ⚠ System admin seed failed (non-fatal):', err instanceof Error ? err.message : err);
+    });
+
   // Start background services
   startCampaignScheduler();
   startSessionPurgeScheduler();
