@@ -96,6 +96,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
           select: {
             name: true, industry: true, companySize: true, status: true,
             subscriptionStatus: true, plan: true,
+            currency: true,
             onboardingStep: true, onboardingCompletedAt: true,
           },
         },

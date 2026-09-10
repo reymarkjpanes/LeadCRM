@@ -1,47 +1,122 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useData } from '@/store/DataContext';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { 
-  Activity, Search, Filter, Download, Trash2, Calendar, 
-  User, Mail, Globe, Clock, ChevronRight, AlertCircle, FileText,
-  Wifi, WifiOff, TrendingUp, BarChart2, CheckCircle2
+import {
+  Activity, Search, Download, Calendar,
+  User, Globe, Clock, ChevronRight, AlertCircle, FileText,
+  TrendingUp, BarChart2, RefreshCw, Shield,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { 
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
-  BarChart, Bar, Cell
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
+  BarChart, Bar, Cell,
 } from '@/shared/components/charts/ChartComponents';
-
-const LIVE_SIMULATED_EVENTS = [
-  { action: 'Contact Updated', details: 'Bob converted potential customer \'Aegis Technologies\' from Prospect to Closed-Won.' },
-  { action: 'Auth Login', details: 'Technician logged in to system from remote mobile application client.' },
-  { action: 'Workflow Automation', details: 'Cron scheduler triggered campaign delivery sequence: \'Enterprise Retargeting Wave 2\'.' },
-  { action: 'Task Created', details: 'Automated workflow created follow-up support query action item for Client success relations team.' },
-  { action: 'System Health Check', details: 'Database memory and replication latency parameters checked: 99.98% runtime threshold active.' },
-  { action: 'Asset Updated', details: 'Updated preventative maintenance date and checkoff list for hardware item Server Rack ID 4B.' },
-  { action: 'Deal Created', details: 'Commercial rep created deal estimate draft \'Custom SLA Extension Core\' valued at $45,000.' },
-  { action: 'Tenant Settings', details: 'Client Admin modified tenant interface personalization parameters with custom color metrics.' }
-];
-
 import { usePagination } from '@/shared/hooks/use-pagination';
 import { Pagination } from '@/shared/components/ui/pagination';
+import { auditApi } from '@/shared/services/audit.api';
+import type { AuditLogEntry } from '@/shared/services/audit.api';
 
-export default function AuditLogsPage() {
-  const { auditLogs, users, addAuditLog } = useData();
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type CategoryFilter = 'All' | 'Auth' | 'CRM' | 'System';
+type SeverityFilter = 'All' | 'INFO' | 'WARNING' | 'CRITICAL';
+type DateRangeFilter = 'All' | 'Today' | 'Yesterday' | 'Last 7 Days' | 'Last 30 Days';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getDateRange(range: DateRangeFilter): { from?: string; to?: string } {
+  const now = new Date();
+  const toISO = (d: Date) => d.toISOString();
+
+  switch (range) {
+    case 'Today': {
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      return { from: toISO(start), to: toISO(now) };
+    }
+    case 'Yesterday': {
+      const start = new Date(now); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0);
+      const end   = new Date(now); end.setDate(end.getDate() - 1);     end.setHours(23, 59, 59, 999);
+      return { from: toISO(start), to: toISO(end) };
+    }
+    case 'Last 7 Days': {
+      const start = new Date(now); start.setDate(start.getDate() - 7); start.setHours(0, 0, 0, 0);
+      return { from: toISO(start), to: toISO(now) };
+    }
+    case 'Last 30 Days': {
+      const start = new Date(now); start.setDate(start.getDate() - 30); start.setHours(0, 0, 0, 0);
+      return { from: toISO(start), to: toISO(now) };
+    }
+    default:
+      return {};
+  }
+}
+
+function mapCategoryToBackend(cat: CategoryFilter): string | undefined {
+  switch (cat) {
+    case 'Auth':   return 'auth';
+    case 'CRM':    return 'crm';
+    case 'System': return 'system';
+    default:       return undefined;
+  }
+}
+
+function getSeverityColor(severity: string): string {
+  switch (severity) {
+    case 'CRITICAL': return 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20';
+    case 'WARNING':  return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+    default:         return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20';
+  }
+}
+
+function getActionColor(action: string): string {
+  const lower = action.toLowerCase();
+  if (lower.includes('created') || lower.includes('create')) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+  if (lower.includes('updated') || lower.includes('update')) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+  if (lower.includes('deleted') || lower.includes('delete') || lower.includes('archived')) return 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20';
+  if (lower.includes('login') || lower.includes('auth') || lower.includes('logout')) return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20';
+  return 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20';
+}
+
+// ─── Skeleton Row ─────────────────────────────────────────────────────────────
+
+function SkeletonRow(): React.ReactElement {
+  return (
+    <tr className="border-b border-gray-100 dark:border-white/[0.04]">
+      {[1, 2, 3, 4, 5].map((col) => (
+        <td key={col} className="p-4">
+          <div className="h-4 bg-slate-100 dark:bg-white/[0.05] rounded animate-pulse" style={{ width: col === 4 ? '80%' : col === 1 ? '60%' : '70%' }} />
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function AuditLogsPage(): React.ReactElement {
   const { user } = useAuth();
 
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedDateRange, setSelectedDateRange] = useState('All');
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [search, setSearch]                     = useState('');
+  const [debouncedSearch, setDebouncedSearch]   = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('All');
+  const [selectedSeverity, setSelectedSeverity] = useState<SeverityFilter>('All');
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRangeFilter>('All');
+
+  // ── Data state ──────────────────────────────────────────────────────────────
+  const [logs, setLogs]               = useState<AuditLogEntry[]>([]);
+  const [isLoading, setIsLoading]     = useState(true);
+  const [fetchError, setFetchError]   = useState<string | null>(null);
+  const [totalItems, setTotalItems]   = useState(0);
+
+  // ── Inspector state ─────────────────────────────────────────────────────────
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
 
-  // Dynamic system appearance tracking (Light vs Dark theme observer)
-  const [isDark, setIsDark] = useState(() => {
-    return document.documentElement.classList.contains('dark') || localStorage.getItem('app_theme') === 'Dark';
-  });
-
+  // ── Dark mode detection (DOM-only, no localStorage) ──────────────────────────
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.classList.contains('dark'),
+  );
   useEffect(() => {
     const observer = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains('dark'));
@@ -50,494 +125,245 @@ export default function AuditLogsPage() {
     return () => observer.disconnect();
   }, []);
 
-  // Real-time Updates State
-  const [isRealTime, setIsRealTime] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(30);
-
-  // Periodic automatic fetch/generation trigger
+  // ── Debounce search (300ms) ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!isRealTime) {
-      setSecondsLeft(30);
-      return;
-    }
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          // Trigger automatic simulation log
-          const randomIndex = Math.floor(Math.random() * LIVE_SIMULATED_EVENTS.length);
-          const randomEvt = LIVE_SIMULATED_EVENTS[randomIndex];
-          
-          if (typeof addAuditLog === 'function') {
-            addAuditLog(randomEvt.action, `[Real-time Live Event] ${randomEvt.details}`);
-            toast.info(`Real-time Activity: Recorded "${randomEvt.action}"`);
-          }
-          return 30;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isRealTime, addAuditLog]);
-
-  // Structured Category Filter Groups as requested (e.g., 'Auth', 'Contact', 'System')
-  const categories = ['All', 'Auth', 'Contact', 'System'];
-
-  // Handle Date filters
-  const filterByDate = (timestamp: string, range: string) => {
-    if (range === 'All') return true;
-    const logDate = new Date(timestamp);
-    const today = new Date();
-    today.setHours(0,0,0,0);
-
-    const diffTime = Math.abs(today.getTime() - logDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (range === 'Today') {
-      return logDate >= today;
-    }
-    if (range === 'Yesterday') {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return logDate >= yesterday && logDate < today;
-    }
-    if (range === 'Last 7 Days') {
-      return diffDays <= 7;
-    }
-    if (range === 'Last 30 Days') {
-      return diffDays <= 30;
-    }
-    return true;
-  };
-
-  // Filter logs
-  const filteredLogs = useMemo(() => {
-    return auditLogs.filter(log => {
-      // Search matching
-      const matchesSearch = !search ||
-        (log.action ?? '').toLowerCase().includes(search.toLowerCase()) ||
-        (log.details ?? '').toLowerCase().includes(search.toLowerCase()) ||
-        (log.userEmail ?? '').toLowerCase().includes(search.toLowerCase());
-
-      // Category matching
-      let matchesCategory = true;
-      if (selectedCategory !== 'All') {
-        const actionLower = log.action.toLowerCase();
-        const detailsLower = log.details.toLowerCase();
-
-        if (selectedCategory === 'Auth') {
-          matchesCategory = 
-            actionLower.includes('auth') || 
-            actionLower.includes('role') || 
-            actionLower.includes('login') || 
-            actionLower.includes('mfa') || 
-            actionLower.includes('permission');
-        } else if (selectedCategory === 'Contact') {
-          matchesCategory = actionLower.includes('contact');
-        } else if (selectedCategory === 'System') {
-          matchesCategory = 
-            actionLower.includes('system') || 
-            actionLower.includes('workflow') || 
-            actionLower.includes('health') || 
-            actionLower.includes('task') ||
-            actionLower.includes('campaign') ||
-            actionLower.includes('order') ||
-            actionLower.includes('asset') ||
-            actionLower.includes('inventory') ||
-            (!actionLower.includes('contact') && 
-             !actionLower.includes('auth') && 
-             !actionLower.includes('role') && 
-             !actionLower.includes('login') && 
-             !actionLower.includes('mfa') && 
-             !actionLower.includes('permission'));
-        }
-      }
-
-      // Date matching
-      const matchesDate = filterByDate(log.timestamp, selectedDateRange);
-
-      return matchesSearch && matchesCategory && matchesDate;
-    });
-  }, [auditLogs, search, selectedCategory, selectedDateRange]);
-
+  // ── Pagination ───────────────────────────────────────────────────────────────
   const {
     currentPage,
     totalPages,
     pageSize,
-    totalItems,
-    paginateItems,
     goToPage,
     setPageSize,
   } = usePagination({
-    totalItems: filteredLogs.length,
+    totalItems,
     initialPageSize: 25,
     pageSizeOptions: [10, 25, 50, 100],
-    resetDeps: [search, selectedCategory, selectedDateRange],
+    resetDeps: [debouncedSearch, selectedCategory, selectedSeverity, selectedDateRange],
   });
 
-  const paginatedLogs = paginateItems(filteredLogs);
+  // ── Fetch logs from real API ─────────────────────────────────────────────────
+  const fetchLogs = useCallback(async (): Promise<void> => {
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const { from, to } = getDateRange(selectedDateRange);
+      const category = mapCategoryToBackend(selectedCategory);
+      const severity = selectedSeverity !== 'All' ? selectedSeverity : undefined;
 
-  // Trend Chart Data (Chronological buckets over time)
-  const trendData = useMemo(() => {
-    const now = new Date();
-    
-    const formatDateLabel = (d: Date) => {
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    };
-
-    const formatHourLabel = (hours: number) => {
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-      return `${displayHour} ${ampm}`;
-    };
-
-    let buckets: { label: string; start: Date; end: Date }[] = [];
-
-    if (selectedDateRange === 'Today') {
-      const todayStart = new Date(now);
-      todayStart.setHours(0,0,0,0);
-      for (let i = 0; i < 12; i++) {
-        const start = new Date(todayStart.getTime() + i * 2 * 3600 * 1000);
-        const end = new Date(start.getTime() + 2 * 3600 * 1000 - 1);
-        buckets.push({
-          label: formatHourLabel(start.getHours()),
-          start,
-          end
-        });
-      }
-    } else if (selectedDateRange === 'Yesterday') {
-      const yesterdayStart = new Date(now);
-      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-      yesterdayStart.setHours(0,0,0,0);
-      for (let i = 0; i < 12; i++) {
-        const start = new Date(yesterdayStart.getTime() + i * 2 * 3600 * 1500);
-        const end = new Date(start.getTime() + 2 * 3600 * 1500 - 1);
-        buckets.push({
-          label: formatHourLabel(start.getHours()),
-          start,
-          end
-        });
-      }
-    } else if (selectedDateRange === 'Last 7 Days') {
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-        const start = new Date(d);
-        start.setHours(0,0,0,0);
-        const end = new Date(d);
-        end.setHours(23,59,59,999);
-        buckets.push({
-          label: formatDateLabel(d),
-          start,
-          end
-        });
-      }
-    } else if (selectedDateRange === 'Last 30 Days') {
-      for (let i = 9; i >= 0; i--) {
-        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 3);
-        const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 3);
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
-        buckets.push({
-          label: `${formatDateLabel(start)} - ${formatDateLabel(end)}`,
-          start,
-          end
-        });
-      }
-    } else {
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-        const start = new Date(d);
-        start.setHours(0,0,0,0);
-        const end = new Date(d);
-        end.setHours(23,59,59,999);
-        buckets.push({
-          label: formatDateLabel(d),
-          start,
-          end
-        });
-      }
-    }
-
-    return buckets.map(bucket => {
-      const bucketLogs = auditLogs.filter(log => {
-        const t = new Date(log.timestamp);
-        return t >= bucket.start && t <= bucket.end;
+      const res = await auditApi.list({
+        ...(debouncedSearch ? { action: debouncedSearch } : {}),
+        ...(category        ? { entityType: category }   : {}),
+        ...(severity        ? { severity }               : {}),
+        ...(from            ? { from }                   : {}),
+        ...(to              ? { to }                     : {}),
+        page:  currentPage,
+        limit: pageSize,
       });
 
-      let authCount = 0;
-      let leadCount = 0;
-      let systemCount = 0;
-
-      bucketLogs.forEach(log => {
-        const actionLower = log.action.toLowerCase();
-        if (actionLower.includes('auth') || actionLower.includes('role') || actionLower.includes('login') || actionLower.includes('mfa')) {
-          authCount++;
-        } else if (actionLower.includes('contact')) {
-          leadCount++;
-        } else {
-          systemCount++;
-        }
-      });
-
-      return {
-        name: bucket.label,
-        'Auth Events': authCount,
-        'Contact Events': leadCount,
-        'System Events': systemCount,
-        'Total Activity': bucketLogs.length,
+      const responseData = res as unknown as {
+        data?: AuditLogEntry[];
+        meta?: { total: number };
       };
-    });
-  }, [auditLogs, selectedDateRange]);
 
-  // Distribution Category Data
-  const categoryData = useMemo(() => {
-    let authCount = 0;
-    let leadCount = 0;
-    let systemCount = 0;
-    let otherCount = 0;
-
-    filteredLogs.forEach(log => {
-      const actionLower = log.action.toLowerCase();
-      if (actionLower.includes('auth') || actionLower.includes('role') || actionLower.includes('login') || actionLower.includes('mfa')) {
-        authCount++;
-      } else if (actionLower.includes('contact')) {
-        leadCount++;
-      } else if (actionLower.includes('system') || actionLower.includes('automation') || actionLower.includes('workflow') || actionLower.includes('health') || actionLower.includes('task')) {
-        systemCount++;
-      } else {
-        otherCount++;
-      }
-    });
-
-    const data = [
-      { name: 'Auth & Access', value: authCount, fill: '#8b5cf6' },
-      { name: 'Contacts & Deals', value: leadCount, fill: '#10b981' },
-      { name: 'System Ops', value: systemCount, fill: '#3b82f6' }
-    ];
-    
-    if (otherCount > 0) {
-      data.push({ name: 'Others', value: otherCount, fill: '#6366f1' });
+      setLogs(responseData.data ?? []);
+      setTotalItems(responseData.meta?.total ?? 0);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load audit logs';
+      setFetchError(message);
+      setLogs([]);
+      setTotalItems(0);
+    } finally {
+      setIsLoading(false);
     }
+  }, [debouncedSearch, selectedCategory, selectedSeverity, selectedDateRange, currentPage, pageSize]);
 
-    return data;
-  }, [filteredLogs]);
+  useEffect(() => {
+    void fetchLogs();
+  }, [fetchLogs]);
 
-  // Metrics calculations
+  // ── Selected log ─────────────────────────────────────────────────────────────
+  const selectedLog = useMemo(
+    () => logs.find((l) => l.id === selectedLogId) ?? null,
+    [logs, selectedLogId],
+  );
+
+  // ── Metrics (computed from current page) ─────────────────────────────────────
   const metrics = useMemo(() => {
-    const total = filteredLogs.length;
-    
-    // Actions in last 24h
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const last24h = filteredLogs.filter(l => new Date(l.timestamp) >= oneDayAgo).length;
+    const last24h = logs.filter((l) => new Date(l.createdAt) >= oneDayAgo).length;
 
-    // Find custom roles or most active actor
-    const userCounts: { [email: string]: number } = {};
-    const typeCounts: { [action: string]: number } = {};
-    
-    filteredLogs.forEach(l => {
-      userCounts[l.userEmail] = (userCounts[l.userEmail] || 0) + 1;
-      typeCounts[l.action] = (typeCounts[l.action] || 0) + 1;
-    });
+    const userCounts: Record<string, number> = {};
+    const actionCounts: Record<string, number> = {};
+
+    for (const l of logs) {
+      const email = l.user?.email ?? 'system';
+      userCounts[email] = (userCounts[email] ?? 0) + 1;
+      actionCounts[l.action] = (actionCounts[l.action] ?? 0) + 1;
+    }
 
     let topActor = 'N/A';
-    let maxActorCount = 0;
-    Object.entries(userCounts).forEach(([email, count]) => {
-      if (count > maxActorCount) {
-        maxActorCount = count;
-        topActor = email;
-      }
-    });
+    let maxActor = 0;
+    for (const [email, count] of Object.entries(userCounts)) {
+      if (count > maxActor) { maxActor = count; topActor = email; }
+    }
 
     let topAction = 'N/A';
-    let maxActionCount = 0;
-    Object.entries(typeCounts).forEach(([type, count]) => {
-      if (count > maxActionCount) {
-        maxActionCount = count;
-        topAction = type;
-      }
-    });
+    let maxAction = 0;
+    for (const [action, count] of Object.entries(actionCounts)) {
+      if (count > maxAction) { maxAction = count; topAction = action; }
+    }
 
-    return {
-      total,
-      last24h,
-      topActor: topActor.split('@')[0] || 'N/A',
-      topAction
+    return { last24h, topActor: topActor.split('@')[0] ?? 'N/A', topAction };
+  }, [logs]);
+
+  // ── Trend chart data ──────────────────────────────────────────────────────────
+  const trendData = useMemo(() => {
+    const now = new Date();
+
+    interface Bucket { label: string; start: Date; end: Date }
+    const buckets: Bucket[] = [];
+
+    const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const fmtHour = (h: number) => {
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      return `${h % 12 === 0 ? 12 : h % 12} ${ampm}`;
     };
-  }, [filteredLogs]);
 
-  // Export to CSV helper
-  const handleExportCSV = () => {
-    if (filteredLogs.length === 0) {
+    if (selectedDateRange === 'Today' || selectedDateRange === 'Yesterday') {
+      const base = new Date(now);
+      if (selectedDateRange === 'Yesterday') base.setDate(base.getDate() - 1);
+      base.setHours(0, 0, 0, 0);
+      for (let i = 0; i < 12; i++) {
+        const start = new Date(base.getTime() + i * 2 * 3600 * 1000);
+        const end   = new Date(start.getTime() + 2 * 3600 * 1000 - 1);
+        buckets.push({ label: fmtHour(start.getHours()), start, end });
+      }
+    } else {
+      const days = selectedDateRange === 'Last 30 Days' ? 30 : 7;
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const start = new Date(d); start.setHours(0, 0, 0, 0);
+        const end   = new Date(d); end.setHours(23, 59, 59, 999);
+        buckets.push({ label: fmtDate(d), start, end });
+      }
+    }
+
+    return buckets.map((b) => {
+      const bLogs = logs.filter((l) => {
+        const t = new Date(l.createdAt);
+        return t >= b.start && t <= b.end;
+      });
+      let authCount = 0; let crmCount = 0; let sysCount = 0;
+      for (const l of bLogs) {
+        const cat = (l.entityType ?? '').toLowerCase();
+        if (cat === 'auth' || l.action.toLowerCase().includes('login') || l.action.toLowerCase().includes('auth')) authCount++;
+        else if (['lead', 'contact', 'deal', 'account', 'pipeline'].some((k) => cat.includes(k) || l.action.toLowerCase().includes(k))) crmCount++;
+        else sysCount++;
+      }
+      return { name: b.label, 'Auth Events': authCount, 'CRM Events': crmCount, 'System Events': sysCount, 'Total Activity': bLogs.length };
+    });
+  }, [logs, selectedDateRange]);
+
+  // ── Distribution chart data ───────────────────────────────────────────────────
+  const categoryData = useMemo(() => {
+    let authCount = 0; let crmCount = 0; let sysCount = 0; let otherCount = 0;
+    for (const l of logs) {
+      const cat = (l.entityType ?? '').toLowerCase();
+      const act = l.action.toLowerCase();
+      if (cat === 'auth' || act.includes('login') || act.includes('auth')) authCount++;
+      else if (['lead', 'contact', 'deal', 'account'].some((k) => cat.includes(k) || act.includes(k))) crmCount++;
+      else if (cat === 'system' || act.includes('system') || act.includes('workflow') || act.includes('campaign')) sysCount++;
+      else otherCount++;
+    }
+    const data = [
+      { name: 'Auth & Access',    value: authCount, fill: '#8b5cf6' },
+      { name: 'CRM Activity',     value: crmCount,  fill: '#10b981' },
+      { name: 'System Ops',       value: sysCount,  fill: '#3b82f6' },
+    ];
+    if (otherCount > 0) data.push({ name: 'Others', value: otherCount, fill: '#6366f1' });
+    return data;
+  }, [logs]);
+
+  // ── CSV export ────────────────────────────────────────────────────────────────
+  const handleExportCSV = useCallback((): void => {
+    if (logs.length === 0) {
       toast.error('No audit records to export.');
       return;
     }
-
-    const headers = ['ID', 'Timestamp', 'Action Category', 'Email Details', 'IP Address', 'Log Details'];
-    const rows = filteredLogs.map(log => [
-      log.id,
-      new Date(log.timestamp).toLocaleString(),
-      log.action,
-      log.userEmail,
-      log.ipAddress || '127.0.0.1',
-      `"${log.details.replace(/"/g, '""')}"`
+    const headers = ['ID', 'Timestamp', 'Action', 'Entity Type', 'Entity ID', 'Operator Email', 'IP Address', 'Severity'];
+    const rows = logs.map((l) => [
+      l.id,
+      new Date(l.createdAt).toLocaleString(),
+      l.action,
+      l.entityType ?? '',
+      l.entityId ?? '',
+      l.user?.email ?? '',
+      l.ipAddress ?? '',
+      l.severity,
     ]);
-
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `leadcrm_audit_trail_export_${Date.now()}.csv`);
+    const csvContent = 'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `leadcrm_audit_trail_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    toast.success('Audit logs exported to CSV');
+  }, [logs]);
 
-    toast.success('Successfully exported audit logs to CSV! =···');
-  };
-
-  // Clear log state (retains in-memory only or clears local storage keys safely)
-  const handleClearLogs = () => {
-    if (user?.role !== 'System Admin' && user?.role !== 'Client Admin') {
-      toast.error('Only administrators can clear audit logs.');
-      return;
-    }
-
-    if (window.confirm('CRITICAL WARN: Are you sure you want to permanently clear the audit history? This action is irreversible.')) {
-      localStorage.setItem('leadcrm_audit_logs', JSON.stringify([]));
-      toast.success('Audit logs cleared successfully.');
-      // Refresh window state to reload
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-    }
-  };
-
-  const selectedLog = useMemo(() => {
-    return filteredLogs.find(l => l.id === selectedLogId);
-  }, [filteredLogs, selectedLogId]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
-      {/* 1. Header Section - Compact Enterprise Header */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-baseline gap-2.5 flex-wrap">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Audit Trail & Activity Log</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Audit Trail &amp; Activity Log
+          </h1>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Real-time Toggle Switch */}
-          <div className="flex items-center gap-2 px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md">
-            <div className="relative flex items-center">
-              <button
-                onClick={() => {
-                  const val = !isRealTime;
-                  setIsRealTime(val);
-                  if (val) {
-                    toast.success('Live updates enabled');
-                  } else {
-                    toast.info('Live updates paused');
-                  }
-                }}
-                className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  isRealTime ? 'bg-emerald-500' : 'bg-slate-350 dark:bg-white/10'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    isRealTime ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-            
-            <div className="flex flex-col pr-1 select-none">
-              <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1 leading-none">
-                {isRealTime ? (
-                  <>
-                    <Wifi size={11} className="text-emerald-500 animate-pulse shrink-0" />
-                    Real-time
-                  </>
-                ) : (
-                  <>
-                    <WifiOff size={11} className="text-slate-400 shrink-0" />
-                    Synced
-                  </>
-                )}
-              </span>
-              {isRealTime ? (
-                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium leading-none mt-0.5 animate-pulse">
-                  Sync in {secondsLeft}s
-                </span>
-              ) : (
-                <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-none mt-0.5">
-                  Static Mode
-                </span>
-              )}
-            </div>
-          </div>
-
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 h-9 px-3 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs"
+            disabled={isLoading || logs.length === 0}
+            className="flex items-center gap-1.5 h-9 px-3 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
           >
             <Download size={14} />
             <span>Export CSV</span>
           </button>
-          
-          {(user?.role === 'System Admin' || user?.role === 'Client Admin') && (
-            <button
-              onClick={handleClearLogs}
-              className="flex items-center gap-1.5 h-9 px-3 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-xs"
-              title="Purge operations log entries"
-            >
-              <Trash2 size={14} />
-              <span>Clear History</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Metrics Cards Banner */}
+      {/* ── Metric Cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">Total Recorded Logs</p>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2.5xl font-bold text-slate-900 dark:text-white">{metrics.total}</span>
-            <span className="text-xs text-slate-400">tracked events</span>
+        {[
+          { label: 'Total Recorded Logs',      value: totalItems.toLocaleString(), sub: 'tracked events',    color: 'text-slate-900 dark:text-white' },
+          { label: 'Events (Last 24 Hours)',    value: metrics.last24h,             sub: 'recent activities', color: 'text-blue-600 dark:text-blue-400' },
+          { label: 'Primary Change Agent',      value: metrics.topActor,            sub: 'user operator',     color: 'text-slate-900 dark:text-white', truncate: true },
+          { label: 'Most Frequent Activity',    value: metrics.topAction,           sub: '',                  color: 'text-slate-950 dark:text-slate-200', truncate: true },
+        ].map((card) => (
+          <div key={card.label} className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">{card.label}</p>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span
+                className={`font-bold ${card.color} ${card.truncate ? 'text-lg truncate max-w-[160px]' : 'text-2xl'}`}
+                title={card.truncate ? String(card.value) : undefined}
+              >
+                {isLoading ? <span className="inline-block w-16 h-6 bg-slate-100 dark:bg-white/5 rounded animate-pulse" /> : card.value}
+              </span>
+              {card.sub && <span className="text-xs text-slate-400">{card.sub}</span>}
+            </div>
           </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">Events (Last 24 Hours)</p>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2.5xl font-bold text-blue-600 dark:text-blue-400">{metrics.last24h}</span>
-            <span className="text-xs text-slate-400">recent activities</span>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">Primary Change Agent</p>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2.5xl font-bold text-slate-900 dark:text-white capitalize truncate max-w-[150px]" title={metrics.topActor}>
-              {metrics.topActor}
-            </span>
-            <span className="text-xs text-slate-400">user operator</span>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">Most Frequent Activity</p>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-lg font-bold text-slate-950 dark:text-slate-200 truncate max-w-[200px]" title={metrics.topAction}>
-              {metrics.topAction}
-            </span>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Activity Visualizer Panel (Recharts) */}
+      {/* ── Charts Panel ────────────────────────────────────────────────────── */}
       <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-white/[0.03] pb-3">
           <div className="flex items-center gap-2">
@@ -545,122 +371,84 @@ export default function AuditLogsPage() {
               <TrendingUp size={16} />
             </div>
             <div>
-              <h3 className="font-semibold text-sm text-slate-900 dark:text-white">Activity Volume Trends & Analysis</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Team usage patterns visualizer grouped by {selectedDateRange === 'All' ? 'day' : selectedDateRange.toLowerCase()}</p>
+              <h3 className="font-semibold text-sm text-slate-900 dark:text-white">Activity Volume Trends &amp; Analysis</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Team usage patterns grouped by {selectedDateRange === 'All' ? 'day' : selectedDateRange.toLowerCase()}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 select-none">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Total Logs
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Auth & Access
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Contacts & Deals
-            </span>
+            {[
+              { label: 'Total Logs',   color: '#3b82f6' },
+              { label: 'Auth & Access', color: '#8b5cf6' },
+              { label: 'CRM Activity', color: '#10b981' },
+            ].map((leg) => (
+              <span key={leg.label} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: leg.color }} />
+                {leg.label}
+              </span>
+            ))}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Area Chart */}
+          {/* Area chart */}
           <div className="lg:col-span-8 space-y-2">
-            <div className="text-[11px] font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">Volume Trend Over Time</div>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-500 uppercase tracking-wider">Volume Trend Over Time</div>
             <div className="h-[260px] w-full relative min-w-0">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorAuth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorLead" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
+                    {[
+                      { id: 'colorTotal', color: '#3b82f6' },
+                      { id: 'colorAuth',  color: '#8b5cf6' },
+                      { id: 'colorCRM',   color: '#10b981' },
+                    ].map(({ id, color }) => (
+                      <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={color} stopOpacity={0} />
+                      </linearGradient>
+                    ))}
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke={isDark ? "#475569" : "#94a3b8"} 
-                    fontSize={10} 
-                    tickLine={false} 
-                    axisLine={false}
-                  />
-                  <YAxis 
-                    stroke={isDark ? "#475569" : "#94a3b8"} 
-                    fontSize={10} 
-                    tickLine={false} 
-                    axisLine={false} 
-                    allowDecimals={false}
-                  />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)'} />
+                  <XAxis dataKey="name" stroke={isDark ? '#475569' : '#94a3b8'} fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis stroke={isDark ? '#475569' : '#94a3b8'} fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
                     content={({ active, payload, label }) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-white dark:bg-[#0c1120] border border-slate-200 dark:border-white/[0.08] p-3 rounded-xl shadow-xl space-y-1.5 text-xs">
-                            <p className="font-bold text-slate-800 dark:text-slate-100">{label}</p>
-                            <div className="space-y-1">
-                              {payload.map((p: any, idx: number) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.stroke || p.fill }}></span>
-                                  <span className="text-slate-500 dark:text-slate-400">{p.name}:</span>
-                                  <span className="font-mono font-bold text-slate-900 dark:text-slate-205">{p.value}</span>
-                                </div>
-                              ))}
+                      if (!active || !payload?.length) return null;
+                      return (
+                        <div className="bg-white dark:bg-[#0c1120] border border-slate-200 dark:border-white/[0.08] p-3 rounded-xl shadow-xl space-y-1.5 text-xs">
+                          <p className="font-bold text-slate-800 dark:text-slate-100">{label}</p>
+                          {payload.map((p, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: String(p.stroke ?? p.fill ?? '#999') }} />
+                              <span className="text-slate-500 dark:text-slate-400">{p.name}:</span>
+                              <span className="font-mono font-bold text-slate-900 dark:text-slate-200">{p.value}</span>
                             </div>
-                          </div>
-                        );
-                      }
-                      return null;
+                          ))}
+                        </div>
+                      );
                     }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="Total Activity" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    fillOpacity={1} 
-                    fill="url(#colorTotal)" 
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="Auth Events" 
-                    stroke="#8b5cf6" 
-                    strokeWidth={1.5}
-                    fillOpacity={1} 
-                    fill="url(#colorAuth)" 
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="Contact Events" 
-                    stroke="#10b981" 
-                    strokeWidth={1.5}
-                    fillOpacity={1} 
-                    fill="url(#colorLead)" 
-                  />
+                  <Area type="monotone" dataKey="Total Activity" stroke="#3b82f6" strokeWidth={2}  fillOpacity={1} fill="url(#colorTotal)" />
+                  <Area type="monotone" dataKey="Auth Events"    stroke="#8b5cf6" strokeWidth={1.5} fillOpacity={1} fill="url(#colorAuth)" />
+                  <Area type="monotone" dataKey="CRM Events"     stroke="#10b981" strokeWidth={1.5} fillOpacity={1} fill="url(#colorCRM)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Right Distribution Bar Chart */}
-          <div className="lg:col-span-4 space-y-2 border-t lg:border-t-0 lg:border-l border-gray-150 dark:border-white/[0.04] pt-4 lg:pt-0 lg:pl-6">
+          {/* Distribution bar chart */}
+          <div className="lg:col-span-4 space-y-2 border-t lg:border-t-0 lg:border-l border-gray-100 dark:border-white/[0.04] pt-4 lg:pt-0 lg:pl-6">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">Filtered Distribution</span>
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Distribution</span>
               <span className="text-[10px] bg-slate-100 dark:bg-white/[0.04] text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded-full font-mono">
-                {filteredLogs.length} events
+                {logs.length} shown
               </span>
             </div>
-            
-            {filteredLogs.length === 0 ? (
-              <div className="h-[260px] flex flex-col items-center justify-center text-center p-4">
-                <p className="text-xs text-slate-400 font-medium">No filtered logs inside bucket</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-500">Modify filters to view logs category share</p>
+            {logs.length === 0 ? (
+              <div className="h-[260px] flex items-center justify-center">
+                <p className="text-xs text-slate-400">No data for current filters</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -668,50 +456,40 @@ export default function AuditLogsPage() {
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={categoryData} layout="vertical" margin={{ top: 0, right: 5, left: -20, bottom: 0 }}>
                       <XAxis type="number" hide />
-                      <YAxis 
-                        dataKey="name" 
-                        type="category" 
-                        stroke={isDark ? "#64748b" : "#475569"} 
-                        fontSize={10} 
-                        tickLine={false} 
-                        axisLine={false}
-                        width={90}
-                      />
+                      <YAxis dataKey="name" type="category" stroke={isDark ? '#64748b' : '#475569'} fontSize={10} tickLine={false} axisLine={false} width={90} />
                       <Tooltip
                         cursor={{ fill: 'transparent' }}
                         content={({ active, payload }) => {
-                          if (active && payload && payload.length) {
-                            const data = payload[0].payload;
-                            return (
-                              <div className="bg-white dark:bg-[#0c1120] border border-slate-200 dark:border-white/[0.08] p-2.5 rounded-xl shadow-lg text-xs">
-                                <p className="font-bold text-slate-800 dark:text-slate-105">{data.name}</p>
-                                <p className="text-slate-500 dark:text-slate-400 mt-0.5">
-                                  Volume: <span className="font-mono font-semibold text-slate-900 dark:text-white">{data.value}</span> ({((data.value / filteredLogs.length) * 100).toFixed(1)}%)
-                                </p>
-                              </div>
-                            );
-                          }
-                          return null;
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload as { name: string; value: number };
+                          return (
+                            <div className="bg-white dark:bg-[#0c1120] border border-slate-200 dark:border-white/[0.08] p-2.5 rounded-xl shadow-lg text-xs">
+                              <p className="font-bold text-slate-800 dark:text-slate-100">{d.name}</p>
+                              <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                                Volume: <span className="font-mono font-semibold text-slate-900 dark:text-white">{d.value}</span>
+                                {logs.length > 0 && ` (${((d.value / logs.length) * 100).toFixed(1)}%)`}
+                              </p>
+                            </div>
+                          );
                         }}
                       />
                       <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={14}>
-                        {categoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        {categoryData.map((entry, idx) => (
+                          <Cell key={`cell-${idx}`} fill={entry.fill} />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-
-                <div className="space-y-1.5 text-[11px] max-h-[80px] overflow-y-auto custom-scrollbar select-none">
-                  {categoryData.map((cat, idx) => (
-                    <div key={idx} className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-650 dark:text-slate-350">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.fill }}></span>
-                        <span>{cat.name}</span>
-                      </div>
+                <div className="space-y-1.5 text-[11px] select-none">
+                  {categoryData.map((cat) => (
+                    <div key={cat.name} className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.fill }} />
+                        {cat.name}
+                      </span>
                       <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                        {cat.value} ({filteredLogs.length > 0 ? ((cat.value / filteredLogs.length) * 100).toFixed(0) : 0}%)
+                        {cat.value} ({logs.length > 0 ? ((cat.value / logs.length) * 100).toFixed(0) : 0}%)
                       </span>
                     </div>
                   ))}
@@ -722,138 +500,164 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      {/* Main Grid View */}
+      {/* ── Main Grid ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Logs Table Area */}
+        {/* Logs table area */}
         <div className="lg:col-span-8 space-y-4">
-          {/* Controls Bar */}
-          <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
-            {/* Search Input */}
+          {/* Controls */}
+          <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
+            {/* Search */}
             <div className="relative w-full md:max-w-sm">
-              <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search audit actions, emails, details..."
+                placeholder="Search actions, emails, entity types…"
                 className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.02] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-white"
               />
             </div>
-
-            {/* Filter buttons */}
-            <div className="flex w-full md:w-auto gap-3">
-              {/* Category selector */}
-              <div className="flex-1 md:flex-none">
+            {/* Filters */}
+            <div className="flex w-full md:w-auto gap-2 flex-wrap">
+              {(
+                [
+                  {
+                    value: selectedCategory,
+                    onChange: (v: string) => setSelectedCategory(v as CategoryFilter),
+                    options: ['All', 'Auth', 'CRM', 'System'] as CategoryFilter[],
+                    labels: { All: 'All Categories', Auth: 'Auth & Access', CRM: 'CRM Activity', System: 'System Ops' },
+                  },
+                  {
+                    value: selectedSeverity,
+                    onChange: (v: string) => setSelectedSeverity(v as SeverityFilter),
+                    options: ['All', 'INFO', 'WARNING', 'CRITICAL'] as SeverityFilter[],
+                    labels: { All: 'All Severities', INFO: 'INFO', WARNING: 'WARNING', CRITICAL: 'CRITICAL' },
+                  },
+                  {
+                    value: selectedDateRange,
+                    onChange: (v: string) => setSelectedDateRange(v as DateRangeFilter),
+                    options: ['All', 'Today', 'Yesterday', 'Last 7 Days', 'Last 30 Days'] as DateRangeFilter[],
+                    labels: { All: 'All Time', Today: 'Today', Yesterday: 'Yesterday', 'Last 7 Days': 'Last 7 Days', 'Last 30 Days': 'Last 30 Days' },
+                  },
+                ] as Array<{
+                  value: string;
+                  onChange: (v: string) => void;
+                  options: string[];
+                  labels: Record<string, string>;
+                }>
+              ).map((filter, idx) => (
                 <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full bg-white dark:bg-[#0c101d] border border-gray-250 dark:border-white/[0.08] rounded-xl py-2 px-3 text-xs font-semibold focus:outline-none text-slate-700 dark:text-slate-300 cursor-pointer"
+                  key={idx}
+                  value={filter.value}
+                  onChange={(e) => filter.onChange(e.target.value)}
+                  className="flex-1 md:flex-none bg-white dark:bg-[#0c101d] border border-gray-200 dark:border-white/[0.08] rounded-xl py-2 px-3 text-xs font-semibold focus:outline-none text-slate-700 dark:text-slate-300 cursor-pointer"
                 >
-                  <option value="All">All Categories</option>
-                  {categories.filter(c => c !== 'All').map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
+                  {filter.options.map((opt) => (
+                    <option key={opt} value={opt}>{filter.labels[opt] ?? opt}</option>
                   ))}
                 </select>
-              </div>
-
-              {/* Date Selector */}
-              <div className="flex-1 md:flex-none">
-                <select
-                  value={selectedDateRange}
-                  onChange={(e) => setSelectedDateRange(e.target.value)}
-                  className="w-full bg-white dark:bg-[#0c101d] border border-gray-250 dark:border-white/[0.08] rounded-xl py-2 px-3 text-xs font-semibold focus:outline-none text-slate-700 dark:text-slate-300 cursor-pointer"
-                >
-                  <option value="All">All Time Range</option>
-                  <option value="Today">Today</option>
-                  <option value="Yesterday">Yesterday</option>
-                  <option value="Last 7 Days">Last 7 Days</option>
-                  <option value="Last 30 Days">Last 30 Days</option>
-                </select>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Audit List Container */}
+          {/* Table */}
           <div className="bg-white dark:bg-white/[0.02] rounded-2xl border border-gray-200 dark:border-white/[0.05] overflow-hidden shadow-sm">
-            {filteredLogs.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 dark:text-slate-400 space-y-3">
-                <AlertCircle className="mx-auto text-slate-350 dark:text-slate-600" size={40} />
-                <p className="text-sm font-medium">No matching audit logs found.</p>
-                <p className="text-xs text-slate-400">Try modifying search term or turning off some category filters.</p>
+            {fetchError ? (
+              <div className="p-12 text-center space-y-3">
+                <AlertCircle className="mx-auto text-red-400" size={32} />
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Failed to load audit logs</p>
+                <p className="text-xs text-slate-400">{fetchError}</p>
+                <button
+                  onClick={() => void fetchLogs()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <RefreshCw size={12} />
+                  Retry
+                </button>
               </div>
             ) : (
               <div className="overflow-x-hidden">
                 <table className="w-full text-left font-mono border-collapse table-fixed">
                   <thead>
                     <tr className="border-b border-gray-200 dark:border-white/[0.05] bg-gray-50/50 dark:bg-white/[0.01] text-[9px] sm:text-[10px] uppercase text-slate-500 tracking-wider">
-                      <th className="p-1 sm:p-4 py-2 sm:py-3 font-semibold break-words">Category/Action</th>
-                      <th className="p-1 sm:p-4 py-2 sm:py-3 font-semibold break-words">Operator Email</th>
-                      <th className="p-1 sm:p-4 py-2 sm:py-3 font-semibold break-words hidden sm:table-cell">IP Address</th>
-                      <th className="p-1 sm:p-4 py-2 sm:py-3 font-semibold break-words">Details / Record ID</th>
-                      <th className="p-1 sm:p-4 py-2 sm:py-3 font-semibold break-words">Timestamp</th>
+                      <th className="p-4 py-3 font-semibold">Action</th>
+                      <th className="p-4 py-3 font-semibold">Operator</th>
+                      <th className="p-4 py-3 font-semibold hidden sm:table-cell">IP Address</th>
+                      <th className="p-4 py-3 font-semibold">Entity / Details</th>
+                      <th className="p-4 py-3 font-semibold">Timestamp</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-white/[0.04] text-[10px] sm:text-[11px] text-slate-700 dark:text-slate-300">
-                    {paginatedLogs.map((log) => {
-                      const isSelected = selectedLogId === log.id;
-                      return (
-                        <tr 
-                          key={log.id}
-                          onClick={() => setSelectedLogId(isSelected ? null : log.id)}
-                          className={`cursor-pointer transition-colors hover:bg-gray-55 dark:hover:bg-white/[0.01] ${
-                            isSelected 
-                              ? 'bg-blue-500/5 dark:bg-blue-500/[0.02] border-l-2 border-blue-500' 
-                              : ''
-                          }`}
-                        >
-                          <td className="p-1 sm:p-4">
-                            <span className={`text-[9px] sm:text-[10px] font-bold uppercase px-1 sm:px-2 py-0.5 rounded break-words ${
-                              log.action.includes('Created') 
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
-                                : log.action.includes('Updated') 
-                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/19' 
-                                  : log.action.includes('Deleted')
-                                    ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/19'
-                                    : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20'
-                            }`}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td className="p-1 sm:p-4 break-words" title={log.userEmail}>
-                            <span className="font-semibold break-all">{log.userEmail.split('@')[0]}</span>
-                            <span className="block text-[7px] sm:text-[8px] text-slate-400 break-all">@{log.userEmail.split('@')[1]}</span>
-                            {log.operatorRole && (
-                              <span className="inline-block text-[7px] sm:text-[8px] text-emerald-600 dark:text-emerald-450 bg-emerald-500/10 px-1 rounded font-bold mt-0.5">{log.operatorRole}</span>
-                            )}
-                            <span className="block text-[7px] sm:text-[8px] text-slate-400 font-mono sm:hidden mt-0.5">
-                              IP: {log.ipAddress || '127.0.0.1'}
-                            </span>
-                          </td>
-                          <td className="p-1 sm:p-4 text-slate-500 dark:text-slate-400 font-mono break-words hidden sm:table-cell">
-                            {log.ipAddress || '127.0.0.1'}
-                          </td>
-                          <td className="p-1 sm:p-4">
-                            <p className="line-clamp-2 leading-relaxed break-words" title={log.details}>
-                              {log.details}
-                            </p>
-                            {log.rowId && (
-                              <span className="inline-block text-[7px] sm:text-[8px] tracking-wide font-semibold text-cyan-600 dark:text-cyan-400 bg-cyan-55/20 px-1 sm:px-1.5 py-0.5 rounded mt-1 border border-cyan-500/10 break-all">
-                                Row: {log.rowId}
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-1 sm:p-4 text-slate-500 dark:text-slate-400 break-words">
-                            {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {isLoading
+                      ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+                      : logs.length === 0
+                        ? (
+                          <tr>
+                            <td colSpan={5} className="p-12 text-center">
+                              <AlertCircle className="mx-auto text-slate-300 dark:text-slate-600 mb-3" size={32} />
+                              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No audit logs found</p>
+                              <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or date range.</p>
+                            </td>
+                          </tr>
+                        )
+                        : logs.map((log) => {
+                          const isSelected = selectedLogId === log.id;
+                          const email = log.user?.email ?? '';
+                          const [emailUser, emailDomain] = email.split('@');
+                          return (
+                            <tr
+                              key={log.id}
+                              onClick={() => setSelectedLogId(isSelected ? null : log.id)}
+                              className={`cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.01] ${isSelected ? 'bg-blue-500/5 dark:bg-blue-500/[0.02] border-l-2 border-blue-500' : ''}`}
+                            >
+                              <td className="p-4">
+                                <span className={`text-[9px] sm:text-[10px] font-bold uppercase px-2 py-0.5 rounded ${getActionColor(log.action)}`}>
+                                  {log.action}
+                                </span>
+                                {log.severity && log.severity !== 'INFO' && (
+                                  <span className={`ml-1.5 text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${getSeverityColor(log.severity)}`}>
+                                    {log.severity}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4" title={email}>
+                                <span className="font-semibold break-all">{emailUser ?? '—'}</span>
+                                {emailDomain && (
+                                  <span className="block text-[7px] sm:text-[8px] text-slate-400 break-all">@{emailDomain}</span>
+                                )}
+                                <span className="block text-[7px] sm:text-[8px] text-slate-400 font-mono sm:hidden mt-0.5">
+                                  IP: {log.ipAddress ?? '—'}
+                                </span>
+                              </td>
+                              <td className="p-4 text-slate-500 dark:text-slate-400 font-mono hidden sm:table-cell">
+                                {log.ipAddress ?? '—'}
+                              </td>
+                              <td className="p-4">
+                                {log.entityType && (
+                                  <span className="text-[9px] font-semibold text-slate-500 dark:text-slate-400 uppercase">{log.entityType}</span>
+                                )}
+                                {log.entityId && (
+                                  <span className="block text-[8px] tracking-wide font-semibold text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-500/10 px-1.5 py-0.5 rounded mt-0.5 border border-cyan-500/10 truncate max-w-[140px]" title={log.entityId}>
+                                    {log.entityId}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                {new Date(log.createdAt).toLocaleDateString()}{' '}
+                                {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                            </tr>
+                          );
+                        })
+                    }
                   </tbody>
                 </table>
               </div>
             )}
           </div>
-          {filteredLogs.length > 0 && (
+
+          {/* Pagination */}
+          {!fetchError && totalItems > 0 && (
             <div className="mt-4">
               <Pagination
                 currentPage={currentPage}
@@ -868,72 +672,77 @@ export default function AuditLogsPage() {
           )}
         </div>
 
-        {/* Selected Log Inspector */}
+        {/* ── Inspector Panel ────────────────────────────────────────────────── */}
         <div className="lg:col-span-4 h-full">
           <div className="bg-white dark:bg-white/[0.02] p-5 rounded-2xl border border-gray-200 dark:border-white/[0.05] shadow-sm sticky top-24 space-y-4 font-mono">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-white/[0.03]">
               <FileText className="text-blue-500" size={16} />
               <h3 className="font-semibold text-sm text-slate-900 dark:text-white">Audit Log Inspector</h3>
             </div>
+
             {selectedLog ? (
-              <div className="space-y-4 text-xs animate-fade-in">
+              <div className="space-y-4 text-xs">
+                {/* Event ID */}
                 <div className="space-y-1">
                   <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Event Reference ID</p>
-                  <p className="font-mono text-slate-800 dark:text-white bg-slate-100 dark:bg-white/5 p-1.5 rounded select-all font-medium border border-slate-200 dark:border-white/[0.05]">
+                  <p className="font-mono text-slate-800 dark:text-white bg-slate-100 dark:bg-white/5 p-1.5 rounded select-all font-medium border border-slate-200 dark:border-white/[0.05] break-all">
                     {selectedLog.id}
                   </p>
                 </div>
 
+                {/* Action */}
                 <div className="space-y-1">
-                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Category / Action</p>
-                  <p className="text-slate-850 dark:text-slate-200 font-bold text-sm">
-                    {selectedLog.action}
-                  </p>
+                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Action</p>
+                  <p className="text-slate-850 dark:text-slate-200 font-bold text-sm">{selectedLog.action}</p>
                 </div>
 
+                {/* Severity */}
                 <div className="space-y-1">
-                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Description Summary</p>
-                  <div className="text-slate-700 dark:text-slate-350 bg-slate-50 dark:bg-white/[0.01] p-3 rounded-lg border border-slate-100 dark:border-white/[0.03] leading-relaxed">
-                    {selectedLog.details}
-                  </div>
+                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Severity</p>
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded ${getSeverityColor(selectedLog.severity)}`}>
+                    <Shield size={10} />
+                    {selectedLog.severity}
+                  </span>
                 </div>
 
-                {selectedLog.operatorRole && (
+                {/* Entity */}
+                {(selectedLog.entityType || selectedLog.entityId) && (
                   <div className="space-y-1">
-                    <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Operator Authorization Role</p>
-                    <p className="text-emerald-600 dark:text-emerald-400 font-bold text-xs capitalize">
-                      {selectedLog.operatorRole}
-                    </p>
+                    <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Entity</p>
+                    {selectedLog.entityType && <p className="text-slate-700 dark:text-slate-300 font-semibold">{selectedLog.entityType}</p>}
+                    {selectedLog.entityId && (
+                      <p className="font-mono text-cyan-600 dark:text-cyan-400 text-[10px] bg-cyan-50 dark:bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/10 select-all break-all">
+                        {selectedLog.entityId}
+                      </p>
+                    )}
                   </div>
                 )}
 
-                {selectedLog.rowId && (
-                  <div className="space-y-1">
-                    <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Record / Row ID Selector</p>
-                    <p className="text-cyan-600 dark:text-cyan-450 bg-cyan-100/10 px-2 py-1 rounded font-mono text-[10px] select-all border border-cyan-500/10">
-                      {selectedLog.rowId}
-                    </p>
-                  </div>
-                )}
-
-                {selectedLog.changeset && Object.keys(selectedLog.changeset).length > 0 && (
+                {/* Changeset */}
+                {selectedLog.changeset && typeof selectedLog.changeset === 'object' && (
                   <div className="space-y-2 pt-2 border-t border-gray-100 dark:border-white/[0.03]">
-                    <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Changeset Details Table</p>
+                    <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Changeset</p>
                     <div className="overflow-hidden border border-slate-200 dark:border-white/[0.05] rounded-lg">
                       <table className="w-full text-[10px] font-mono text-left border-collapse">
-                        <thead className="bg-[#0e1626] text-slate-400">
-                          <tr className="border-b border-white/[0.05]">
+                        <thead className="bg-slate-50 dark:bg-[#0e1626] text-slate-400">
+                          <tr className="border-b border-slate-200 dark:border-white/[0.05]">
                             <th className="p-1 px-2 font-semibold">Field</th>
-                            <th className="p-1 px-2 border-l border-white/[0.05] font-semibold">Old</th>
-                            <th className="p-1 px-2 border-l border-white/[0.05] font-semibold">New</th>
+                            <th className="p-1 px-2 border-l border-slate-200 dark:border-white/[0.05] font-semibold">Before</th>
+                            <th className="p-1 px-2 border-l border-slate-200 dark:border-white/[0.05] font-semibold">After</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/[0.05] bg-white dark:bg-[#080d19]">
-                          {Object.entries(selectedLog.changeset).map(([field, delta]: [string, any]) => (
-                            <tr key={field} className="hover:bg-white/[0.02]">
-                              <td className="p-1 px-2 text-slate-900 dark:text-slate-200 font-semibold truncate max-w-[80px]" title={field}>{field}</td>
-                              <td className="p-1 px-2 border-l border-white/[0.05] text-red-500 bg-red-500/5 max-w-[100px] truncate" title={delta.old === null || delta.old === undefined ? 'null' : String(delta.old)}>{delta.old === null || delta.old === undefined ? 'null' : String(delta.old)}</td>
-                              <td className="p-1 px-2 border-l border-white/[0.05] text-green-500 bg-green-500/5 max-w-[100px] truncate" title={String(delta.new)}>{String(delta.new)}</td>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/[0.05] bg-white dark:bg-[#080d19]">
+                          {Object.entries(
+                            selectedLog.changeset as Record<string, { old?: unknown; before?: unknown; new?: unknown; after?: unknown }>,
+                          ).map(([field, delta]) => (
+                            <tr key={field} className="hover:bg-slate-50 dark:hover:bg-white/[0.02]">
+                              <td className="p-1 px-2 text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[80px]" title={field}>{field}</td>
+                              <td className="p-1 px-2 border-l border-slate-200 dark:border-white/[0.05] text-red-500 bg-red-500/5 max-w-[100px] truncate">
+                                {delta?.old !== undefined ? String(delta.old) : delta?.before !== undefined ? String(delta.before) : 'null'}
+                              </td>
+                              <td className="p-1 px-2 border-l border-slate-200 dark:border-white/[0.05] text-green-500 bg-green-500/5 max-w-[100px] truncate">
+                                {delta?.new !== undefined ? String(delta.new) : delta?.after !== undefined ? String(delta.after) : 'null'}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -942,62 +751,60 @@ export default function AuditLogsPage() {
                   </div>
                 )}
 
+                {/* Operator info */}
                 <div className="space-y-2 pt-2 border-t border-gray-100 dark:border-white/[0.03]">
                   <div className="flex items-center gap-3">
-                    <User size={13} className="text-slate-400" />
-                    <div>
-                      <p className="text-[10px] text-slate-500 font-semibold">USER OPERATOR</p>
-                      <p className="text-slate-800 dark:text-slate-300 font-semibold">{selectedLog.userEmail}</p>
+                    <User size={13} className="text-slate-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-slate-500 font-semibold">OPERATOR</p>
+                      <p className="text-slate-800 dark:text-slate-300 font-semibold truncate">
+                        {selectedLog.user
+                          ? `${selectedLog.user.firstName} ${selectedLog.user.lastName}`.trim() || selectedLog.user.email
+                          : '—'
+                        }
+                      </p>
+                      {selectedLog.user?.email && (
+                        <p className="text-slate-500 dark:text-slate-400 text-[9px]">{selectedLog.user.email}</p>
+                      )}
                     </div>
                   </div>
-
                   <div className="flex items-center gap-3">
-                    <Globe size={13} className="text-slate-400" />
+                    <Globe size={13} className="text-slate-400 shrink-0" />
                     <div>
                       <p className="text-[10px] text-slate-500 font-semibold">IP ADDRESS</p>
-                      <p className="text-slate-850 dark:text-slate-300 font-mono font-medium">{selectedLog.ipAddress || '127.0.0.1'}</p>
+                      <p className="text-slate-700 dark:text-slate-300 font-mono font-medium">{selectedLog.ipAddress ?? '—'}</p>
                     </div>
                   </div>
-
                   <div className="flex items-center gap-3">
-                    <Clock size={13} className="text-slate-400" />
+                    <Clock size={13} className="text-slate-400 shrink-0" />
                     <div>
-                      <p className="text-[10px] text-slate-500 font-semibold">EVENT TIMESTAMP</p>
-                      <p className="text-slate-850 dark:text-slate-300 font-medium">{new Date(selectedLog.timestamp).toLocaleString()}</p>
+                      <p className="text-[10px] text-slate-500 font-semibold">TIMESTAMP</p>
+                      <p className="text-slate-700 dark:text-slate-300 font-medium">{new Date(selectedLog.createdAt).toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Structured JSON Object simulation */}
+                {/* Raw JSON */}
                 <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-white/[0.03]">
-                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Structured Metadata Payloads</p>
-                  <pre className="p-3 bg-[#0a0f1d] text-slate-300 rounded-lg overflow-x-auto text-[10px] font-mono leading-tight max-h-48 custom-scrollbar border border-white/[0.05]">
+                  <p className="font-semibold text-slate-500 uppercase tracking-widest text-[9px]">Structured Metadata</p>
+                  <pre className="p-3 bg-[#0a0f1d] text-slate-300 rounded-lg overflow-x-auto text-[10px] font-mono leading-tight max-h-48 border border-white/[0.05]">
                     {JSON.stringify({
-                      evt_id: selectedLog.id,
-                      timestamp: selectedLog.timestamp,
-                      action: selectedLog.action,
-                      operator: {
-                        id: selectedLog.userId,
-                        email: selectedLog.userEmail,
-                        role: selectedLog.operatorRole
-                      },
-                      client_headers: {
-                        user_agent: window.navigator.userAgent.slice(0, 50) + "...",
-                        host_ip: selectedLog.ipAddress || "127.0.0.1"
-                      },
-                      compliance: {
-                        is_verified: true,
-                        category: selectedLog.action.split(' ')[0] || "Access",
-                        changeset: selectedLog.changeset || null
-                      }
+                      evt_id:    selectedLog.id,
+                      timestamp: selectedLog.createdAt,
+                      action:    selectedLog.action,
+                      severity:  selectedLog.severity,
+                      entity:    { type: selectedLog.entityType, id: selectedLog.entityId },
+                      operator:  { id: selectedLog.userId, email: selectedLog.user?.email },
+                      client:    { ip: selectedLog.ipAddress },
+                      metadata:  selectedLog.metadata ?? null,
                     }, null, 2)}
                   </pre>
                 </div>
               </div>
             ) : (
               <div className="py-12 text-center text-slate-400 space-y-2">
-                <AlertCircle size={24} className="mx-auto text-slate-300 dark:text-slate-600 animate-pulse" />
-                <p className="text-xs">Select any log entry in the feed list to inspect raw details, timestamps, metadata payloads, or JSON objects.</p>
+                <Activity size={24} className="mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-xs">Select any log entry to inspect its details, metadata, and changeset.</p>
               </div>
             )}
           </div>

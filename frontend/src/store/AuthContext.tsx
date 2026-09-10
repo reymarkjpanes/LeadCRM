@@ -1,7 +1,10 @@
 'use client';
 
 import { uuid } from '@/lib/utils';
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, {
+  createContext, useContext, useState, useEffect,
+  useCallback, useRef, ReactNode,
+} from 'react';
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from 'next-auth/react';
 import { User, Tenant } from './types';
 import type { ResolvedPermissions, PermissionAction } from './types/roles.types';
@@ -13,6 +16,13 @@ import { rolesApi } from '@/shared/services/roles.api';
 // Set NEXT_PUBLIC_USE_MOCK_AUTH=false in .env.local to use the real API.
 const USE_MOCK_AUTH = process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== 'false';
 
+// ─── Super-role names ─────────────────────────────────────────────────────────
+// Module-level constant — never recreated per render.
+// These roles bypass RolePermission evaluation in userCan().
+const SUPER_ROLE_NAMES = ['Admin', 'Super User', 'Client Admin', 'System Admin'] as const;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 /**
  * Distinguishes a genuine "no session" (unauthenticated / 401) response from a
  * real transport failure (network down, 5xx). The API client throws a plain
@@ -21,7 +31,7 @@ const USE_MOCK_AUTH = process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== 'false';
  * `TypeError: Failed to fetch`, a timeout, or a 5xx status — is treated as a
  * transport failure that should surface an auth-init error state.
  */
-function isNoSessionError(error: unknown): boolean {
+export function isNoSessionError(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
   return (
     message.includes('authentication required') ||
@@ -31,65 +41,97 @@ function isNoSessionError(error: unknown): boolean {
   );
 }
 
+/**
+ * Builds the Tenant object from a flattened /auth/me API response.
+ *
+ * Centralises the three duplicated setTenant({ ... }) call sites that
+ * previously differed only in whether they were spread across multiple lines.
+ * Single source of truth → zero drift between restoreSession / refreshUser / login.
+ *
+ * Note: tenantId and system-tenant check must be validated by the caller
+ * before invoking this function.
+ */
+export function buildTenantFromApiUser(apiUser: Record<string, unknown>): Tenant {
+  const tenantStatus = (apiUser.tenantStatus as string | null) ?? null;
+  // The /auth/me response carries only the fields needed for gate checks and
+  // UI display — not the full Tenant record. Required Tenant fields that aren't
+  // present in the auth response default to empty strings to satisfy the type.
+  return {
+    id:                 apiUser.tenantId as string,
+    name:               (apiUser.tenantName as string | null) ?? '',
+    industry:           (apiUser.industry as string | null) ?? '',
+    size:               '',
+    email:              '',
+    phone:              '',
+    address:            '',
+    status:             (tenantStatus?.toLowerCase() ?? 'active') as Tenant['status'],
+    approvalStep:       'completed' as Tenant['approvalStep'],
+    environment:        tenantStatus === 'SANDBOX' ? 'sandbox' : 'production',
+    createdAt:          '',
+    subscriptionStatus: (apiUser.subscriptionStatus as string | null) ?? null,
+    plan:               (apiUser.plan as string | null) ?? null,
+    currency:           (apiUser.currency as string | null) ?? null,
+  } as unknown as Tenant;
+}
+
+// ─── Registration payload types ──────────────────────────────────────────────
+
+/** Payload for registering a new Client Admin (new company). */
+export interface RegisterTenantPayload {
+  companyName: string;
+  industry?: string;
+  size?: string;
+  businessEmail?: string;
+  phone?: string;
+  address?: string;
+  businessReqs?: { requirements: string; documentName?: string };
+  verificationDocs?: { businessPermit?: string; taxId?: string; validId?: string; uploadedAt: string };
+}
+
+export interface RegisterAdminPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}
+
+/** Payload for registering a Guest (sandbox/demo) account. */
+export interface RegisterGuestPayload {
+  firstName:        string;
+  lastName:         string;
+  email:            string;
+  password:         string;
+  confirmPassword?: string; // UI validation field — not sent to backend
+  companyName?:     string;
+  industry?:        string;
+  companySize?:     string;
+  businessWebsite?: string;
+}
+
+// ─── Context interface ────────────────────────────────────────────────────────
+
 interface AuthContextType {
   user: User | null;
   tenant: Tenant | null;
   isLoading: boolean;
-  /**
-   * Set when auth initialization (`/auth/me` during session restore) fails due
-   * to a genuine transport error (network/5xx) rather than a missing session.
-   * A 401 / "no session" clears this and leaves `user === null`. The UI reads
-   * this to render an explicit recovery state instead of a silent blank screen.
-   */
+  /** Transport failure during session restore — not a missing session. */
   authError: string | null;
-  /** Re-runs auth initialization (`/auth/me`) after a transport failure. */
   retryAuthInit: () => Promise<void>;
-  /**
-   * Re-hydrates the cached user/tenant from the canonical `/auth/me` payload
-   * without toggling the full-screen loading state. Call after a server-side
-   * change to gate-relevant fields (e.g. completing onboarding, verifying
-   * email) so downstream guards see the fresh `emailVerified` /
-   * `onboardingCompletedAt` instead of a stale cached value.
-   */
   refreshUser: () => Promise<void>;
   login: (email: string, password?: string) => Promise<boolean>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  registerTenant: (tenantData: any, adminData: any) => Promise<boolean>;
-  registerGuestAccount: (guestData: any) => Promise<boolean>;
+  registerTenant: (tenantData: RegisterTenantPayload, adminData: RegisterAdminPayload) => Promise<boolean>;
+  registerGuestAccount: (guestData: RegisterGuestPayload) => Promise<boolean>;
   requestPasswordReset: (email: string) => Promise<boolean>;
   confirmPasswordReset: (token: string, password: string) => Promise<boolean>;
   switchRole: (role: string) => void;
   updateProfile: (profileData: Partial<User>) => void;
-  /**
-   * Switch to a demo/seeded account by email.
-   * - Mock mode: direct login — no password or OTP needed.
-   * - Real API mode: calls login directly with credentials.
-   * Returns true on success, false on failure.
-   */
   switchDemoAccount: (email: string, password: string) => Promise<boolean>;
-  /**
-   * Resolved effective permissions for the current user.
-   * Map of module key → { canView, canCreate, canEdit, canDelete }.
-   * Empty object when permissions haven't loaded yet or in mock mode.
-   */
   permissions: ResolvedPermissions;
-  /** True once permissions have been fetched from the API (or skipped in mock mode). */
   isPermissionsLoaded: boolean;
-  /**
-   * Check whether the current user can perform `action` on `module`.
-   * Super roles (Client Admin / Admin) always return true.
-   * Falls back gracefully to false when permissions haven't loaded yet.
-   */
   userCan: (module: string, action: PermissionAction) => boolean;
-  /** Re-fetches the current user's permissions from the API. */
   refreshPermissions: () => Promise<void>;
-  /**
-   * Re-hydrates AuthContext by calling GET /auth/me.
-   * Safe to call from any component — does not toggle the full-screen loading state.
-   * Use after a server-side change that should be reflected immediately
-   * (e.g. post-payment Stripe redirect, role promotion, plan activation).
-   */
   restoreSession: () => Promise<void>;
 }
 
@@ -128,17 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const apiUser = res.data.user as unknown as User;
           setUser(apiUser);
           if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-            const tenantStatus = (apiUser as any).tenantStatus as string | null;
-            setTenant({
-              id:                 apiUser.tenantId,
-              name:               (apiUser as any).tenantName ?? '',
-              status:             tenantStatus ?? 'active',
-              // Derive environment from server-backed tenantStatus — never hardcode.
-              // SANDBOX = pre-subscription (Guest). ACTIVE = paid subscription confirmed.
-              environment:        tenantStatus === 'SANDBOX' ? 'sandbox' : 'production',
-              subscriptionStatus: (apiUser as any).subscriptionStatus as string | null,
-              plan:               (apiUser as any).plan as string | null,
-            } as any);
+            setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
           }
           // Fetch effective permissions non-blocking — failure doesn't break auth
           if (apiUser.id) {
@@ -201,7 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the affected user to log out and back in.
   // Uses a ref for the user ID to avoid re-creating the interval on every
   // render — Context arrays in useEffect deps cause infinite loops.
-  const userIdRef = React.useRef<string | undefined>(undefined);
+  const userIdRef = useRef<string | undefined>(undefined);
   userIdRef.current = user?.id;
 
   useEffect(() => {
@@ -241,13 +273,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // NOTE: Client Admin is a super role for RBAC (bypasses permission checks) but
   // is NOT exempt from the subscription gate — a Client Admin on a SANDBOX/NONE
   // tenant is still a sandbox user until Stripe payment is confirmed.
-  const SUPER_ROLE_NAMES = ['Admin', 'Super User', 'Client Admin', 'System Admin'];
   const userCan = useCallback((module: string, action: PermissionAction): boolean => {
     if (!user) return false;
     const norm = user.role?.toLowerCase().trim() ?? '';
-    if (SUPER_ROLE_NAMES.some(r => r.toLowerCase() === norm)) return true;
+    if (SUPER_ROLE_NAMES.some((r) => r.toLowerCase() === norm)) return true;
     return permissions[module]?.[action] === true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, permissions]);
 
   // ── Retry auth initialization after a transport failure ───────────
@@ -269,8 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const apiUser = res.data.user as unknown as User;
         setUser(apiUser);
         if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          const tenantStatus = (apiUser as any).tenantStatus as string | null;
-          setTenant({ id: apiUser.tenantId, name: (apiUser as any).tenantName ?? '', status: tenantStatus ?? 'active', environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production', subscriptionStatus: (apiUser as any).subscriptionStatus as string | null, plan: (apiUser as any).plan as string | null } as any);
+          setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
         }
         setAuthError(null);
       }
@@ -309,8 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setUser(apiUser);
         if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          const tenantStatus = (apiUser as any).tenantStatus as string | null;
-          setTenant({ id: apiUser.tenantId, name: (apiUser as any).tenantName ?? '', status: tenantStatus ?? 'active', environment: tenantStatus === 'SANDBOX' ? 'sandbox' : 'production', subscriptionStatus: (apiUser as any).subscriptionStatus as string | null, plan: (apiUser as any).plan as string | null } as any);
+          setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
         }
         setAuthError(null);
         return true;
@@ -410,7 +438,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Register tenant ────────────────────────────────────────────────
-  const registerTenant = async (tenantData: any, adminData: any): Promise<boolean> => {
+  const registerTenant = async (
+    tenantData: RegisterTenantPayload,
+    adminData:  RegisterAdminPayload,
+  ): Promise<boolean> => {
     if (USE_MOCK_AUTH) {
       const allTenants = JSON.parse(localStorage.getItem('leadcrm_tenants') || JSON.stringify(MOCK_TENANTS));
       const allUsers   = JSON.parse(localStorage.getItem('leadcrm_users')   || JSON.stringify(MOCK_USERS));
@@ -419,11 +450,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newTenant: Tenant = {
         id:               newTenantId,
         name:             tenantData.companyName,
-        industry:         tenantData.industry,
-        size:             tenantData.size,
-        email:            tenantData.businessEmail,
-        phone:            tenantData.phone,
-        address:          tenantData.address,
+        industry:         tenantData.industry ?? '',
+        size:             tenantData.size ?? '',
+        email:            tenantData.businessEmail ?? '',
+        phone:            tenantData.phone ?? '',
+        address:          tenantData.address ?? '',
         status:           'pending',
         approvalStep:     'basic',
         environment:      'none',
@@ -445,57 +476,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('leadcrm_tenants', JSON.stringify([...allTenants, newTenant]));
       localStorage.setItem('leadcrm_users',   JSON.stringify([...allUsers, newUser]));
       return true;
-    } else {
-      try {
-        await authApi.registerClientAdmin({
-          companyName: tenantData.companyName,
-          industry: tenantData.industry,
-          companySize: tenantData.size,
-          country: 'US', // default or from form
-          firstName: adminData.firstName,
-          lastName: adminData.lastName,
-          email: adminData.email,
-          password: adminData.password,
-          acceptTerms: true,
-        });
-        return true;
-      } catch (err: unknown) {
-        // Log safely — never expose stack traces or secrets
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.error('[AuthContext] registerTenant failed:', err instanceof Error ? err.message : err);
-        }
-        return false;
+    }
+
+    try {
+      await authApi.registerClientAdmin({
+        companyName: tenantData.companyName,
+        industry:    tenantData.industry,
+        companySize: tenantData.size,
+        country:     'US',
+        firstName:   adminData.firstName,
+        lastName:    adminData.lastName,
+        email:       adminData.email,
+        password:    adminData.password,
+        acceptTerms: true,
+      });
+      return true;
+    } catch (err: unknown) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('[AuthContext] registerTenant failed:', err instanceof Error ? err.message : err);
       }
+      return false;
     }
   };
 
-  const registerGuestAccount = async (guestData: any): Promise<boolean> => {
+  const registerGuestAccount = async (guestData: RegisterGuestPayload): Promise<boolean> => {
     if (USE_MOCK_AUTH) {
-      return true; // Simplified mock
-    } else {
-      try {
-        // Register the guest account.
-        // The registerGuest endpoint already generates the OTP and sends the
-        // combined magic-link + OTP verification email — no second send needed.
-        await authApi.registerGuest({
-          firstName: guestData.firstName,
-          lastName: guestData.lastName,
-          email: guestData.email,
-          password: guestData.password,
-          companyName: guestData.companyName,
-          industry: guestData.industry,
-          companySize: guestData.companySize,
-          businessWebsite: guestData.businessWebsite,
-        });
+      return true; // Simplified mock — guest registration not exercised without a backend
+    }
 
-        return true;
-      } catch (err: unknown) {
+    try {
+      // The registerGuest endpoint generates the OTP and sends the combined
+      // magic-link + OTP verification email — no second send needed here.
+      await authApi.registerGuest({
+        firstName:       guestData.firstName,
+        lastName:        guestData.lastName,
+        email:           guestData.email,
+        password:        guestData.password,
+        companyName:     guestData.companyName ?? '',
+        industry:        guestData.industry,
+        companySize:     guestData.companySize,
+        businessWebsite: guestData.businessWebsite,
+      });
+      return true;
+    } catch (err: unknown) {
+      if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
         console.error('[AuthContext] registerGuestAccount failed:', err instanceof Error ? err.message : err);
-        // Re-throw the error so the UI can display it
-        throw err;
       }
+      // Re-throw so the calling UI can surface a specific error message
+      throw err;
     }
   };
 

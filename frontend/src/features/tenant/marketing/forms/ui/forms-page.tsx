@@ -18,25 +18,42 @@ export default function FormsPage(): React.ReactElement {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tenant?.id) setForms(getFormsByTenant(tenant.id));
+    if (!tenant?.id) return;
+    const loadForms = async (): Promise<void> => {
+      try {
+        const loaded = await getFormsByTenant(tenant.id);
+        setForms(loaded);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load forms');
+      }
+    };
+    void loadForms();
   }, [tenant?.id]);
 
-  const handleCreate = () => {
+  const handleCreate = async (): Promise<void> => {
     if (!newFormName.trim()) { toast.error('Form name is required'); return; }
     if (!tenant?.id) { toast.error('Unable to save. Please refresh and try again.'); return; }
-    const form = createForm({ name: newFormName.trim(), tenantId: tenant.id });
-    setForms((prev) => [...prev, form]);
-    setNewFormName('');
-    setIsCreating(false);
-    setActiveForm(form);
-    toast.success('Form created');
+    try {
+      const form = await createForm({ name: newFormName.trim(), tenantId: tenant.id });
+      setForms((prev) => [...prev, form]);
+      setNewFormName('');
+      setIsCreating(false);
+      setActiveForm(form);
+      toast.success('Form created');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create form');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    deleteForm(id);
-    setForms((prev) => prev.filter((f) => f.id !== id));
-    setOpenMenuId(null);
-    toast.success('Form deleted');
+  const handleDelete = async (id: string): Promise<void> => {
+    try {
+      await deleteForm(id);
+      setForms((prev) => prev.filter((f) => f.id !== id));
+      setOpenMenuId(null);
+      toast.success('Form deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete form');
+    }
   };
 
   const handleFormUpdate = (updated: FormRecord) => {
@@ -73,12 +90,13 @@ export default function FormsPage(): React.ReactElement {
               onClick={(e) => e.stopPropagation()}>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4">New Form</h3>
               <input type="text" value={newFormName} onChange={(e) => setNewFormName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
                 placeholder="e.g. Contact Us Form" autoFocus
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors mb-4" />
               <div className="flex gap-2 justify-end">
                 <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer">Cancel</button>
-                <button onClick={handleCreate} className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-md shadow-blue-500/20 transition-colors cursor-pointer">Create</button>
+                <button onClick={() => { void handleCreate(); }}
+                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-md shadow-blue-500/20 transition-colors cursor-pointer">Create</button>
               </div>
             </motion.div>
           </motion.div>
@@ -138,7 +156,7 @@ export default function FormsPage(): React.ReactElement {
                           <button onClick={() => { setActiveForm(form); setOpenMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] cursor-pointer">
                             <ExternalLink size={12} /> Open
                           </button>
-                          <button onClick={() => handleDelete(form.id)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer">
+                          <button onClick={() => { void handleDelete(form.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer">
                             <Trash2 size={12} /> Delete
                           </button>
                         </motion.div>

@@ -21,7 +21,8 @@ import { SideSheet } from '@/shared/components/side-sheet';
 import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
+import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
 import { PageSizeSelect } from '@/shared/components/page-size-select';
 import type { Account } from '../types/account.types';
 import type { ColumnConfigItem } from '@leadcrm/shared';
@@ -350,6 +351,21 @@ export default function AccountsPage(): React.ReactElement {
       >
         {/* List View — DataGrid */}
         {(activeView === 'list' || activeView === 'table') && (
+          <>
+            {filteredAccounts.length === 0 && (
+              <ActionableEmptyState
+                icon={Building2}
+                title={debouncedSearch ? 'No accounts match your search' : 'No accounts yet'}
+                description={
+                  debouncedSearch
+                    ? 'Try a different search term or clear your filters.'
+                    : 'Add your first account to start tracking your companies and organisations.'
+                }
+                actionLabel={!debouncedSearch && canCreate ? 'Add Account' : undefined}
+                onAction={!debouncedSearch && canCreate ? handleOpenCreate : undefined}
+              />
+            )}
+            {filteredAccounts.length > 0 && (
           <AccountsDataGrid
             accounts={paginatedAccounts}
             totalRecords={filteredAccounts.length}
@@ -383,6 +399,8 @@ export default function AccountsPage(): React.ReactElement {
               }
             }}
           />
+            )}
+          </>
         )}
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}

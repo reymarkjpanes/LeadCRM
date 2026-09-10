@@ -73,6 +73,7 @@ export function FormBuilderPage({ form, onBack, onFormUpdate }: FormBuilderPageP
   const [activeTab, setActiveTab]           = useState<BuilderTab>('Builder');
   const [localForm, setLocalForm]           = useState<FormRecord>(form);
   const [isDirty, setIsDirty]               = useState(false);
+  const [isSaving, setIsSaving]             = useState(false);
   const [isPublishedModalOpen, setIsPublishedModalOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab]   = useState<'Fields' | 'Design'>('Fields');
@@ -94,21 +95,25 @@ export function FormBuilderPage({ form, onBack, onFormUpdate }: FormBuilderPageP
     const updated = { ...localFormRef.current, fields };
     setLocalForm(updated);
     setIsDirty(true);
-    try { updateForm(localFormRef.current.id, { fields }); } catch { /* noop — offline service */ }
+    // Fire-and-forget auto-save — UI optimistically reflects the change immediately.
+    // If the save fails, the next explicit save attempt will catch it.
+    void updateForm(localFormRef.current.id, { fields }).catch(() => {
+      // Non-blocking — user is not interrupted but will see stale data on reload
+    });
   }, []);
 
   const handleDesignChange = useCallback((design: FormRecord['design']) => {
     const updated = { ...localFormRef.current, design };
     setLocalForm(updated);
     setIsDirty(true);
-    try { updateForm(localFormRef.current.id, { design }); } catch { /* noop */ }
+    void updateForm(localFormRef.current.id, { design }).catch(() => {});
   }, []);
 
   const handleSettingsChange = useCallback((settings: FormRecord['settings']) => {
     const updated = { ...localFormRef.current, settings };
     setLocalForm(updated);
     setIsDirty(true);
-    try { updateForm(localFormRef.current.id, { settings }); } catch { /* noop */ }
+    void updateForm(localFormRef.current.id, { settings }).catch(() => {});
   }, []);
 
   // Click-to-add from palette (still works alongside drag)
@@ -159,19 +164,23 @@ export function FormBuilderPage({ form, onBack, onFormUpdate }: FormBuilderPageP
   };
 
   // ── Publish / cancel ───────────────────────────────────────────────────────
-  const handlePublish = () => {
+  const handlePublish = async (): Promise<void> => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
-      const published = publishForm(localForm.id);
+      const published = await publishForm(localForm.id);
       setLocalForm(published);
       setIsDirty(false);
       onFormUpdate(published);
       setIsPublishedModalOpen(true);
-    } catch {
-      toast.error('Failed to publish form');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to publish form');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = (): void => {
     setLocalForm(form);
     setIsDirty(false);
   };
@@ -232,8 +241,9 @@ export function FormBuilderPage({ form, onBack, onFormUpdate }: FormBuilderPageP
                 Discard
               </button>
             )}
-            <button onClick={handlePublish}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-md shadow-blue-500/20 cursor-pointer">
+            <button onClick={() => { void handlePublish(); }}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors shadow-md shadow-blue-500/20 cursor-pointer">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
               Publish
             </button>

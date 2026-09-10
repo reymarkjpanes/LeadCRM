@@ -68,6 +68,7 @@ export interface AuthUserSource {
     plan?: string | null;
     industry?: string | null;
     companySize?: string | null;
+    currency?: string | null;
     onboardingStep?: number | null;
     onboardingCompletedAt?: Date | null;
   } | null;
@@ -96,6 +97,7 @@ export interface AuthUserResponse {
   plan: string | null;
   industry: string | null;
   companySize: string | null;
+  currency: string | null;
   onboardingStep: number;
   onboardingCompletedAt: Date | null;
 }
@@ -124,6 +126,7 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
     plan:                  tenant?.plan                 ?? null,
     industry:              tenant?.industry             ?? null,
     companySize:           tenant?.companySize          ?? null,
+    currency:              tenant?.currency             ?? null,
     onboardingStep:        tenant?.onboardingStep       ?? 0,
     onboardingCompletedAt: tenant?.onboardingCompletedAt ?? null,
   };
@@ -137,6 +140,7 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
         select: {
           name: true, industry: true, companySize: true, status: true,
           subscriptionStatus: true, plan: true,
+          currency: true,
           onboardingStep: true, onboardingCompletedAt: true,
         },
       },

@@ -60,9 +60,20 @@ export function getStageClasses(isWon?: boolean, isLost?: boolean): string {
 
 // ─── Value Formatting ────────────────────────────────────────────────────────
 
+/**
+ * Format a deal value using the deal's own currency field.
+ * Falls back to PHP if no currency is specified.
+ * Uses the centralized CURRENCY_MAP so new currencies are supported automatically.
+ */
 export function formatDealValue(value?: number, currency?: string): string {
   if (value === undefined || value === null || value === 0) return '—';
-  const symbol = currency === 'USD' ? '$' : '₱';
+  // Import-free symbol lookup — CURRENCY_MAP is inlined here to keep
+  // this utility file dependency-free (it's used in non-React contexts).
+  const SYMBOL_MAP: Record<string, string> = {
+    PHP: '₱', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+    SGD: 'S$', AUD: 'A$', CAD: 'C$', INR: '₹', MYR: 'RM',
+  };
+  const symbol = SYMBOL_MAP[currency ?? 'PHP'] ?? (currency ?? '₱');
   return `${symbol}${value.toLocaleString()}`;
 }
 

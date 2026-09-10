@@ -33,6 +33,7 @@ import { TrelloFilter, FilterOption } from '@/shared/components/trello-filter';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const COLUMNS: { id: TaskStatus; name: string; color: string }[] = [
@@ -635,8 +636,18 @@ export default function TaskBoard(): React.ReactElement {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400 text-sm">
-                      No tasks match your filters.
+                    <td colSpan={7} className="py-2">
+                      <ActionableEmptyState
+                        icon={ListTodo}
+                        title={searchQuery ? 'No tasks match your search' : 'No tasks yet'}
+                        description={
+                          searchQuery
+                            ? 'Try a different search term or clear your filters.'
+                            : 'Create your first task to start tracking work for your team.'
+                        }
+                        actionLabel={!searchQuery ? 'Add Task' : undefined}
+                        onAction={!searchQuery ? () => openAddModal() : undefined}
+                      />
                     </td>
                   </tr>
                 )}

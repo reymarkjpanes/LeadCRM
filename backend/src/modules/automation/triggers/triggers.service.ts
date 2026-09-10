@@ -101,3 +101,71 @@ export async function fireDealStageChanged(params: {
     },
   }).catch((err) => console.error(`[Trigger] ${triggerType} failed:`, err));
 }
+
+/**
+ * Fired when a new Lead record is created via POST /crm/leads.
+ *
+ * Distinct from fireContactCreated which operates on the Contact table.
+ * Lead and Contact are separate Prisma models — leads are pre-conversion
+ * prospects; contacts are post-conversion CRM records.
+ *
+ * Context keys follow the lead.* namespace to avoid collision with contact.*
+ * keys in workflow condition templates.
+ */
+export async function fireLeadCreated(params: {
+  tenantId: string;
+  lead: {
+    id:             string;
+    status:         string;
+    source?:        string | null;
+    score?:         number | null;
+    assignedUserId?: string | null;
+    companyName?:   string | null;
+  };
+}): Promise<void> {
+  await fireWorkflowTrigger({
+    triggerType: 'lead.created',
+    entityType:  'Lead',
+    entityId:    params.lead.id,
+    tenantId:    params.tenantId,
+    context: {
+      'lead.id':             params.lead.id,
+      'lead.status':         params.lead.status,
+      'lead.source':         params.lead.source,
+      'lead.score':          params.lead.score ?? 0,
+      'lead.assignedUserId': params.lead.assignedUserId,
+      'lead.companyName':    params.lead.companyName,
+    },
+  }).catch((err) => console.error('[Trigger] lead.created failed:', err));
+}
+
+/**
+ * Fired when a Lead's status field changes via PUT /crm/leads/:id.
+ *
+ * Allows workflows to react to lead qualification transitions,
+ * e.g. New → Hot, Hot → Disqualified.
+ */
+export async function fireLeadStatusChanged(params: {
+  tenantId:   string;
+  lead: {
+    id:             string;
+    status:         string;
+    score?:         number | null;
+    assignedUserId?: string | null;
+  };
+  prevStatus: string;
+}): Promise<void> {
+  await fireWorkflowTrigger({
+    triggerType: 'lead.status_changed',
+    entityType:  'Lead',
+    entityId:    params.lead.id,
+    tenantId:    params.tenantId,
+    context: {
+      'lead.id':             params.lead.id,
+      'lead.status':         params.lead.status,
+      'lead.prevStatus':     params.prevStatus,
+      'lead.score':          params.lead.score ?? 0,
+      'lead.assignedUserId': params.lead.assignedUserId,
+    },
+  }).catch((err) => console.error('[Trigger] lead.status_changed failed:', err));
+}

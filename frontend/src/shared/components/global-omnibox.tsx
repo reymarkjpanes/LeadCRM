@@ -5,6 +5,8 @@ import { Search, Mail, Phone, ExternalLink, X, ChevronDown, User, Building, Brie
 import { useData } from '@/store/DataContext';
 import { useDebounce } from '@/shared/hooks/use-debounce';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/store/AuthContext';
+import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
 
 type ScopedModule = 'all' | 'leads' | 'contacts' | 'accounts' | 'deals';
 
@@ -19,7 +21,11 @@ export function GlobalOmnibox() {
   const router = useRouter();
 
   const { contacts, deals, organizations } = useData();
+  const { tenant } = useAuth();
   const debouncedQuery = useDebounce(query, 300);
+
+  // Derives the tenant's configured currency for deal value display in search results.
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
 
   // 1. Keyboard Shortcuts (/ and #)
   useEffect(() => {
@@ -325,7 +331,7 @@ export function GlobalOmnibox() {
                             {deal.title}
                           </p>
                           <p className="text-[11px] text-slate-400 truncate">
-                            {deal.companyName} &middot; ₱{deal.value?.toLocaleString() ?? 0}
+                            {deal.companyName} &middot; {formatCurrency(deal.value ?? 0, tenantCurrency)}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

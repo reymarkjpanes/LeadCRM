@@ -15,10 +15,13 @@ import {
 import DashboardSkeleton from '@/shared/components/dashboard-skeleton';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
+import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
+import type { CurrencyConfig } from '@/shared/utils/currency';
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
   const { contacts, deals, users, roles, tasks, tenants, pipelines } = useData();
+  const tenantCurrency = useMemo<CurrencyConfig>(() => getTenantCurrency(tenant), [tenant]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -51,8 +54,8 @@ export default function Dashboard() {
       csvRows.push(['Metric', 'Value', 'Trend', 'Status']);
       
       if (isClientAdmin) {
-        csvRows.push(['Total Revenue', `₱${totalRevenue.toLocaleString()}`, `${wonDeals.length} won`, 'Real data']);
-        csvRows.push(['Forecasted Revenue', `₱${Math.round(forecastedRevenue).toLocaleString()}`, `${activeDeals.length} active`, 'Real data']);
+        csvRows.push(['Total Revenue', formatCurrency(totalRevenue, tenantCurrency), `${wonDeals.length} won`, 'Real data']);
+        csvRows.push(['Forecasted Revenue', formatCurrency(Math.round(forecastedRevenue), tenantCurrency), `${activeDeals.length} active`, 'Real data']);
         csvRows.push(['Active Deals', activeDeals.length, `${allActive.length} total`, 'Real data']);
         csvRows.push(['Total Leads', contacts.length, '', 'Real data']);
         csvRows.push(['Win Rate', `${winRate}%`, `${wonDeals.length}/${allActive.length}`, 'Real data']);
@@ -70,7 +73,7 @@ export default function Dashboard() {
       
       // Revenue Trend Data
       csvRows.push(['Revenue Trend (6 Months)', '', '', '']);
-      csvRows.push(['Month', 'Revenue (₱)', 'Deals Closed', '']);
+      csvRows.push(['Month', `Revenue (${tenantCurrency.code})`, 'Deals Closed', '']);
       revenueData.forEach(row => {
         csvRows.push([row.name, row.revenue, row.deals, '']);
       });
@@ -80,7 +83,7 @@ export default function Dashboard() {
       // Top Performers
       if (isClientAdmin) {
         csvRows.push(['Sales Leaderboard', '', '', '']);
-        csvRows.push(['Name', 'Deals Won', 'Active Deals', 'Total Value (₱)']);
+        csvRows.push(['Name', 'Deals Won', 'Active Deals', `Total Value (${tenantCurrency.code})`]);
         topPerformers.forEach(p => {
           csvRows.push([
             `${p.user.firstName} ${p.user.lastName}`,
@@ -186,8 +189,8 @@ export default function Dashboard() {
   }).sort((a, b) => b.wonValue - a.wonValue).slice(0, 5), [users, wonDeals, activeDeals]);
 
   const statCards = isClientAdmin ? [
-    { label: 'Total Revenue', value: `₱${totalRevenue.toLocaleString()}`,                 icon: DollarSign, color: 'blue',    trend: `${wonDeals.length} won`,                              up: wonDeals.length > 0 },
-    { label: 'Forecasted',    value: `₱${Math.round(forecastedRevenue).toLocaleString()}`, icon: TrendingUp, color: 'emerald', trend: `${activeDeals.length} active`,                        up: true },
+    { label: 'Total Revenue', value: formatCurrency(totalRevenue, tenantCurrency),                 icon: DollarSign, color: 'blue',    trend: `${wonDeals.length} won`,                              up: wonDeals.length > 0 },
+    { label: 'Forecasted',    value: formatCurrency(Math.round(forecastedRevenue), tenantCurrency), icon: TrendingUp, color: 'emerald', trend: `${activeDeals.length} active`,                        up: true },
     { label: 'Active Deals',  value: activeDeals.length,                                   icon: Briefcase,  color: 'purple',  trend: `${allActive.length} total`,                           up: true },
     { label: 'Total Leads',   value: contacts.length,                                      icon: Users,      color: 'orange',  trend: 'all leads',                                           up: true },
     { label: 'Win Rate',      value: `${winRate}%`,                                        icon: Target,     color: 'pink',    trend: `${wonDeals.length}/${allActive.length}`,              up: winRate > 0 },
@@ -363,9 +366,9 @@ export default function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v: number) => `₱${v / 1000}k`} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${tenantCurrency.symbol}${(v / 1000).toFixed(0)}k`} />
                 <Tooltip />
-                <Area type="monotone" dataKey="revenue" name="Revenue (₱)" stroke="#3B82F6" strokeWidth={2.5} fill="url(#revGrad)" activeDot={{ r: 5 }} />
+                <Area type="monotone" dataKey="revenue" name={`Revenue (${tenantCurrency.code})`} stroke="#3B82F6" strokeWidth={2.5} fill="url(#revGrad)" activeDot={{ r: 5 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -418,10 +421,10 @@ export default function Dashboard() {
               <BarChart data={revenueData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v: number) => `₱${v / 1000}k`} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${tenantCurrency.symbol}${(v / 1000).toFixed(0)}k`} />
                 <Tooltip />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
-                <Bar dataKey="revenue" name="Revenue (₱)" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={14} />
+                <Bar dataKey="revenue" name={`Revenue (${tenantCurrency.code})`} fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={14} />
                 <Bar dataKey="deals"   name="Deals Closed" fill="#8B5CF6" radius={[4, 4, 0, 0]} barSize={14} />
               </BarChart>
             </ResponsiveContainer>
@@ -449,7 +452,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{p.user.firstName} {p.user.lastName}</p>
                   <p className="text-xs text-slate-500">{p.wonDeals} deals · {p.activeDeals} active</p>
                 </div>
-                <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">₱{p.wonValue.toLocaleString()}</p>
+                <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{formatCurrency(p.wonValue, tenantCurrency)}</p>
               </div>
             ))}
           </div>
