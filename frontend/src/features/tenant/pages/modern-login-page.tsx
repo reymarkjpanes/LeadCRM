@@ -132,12 +132,20 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
     try {
       const success = await login(email, password);
       if (!success) {
-        toast.error('The email or password you entered is incorrect. Please try again.');
+        // Edge case: API returned 2xx but no user object — structural backend issue.
+        // login() throws for all real errors (401, 403, 502, network), so this
+        // branch only fires when the response shape is unexpectedly empty.
+        toast.error('Sign in failed. Please try again or contact support.');
         setIsSigningIn(false);
       }
-      // If success, the useEffect above will handle navigation
+      // On success, AuthGuard's useEffect handles role-based navigation.
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
+      // login() throws with the real server message — display it directly so
+      // the user knows what actually went wrong instead of a generic fallback.
+      // Examples: "Invalid email or password", "Account is inactive",
+      // "Backend unreachable", "Unable to reach the server."
+      const message = err instanceof Error ? err.message : 'Sign in failed. Please try again.';
+      toast.error(message);
       setIsSigningIn(false);
     }
   };

@@ -5,7 +5,14 @@ const prisma = new PrismaClient();
 
 /**
  * Seeds the LeadCRM system admin tenant and user.
- * Credentials must be set via environment variables — never hardcoded.
+ * Credentials are read from environment variables — never hardcoded.
+ *
+ * Uses upsert with an update block so every re-run restores the correct
+ * password hash, ACTIVE status, and role — even if a previous deploy left
+ * the account in a stale or broken state. The old findFirst+create pattern
+ * silently skipped the update when the row already existed, which meant the
+ * password hash was never repaired after an env var change.
+ *
  * Returns the system tenant for downstream seeders.
  */
 export async function seedSystemAdmin(): Promise<Tenant | null> {
@@ -19,38 +26,47 @@ export async function seedSystemAdmin(): Promise<Tenant | null> {
 
   const tenant = await prisma.tenant.upsert({
     where:  { slug: 'leadcrm-system' },
-    update: {},
+    update: {
+      status:             'ACTIVE',
+      subscriptionStatus: 'ACTIVE',
+      onboardingStep:          3,
+      onboardingCompletedAt:   new Date(),
+    },
     create: {
       name:               'LeadCRM System',
       slug:               'leadcrm-system',
       status:             'ACTIVE',
       subscriptionStatus: 'ACTIVE',
       plan:               'ENTERPRISE',
+      onboardingStep:          3,
+      onboardingCompletedAt:   new Date(),
     },
   });
 
-  const existing = await prisma.user.findFirst({
-    where: { email, tenantId: tenant.id },
-  });
+  const passwordHash = await hashPassword(password);
 
-  if (!existing) {
-    const passwordHash = await hashPassword(password);
-    await prisma.user.create({
-      data: {
-        tenantId:     tenant.id,
-        email,
-        firstName:    'System',
-        lastName:     'Admin',
-        passwordHash,
-        role:         'System Admin',
-        status:       'ACTIVE',
-        emailVerified: new Date(),
-      },
-    });
-    console.log(`[Seed] System Admin created: ${email}`);
-  } else {
-    console.log(`[Seed] System Admin already exists: ${email}`);
-  }
+  await prisma.user.upsert({
+    where:  { tenantId_email: { tenantId: tenant.id, email } },
+    // update block always restores the correct password hash and ACTIVE status
+    // so a re-run repairs a stale account without manual DB intervention.
+    update: {
+      passwordHash,
+      status:        'ACTIVE',
+      role:          'System Admin',
+      emailVerified: new Date(),
+    },
+    create: {
+      tenantId:      tenant.id,
+      email,
+      firstName:     'System',
+      lastName:      'Admin',
+      passwordHash,
+      role:          'System Admin',
+      status:        'ACTIVE',
+      emailVerified: new Date(),
+    },
+  });
+  console.log(`[Seed] ✓ System Admin: ${email}`);
 
   return tenant;
 }

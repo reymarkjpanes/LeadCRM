@@ -26,14 +26,17 @@ export async function seedDemoAccounts(): Promise<void> {
   const guestPasswordHash = await hashPassword('guest123');
 
   // ── 1. System Admin Tenant ──────────────────────────────────────────────
-  // Both system admin accounts live in this tenant so loginUser() can find
-  // them via prisma.user.findFirst({ where: { email } }).
+  // Both system admin accounts live in the canonical 'leadcrm-system' tenant
+  // so loginUser()'s findFirst({ where: { email } }) always finds the row
+  // with the correct password hash. Using a separate 'leadcrm-system-demo'
+  // slug caused a duplicate admin@gmail.com row across two tenants — the
+  // login query picked whichever came first, often the stale one.
   const systemTenant = await prisma.tenant.upsert({
-    where:  { slug: 'leadcrm-system-demo' },
+    where:  { slug: 'leadcrm-system' },
     update: { status: 'ACTIVE', subscriptionStatus: 'ACTIVE', onboardingStep: 3, onboardingCompletedAt: new Date() },
     create: {
-      name:               'LeadCRM System Demo',
-      slug:               'leadcrm-system-demo',
+      name:               'LeadCRM System',
+      slug:               'leadcrm-system',
       status:             'ACTIVE',
       subscriptionStatus: 'ACTIVE',
       plan:               'ENTERPRISE',

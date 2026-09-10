@@ -312,45 +312,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Login ─────────────────────────────────────────────────────────
+  //
+  // CONTRACT: throws on any API/network failure so the caller receives the
+  // real error message from the backend (e.g. "Invalid email or password",
+  // "Account is inactive", "Backend unreachable"). Returns false only for
+  // the structural edge-case where the API returns 2xx but no user object.
+  //
+  // Previously the catch block swallowed all errors and returned false,
+  // making every failure — wrong password, backend down, seed not run, 502
+  // from the proxy — indistinguishable from a bad-credentials attempt. The
+  // login page displayed the same generic toast regardless of root cause,
+  // giving users (and developers) no actionable information.
   const login = async (email: string, password?: string): Promise<boolean> => {
     if (USE_MOCK_AUTH) {
       return mockLogin(email);
     }
 
-    try {
-      const res = await authApi.login({ email, password: password ?? '' });
-      if (res?.data?.user) {
-        // Defense-in-depth: re-hydrate from the canonical /auth/me payload so
-        // the stored user always carries the gate fields (emailVerified,
-        // onboardingCompletedAt, etc.) regardless of the login response shape.
-        // Fall back to the (now-aligned) login payload if the me call fails.
-        let apiUser = res.data.user as unknown as User;
-        try {
-          const meRes = await authApi.me();
-          if (meRes?.data?.user) {
-            apiUser = meRes.data.user as unknown as User;
-          }
-        } catch (meErr: unknown) {
-          if (process.env.NODE_ENV !== 'production') {
-            // eslint-disable-next-line no-console
-            console.error('[AuthContext] post-login re-hydrate failed, using login payload:', meErr instanceof Error ? meErr.message : meErr);
-          }
-        }
-        setUser(apiUser);
-        if (apiUser.tenantId && apiUser.tenantId !== 'system') {
-          setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
-        }
-        setAuthError(null);
-        return true;
-      }
-      return false;
-    } catch (err: unknown) {
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.error('[AuthContext] login failed:', err instanceof Error ? err.message : err);
-      }
+    // Let the error propagate naturally — the login page catches and displays it.
+    const res = await authApi.login({ email, password: password ?? '' });
+
+    if (!res?.data?.user) {
+      // 2xx but no user object — structural backend response issue.
       return false;
     }
+
+    // Defense-in-depth: re-hydrate from the canonical /auth/me payload so
+    // the stored user always carries the gate fields (emailVerified,
+    // onboardingCompletedAt, etc.) regardless of the login response shape.
+    // Fall back to the login payload if the /auth/me call fails.
+    let apiUser = res.data.user as unknown as User;
+    try {
+      const meRes = await authApi.me();
+      if (meRes?.data?.user) {
+        apiUser = meRes.data.user as unknown as User;
+      }
+    } catch (meErr: unknown) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('[AuthContext] post-login re-hydrate failed, using login payload:', meErr instanceof Error ? meErr.message : meErr);
+      }
+    }
+
+    setUser(apiUser);
+    if (apiUser.tenantId && apiUser.tenantId !== 'system') {
+      setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
+    }
+    setAuthError(null);
+    return true;
   };
 
   // ── Mock login (localStorage, demo phase) ─────────────────────────
