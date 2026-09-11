@@ -39,6 +39,37 @@ export interface UpdatePlanInput {
   paymentMethods?: PaymentMethodInput[];
 }
 
+export interface UpdateStripeIdsInput {
+  stripeProductId?:        string;
+  stripeMonthlyPriceId?:   string;
+  stripeQuarterlyPriceId?: string;
+  stripeAnnualPriceId?:    string;
+}
+
+/**
+ * Persist Stripe product / price IDs onto a plan row.
+ * Only the provided fields are written; undefined fields are left untouched.
+ * Used by the "attach existing Stripe product/price" admin flow — kept separate
+ * from updatePlan() because Stripe IDs are set through Stripe-verified attach,
+ * never through the general plan editor payload.
+ */
+export async function updateStripeIds(
+  id: string,
+  input: UpdateStripeIdsInput,
+): Promise<PricingPlanWithFeatures> {
+  const data: Prisma.PricingPlanUpdateInput = {};
+  if (input.stripeProductId        !== undefined) data.stripeProductId        = input.stripeProductId;
+  if (input.stripeMonthlyPriceId   !== undefined) data.stripeMonthlyPriceId   = input.stripeMonthlyPriceId;
+  if (input.stripeQuarterlyPriceId !== undefined) data.stripeQuarterlyPriceId = input.stripeQuarterlyPriceId;
+  if (input.stripeAnnualPriceId    !== undefined) data.stripeAnnualPriceId    = input.stripeAnnualPriceId;
+
+  return prisma.pricingPlan.update({
+    where:   { id },
+    data,
+    include: { features: { orderBy: { name: 'asc' } } },
+  });
+}
+
 export async function updatePlan(
   id: string,
   input: UpdatePlanInput,
