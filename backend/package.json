@@ -16,6 +16,7 @@
     "db:seed:reymark": "ts-node src/database/seeders/reymark.seed.ts",
     "db:seed:seeder": "ts-node src/database/seeders/seeder.seed.ts",
     "db:seed:production-test": "ts-node src/database/seeders/production-test.seed.ts",
+    "db:migrate-roles": "ts-node src/database/seeders/migrate-roles.ts",
     "verify:seeder-data": "ts-node src/scripts/verify-seeder-data.ts",
     "test:campaign-production": "ts-node src/scripts/run-production-campaign-test.ts",
     "test:email-infrastructure": "ts-node src/scripts/test-email-infrastructure.ts",

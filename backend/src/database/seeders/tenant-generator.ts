@@ -93,13 +93,13 @@ export async function generateTenants(count: number = 10) {
     });
 
     // 2. Roles & Permissions
+    // seedSystemRoles already created Client Admin, User, and Guest system roles.
+    // Only create custom (non-system) roles here.
     const rolesData = [
-      { name: 'Admin', isSystemRole: true, perms: { canView: true, canCreate: true, canEdit: true, canDelete: true } },
       { name: 'Sales Manager', isSystemRole: false, perms: { canView: true, canCreate: true, canEdit: true, canDelete: false } },
-      { name: 'User', isSystemRole: true, perms: { canView: true, canCreate: true, canEdit: true, canDelete: false } },
-      { name: 'Marketing', isSystemRole: false, perms: { canView: true, canCreate: true, canEdit: true, canDelete: false } },
+      { name: 'Marketing',     isSystemRole: false, perms: { canView: true, canCreate: true, canEdit: true, canDelete: false } },
       { name: 'Support Agent', isSystemRole: false, perms: { canView: true, canCreate: true, canEdit: true, canDelete: false } },
-      { name: 'Finance', isSystemRole: false, perms: { canView: true, canCreate: false, canEdit: false, canDelete: false } },
+      { name: 'Finance',       isSystemRole: false, perms: { canView: true, canCreate: false, canEdit: false, canDelete: false } },
     ];
     
     const roleEntities: Record<string, { id: string }> = {};
@@ -155,7 +155,34 @@ export async function generateTenants(count: number = 10) {
     };
 
     // Create the team
-    const clientAdmin = await createUser('Admin', 'Admin', 'User', `admin@${slug}.com`);
+    // The tenant owner is created as Client Admin (the system role).
+    // We look up the Client Admin RoleDefinition seeded by seedSystemRoles.
+    const clientAdminRoleDef = await prisma.roleDefinition.findUniqueOrThrow({
+      where: { tenantId_name: { tenantId: tenant.id, name: 'Client Admin' } },
+    });
+    roleEntities['Client Admin'] = clientAdminRoleDef;
+
+    const createClientAdmin = async (fName?: string, lName?: string, e?: string) => {
+      const firstName = fName || faker.person.firstName();
+      const lastName  = lName || faker.person.lastName();
+      const email     = e || faker.internet.email({ firstName, lastName, provider: slug + '.com' });
+      const user = await prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          firstName,
+          lastName,
+          email: email.toLowerCase(),
+          passwordHash: defaultPassword,
+          role: 'Client Admin',
+          status: 'ACTIVE',
+          userRoles: { create: { roleId: clientAdminRoleDef.id, tenantId: tenant.id } },
+        },
+      });
+      usersList.push(user);
+      return user;
+    };
+
+    const clientAdmin = await createClientAdmin('Admin', 'User', `admin@${slug}.com`);
     await createUser('Sales Manager');
     const salesReps: { id: string; role: string }[] = [];
     const numSalesReps = faker.number.int({ min: 3, max: 6 });
