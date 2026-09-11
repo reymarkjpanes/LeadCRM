@@ -25,6 +25,67 @@ if (BACKEND_URL.includes('localhost')) {
   );
 }
 
+/**
+ * Rewrites a raw Set-Cookie string from the Render backend so it is valid
+ * for the Vercel frontend domain.
+ *
+ * Problem: the backend sets cookies with no Domain attribute, which causes
+ * the browser to scope the cookie to the backend's domain (onrender.com).
+ * When the proxy forwards this raw header to the browser, the browser sees
+ * the cookie as coming from vercel.app but with attributes set by a
+ * different origin — some browsers silently drop it.
+ *
+ * Fix: parse the raw Set-Cookie string and rebuild it with:
+ *   - No Domain attribute (browser defaults to the current origin = vercel.app)
+ *   - Secure flag preserved for production
+ *   - SameSite=Lax preserved (required for top-level navigation cookie delivery)
+ *   - Path=/ so the cookie is available across the entire frontend
+ *   - Original name, value, and Max-Age preserved exactly
+ */
+function rewriteSetCookie(raw: string): string {
+  const parts = raw.split(/;\s*/);
+  const [nameValue, ...attributes] = parts;
+
+  // Rebuild attribute map from the backend's cookie, normalising keys to lowercase
+  const attrMap = new Map<string, string | null>();
+  for (const attr of attributes) {
+    const eqIdx = attr.indexOf('=');
+    if (eqIdx === -1) {
+      attrMap.set(attr.toLowerCase(), null);
+    } else {
+      attrMap.set(attr.slice(0, eqIdx).toLowerCase(), attr.slice(eqIdx + 1));
+    }
+  }
+
+  // Build the new Set-Cookie string. Omit Domain entirely so the browser
+  // scopes the cookie to the vercel.app origin (the page's origin).
+  const rebuilt: string[] = [nameValue];
+
+  // Path — always / so the cookie is sent on every frontend route
+  rebuilt.push('Path=/');
+
+  // Max-Age — preserve from backend, default to 7 days if missing
+  const maxAge = attrMap.get('max-age') ?? String(7 * 24 * 60 * 60);
+  rebuilt.push(`Max-Age=${maxAge}`);
+
+  // HttpOnly — always set for the auth token cookie
+  rebuilt.push('HttpOnly');
+
+  // Secure — set when the frontend is served over HTTPS
+  // Check VERCEL env var as a reliable production signal
+  const isSecure =
+    process.env.VERCEL === '1' ||
+    process.env.NODE_ENV === 'production' ||
+    attrMap.has('secure');
+  if (isSecure) rebuilt.push('Secure');
+
+  // SameSite — Lax allows the cookie to be sent on top-level navigation
+  // (required so the cookie survives AuthGuard redirects post-login).
+  rebuilt.push('SameSite=Lax');
+
+  return rebuilt.join('; ');
+}
+
 async function proxyRequest(
   req: NextRequest,
   params: { path: string[] },
@@ -71,13 +132,14 @@ async function proxyRequest(
       },
     });
 
-    // Forward Set-Cookie headers from the backend to the browser.
+    // Forward and rewrite Set-Cookie headers from the backend to the browser.
     // Critical for auth — the login endpoint sets the HttpOnly leadcrm_token
-    // cookie via Set-Cookie, and without this loop the browser would never
-    // receive it and every subsequent /auth/me call would return 401.
+    // cookie via Set-Cookie. We rewrite each cookie to strip the backend's
+    // Domain attribute and ensure SameSite/Secure are correct for the frontend
+    // origin so the browser accepts and stores the cookie.
     const setCookies = backendRes.headers.getSetCookie();
     for (const cookie of setCookies) {
-      response.headers.append('Set-Cookie', cookie);
+      response.headers.append('Set-Cookie', rewriteSetCookie(cookie));
     }
 
     return response;
