@@ -331,7 +331,7 @@ model User {
   lastLoginAt   DateTime?
   // role kept as String for JWT compatibility during UserRole migration.
   // New code should read role from UserRole junction; this is the legacy fallback.
-  role          String     @default("Sales Rep")
+  role          String     @default("Guest")
   status        UserStatus @default(ACTIVE)
   emailVerified DateTime?
   createdAt     DateTime   @default(now())
@@ -566,7 +566,7 @@ model TenantDomainSettings {
   tenantId               String   @unique
   restrictToEmailDomains Boolean  @default(false)
   joinPolicy             String   @default("after_approval") // "instantly" | "after_approval"
-  defaultRole            String   @default("Sales Rep")
+  defaultRole            String   @default("User")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
