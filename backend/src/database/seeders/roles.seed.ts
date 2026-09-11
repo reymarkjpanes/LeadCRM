@@ -24,22 +24,28 @@ const USER_PERMISSIONS = [
 ];
 
 const GUEST_PERMISSIONS = [
-  { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'contacts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'accounts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'deals',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'tasks',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'campaigns',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'workflows',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'settings',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'reports',       canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'users',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  { module: 'roles',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  // canEdit: true enables billing.manage — required to initiate a Stripe checkout/upgrade
-  // from a sandbox workspace. Guests cannot manage other users or roles,
-  // but they must be able to upgrade their own workspace to a paid plan.
-  { module: 'billing',       canView: true,  canCreate: false, canEdit: true,  canDelete: false },
-  { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
+  // ── Free sandbox plan: full CRUD on all basic CRM modules ─────────────────
+  // Limits enforced by recordLimitGate (100 contacts, 3 users).
+  // Premium features (campaigns, workflows) blocked by planGate (require PRO/ENTERPRISE).
+  { module: 'dashboard',  canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'contacts',   canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'accounts',   canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'deals',      canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'tasks',      canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'settings',   canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'reports',    canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  // ── Premium features — view only; mutations blocked by planGate ───────────
+  // canCreate/canEdit are intentionally false so the RBAC layer returns 403
+  // before planGate even fires, giving users a consistent "upgrade required"
+  // signal rather than a silent empty state.
+  { module: 'campaigns',  canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  { module: 'workflows',  canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  // ── Team management: view only; limited to 3 users via recordLimitGate ────
+  { module: 'users',      canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'roles',      canView: false, canCreate: false, canEdit: false, canDelete: false },
+  // ── Billing: full access so Guest can upgrade ─────────────────────────────
+  { module: 'billing',    canView: true,  canCreate: false, canEdit: true,  canDelete: false },
+  { module: 'audit',      canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 
 export async function seedSystemRoles(tenantId: string): Promise<void> {
@@ -66,7 +72,7 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       // This is the role assigned at registration — NOT Client Admin.
       // Can browse demo CRM data and access billing to upgrade.
       name: Role.GUEST,
-      description: 'Sandbox/pre-subscription access. Can view demo CRM data and initiate a plan subscription.',
+      description: 'Free sandbox plan. Full CRM CRUD (leads, contacts, deals, tasks). Limited to 100 contacts and 3 team members. Automation and campaigns require a paid plan.',
       isSystemRole: true,
       permissions: GUEST_PERMISSIONS,
     },

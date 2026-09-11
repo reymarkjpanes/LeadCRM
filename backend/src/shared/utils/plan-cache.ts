@@ -5,12 +5,19 @@ import prisma from '../../config/database.config';
 export interface TenantPlanData {
   plan: string | null;      // PlanType enum value: STARTER | PRO | ENTERPRISE, or null when unsubscribed
   subscriptionStatus: string; // SubscriptionStatus enum value
+  tenantStatus: string;     // TenantStatus: SANDBOX | ACTIVE | SUSPENDED etc.
   maxUsers: number | null;
   maxContacts: number | null;
   maxDeals: number | null;
   features: string[];       // Feature keys enabled for this plan (from PlanFeature)
   additionalSeats: number;  // From active subscription
 }
+
+// ─── Sandbox defaults ─────────────────────────────────────────────────────────
+// Limits enforced for SANDBOX/NONE (Free plan) tenants.
+// Automation, workflows, and campaigns are blocked by planGate (require PRO/ENTERPRISE).
+export const SANDBOX_MAX_CONTACTS = 100;
+export const SANDBOX_MAX_USERS    = 3;
 
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
@@ -67,6 +74,7 @@ async function fetchTenantPlanData(tenantId: string): Promise<TenantPlanData> {
     select: {
       plan: true,
       subscriptionStatus: true,
+      status: true,
       maxUsers: true,
       maxContacts: true,
       maxDeals: true,
@@ -75,15 +83,24 @@ async function fetchTenantPlanData(tenantId: string): Promise<TenantPlanData> {
 
   if (!tenant) {
     return {
-      plan: 'STARTER',
+      plan: null,
       subscriptionStatus: 'NONE',
-      maxUsers: null,
-      maxContacts: null,
+      tenantStatus: 'SANDBOX',
+      maxUsers: SANDBOX_MAX_USERS,
+      maxContacts: SANDBOX_MAX_CONTACTS,
       maxDeals: null,
       features: [],
       additionalSeats: 0,
     };
   }
+
+  // For SANDBOX/NONE tenants — apply Free plan defaults when limits aren't set yet.
+  // These defaults are also set on the Tenant row at registration via registerGuest,
+  // but this fallback ensures existing tenants created before that change also get limits.
+  const isSandboxFree = tenant.status === 'SANDBOX' && tenant.subscriptionStatus === 'NONE';
+  const maxUsers    = tenant.maxUsers    ?? (isSandboxFree ? SANDBOX_MAX_USERS    : null);
+  const maxContacts = tenant.maxContacts ?? (isSandboxFree ? SANDBOX_MAX_CONTACTS : null);
+  const maxDeals    = tenant.maxDeals    ?? null;
 
   // Fetch feature keys from PlanFeature for the tenant's current plan
   // plan may be null for unsubscribed tenants — skip feature lookup in that case
@@ -113,9 +130,10 @@ async function fetchTenantPlanData(tenantId: string): Promise<TenantPlanData> {
   return {
     plan: tenant.plan ?? null,
     subscriptionStatus: tenant.subscriptionStatus,
-    maxUsers: tenant.maxUsers,
-    maxContacts: tenant.maxContacts,
-    maxDeals: tenant.maxDeals,
+    tenantStatus: tenant.status,
+    maxUsers,
+    maxContacts,
+    maxDeals,
     features,
     additionalSeats,
   };

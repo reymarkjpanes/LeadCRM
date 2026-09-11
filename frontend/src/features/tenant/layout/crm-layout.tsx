@@ -30,6 +30,7 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
     showUpgradeModal,
     closeUpgradeModal,
     showSubscriptionModal,
+    subscriptionInfo,
     closeSubscriptionModal,
   } = useBillingInterceptor();
 
@@ -165,9 +166,10 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sandbox upgrade modal — fires when Guest user attempts a mutation */}
+      {/* Sandbox upgrade modal — fires when a Free/Guest user hits a limit or a fully unsubscribed user attempts a mutation */}
       <SandboxUpgradeModal
         isOpen={showSubscriptionModal}
+        info={subscriptionInfo}
         onClose={closeSubscriptionModal}
       />
 

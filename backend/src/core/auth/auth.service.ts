@@ -361,6 +361,9 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         plan: null,                  // No plan until payment — never pre-assign a plan
         onboardingStep: 0,
         onboardingCompletedAt: null,
+        // Free sandbox limits — enforced by recordLimitGate
+        maxContacts: 100,
+        maxUsers:    3,
       },
     });
 
@@ -487,6 +490,9 @@ export async function registerGuest(dto: GuestRegisterDto) {
         plan: null,                  // No plan until payment
         onboardingStep: 0,
         onboardingCompletedAt: null,
+        // Free sandbox limits — enforced by recordLimitGate
+        maxContacts: 100,
+        maxUsers:    3,
       },
     });
 

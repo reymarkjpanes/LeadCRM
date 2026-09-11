@@ -4,12 +4,15 @@ import React from 'react';
 import { Sparkles, X, ArrowRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouter } from 'next/navigation';
+import type { SubscriptionRequiredInfo } from '@/shared/hooks/use-billing-interceptor';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface SandboxUpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Why the modal is showing — drives the copy. Defaults to generic subscription prompt. */
+  info?: SubscriptionRequiredInfo | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -17,17 +20,16 @@ interface SandboxUpgradeModalProps {
 /**
  * SandboxUpgradeModal
  *
- * Shown when a Guest/sandbox user attempts any mutation (create, edit, delete)
- * and the backend returns 403 SUBSCRIPTION_REQUIRED.
+ * Shown to Free/sandbox (Guest) users in two situations:
+ *   1. reason='record_limit'  → they hit a Free-plan cap (100 contacts / 3 users)
+ *   2. reason='subscription'  → a fully unsubscribed tenant attempted a mutation
  *
- * The backend subscriptionGate fires this for all POST/PUT/PATCH/DELETE requests
- * when the tenant subscriptionStatus = 'NONE' (no active plan).
- *
- * Guides the user to /billing/client to choose a plan and unlock full CRM access.
+ * Guides the user to /billing/client to choose a paid plan and lift the limits.
  */
 export function SandboxUpgradeModal({
   isOpen,
   onClose,
+  info,
 }: SandboxUpgradeModalProps): React.ReactElement | null {
   const router = useRouter();
 
@@ -35,6 +37,26 @@ export function SandboxUpgradeModal({
     onClose();
     router.push('/billing/client');
   };
+
+  const isRecordLimit = info?.reason === 'record_limit';
+
+  // Friendly label for the entity that hit the cap.
+  const entityLabel = ((): string => {
+    switch (info?.entityType) {
+      case 'contacts': return 'contacts';
+      case 'users':    return 'team members';
+      case 'deals':    return 'deals';
+      default:         return 'records';
+    }
+  })();
+
+  const title = isRecordLimit ? 'Free Plan Limit Reached' : 'Upgrade Your Plan';
+
+  const description = isRecordLimit
+    ? info?.max
+      ? `You've reached the Free plan limit of ${info.max} ${entityLabel}. Upgrade to add more and unlock premium features.`
+      : `You've reached your Free plan limit for ${entityLabel}. Upgrade to add more.`
+    : "You're on the Free plan. Upgrade to unlock automation, advanced reporting, more team members, and higher limits.";
 
   return (
     <AnimatePresence>
@@ -83,22 +105,42 @@ export function SandboxUpgradeModal({
                 id="sandbox-upgrade-title"
                 className="text-xl font-bold text-slate-900 dark:text-white mb-2"
               >
-                Sandbox Mode
+                {title}
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                You&apos;re exploring{' '}
-                <strong className="text-slate-700 dark:text-slate-200">LeadCRM Sandbox</strong>.
-                Creating and editing records requires an active subscription.
+                {description}
               </p>
             </div>
 
-            {/* Feature highlights */}
+            {/* Current Free plan summary */}
+            <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+                Your Free Plan
+              </p>
+              <ul className="space-y-1.5">
+                {[
+                  'Basic CRM (Leads, Contacts, Deals & more)',
+                  'Up to 3 team members',
+                  '100 contacts limit',
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" aria-hidden="true" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* What unlocks with a paid plan */}
             <ul className="mb-6 space-y-2 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-100 dark:border-amber-500/20">
+              <li className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-1">
+                Unlock with a paid plan
+              </li>
               {[
-                'Create unlimited leads, contacts & deals',
-                'Send campaigns to real contacts',
-                'Automate workflows',
-                'Collaborate with your team',
+                'Workflow automation',
+                'Marketing campaigns',
+                'Advanced reporting',
+                'More team members & higher limits',
               ].map((item) => (
                 <li key={item} className="flex items-center gap-2.5 text-[13px] text-amber-800 dark:text-amber-300">
                   <Sparkles className="h-3.5 w-3.5 text-amber-500 shrink-0" aria-hidden="true" />
@@ -114,7 +156,7 @@ export function SandboxUpgradeModal({
                 onClick={onClose}
                 className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
-                Continue Exploring
+                Maybe Later
               </button>
               <button
                 type="button"

@@ -14,8 +14,10 @@ interface UseBillingInterceptorReturn {
   upgradeInfo: PlanUpgradeInfo | null;
   showUpgradeModal: boolean;
   closeUpgradeModal: () => void;
-  /** True when a Guest/sandbox user attempts a mutation — prompts them to subscribe */
+  /** True when a Guest/sandbox user attempts a blocked mutation — prompts them to subscribe */
   showSubscriptionModal: boolean;
+  /** Why the subscription modal is showing — drives the modal's copy */
+  subscriptionInfo: SubscriptionRequiredInfo | null;
   closeSubscriptionModal: () => void;
 }
 
@@ -33,14 +35,30 @@ export function dispatchPaymentRequired(): void {
   window.dispatchEvent(new CustomEvent('payment-required'));
 }
 
+/** Why the sandbox upgrade modal was triggered. */
+export type SubscriptionRequiredReason = 'subscription' | 'record_limit';
+
+export interface SubscriptionRequiredInfo {
+  reason: SubscriptionRequiredReason;
+  /** For record_limit: which entity hit the cap (contacts | users | deals). */
+  entityType?: string;
+  /** For record_limit: the plan's max for that entity. */
+  max?: number;
+}
+
 /**
- * Dispatch this event when the API returns 403 with code SUBSCRIPTION_REQUIRED.
- * Fired when a Guest/sandbox user attempts any mutation (create, update, delete).
+ * Dispatch this event when the API returns 403 with code SUBSCRIPTION_REQUIRED
+ * or RECORD_LIMIT_REACHED. Fired when a Guest/sandbox user either has no
+ * subscription at all, or has hit a Free-plan record limit (100 contacts, 3 users).
  * The CRM layout shell listens for this and shows the sandbox upgrade modal.
  */
-export function dispatchSubscriptionRequired(): void {
+export function dispatchSubscriptionRequired(info?: SubscriptionRequiredInfo): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('subscription-required'));
+  window.dispatchEvent(
+    new CustomEvent('subscription-required', {
+      detail: info ?? { reason: 'subscription' },
+    }),
+  );
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -58,6 +76,7 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
   const [upgradeInfo, setUpgradeInfo] = useState<PlanUpgradeInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionRequiredInfo | null>(null);
 
   useEffect(() => {
     function handleUpgradeRequired(e: Event): void {
@@ -66,7 +85,9 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
       setShowUpgradeModal(true);
     }
 
-    function handleSubscriptionRequired(): void {
+    function handleSubscriptionRequired(e: Event): void {
+      const detail = (e as CustomEvent<SubscriptionRequiredInfo>).detail;
+      setSubscriptionInfo(detail ?? { reason: 'subscription' });
       setShowSubscriptionModal(true);
     }
 
@@ -86,6 +107,7 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
 
   const closeSubscriptionModal = useCallback(() => {
     setShowSubscriptionModal(false);
+    setSubscriptionInfo(null);
   }, []);
 
   return {
@@ -93,6 +115,7 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
     showUpgradeModal,
     closeUpgradeModal,
     showSubscriptionModal,
+    subscriptionInfo,
     closeSubscriptionModal,
   };
 }
