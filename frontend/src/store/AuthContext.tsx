@@ -169,7 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (res?.data?.user) {
           const apiUser = res.data.user as unknown as User;
           setUser(apiUser);
-          if (apiUser.tenantId && apiUser.tenantId !== 'system') {
+          // tenantId is always a UUID for real users — skip setTenant only for System Admin
+          // (System Admin has no customer tenant; buildTenantFromApiUser is harmless but unnecessary)
+          if (apiUser.role !== 'System Admin') {
             setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
           }
           // Fetch effective permissions non-blocking — failure doesn't break auth
@@ -298,7 +300,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res?.data?.user) {
         const apiUser = res.data.user as unknown as User;
         setUser(apiUser);
-        if (apiUser.tenantId && apiUser.tenantId !== 'system') {
+        // tenantId is always a UUID for real users — skip setTenant only for System Admin
+        if (apiUser.role !== 'System Admin') {
           setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
         }
         setAuthError(null);
@@ -354,7 +357,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setUser(apiUser);
-    if (apiUser.tenantId && apiUser.tenantId !== 'system') {
+    // tenantId is always a UUID for real users — skip setTenant only for System Admin
+    if (apiUser.role !== 'System Admin') {
       setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
     }
     setAuthError(null);

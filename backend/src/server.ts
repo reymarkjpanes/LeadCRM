@@ -77,8 +77,8 @@ app.listen(PORT, () => {
   // faker tenant generation when SKIP_DEMO_TENANTS=true. Takes ~200ms and
   // runs non-blocking so it does not delay the server accepting connections.
   seedDemoAccounts()
-    .then(() => {
-      console.log('[server] ✓ System admin seed completed.');
+    .then((seededEmail) => {
+      console.log(`[server] ✓ System admin seed completed: ${seededEmail}`);
     })
     .catch((err: unknown) => {
       // Non-fatal — the server continues running. Log clearly so Render logs
