@@ -216,10 +216,12 @@ export const MOCK_ROLES: RoleDefinition[] = [
     id: 'r4',
     tenantId: 'tenant_demo',
     name: 'Guest',
-    description: 'Sandbox/pre-subscription access. Can view demo CRM data and initiate a plan subscription.',
+    description: 'Free sandbox plan. Full CRM CRUD (leads, contacts, deals, tasks). Limited to 100 contacts and 3 team members. Automation and campaigns require a paid plan.',
     isSystemRole: true,
     userCount: 1,
-    permissions: ['p1','p2','p7','p12','p17'],
+    // Free plan: full CRUD on contacts/accounts (p2-p6) and deals (p7-p10).
+    // Campaigns (p17) and workflows (p12) stay view-only — paid features.
+    permissions: ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10','p12','p17'],
     updatedAt: '1/1/2026',
   },
   {
