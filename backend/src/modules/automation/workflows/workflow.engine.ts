@@ -7,6 +7,14 @@
 
 import prisma from '../../../config/database.config';
 import * as repo from './workflows.repository';
+import { moveDealStage as repoMoveDealStage } from '../../crm/deals/deals.repository';
+import { writeAuditLog } from '../../../core/audit/audit.service';
+import { createNotification } from '../../notifications/notifications.service';
+
+// System actor identifier used for workflow-engine-initiated mutations.
+// Matches the 'system_job' convention used by background jobs, making audit
+// entries clearly attributable to automation rather than a human user.
+const WORKFLOW_ENGINE_ACTOR = 'workflow_engine';
 
 // ─────────────────────────────────────────────────────
 // Types (mirrors shared/contracts/workflow.contracts.ts)
@@ -189,26 +197,80 @@ async function actionAssignOwner(
   return { success: true, output: { assignedUserId: newOwnerId } };
 }
 
+/**
+ * Move a deal to a new pipeline stage via the workflow engine.
+ *
+ * Uses the deals repository directly (not the service layer) to avoid
+ * creating a circular dependency: engine → service → triggers → engine.
+ *
+ * The repository's moveDealStage handles:
+ * - SEC-1 tenant-scoped stage lookup
+ * - DealStageHistory creation with timeInPrevStage computation
+ * - Activity record ("Deal moved from X to Y")
+ * - Account and Lead status updates on Won
+ *
+ * The engine additionally writes an audit log entry and fires deal-won/
+ * deal-lost notifications so automated stage moves are indistinguishable
+ * from user-initiated moves in the audit trail and notification inbox.
+ */
 async function actionMoveDealStage(
   config: Record<string, unknown>,
   context: Record<string, unknown>,
   tenantId: string,
 ): Promise<ActionResult> {
-  const dealId   = context['deal.id'] ? String(context['deal.id']) : undefined;
-  const stageId  = String(config.stageId ?? '');
+  const dealId  = context['deal.id'] ? String(context['deal.id']) : undefined;
+  const stageId = String(config.stageId ?? '');
   if (!dealId || !stageId) return { success: false, error: 'deal.id and stageId required' };
 
-  const stage = await prisma.stage.findFirst({ where: { id: stageId, tenantId } });
-  if (!stage) return { success: false, error: 'Stage not found' };
+  // Route through the repository — this creates DealStageHistory + Activity records
+  // and handles Won/Lost side-effects (Account update, Lead status update).
+  const result = await repoMoveDealStage(dealId, tenantId, stageId, WORKFLOW_ENGINE_ACTOR);
+  if (!result) return { success: false, error: 'Stage not found or deal does not belong to this tenant' };
 
-  await prisma.deal.update({
-    where: { id: dealId, tenantId },
-    data: {
-      stageId,
-      ...(stage.isWon || stage.isLost ? { closedAt: new Date() } : {}),
+  const { deal, stageHistory } = result;
+
+  // Audit log — attribute the stage change to the workflow engine
+  void writeAuditLog({
+    tenantId,
+    userId:     WORKFLOW_ENGINE_ACTOR,
+    action:     'deal.stage_changed',
+    entityType: 'Deal',
+    entityId:   dealId,
+    after: {
+      newStageId:  stageId,
+      triggeredBy: 'workflow_engine',
+      historyId:   stageHistory.id,
     },
   });
-  return { success: true, output: { newStageId: stageId } };
+
+  // Deal-won / deal-lost notifications — only if the deal has an assigned user
+  if (deal.assignedUserId) {
+    const stageName = (deal.stage as { name: string } | null)?.name ?? 'new stage';
+
+    if ((deal.stage as { isWon: boolean } | null)?.isWon) {
+      void createNotification({
+        tenantId,
+        userId:     deal.assignedUserId,
+        type:       'deal_won',
+        title:      'Deal closed — Won 🎉',
+        body:       `"${deal.title}" was moved to "${stageName}" by a workflow.`,
+        entityType: 'Deal',
+        entityId:   dealId,
+      });
+    } else if ((deal.stage as { isLost: boolean } | null)?.isLost) {
+      void createNotification({
+        tenantId,
+        userId:     deal.assignedUserId,
+        type:       'deal_lost',
+        title:      'Deal closed — Lost',
+        body:       `"${deal.title}" was moved to "${stageName}" by a workflow.`,
+        entityType: 'Deal',
+        entityId:   dealId,
+      });
+    }
+  }
+
+  return { success: true, output: { newStageId: stageId, historyId: stageHistory.id } };
 }
 
 // ─────────────────────────────────────────────────────

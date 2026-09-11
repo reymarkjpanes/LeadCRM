@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { CreditCard, Download, CheckCircle2, Sparkles, TrendingUp, ExternalLink, AlertTriangle, Loader2, XCircle, Check, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,14 +11,15 @@ import { invoicesApi } from '@/shared/services/invoices.api';
 import { ModalCloseButton } from '@/shared/components/ui/modal-close-button';
 import { BackButton } from '@/shared/components/ui/back-button';
 import { SeatManagementCard } from './seat-management-card';
+import { getTenantCurrency, formatCurrency as formatTenantCurrency } from '@/shared/utils/currency';
 import type { BillingCycle, PricingPlan } from '../types/billing.types';
 import type { Invoice } from '@/store/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatCurrency(amount: number): string {
-  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+// formatCurrency is tenant-aware — defined inside the component using useMemo
+// so it always reflects the tenant's configured currency (e.g. USD, EUR, PHP).
+// The local formatDate, getCycleLabel, and getStatusBadge helpers remain pure.
 
 function formatDate(dateString: string | null): string {
   if (!dateString) return '—';
@@ -63,6 +64,16 @@ export default function ClientBillingPage() {
   const { tenant, userCan, restoreSession } = useAuth();
   const { subscription, plans, seats, isLoading, error, refetch, refetchSeats } = useBillingData();
   const [activeTab, setActiveTab] = useState<'overview' | 'history' | 'payment-methods'>('overview');
+
+  // Tenant-aware currency formatter.
+  // All monetary amounts on this page (subscription cost, invoice totals, plan prices)
+  // must reflect the tenant's configured currency — never hardcode a symbol.
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
+  const formatCurrency = useCallback(
+    (amount: number): string =>
+      formatTenantCurrency(amount, tenantCurrency),
+    [tenantCurrency],
+  );
 
   // Plan selection modal state
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -764,6 +775,15 @@ function PlanSelectionModal({
   loading,
 }: PlanSelectionModalProps) {
   const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
+
+  // Tenant-aware currency for plan prices — this modal is a separate component
+  // so it must derive currency independently rather than via closure.
+  const { tenant } = useAuth();
+  const tenantCurrency = React.useMemo(() => getTenantCurrency(tenant), [tenant]);
+  const formatCurrency = React.useCallback(
+    (amount: number) => formatTenantCurrency(amount, tenantCurrency),
+    [tenantCurrency],
+  );
 
   const activePlan = selectedPlanId
     ? plans.find((p) => p.id === selectedPlanId) ?? null

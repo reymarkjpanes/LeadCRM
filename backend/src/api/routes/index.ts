@@ -16,6 +16,18 @@ import adminRoutes from './admin.routes';
 
 const router = Router();
 
+// ── Health / version check ────────────────────────────────────────────────────
+// Unauthenticated — used to confirm which build is running on Render.
+// GET /api/v1/health  →  { status, commit, env, seedEmail }
+router.get('/health', (_req, res) => {
+  res.json({
+    status:    'ok',
+    commit:    process.env.RENDER_GIT_COMMIT ?? 'unknown',
+    env:       process.env.NODE_ENV ?? 'development',
+    seedEmail: process.env.SYSTEM_ADMIN_EMAIL ?? 'not-set',
+  });
+});
+
 router.use('/auth', authRoutes);
 router.use('/crm', crmRoutes);
 router.use('/marketing', marketingRoutes);

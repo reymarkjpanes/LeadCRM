@@ -7,6 +7,7 @@ import { enforcePlanLimit } from '../../../config/database.config';
 import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams } from './deals.dto';
 import { paginate } from '../../../shared/helpers/pagination';
 import { fireDealCreated, fireDealStageChanged } from '../../automation/triggers/triggers.service';
+import { createNotification } from '../../notifications/notifications.service';
 
 /**
  * Maps known Prisma constraint/infrastructure errors to appropriate HTTP errors.
@@ -68,6 +69,20 @@ export async function createDeal(tenantId: string, userId: string, dto: CreateDe
   // Fire workflow trigger (non-blocking — never fails the request)
   fireDealCreated({ tenantId, deal }).catch(() => {});
 
+  // Notify the assigned user that a deal has been assigned to them.
+  // Only fires when the creator is NOT the assignee (no self-notification).
+  if (deal.assignedUserId && deal.assignedUserId !== userId) {
+    createNotification({
+      tenantId,
+      userId:     deal.assignedUserId,
+      type:       'deal_assigned',
+      title:      `Deal assigned to you`,
+      body:       `"${deal.title}" has been assigned to you.`,
+      entityType: 'Deal',
+      entityId:   deal.id,
+    }).catch(() => {});
+  }
+
   return deal;
 }
 
@@ -102,6 +117,24 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     action: 'deal.updated', entityType: 'Deal', entityId: id,
     before: changedBefore, after: changedAfter,
   });
+
+  // Notify the newly assigned user when the deal is reassigned to someone else.
+  // Before: dto.assignedUserId differs from the previous owner AND is not the actor.
+  if (
+    dto.assignedUserId &&
+    dto.assignedUserId !== before.assignedUserId &&
+    dto.assignedUserId !== userId
+  ) {
+    createNotification({
+      tenantId,
+      userId:     dto.assignedUserId,
+      type:       'deal_assigned',
+      title:      `Deal assigned to you`,
+      body:       `"${deal.title}" has been assigned to you.`,
+      entityType: 'Deal',
+      entityId:   id,
+    }).catch(() => {});
+  }
 
   return deal;
 }
@@ -160,6 +193,32 @@ export async function moveDealStage(id: string, tenantId: string, userId: string
     isLost:       newStage.isLost,
     prevStageId:  result.stageHistory.previousStageId ?? undefined,
   }).catch(() => {});
+
+  // Notify the deal owner when a deal is closed won or closed lost.
+  // Skip if no assigned user, or if the actor IS the assigned user (they already know).
+  if (result.deal.assignedUserId && result.deal.assignedUserId !== userId) {
+    if (newStage.isWon) {
+      createNotification({
+        tenantId,
+        userId:     result.deal.assignedUserId,
+        type:       'deal_won',
+        title:      `Deal closed — Won 🎉`,
+        body:       `"${result.deal.title}" was moved to "${newStage.name}".`,
+        entityType: 'Deal',
+        entityId:   id,
+      }).catch(() => {});
+    } else if (newStage.isLost) {
+      createNotification({
+        tenantId,
+        userId:     result.deal.assignedUserId,
+        type:       'deal_lost',
+        title:      `Deal closed — Lost`,
+        body:       `"${result.deal.title}" was moved to "${newStage.name}".`,
+        entityType: 'Deal',
+        entityId:   id,
+      }).catch(() => {});
+    }
+  }
 
   return result;
 }

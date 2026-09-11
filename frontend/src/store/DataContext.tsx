@@ -369,7 +369,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setOrganizations((apiOrgs as Organization[]).filter((o: any) => !o.isArchived));
         setDeals((apiDeals as Deal[]).filter((d: any) => !d.isArchived));
         setPipelines((apiPipelines as Pipeline[]).filter((p: any) => !p.isArchived));
-        setActivities(apiActivities as Activity[]);
+        setActivities(apiActivities as unknown as Activity[]);
         setUsers((apiUsers as any[]).filter((u: any) => !u.isArchived));
         setRoles((apiRoles as any[]).filter((r: any) => !r.isArchived));
       } catch (err) {
@@ -2494,7 +2494,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       try {
         const res = await activitiesService.create(activityData as any);
         if (res.data) {
-          setActivities((prev) => [res.data as Activity, ...prev]);
+          setActivities((prev) => [res.data as unknown as Activity, ...prev]);
         }
       } catch (error) {
         console.error('Failed to create activity via API', error);

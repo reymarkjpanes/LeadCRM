@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Layers, Users, Clock, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 
 import { useRecordDetail } from '@/shared/hooks/use-record-detail';
 import { useData } from '@/store/DataContext';
@@ -27,6 +28,9 @@ export default function AccountDetailPage(): React.ReactElement {
 
   const { updateOrganization, deleteOrganization } = useData();
 
+  // ── Archive confirmation state ───────────────────────────────────────────
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   // ── Field save handler ──────────────────────────────────────────────────
   const handleFieldSave = useCallback(async (key: string, value: unknown): Promise<void> => {
     if (!recordId) return;
@@ -43,12 +47,7 @@ export default function AccountDetailPage(): React.ReactElement {
             toast.info('Edit form coming soon — use the side panel for now');
             break;
           case 'delete':
-            if (recordId && window.confirm('Archive this account?')) {
-              deleteOrganization(recordId).then(() => {
-                toast.success('Account archived');
-                router.push('/crm/accounts');
-              }).catch(() => toast.error('Failed to archive'));
-            }
+            if (recordId) setConfirmOpen(true);
             break;
         }
       },
@@ -136,22 +135,39 @@ export default function AccountDetailPage(): React.ReactElement {
   ], [fieldSections, relatedSections, activities, recordId, refetch]);
 
   return (
-    <RecordDetailLayout
-      module="accounts"
-      title={title}
-      subtitle={subtitle}
-      avatar={avatar}
-      status={{ label: statusConfig.label, variant: statusConfig.variant }}
-      breadcrumbs={[
-        { label: 'CRM', href: '/crm/accounts' },
-        { label: 'Accounts', href: '/crm/accounts' },
-        { label: title },
-      ]}
-      actions={actions}
-      tabs={tabs}
-      isLoading={isLoading}
-      isNotFound={isNotFound}
-      defaultTab="overview"
-    />
+    <>
+      <RecordDetailLayout
+        module="accounts"
+        title={title}
+        subtitle={subtitle}
+        avatar={avatar}
+        status={{ label: statusConfig.label, variant: statusConfig.variant }}
+        breadcrumbs={[
+          { label: 'CRM', href: '/crm/accounts' },
+          { label: 'Accounts', href: '/crm/accounts' },
+          { label: title },
+        ]}
+        actions={actions}
+        tabs={tabs}
+        isLoading={isLoading}
+        isNotFound={isNotFound}
+        defaultTab="overview"
+      />
+      <ConfirmActionDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Archive Account"
+        description="This account and its associated data will be moved to the archive."
+        warning="You can restore it later from archived records."
+        confirmLabel="Archive"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!recordId) return;
+          await deleteOrganization(recordId);
+          toast.success('Account archived');
+          router.push('/crm/accounts');
+        }}
+      />
+    </>
   );
 }

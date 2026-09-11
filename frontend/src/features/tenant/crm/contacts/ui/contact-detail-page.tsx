@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Layers, Users, Clock, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 
 import { useRecordDetail } from '@/shared/hooks/use-record-detail';
 import { useData } from '@/store/DataContext';
@@ -27,6 +28,9 @@ export default function ContactDetailPage(): React.ReactElement {
 
   const { updateContact, deleteContact } = useData();
 
+  // ── Archive confirmation state ───────────────────────────────────────────
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   // ── Field save handler ──────────────────────────────────────────────────
   const handleFieldSave = useCallback(async (key: string, value: unknown): Promise<void> => {
     if (!recordId) return;
@@ -43,12 +47,7 @@ export default function ContactDetailPage(): React.ReactElement {
             toast.info('Edit form coming soon — use the side panel for now');
             break;
           case 'delete':
-            if (recordId && window.confirm('Archive this contact?')) {
-              deleteContact(recordId).then(() => {
-                toast.success('Contact archived');
-                router.push('/crm/contacts');
-              }).catch(() => toast.error('Failed to archive'));
-            }
+            if (recordId) setConfirmOpen(true);
             break;
         }
       },
@@ -143,22 +142,39 @@ export default function ContactDetailPage(): React.ReactElement {
   ], [fieldSections, relatedSections, activities, recordId, record, updateContact, refetch]);
 
   return (
-    <RecordDetailLayout
-      module="contacts"
-      title={title}
-      subtitle={subtitle}
-      avatar={avatar}
-      status={{ label: statusConfig.label, variant: statusConfig.variant }}
-      breadcrumbs={[
-        { label: 'CRM', href: '/crm/contacts' },
-        { label: 'Contacts', href: '/crm/contacts' },
-        { label: title },
-      ]}
-      actions={actions}
-      tabs={tabs}
-      isLoading={isLoading}
-      isNotFound={isNotFound}
-      defaultTab="overview"
-    />
+    <>
+      <RecordDetailLayout
+        module="contacts"
+        title={title}
+        subtitle={subtitle}
+        avatar={avatar}
+        status={{ label: statusConfig.label, variant: statusConfig.variant }}
+        breadcrumbs={[
+          { label: 'CRM', href: '/crm/contacts' },
+          { label: 'Contacts', href: '/crm/contacts' },
+          { label: title },
+        ]}
+        actions={actions}
+        tabs={tabs}
+        isLoading={isLoading}
+        isNotFound={isNotFound}
+        defaultTab="overview"
+      />
+      <ConfirmActionDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Archive Contact"
+        description="This contact will be moved to the archive and hidden from active views."
+        warning="You can restore it later from archived records."
+        confirmLabel="Archive"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!recordId) return;
+          await deleteContact(recordId);
+          toast.success('Contact archived');
+          router.push('/crm/contacts');
+        }}
+      />
+    </>
   );
 }

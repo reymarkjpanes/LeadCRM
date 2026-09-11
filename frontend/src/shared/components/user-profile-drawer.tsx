@@ -1,9 +1,13 @@
 'use client';
 
-import React from 'react';
-import { Mail, Phone, Shield, Briefcase, CheckSquare, TrendingUp, Award, Calendar, User as UserIcon } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Mail, Phone, Shield, Briefcase, CheckSquare, TrendingUp, Award, Calendar } from 'lucide-react';
 import { User, Deal, Task } from '@/store/types';
 import { ModalCloseButton } from '@/shared/components/ui/modal-close-button';
+import { useAuth } from '@/store/AuthContext';
+import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UserProfileDrawerProps {
   user: User | null;
@@ -13,6 +17,8 @@ interface UserProfileDrawerProps {
   onSelectDeal?: (deal: Deal) => void;
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
   user,
   deals = [],
@@ -20,23 +26,42 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
   onClose,
   onSelectDeal,
 }) => {
+  const { tenant } = useAuth();
+
+  // Tenant-aware currency — used for all monetary values in this drawer.
+  // Avoids hardcoded ₱ symbols for tenants configured with other currencies.
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
+
   if (!user) return null;
 
-  const assignedDeals = deals.filter(d => d.assignedUserId === user.id && !d.isArchived);
+  const assignedDeals = deals.filter((d) => d.assignedUserId === user.id && !d.isArchived);
   const totalPipelineValue = assignedDeals.reduce((sum, d) => sum + (d.value || 0), 0);
-  const wonDeals = assignedDeals.filter(d => d.stageId === 'stage_won' || d.stageId.toLowerCase().includes('won'));
-  const winRate = assignedDeals.length > 0 ? Math.round((wonDeals.length / assignedDeals.length) * 100) : 0;
-  
-  const assignedTasks = tasks.filter(t => t.assignedUserId === user.id);
-  const openTasks = assignedTasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
+  const wonDeals = assignedDeals.filter(
+    (d) => d.stageId === 'stage_won' || d.stageId.toLowerCase().includes('won'),
+  );
+  const winRate =
+    assignedDeals.length > 0
+      ? Math.round((wonDeals.length / assignedDeals.length) * 100)
+      : 0;
+
+  const assignedTasks = tasks.filter((t) => t.assignedUserId === user.id);
+  const openTasks = assignedTasks.filter(
+    (t) => t.status !== 'completed' && t.status !== 'cancelled',
+  );
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-white dark:bg-slate-950 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-white/10 overflow-y-auto">
-        {/* Header Banner */}
+
+        {/* ── Header Banner ─────────────────────────────────────────────── */}
         <div className="relative bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white shrink-0">
           <div className="absolute top-4 right-4">
-            <ModalCloseButton onClose={onClose} ariaLabel="Close profile drawer" className="text-white hover:text-white bg-white/10 hover:bg-white/20" size={18} />
+            <ModalCloseButton
+              onClose={onClose}
+              ariaLabel="Close profile drawer"
+              className="text-white hover:text-white bg-white/10 hover:bg-white/20"
+              size={18}
+            />
           </div>
 
           <div className="flex items-center gap-4">
@@ -49,9 +74,13 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
               </h3>
               <p className="text-xs text-blue-100 font-medium mt-0.5">{user.role}</p>
               <div className="mt-2 flex items-center gap-2">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                  user.status === 'active' ? 'bg-emerald-400/20 text-emerald-100 border border-emerald-400/30' : 'bg-amber-400/20 text-amber-100'
-                }`}>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                    user.status === 'active'
+                      ? 'bg-emerald-400/20 text-emerald-100 border border-emerald-400/30'
+                      : 'bg-amber-400/20 text-amber-100'
+                  }`}
+                >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   {user.status}
                 </span>
@@ -65,8 +94,9 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
           </div>
         </div>
 
-        {/* Content Body */}
+        {/* ── Content Body ──────────────────────────────────────────────── */}
         <div className="p-6 space-y-6 flex-1">
+
           {/* Key Metric Cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3.5 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl">
@@ -84,9 +114,12 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
                 <span>Pipeline Value</span>
               </div>
               <p className="text-xl font-black text-slate-900 dark:text-white">
-                ₱{totalPipelineValue.toLocaleString('en-PH')}
+                {formatCurrency(totalPipelineValue, tenantCurrency)}
               </p>
-              <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 mt-0.5">PHP</p>
+              {/* Currency code badge — updates with tenant config */}
+              <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 mt-0.5">
+                {tenantCurrency.code}
+              </p>
             </div>
 
             <div className="p-3.5 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl">
@@ -108,7 +141,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
             </div>
           </div>
 
-          {/* Contact Details Section */}
+          {/* Contact Details */}
           <div className="space-y-3 pt-2">
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Contact Information</h4>
             <div className="space-y-2 text-sm bg-slate-50 dark:bg-white/[0.02] p-3.5 rounded-xl border border-slate-200 dark:border-white/5">
@@ -131,26 +164,31 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
               {user.lastLogin && (
                 <div className="flex items-center gap-3 text-slate-500 text-xs">
                   <Calendar size={14} className="text-slate-400 shrink-0" />
-                  <span>Last active: {new Date(user.lastLogin).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  <span>
+                    Last active:{' '}
+                    {new Date(user.lastLogin).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Assigned Opportunities List */}
+          {/* Assigned Deals */}
           <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Assigned Deals ({assignedDeals.length})</h4>
-            </div>
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              Assigned Deals ({assignedDeals.length})
+            </h4>
 
             {assignedDeals.length > 0 ? (
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {assignedDeals.map(deal => (
+                {assignedDeals.map((deal) => (
                   <div
                     key={deal.id}
-                    onClick={() => {
-                      if (onSelectDeal) onSelectDeal(deal);
-                    }}
+                    onClick={() => { if (onSelectDeal) onSelectDeal(deal); }}
                     className="p-3 bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl hover:border-blue-500/40 dark:hover:border-blue-500/40 transition-colors cursor-pointer group"
                   >
                     <div className="flex justify-between items-start">
@@ -158,7 +196,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
                         {deal.title}
                       </p>
                       <span className="text-xs font-black text-slate-900 dark:text-slate-100 whitespace-nowrap ml-2">
-                        ₱{deal.value?.toLocaleString('en-PH')}
+                        {formatCurrency(deal.value ?? 0, tenantCurrency)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center mt-1 text-[10px] text-slate-500">
@@ -176,6 +214,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
               </div>
             )}
           </div>
+
         </div>
       </div>
     </div>

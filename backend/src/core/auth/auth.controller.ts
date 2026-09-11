@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+﻿import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import {
   loginUser,
@@ -14,7 +14,6 @@ import { revokeSession, createSession } from './session.service';
 import { signToken } from './jwt.service';
 import prisma from '../../config/database.config';
 import { hashPassword } from '../../shared/helpers/crypto';
-import { AppError } from '../../shared/errors/app-error';
 import {
   ForgotPasswordSchema,
   ResetPasswordSchema,
@@ -28,6 +27,7 @@ import {
 import { findOrCreateUserByOAuth } from './oauth.service';
 import { writeAuditLog } from '../audit/audit.service';
 import { sendMail, buildWelcomeEmail, buildVerificationEmail as buildVerifEmailTemplate } from '../../shared/services/email.service';
+import { Role } from '../../shared/constants/roles';
 
 const COOKIE_NAME = 'leadcrm_token';
 const COOKIE_OPTIONS = {
@@ -96,6 +96,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
           select: {
             name: true, industry: true, companySize: true, status: true,
             subscriptionStatus: true, plan: true,
+            currency: true,
             onboardingStep: true, onboardingCompletedAt: true,
           },
         },
@@ -401,48 +402,109 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
   }
 }
 
+/**
+ * POST /api/v1/auth/seed-admin
+ *
+ * Upserts the canonical System Admin user so that a broken or missing account
+ * can be repaired without direct database access.
+ *
+ * Protection:
+ *   - In production: requires the `x-seed-admin-secret` request header to
+ *     match the SEED_ADMIN_SECRET environment variable. If SEED_ADMIN_SECRET
+ *     is not configured, the endpoint returns 404 (effectively disabled).
+ *   - In non-production: open for local developer convenience.
+ *
+ * Credentials are never returned or logged. All DB operations are idempotent
+ * upserts — safe to call repeatedly.
+ */
 export async function seedAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const email    = process.env.SYSTEM_ADMIN_EMAIL;
-    const password = process.env.SYSTEM_ADMIN_PASSWORD;
+    // ── Production guard ───────────────────────────────────────────────────
+    // Block arbitrary callers from provisioning or repairing the privileged
+    // System Admin account in production.
+    if (process.env.NODE_ENV === 'production') {
+      const expectedSecret = process.env.SEED_ADMIN_SECRET;
 
-    if (!email || !password) {
-      res.status(400).json({ success: false, error: 'SYSTEM_ADMIN_EMAIL or SYSTEM_ADMIN_PASSWORD not set.' });
+      // SEED_ADMIN_SECRET not configured → endpoint is disabled in this environment.
+      if (!expectedSecret) {
+        res.status(404).json({ success: false, error: 'Not found' });
+        return;
+      }
+
+      const providedSecret = req.headers['x-seed-admin-secret'];
+      if (!providedSecret || providedSecret !== expectedSecret) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+    }
+
+    // ── Env var guard ──────────────────────────────────────────────────────
+    const rawEmail    = process.env.SYSTEM_ADMIN_EMAIL;
+    const rawPassword = process.env.SYSTEM_ADMIN_PASSWORD;
+
+    if (!rawEmail || !rawPassword) {
+      res.status(400).json({
+        success: false,
+        error:   'SYSTEM_ADMIN_EMAIL or SYSTEM_ADMIN_PASSWORD not set.',
+      });
       return;
     }
 
+    // Normalise email to avoid casing mismatches during login lookup.
+    const email = rawEmail.toLowerCase().trim();
+
+    // ── System tenant upsert ───────────────────────────────────────────────
+    // Ensure the reserved system tenant exists and is properly configured so
+    // AuthGuard's onboarding and subscription gates can never block System Admin.
     const tenant = await prisma.tenant.upsert({
       where:  { slug: 'leadcrm-system' },
-      update: {},
+      update: {
+        status:                'ACTIVE',
+        subscriptionStatus:    'ACTIVE',
+        onboardingStep:        3,
+        onboardingCompletedAt: new Date(),
+      },
       create: {
-        name:               'LeadCRM System',
-        slug:               'leadcrm-system',
-        status:             'ACTIVE',
-        subscriptionStatus: 'ACTIVE',
-        plan:               'ENTERPRISE',
+        name:                  'LeadCRM System',
+        slug:                  'leadcrm-system',
+        status:                'ACTIVE',
+        subscriptionStatus:    'ACTIVE',
+        plan:                  'ENTERPRISE',
+        onboardingStep:        3,
+        onboardingCompletedAt: new Date(),
       },
     });
 
-    const existing = await prisma.user.findFirst({ where: { email, tenantId: tenant.id } });
+    // ── System Admin user upsert ───────────────────────────────────────────
+    // Always re-applies the correct role, status, and emailVerified so a
+    // previously broken row (e.g. emailVerified = null) is repaired on call.
+    // The @@unique([tenantId, email]) constraint backs the where clause.
+    const passwordHash = await hashPassword(rawPassword);
 
-    if (!existing) {
-      const passwordHash = await hashPassword(password);
-      await prisma.user.create({
-        data: {
-          tenantId:     tenant.id,
-          email,
-          firstName:    'System',
-          lastName:     'Admin',
-          passwordHash,
-          role:         'System Admin',
-          status:       'ACTIVE',
-        },
-      });
-    }
+    await prisma.user.upsert({
+      where:  { tenantId_email: { tenantId: tenant.id, email } },
+      update: {
+        passwordHash,
+        status:        'ACTIVE',
+        role:          Role.SYSTEM_ADMIN,
+        emailVerified: new Date(),
+      },
+      create: {
+        tenantId:      tenant.id,
+        email,
+        firstName:     'System',
+        lastName:      'Admin',
+        passwordHash,
+        role:          Role.SYSTEM_ADMIN,
+        status:        'ACTIVE',
+        emailVerified: new Date(),
+      },
+    });
 
+    // Never return or log credentials — the caller already knows the password.
     res.json({
       success: true,
-      message: existing ? 'System Admin already exists.' : 'System Admin created successfully.',
+      message: 'System Admin provisioned successfully.',
       email,
     });
   } catch (err) {

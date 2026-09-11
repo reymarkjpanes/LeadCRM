@@ -162,7 +162,7 @@ export function useRecordDetail({ module, id }: UseRecordDetailParams): UseRecor
       // Process activities (non-blocking)
       if (activitiesResult.status === 'fulfilled') {
         const actData = activitiesResult.value;
-        const activityArray = (actData as { data: Activity[] }).data ?? [];
+        const activityArray = (actData as unknown as { data: Activity[] }).data ?? [];
         setActivities(activityArray);
       }
     } catch (err: unknown) {

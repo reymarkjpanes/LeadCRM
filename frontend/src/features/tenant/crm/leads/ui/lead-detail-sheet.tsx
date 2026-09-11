@@ -1,11 +1,12 @@
 ﻿'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { Lead, Organization } from '@/store/types';
 import { useData } from '@/store/DataContext';
 import { getCRMStatusStyles } from '@/lib/utils';
 import { AlertTriangle, Archive, Building, Briefcase, Calendar, Edit2, FileText, Mail, MapPin, Phone, Tag, TrendingUp, User } from 'lucide-react';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 
 const formatDate = (dateString: string) => {
   if (!dateString) return '--';
@@ -30,6 +31,9 @@ export function ClientDetailSheet({
   onEdit,
 }: ClientDetailSheetProps) {
   const { deals, pipelines } = useData();
+
+  // ── Archive confirmation state ───────────────────────────────────────────
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const clientName = React.useMemo(() => {
     if (!client) return '';
@@ -75,14 +79,12 @@ export function ClientDetailSheet({
     return stage ? stage.name : 'Unknown Stage';
   };
 
-  const handleArchive = () => {
-    if (window.confirm(`Are you sure you want to archive ${clientName}?`)) {
-      onArchive(client.id, clientType);
-      onClose();
-    }
+  const handleArchive = (): void => {
+    setConfirmOpen(true);
   };
 
   return (
+    <>
     <SlidingDrawer
       isOpen={isOpen}
       onClose={onClose}
@@ -274,6 +276,21 @@ export function ClientDetailSheet({
         </div>
       </div>
     </SlidingDrawer>
+
+    <ConfirmActionDialog
+      open={confirmOpen}
+      onOpenChange={setConfirmOpen}
+      title="Archive Client"
+      description={`This will archive ${clientName} and hide them from active views.`}
+      warning="Their historical data and associated deals are preserved."
+      confirmLabel="Archive"
+      variant="destructive"
+      onConfirm={async () => {
+        onArchive(client.id, clientType);
+        onClose();
+      }}
+    />
+    </>
   );
 }
 

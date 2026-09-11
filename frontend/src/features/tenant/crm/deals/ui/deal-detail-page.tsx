@@ -18,7 +18,18 @@ import type { MetricItem } from '@/shared/components/crm/record-metrics-strip';
 import { QuickActionBar } from '@/shared/components/crm/quick-action-bar';
 import { dealDetailConfig } from '../config/record-detail.config';
 import { DealFormSheet } from './deal-form';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import type { ActionConfig } from '@/shared/components/crm/record-detail-layout';
+
+// ─── Local Types ──────────────────────────────────────────────────────────────
+
+interface ConfirmDialogState {
+  title: string;
+  description: string;
+  warning: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
+}
 
 export default function DealDetailPage(): React.ReactElement {
   const params = useParams();
@@ -34,6 +45,9 @@ export default function DealDetailPage(): React.ReactElement {
 
   // ── Edit drawer state ───────────────────────────────────────────────────
   const [isEditOpen, setIsEditOpen] = useState(false);
+
+  // ── Confirm dialog state (handles both archive + delete actions) ─────────
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   // ── Field save handler ──────────────────────────────────────────────────
   const handleFieldSave = useCallback(async (key: string, value: unknown): Promise<void> => {
@@ -58,19 +72,33 @@ export default function DealDetailPage(): React.ReactElement {
             });
             break;
           case 'archive':
-            if (recordId && window.confirm('Archive this deal?')) {
-              deleteDeal(recordId).then(() => {
-                toast.success('Deal archived');
-                router.push('/crm/deals');
-              }).catch(() => toast.error('Failed to archive'));
+            if (recordId) {
+              setConfirmDialog({
+                title: 'Archive Deal',
+                description: 'This deal will be moved to the archive and hidden from active views.',
+                warning: 'You can restore it later from archived records.',
+                confirmLabel: 'Archive',
+                onConfirm: async () => {
+                  await deleteDeal(recordId);
+                  toast.success('Deal archived');
+                  router.push('/crm/deals');
+                },
+              });
             }
             break;
           case 'delete':
-            if (recordId && window.confirm('Permanently delete this deal?')) {
-              deleteDeal(recordId).then(() => {
-                toast.success('Deal deleted');
-                router.push('/crm/deals');
-              }).catch(() => toast.error('Failed to delete'));
+            if (recordId) {
+              setConfirmDialog({
+                title: 'Delete Deal',
+                description: 'This deal will be permanently deleted.',
+                warning: 'This cannot be undone.',
+                confirmLabel: 'Delete',
+                onConfirm: async () => {
+                  await deleteDeal(recordId);
+                  toast.success('Deal deleted');
+                  router.push('/crm/deals');
+                },
+              });
             }
             break;
         }
@@ -306,6 +334,23 @@ export default function DealDetailPage(): React.ReactElement {
         toast.success('Deal updated');
       }}
     />
+
+    {/* Confirm dialog — handles archive + delete actions */}
+    {confirmDialog && (
+      <ConfirmActionDialog
+        open={true}
+        onOpenChange={(open) => { if (!open) setConfirmDialog(null); }}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        warning={confirmDialog.warning}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant="destructive"
+        onConfirm={async () => {
+          await confirmDialog.onConfirm();
+          setConfirmDialog(null);
+        }}
+      />
+    )}
     </>
   );
 }

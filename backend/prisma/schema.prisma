@@ -183,6 +183,7 @@ model Tenant {
   slug               String             @unique
   industry           String?
   companySize        String? // "1-10" | "11-50" | "51-200" | "200+"
+  currency           String?   @default("PHP") // ISO 4217 — e.g. "USD", "EUR", "GBP". Drives all money formatting UI-side.
   email              String?
   phone              String?
   address            String?
@@ -252,6 +253,7 @@ model Tenant {
   tenantGroupMembers TenantGroupMember[]
   tenantDomains      TenantDomain[]
   tenantDomainSettings TenantDomainSettings?
+  marketingForms     MarketingForm[]
 }
 
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
@@ -366,6 +368,7 @@ model User {
   contactImports       ContactImport[]
   emailVerificationTokens EmailVerificationToken[]
   groupMemberships TenantGroupMember[]
+  marketingForms   MarketingForm[]
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -1153,8 +1156,35 @@ model Campaign {
   @@index([tenantId, isArchived])
 }
 
-// G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
-// CAMPAIGN METRICS (historical snapshots G�� separate from inline totals on Campaign)
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKETING FORM
+// Tenant-scoped form builder records. Fields, design, and settings are stored
+// as JSON (consistent with Workflow.actions / Campaign.body patterns).
+// Soft-deleted via isArchived — no hard deletes on business data.
+// ─────────────────────────────────────────────────────────────────────────────
+model MarketingForm {
+  id          String    @id @default(uuid())
+  tenantId    String
+  createdById String
+  name        String
+  status      String    @default("draft")   // "draft" | "published"
+  fields      Json      @default("[]")       // FormField[]
+  design      Json      @default("{}")       // FormDesign
+  settings    Json      @default("{}")       // FormSettings
+  publishedAt DateTime?
+  isArchived  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  createdBy User   @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, isArchived, createdAt])
+  @@index([tenantId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAMPAIGN METRICS (historical snapshots — separate from inline totals on Campaign)
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 model CampaignMetrics {
   id             String   @id @default(uuid())

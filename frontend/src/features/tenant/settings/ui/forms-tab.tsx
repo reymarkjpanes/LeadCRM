@@ -25,11 +25,18 @@ export function FormsTab({ onBuilderActiveChange }: FormsTabProps): React.ReactE
   const [newFormName, setNewFormName] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // Load forms scoped to this tenant from localStorage
+  // ── Load forms from the real API on mount / tenant change ─────────────────
   useEffect(() => {
-    if (tenant?.id) {
-      setForms(getFormsByTenant(tenant.id));
-    }
+    if (!tenant?.id) return;
+    const loadForms = async (): Promise<void> => {
+      try {
+        const loaded = await getFormsByTenant(tenant.id);
+        setForms(loaded);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load forms');
+      }
+    };
+    void loadForms();
   }, [tenant?.id]);
 
   // Notify parent when builder active state changes
@@ -37,48 +44,62 @@ export function FormsTab({ onBuilderActiveChange }: FormsTabProps): React.ReactE
     onBuilderActiveChange?.(activeForm !== null);
   }, [activeForm, onBuilderActiveChange]);
 
-  const handleCreate = () => {
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const handleCreate = async (): Promise<void> => {
     if (!newFormName.trim()) { toast.error('Form name is required'); return; }
     if (!tenant?.id) { toast.error('Unable to save. Please refresh and try again.'); return; }
-    const form = createForm({ name: newFormName.trim(), tenantId: tenant.id });
-    setForms((prev) => [...prev, form]);
-    setNewFormName('');
-    setIsCreating(false);
-    setActiveForm(form);
-    toast.success('Form created');
+    try {
+      const form = await createForm({ name: newFormName.trim(), tenantId: tenant.id });
+      setForms((prev) => [...prev, form]);
+      setNewFormName('');
+      setIsCreating(false);
+      setActiveForm(form);
+      toast.success('Form created');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create form');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    deleteForm(id);
-    setForms((prev) => prev.filter((f) => f.id !== id));
-    setOpenMenuId(null);
-    toast.success('Form deleted');
+  const handleDelete = async (id: string): Promise<void> => {
+    try {
+      await deleteForm(id);
+      setForms((prev) => prev.filter((f) => f.id !== id));
+      setOpenMenuId(null);
+      toast.success('Form deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete form');
+    }
   };
 
-  const handleFormUpdate = (updated: FormRecord) => {
+  const handleFormUpdate = (updated: FormRecord): void => {
     setForms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-    // Refresh from storage to ensure consistency
-    if (tenant?.id) setForms(getFormsByTenant(tenant.id));
   };
 
-  const handleBack = () => {
+  const handleBack = async (): Promise<void> => {
     setActiveForm(null);
-    // Re-sync list from storage after builder closes
-    if (tenant?.id) setForms(getFormsByTenant(tenant.id));
+    // Re-sync list from API after builder closes to pick up any server-side changes
+    if (!tenant?.id) return;
+    try {
+      const loaded = await getFormsByTenant(tenant.id);
+      setForms(loaded);
+    } catch {
+      // Non-critical — list already reflects optimistic updates from handleFormUpdate
+    }
   };
 
-  // Builder active — render full-pane (no padding, no header — parent strips them)
+  // ── Builder active — render full-pane ─────────────────────────────────────
   if (activeForm) {
     return (
       <FormBuilderPage
         form={activeForm}
-        onBack={handleBack}
+        onBack={() => { void handleBack(); }}
         onFormUpdate={handleFormUpdate}
       />
     );
   }
 
-  // Forms list view — render within the padded right pane
+  // ── Forms list view ───────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* Header row */}
@@ -113,7 +134,7 @@ export function FormsTab({ onBuilderActiveChange }: FormsTabProps): React.ReactE
                 type="text"
                 value={newFormName}
                 onChange={(e) => setNewFormName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
                 placeholder="e.g. Contact Us Form"
                 autoFocus
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors mb-4"
@@ -126,7 +147,7 @@ export function FormsTab({ onBuilderActiveChange }: FormsTabProps): React.ReactE
                   Cancel
                 </button>
                 <button
-                  onClick={handleCreate}
+                  onClick={() => { void handleCreate(); }}
                   className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-md shadow-blue-500/20 transition-colors cursor-pointer"
                 >
                   Create
@@ -217,7 +238,7 @@ export function FormsTab({ onBuilderActiveChange }: FormsTabProps): React.ReactE
                             <ExternalLink size={12} /> Open
                           </button>
                           <button
-                            onClick={() => handleDelete(form.id)}
+                            onClick={() => { void handleDelete(form.id); }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"
                           >
                             <Trash2 size={12} /> Delete
