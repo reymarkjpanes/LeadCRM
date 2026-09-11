@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "npm install --include=dev && prisma generate && tsc && node -e \"require('fs').copyFileSync('start.js','dist/start.js')\" && npx prisma migrate deploy",
+    "build": "npm install --include=dev && prisma generate && tsc && node -e \"require('fs').copyFileSync('start.js','dist/start.js')\" && npx prisma migrate resolve --rolled-back 20260911000000_fix_role_defaults_and_backfill || true && npx prisma migrate deploy",
     "start": "node dist/backend/src/server.js",
     "lint": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
