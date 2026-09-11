@@ -1,4 +1,6 @@
 import prisma from './database.config';
+import { stripe } from './stripe.config';
+import { syncAllPlansToStripe } from '../modules/stripe/stripe-products.service';
 
 /**
  * checkStripeReadiness
@@ -7,9 +9,9 @@ import prisma from './database.config';
  * developers an immediate, actionable diagnosis of Stripe configuration.
  *
  * Rules:
- * - No Stripe API calls — never creates products/prices on startup
- * - Non-throwing — any error is caught and logged
- * - Idempotent — safe to call multiple times
+ * - No Stripe API calls â€” never creates products/prices on startup
+ * - Non-throwing â€” any error is caught and logged
+ * - Idempotent â€” safe to call multiple times
  */
 export async function checkStripeReadiness(): Promise<void> {
   const warnings: string[] = [];
@@ -19,7 +21,7 @@ export async function checkStripeReadiness(): Promise<void> {
   const secretKey = process.env.STRIPE_SECRET_KEY ?? '';
   if (!secretKey || secretKey.startsWith('sk_test_your') || secretKey.startsWith('sk_live_your')) {
     warnings.push(
-      'STRIPE_SECRET_KEY is not set or is still a placeholder — checkout will fail',
+      'STRIPE_SECRET_KEY is not set or is still a placeholder â€” checkout will fail',
     );
     allGood = false;
   }
@@ -28,7 +30,7 @@ export async function checkStripeReadiness(): Promise<void> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
   if (!webhookSecret || webhookSecret.startsWith('whsec_your')) {
     warnings.push(
-      'STRIPE_WEBHOOK_SECRET is not set or is still a placeholder — ' +
+      'STRIPE_WEBHOOK_SECRET is not set or is still a placeholder â€” ' +
       'webhook signature verification will fail. ' +
       'Run: stripe listen --forward-to localhost:4000/api/v1/webhooks/stripe ' +
       'and copy the printed whsec_... secret into STRIPE_WEBHOOK_SECRET',
@@ -36,13 +38,13 @@ export async function checkStripeReadiness(): Promise<void> {
     allGood = false;
   }
 
-  // 3. Check PricingPlan Stripe Price IDs (DB-only — no Stripe API call)
+  // 3. Check PricingPlan Stripe Price IDs (DB-only â€” no Stripe API call)
   try {
     const plans = await prisma.pricingPlan.findMany({ where: { isActive: true } });
 
     if (plans.length === 0) {
       warnings.push(
-        'No active PricingPlan records found — run: npm --prefix backend run db:seed',
+        'No active PricingPlan records found â€” run: npm --prefix backend run db:seed',
       );
       allGood = false;
     }
@@ -50,21 +52,21 @@ export async function checkStripeReadiness(): Promise<void> {
     for (const plan of plans) {
       if (!plan.stripeMonthlyPriceId) {
         warnings.push(
-          `Plan "${plan.name}" missing stripeMonthlyPriceId — ` +
+          `Plan "${plan.name}" missing stripeMonthlyPriceId â€” ` +
           'run: POST /api/v1/admin/billing/plans/sync-all',
         );
         allGood = false;
       }
       if (!plan.stripeQuarterlyPriceId) {
         warnings.push(
-          `Plan "${plan.name}" missing stripeQuarterlyPriceId — ` +
+          `Plan "${plan.name}" missing stripeQuarterlyPriceId â€” ` +
           'run: POST /api/v1/admin/billing/plans/sync-all',
         );
         allGood = false;
       }
       if (!plan.stripeAnnualPriceId) {
         warnings.push(
-          `Plan "${plan.name}" missing stripeAnnualPriceId — ` +
+          `Plan "${plan.name}" missing stripeAnnualPriceId â€” ` +
           'run: POST /api/v1/admin/billing/plans/sync-all',
         );
         allGood = false;
@@ -80,17 +82,17 @@ export async function checkStripeReadiness(): Promise<void> {
   // -- Dev auto-sync: if Stripe is configured and plans have missing Price IDs,
   // automatically sync them in development. This removes the BILLING_NOT_CONFIGURED
   // error for developers without requiring a manual admin panel step.
-  // PRODUCTION SAFETY: Never auto-sync on startup in production — use the admin panel.
+  // PRODUCTION SAFETY: Never auto-sync on startup in production â€” use the admin panel.
   if (!allGood && process.env.NODE_ENV !== 'production') {
-    const { stripe } = await import('./stripe.config.js');
+    
     if (stripe) {
       try {
-        const { syncAllPlansToStripe } = await import('../modules/stripe/stripe-products.service.js');
+        
         console.log('[Stripe] Dev mode: auto-syncing plans with missing Stripe Price IDs...');
         const syncResult = await syncAllPlansToStripe();
         if (syncResult.synced > 0) {
           console.log(`[Stripe] \u2713 Auto-synced ${syncResult.synced} plan(s) to Stripe`);
-          allGood = true; // Plans are now synced — clear the warning state
+          allGood = true; // Plans are now synced â€” clear the warning state
         }
         if (syncResult.errors.length > 0) {
           syncResult.errors.forEach((e: string) => console.warn(`[Stripe] \u26a0 Sync error: ${e}`));
@@ -104,10 +106,11 @@ export async function checkStripeReadiness(): Promise<void> {
   }
 
   if (allGood) {
-    console.log('[Stripe] \u2713 Stripe configuration looks ready — checkout and webhooks should work');
+    console.log('[Stripe] \u2713 Stripe configuration looks ready â€” checkout and webhooks should work');
   } else {
     for (const warning of warnings) {
       console.warn(`[Stripe] \u26a0 ${warning}`);
     }
   }
 }
+
