@@ -37,6 +37,6 @@ export async function updateContact(req: Request, res: Response, next: NextFunct
 export async function archiveContact(req: Request, res: Response, next: NextFunction) {
   try {
     await service.archiveContact(String(req.params.id), req.user!.tenantId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

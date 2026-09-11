@@ -29,21 +29,21 @@ export async function update(req: Request, res: Response, next: NextFunction): P
 export async function archive(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archive(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function restore(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.restore(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function deleteRecord(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.deleteRecord(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -51,7 +51,7 @@ export async function bulkUpdate(req: Request, res: Response, next: NextFunction
   try {
     const { ids, ...dto } = req.body;
     await service.bulkUpdate(ids, req.user!.tenantId, req.user!.userId, dto);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -59,6 +59,6 @@ export async function bulkDelete(req: Request, res: Response, next: NextFunction
   try {
     const { ids } = req.body;
     await service.bulkDelete(ids, req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

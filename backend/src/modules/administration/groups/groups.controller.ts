@@ -25,20 +25,20 @@ export async function update(req: Request, res: Response, next: NextFunction): P
 export async function remove(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.remove(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function addMember(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.addMember(String(req.params.id), req.body.userId, req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function removeMember(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.removeMember(String(req.params.id), String(req.params.userId), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
