@@ -241,6 +241,7 @@ export async function registerUser(dto: RegisterDto) {
       lastName:     dto.lastName,
       email:        dto.email,
       passwordHash,
+      role:         Role.GUEST, // Explicit — never fall through to schema default
     },
   });
 
@@ -364,7 +365,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     });
 
     // 2. Create User as PENDING (will be ACTIVE after email verification).
-    //    Role: Restricted User — the sandbox/pre-subscription role.
+    //    Role: Guest — the sandbox/pre-subscription role.
     //    Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
@@ -421,8 +422,8 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
-  // ↔ UserRole → Restricted User RoleDefinition. Both are in sync from registration.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Guest
+  // ↔ UserRole → Guest RoleDefinition. Both are in sync from registration.
   // The Stripe webhook promotes this user to Client Admin by updating BOTH transactionally.
   // Tenant safety: role is looked up within the same tenant as the user — never cross-tenant.
   try {
@@ -489,8 +490,8 @@ export async function registerGuest(dto: GuestRegisterDto) {
       },
     });
 
-    // Role: Restricted User — sandbox/pre-subscription role, NOT Client Admin.
-    // Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
+    // Role: Guest — sandbox/pre-subscription role, NOT Client Admin.
+    //    Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
         tenantId: tenant.id,
