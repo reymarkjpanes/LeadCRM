@@ -57,7 +57,7 @@ export async function getSettings(tenantId: string) {
     tenantId,
     restrictToEmailDomains: false,
     joinPolicy: 'after_approval',
-    defaultRole: 'Sales Rep',
+    defaultRole: 'User',
     createdAt: null,
     updatedAt: null,
   };

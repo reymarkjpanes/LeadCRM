@@ -66,7 +66,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // System Admin — platform operator, bypasses all customer-side gates.
     // Uses role string from /auth/me (server-backed JWT).
-    const isSystemAdmin = user.role === 'System Admin'
+    const isSystemAdmin = user.role?.toLowerCase() === 'system admin'
       || user.tenantName?.toLowerCase().includes('system');
 
     const isExempt = EXEMPT_ROUTES.some((r) => pathname.startsWith(r));

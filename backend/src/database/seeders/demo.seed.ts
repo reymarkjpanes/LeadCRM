@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { hashPassword } from '../../shared/helpers/crypto';
 import { seedSystemRoles } from './roles.seed';
+import { Role } from '../../shared/constants/roles';
 
 const prisma = new PrismaClient();
 
@@ -70,7 +71,7 @@ export async function seedDemoAccounts(): Promise<string> {
     update: {
       passwordHash,
       status:        'ACTIVE',
-      role:          'System Admin',
+      role:          Role.SYSTEM_ADMIN,
       emailVerified: new Date(),
     },
     create: {
@@ -79,7 +80,7 @@ export async function seedDemoAccounts(): Promise<string> {
       firstName:     'System',
       lastName:      'Admin',
       passwordHash,
-      role:          'System Admin',
+      role:          Role.SYSTEM_ADMIN,
       status:        'ACTIVE',
       emailVerified: new Date(),
     },

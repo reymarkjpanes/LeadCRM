@@ -1,6 +1,6 @@
 // ─── User, Tenant, RBAC ────────────────────────────────────────────────────
 
-export type Role = 'System Admin' | 'Client Admin' | 'Sales Rep' | 'Viewer' | string;
+export type Role = 'System Admin' | 'Client Admin' | 'User' | 'Guest' | string;
 
 export interface Permission {
   id: string;

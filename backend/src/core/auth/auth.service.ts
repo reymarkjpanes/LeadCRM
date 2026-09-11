@@ -336,7 +336,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
 
   // Check for invitation token — if present, join existing tenant
   if (dto.invitationToken) {
-    return registerWithInvitation(dto, normalizedEmail, passwordHash, 'Client Admin');
+    return registerWithInvitation(dto, normalizedEmail, passwordHash, Role.CLIENT_ADMIN);
   }
 
   // At this point, invitationToken is absent, so companyName is guaranteed by Zod superRefine
@@ -373,7 +373,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: Role.RESTRICTED_USER, // Sandbox role — NOT Client Admin until payment confirmed
+        role: Role.GUEST, // Sandbox role — NOT Client Admin until payment confirmed
         status: 'PENDING',
       },
     });
@@ -427,7 +427,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
   // Tenant safety: role is looked up within the same tenant as the user — never cross-tenant.
   try {
     const restrictedRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
+      where: { tenantId: result.tenant.id, name: Role.GUEST },
     });
     if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({
@@ -467,7 +467,7 @@ export async function registerGuest(dto: GuestRegisterDto) {
 
   // Check for invitation token — if present, join existing tenant
   if (dto.invitationToken) {
-    return registerWithInvitation(dto, normalizedEmail, passwordHash, 'Sales Rep');
+    return registerWithInvitation(dto, normalizedEmail, passwordHash, Role.USER);
   }
 
   // Guest gets their own sandbox tenant
@@ -498,7 +498,7 @@ export async function registerGuest(dto: GuestRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: Role.RESTRICTED_USER, // Sandbox role — not Client Admin until payment confirmed
+        role: Role.GUEST, // Sandbox role — not Client Admin until payment confirmed
         status: 'PENDING',
       },
     });
@@ -544,11 +544,11 @@ export async function registerGuest(dto: GuestRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
-  // ↔ UserRole → Restricted User RoleDefinition. Tenant safety: same-tenant lookup only.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Guest
+  // ↔ UserRole → Guest RoleDefinition. Tenant safety: same-tenant lookup only.
   try {
     const restrictedRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
+      where: { tenantId: result.tenant.id, name: Role.GUEST },
     });
     if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({

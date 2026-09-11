@@ -4,6 +4,7 @@ import { hashPassword } from '../../../shared/helpers/crypto';
 import { AppError } from '../../../shared/errors/app-error';
 import { ConflictError, NotFoundError } from '../../../shared/errors/http-error';
 import { activateTenantSubscription } from '../../billing/subscriptions/subscription-activation.service';
+import { Role } from '../../../shared/constants/roles';
 import type { CreateTenantDto } from './tenants.dto';
 
 function createSlug(name: string): string {
@@ -139,7 +140,7 @@ export async function createTenant(dto: CreateTenantDto, actorId: string) {
         lastName:      dto.lastName,
         email,
         passwordHash,
-        role:          'Client Admin',
+        role:          Role.CLIENT_ADMIN,
         status:        'ACTIVE',
         // System Admin is explicitly creating a pre-verified, active account —
         // email verification is not required for admin-provisioned tenants.

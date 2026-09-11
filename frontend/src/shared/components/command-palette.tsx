@@ -60,11 +60,11 @@ export default function CommandPalette({ navigate, isOpen, setIsOpen }: CommandP
   ];
 
   const hasAccess = (item: any) => {
-    if (user?.role === 'System Admin') return ['Dashboard', 'Users', 'Settings', 'Admin Console', 'Audit Trail'].includes(item.name);
+    if (user?.role?.toLowerCase() === 'system admin') return ['Dashboard', 'Users', 'Settings', 'Admin Console', 'Audit Trail'].includes(item.name);
     if (item.name === 'Admin Console') return false;
-    if (user?.role === 'Client Admin') return true;
-    if (user?.role === 'Guest') return ['Dashboard', 'Leads', 'Pipeline', 'Workflows', 'Campaigns'].includes(item.name);
-    if (item.roles && item.roles.includes(user?.role)) return true;
+    if (user?.role?.toLowerCase() === 'client admin') return true;
+    if (user?.role?.toLowerCase() === 'guest') return ['Dashboard', 'Leads', 'Pipeline', 'Workflows', 'Campaigns'].includes(item.name);
+    if (item.roles && item.roles.some((r: string) => r.toLowerCase() === user?.role?.toLowerCase())) return true;
     if (item.permissions && item.permissions.some((p: string) => userPermissions.includes(p))) return true;
     return false;
   };

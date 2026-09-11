@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 // ── Permission row definitions ─────────────────────────────────────────────
 // Only non-super roles get RolePermission rows.
-// Admin / Super User bypass all checks at the middleware level (isSuperRole()).
+// Client Admin / System Admin bypass all checks at the middleware level (isSuperRole()).
 
 const USER_PERMISSIONS = [
   { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
@@ -23,7 +23,7 @@ const USER_PERMISSIONS = [
   { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 
-const RESTRICTED_USER_PERMISSIONS = [
+const GUEST_PERMISSIONS = [
   { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'contacts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
   { module: 'accounts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
@@ -36,7 +36,7 @@ const RESTRICTED_USER_PERMISSIONS = [
   { module: 'users',         canView: false, canCreate: false, canEdit: false, canDelete: false },
   { module: 'roles',         canView: false, canCreate: false, canEdit: false, canDelete: false },
   // canEdit: true enables billing.manage — required to initiate a Stripe checkout/upgrade
-  // from a sandbox workspace. Restricted Users cannot manage other users or roles,
+  // from a sandbox workspace. Guests cannot manage other users or roles,
   // but they must be able to upgrade their own workspace to a paid plan.
   { module: 'billing',       canView: true,  canCreate: false, canEdit: true,  canDelete: false },
   { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
@@ -56,18 +56,6 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       permissions: null, // Client Admin bypasses all RolePermission checks via isSuperRole()
     },
     {
-      name: Role.ADMIN,
-      description: 'Full administrative access to all features and settings within the tenant.',
-      isSystemRole: true,
-      permissions: null, // Admin bypasses all checks — no RolePermission rows needed
-    },
-    {
-      name: Role.SUPER_USER,
-      description: 'Advanced user with access to most features and settings, excluding sensitive billing operations.',
-      isSystemRole: true,
-      permissions: null, // Super User bypasses all checks — no RolePermission rows needed
-    },
-    {
       name: Role.USER,
       description: 'Standard access for everyday operations, sales, and reporting.',
       isSystemRole: true,
@@ -77,10 +65,10 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       // Lifecycle role: used during the sandbox/guest phase (pre-subscription).
       // This is the role assigned at registration — NOT Client Admin.
       // Can browse demo CRM data and access billing to upgrade.
-      name: Role.RESTRICTED_USER,
+      name: Role.GUEST,
       description: 'Sandbox/pre-subscription access. Can view demo CRM data and initiate a plan subscription.',
       isSystemRole: true,
-      permissions: RESTRICTED_USER_PERMISSIONS,
+      permissions: GUEST_PERMISSIONS,
     },
   ];
 
@@ -122,7 +110,7 @@ if (require.main === module) {
     console.error('Usage: ts-node roles.seed.ts <tenantId>');
     process.exit(1);
   }
-  
+
   seedSystemRoles(tenantId)
     .catch((err) => { console.error('[Seed] Error:', err); process.exit(1); })
     .finally(() => prisma.$disconnect());
