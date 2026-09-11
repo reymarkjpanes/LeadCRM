@@ -57,7 +57,7 @@ export async function getUserPermissions(req: Request, res: Response, next: Next
     const targetUserId = String(req.params.id);
     const { userId, tenantId, role } = req.user!;
 
-    const SUPER_ROLES = ['Admin', 'Super User', 'Client Admin', 'System Admin'];
+    const SUPER_ROLES = ['Guest', 'User', 'Client Admin', 'System Admin'];
     const isAdmin = SUPER_ROLES.some(r => r.toLowerCase() === (role ?? '').toLowerCase().trim());
 
     if (!isAdmin && targetUserId !== userId) {

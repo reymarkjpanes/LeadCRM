@@ -8,7 +8,6 @@ import type { CreateRoleDto, UpdateRoleDto, AssignRoleDto } from './roles.dto';
 // Includes legacy role names to prevent re-creation of removed system roles.
 const RESERVED_ROLE_NAMES = [
   'user', 'guest', 'client admin', 'system admin',
-  'admin', 'super user', 'restricted user', // legacy — prevent re-creation
 ];
 
 function isReservedName(name: string): boolean {
