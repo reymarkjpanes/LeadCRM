@@ -35,6 +35,6 @@ export async function markInvoicePaid(req: Request, res: Response, next: NextFun
 export async function archiveInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveInvoice(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

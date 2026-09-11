@@ -62,7 +62,7 @@ export async function moveDealStage(req: Request, res: Response, next: NextFunct
 export async function archiveDeal(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveDeal(String(req.params.id), req.user!.tenantId, req.user!.userId, req.body?.archiveReason);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 

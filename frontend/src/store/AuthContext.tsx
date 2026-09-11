@@ -339,22 +339,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    // Defense-in-depth: re-hydrate from the canonical /auth/me payload so
-    // the stored user always carries the gate fields (emailVerified,
-    // onboardingCompletedAt, etc.) regardless of the login response shape.
-    // Fall back to the login payload if the /auth/me call fails.
-    let apiUser = res.data.user as unknown as User;
-    try {
-      const meRes = await authApi.me();
-      if (meRes?.data?.user) {
-        apiUser = meRes.data.user as unknown as User;
-      }
-    } catch (meErr: unknown) {
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.error('[AuthContext] post-login re-hydrate failed, using login payload:', meErr instanceof Error ? meErr.message : meErr);
-      }
-    }
+    // Use the login response directly — it returns the same canonical shape as
+    // /auth/me via buildAuthUserResponse, so no re-hydration call is needed.
+    //
+    // The previous pattern called authApi.me() immediately after login() resolved,
+    // but in a cross-origin proxy deployment (Vercel → Render) the browser has not
+    // yet committed the Set-Cookie header from the login response to storage by the
+    // time the /me request fires. This race causes /me to return 401 ("Authentication
+    // required" — no cookie on the request), leaving the user stuck on the login page.
+    //
+    // The login endpoint already calls buildAuthUserResponse() which returns every
+    // gate field (emailVerified, onboardingCompletedAt, tenantName, etc.), so the
+    // login payload is authoritative and complete. No second round-trip is needed.
+    const apiUser = res.data.user as unknown as User;
 
     setUser(apiUser);
     // tenantId is always a UUID for real users — skip setTenant only for System Admin

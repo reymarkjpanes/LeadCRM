@@ -33,7 +33,7 @@ export async function updateRole(req: Request, res: Response, next: NextFunction
 export async function archiveRole(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveRole(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -48,7 +48,7 @@ export async function removeRoleFromUser(req: Request, res: Response, next: Next
   try {
     const { userId, roleId } = req.body as AssignRoleDto;
     await service.removeRoleFromUser(userId, roleId, req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 

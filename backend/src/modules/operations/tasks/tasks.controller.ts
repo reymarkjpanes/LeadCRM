@@ -36,6 +36,6 @@ export async function completeTask(req: Request, res: Response, next: NextFuncti
 export async function archiveTask(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveTask(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

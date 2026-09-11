@@ -105,8 +105,7 @@ export async function archiveForm(
       req.user!.tenantId,
       req.user!.userId,
     );
-    // 204 No Content — archive returns nothing meaningful
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
