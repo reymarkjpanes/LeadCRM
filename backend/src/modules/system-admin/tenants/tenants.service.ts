@@ -134,13 +134,16 @@ export async function createTenant(dto: CreateTenantDto, actorId: string) {
 
     const user = await tx.user.create({
       data: {
-        tenantId: tenant.id,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
+        tenantId:      tenant.id,
+        firstName:     dto.firstName,
+        lastName:      dto.lastName,
         email,
         passwordHash,
-        role: 'Client Admin',
-        status: 'ACTIVE',
+        role:          'Client Admin',
+        status:        'ACTIVE',
+        // System Admin is explicitly creating a pre-verified, active account —
+        // email verification is not required for admin-provisioned tenants.
+        emailVerified: new Date(),
       },
       select: { id: true, email: true, firstName: true, lastName: true, role: true },
     });
