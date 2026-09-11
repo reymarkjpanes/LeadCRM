@@ -14,6 +14,9 @@ interface UseBillingInterceptorReturn {
   upgradeInfo: PlanUpgradeInfo | null;
   showUpgradeModal: boolean;
   closeUpgradeModal: () => void;
+  /** True when a Guest/sandbox user attempts a mutation — prompts them to subscribe */
+  showSubscriptionModal: boolean;
+  closeSubscriptionModal: () => void;
 }
 
 // ─── Custom Events ────────────────────────────────────────────────────────────
@@ -30,15 +33,31 @@ export function dispatchPaymentRequired(): void {
   window.dispatchEvent(new CustomEvent('payment-required'));
 }
 
+/**
+ * Dispatch this event when the API returns 403 with code SUBSCRIPTION_REQUIRED.
+ * Fired when a Guest/sandbox user attempts any mutation (create, update, delete).
+ * The CRM layout shell listens for this and shows the sandbox upgrade modal.
+ */
+export function dispatchSubscriptionRequired(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('subscription-required'));
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
- * Hook that listens for plan-upgrade-required custom events and manages
- * the PlanUpgradeModal state. Wire this into the tenant layout shell.
+ * Hook that listens for billing-related custom events and manages modal state.
+ * Wire this into the tenant layout shell (crm-layout.tsx).
+ *
+ * Handles three distinct scenarios:
+ *   plan-upgrade-required    → user on a paid plan tries a feature above their tier
+ *   payment-required         → subscription is past-due / cancelled
+ *   subscription-required    → Guest/sandbox user tries to mutate data (no subscription yet)
  */
 export function useBillingInterceptor(): UseBillingInterceptorReturn {
   const [upgradeInfo, setUpgradeInfo] = useState<PlanUpgradeInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   useEffect(() => {
     function handleUpgradeRequired(e: Event): void {
@@ -47,9 +66,16 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
       setShowUpgradeModal(true);
     }
 
+    function handleSubscriptionRequired(): void {
+      setShowSubscriptionModal(true);
+    }
+
     window.addEventListener('plan-upgrade-required', handleUpgradeRequired);
+    window.addEventListener('subscription-required', handleSubscriptionRequired);
+
     return () => {
       window.removeEventListener('plan-upgrade-required', handleUpgradeRequired);
+      window.removeEventListener('subscription-required', handleSubscriptionRequired);
     };
   }, []);
 
@@ -58,5 +84,15 @@ export function useBillingInterceptor(): UseBillingInterceptorReturn {
     setUpgradeInfo(null);
   }, []);
 
-  return { upgradeInfo, showUpgradeModal, closeUpgradeModal };
+  const closeSubscriptionModal = useCallback(() => {
+    setShowSubscriptionModal(false);
+  }, []);
+
+  return {
+    upgradeInfo,
+    showUpgradeModal,
+    closeUpgradeModal,
+    showSubscriptionModal,
+    closeSubscriptionModal,
+  };
 }

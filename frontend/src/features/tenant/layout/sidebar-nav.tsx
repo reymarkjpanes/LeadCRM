@@ -189,7 +189,7 @@ export default function SidebarNav({
               </span>
               <button
                 type="button"
-                onClick={() => { navigate('settings'); onCloseSidebar(); }}
+                onClick={() => { navigate('client-billing'); onCloseSidebar(); }}
                 className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
               >
                 Upgrade

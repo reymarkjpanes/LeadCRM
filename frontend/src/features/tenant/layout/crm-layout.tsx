@@ -7,6 +7,9 @@ import { useLayout } from './use-layout';
 import { useAuth } from '@/store/AuthContext';
 import { PaymentFailureBanner } from '@/shared/components/payment-failure-banner';
 import { SandboxBillingBanner } from '@/shared/components/sandbox-billing-banner';
+import { SandboxUpgradeModal } from '@/shared/components/sandbox-upgrade-modal';
+import { PlanUpgradeModal } from '@/shared/components/plan-upgrade-modal';
+import { useBillingInterceptor } from '@/shared/hooks/use-billing-interceptor';
 
 const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
 
@@ -20,6 +23,15 @@ const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const { navigate } = useLayout();
   const { user } = useAuth();
+
+  // Billing interceptor — listens for API-level billing errors and drives modals
+  const {
+    upgradeInfo,
+    showUpgradeModal,
+    closeUpgradeModal,
+    showSubscriptionModal,
+    closeSubscriptionModal,
+  } = useBillingInterceptor();
 
   // Billing state — comes from /auth/me response via AuthContext
   // null-safe defaults: NONE so sandbox banner shows for brand-new users
@@ -152,6 +164,21 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
           aria-hidden="true"
         />
       )}
+
+      {/* Sandbox upgrade modal — fires when Guest user attempts a mutation */}
+      <SandboxUpgradeModal
+        isOpen={showSubscriptionModal}
+        onClose={closeSubscriptionModal}
+      />
+
+      {/* Plan upgrade modal — fires when a paid user needs a higher tier */}
+      <PlanUpgradeModal
+        isOpen={showUpgradeModal}
+        feature={upgradeInfo?.feature ?? ''}
+        currentPlan={upgradeInfo?.currentPlan ?? 'STARTER'}
+        requiredPlan={upgradeInfo?.requiredPlan ?? 'PRO'}
+        onClose={closeUpgradeModal}
+      />
     </div>
   );
 }

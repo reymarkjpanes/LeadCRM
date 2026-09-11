@@ -65,6 +65,12 @@ async function request<T>(
           requiredPlan: (rawError as Record<string, unknown>).requiredPlan as string ?? 'PRO',
         });
       }
+      // SUBSCRIPTION_REQUIRED — sandbox/Guest user attempted a mutation.
+      // Dispatch a custom event so the CRM layout can show the upgrade prompt.
+      if (res.status === 403 && errorCode === 'SUBSCRIPTION_REQUIRED') {
+        const { dispatchSubscriptionRequired } = await import('@/shared/hooks/use-billing-interceptor');
+        dispatchSubscriptionRequired();
+      }
       if (res.status === 402 && errorCode === 'PAYMENT_REQUIRED') {
         const { dispatchPaymentRequired } = await import('@/shared/hooks/use-billing-interceptor');
         dispatchPaymentRequired();
