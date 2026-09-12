@@ -226,7 +226,6 @@ export function ContactsDataGrid({
       sort={sort}
       onSortChange={onSortChange}
       onRowClick={onRowClick}
-      enableColumnMenu
       onHideColumn={onHideColumn}
       rowActions={getRowActions}
       onSettingsClick={onManageColumns}

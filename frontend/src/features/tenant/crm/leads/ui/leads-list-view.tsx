@@ -4,7 +4,6 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { Lead } from '@/store/types';
 import { StatusBadge } from '@/shared/components/crm';
 import { cn } from '@/lib/utils';
-import { ChevronsUpDown, ChevronUp, ChevronDown } from 'lucide-react';
 import type { ColumnConfigItem, ColumnDefinition } from '@leadcrm/shared';
 
 // ── Responsive Column Helpers ─────────────────────────────────────────────────
@@ -88,13 +87,26 @@ interface SortIndicatorProps {
 }
 
 function SortIndicator({ direction }: SortIndicatorProps): React.ReactElement {
-  if (direction === 'asc') {
-    return <ChevronUp size={12} className="ml-1 shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />;
-  }
-  if (direction === 'desc') {
-    return <ChevronDown size={12} className="ml-1 shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />;
-  }
-  return <ChevronsUpDown size={12} className="ml-1 shrink-0 text-slate-300 dark:text-slate-600" aria-hidden="true" />;
+  const downActive = direction === 'desc';
+  const upActive   = direction === 'asc';
+  return (
+    <span className="ml-1 inline-flex shrink-0 items-center gap-[1px]" aria-hidden="true">
+      {/* Down arrow ↓ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={downActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 7L0.5 2.5H5.5L3 7Z" fill="currentColor" />
+        <line x1="3" y1="0.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+      {/* Up arrow ↑ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={upActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 1L5.5 5.5H0.5L3 1Z" fill="currentColor" />
+        <line x1="3" y1="7.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

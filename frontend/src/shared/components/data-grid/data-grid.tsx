@@ -44,7 +44,7 @@
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { ChevronsUpDown, ChevronUp, ChevronDown, Settings2, SearchX, Inbox, Plus, EyeOff } from 'lucide-react';
+import { Settings2, SearchX, Inbox, Plus, EyeOff } from 'lucide-react';
 import { useColumnResize } from './use-column-resize';
 import { useDataGridSort } from './use-data-grid-sort';
 import { useBulkSelection } from './use-bulk-selection';
@@ -363,33 +363,41 @@ const DataGridRow = React.memo(DataGridRowInner) as typeof DataGridRowInner;
 
 interface SortIndicatorProps {
   direction: SortDirection | null;
-  /** When true and direction is null, shows the neutral up/down icon */
+  /** When true and direction is null, shows the neutral two-arrow icon */
   sortable?: boolean;
 }
 
+/**
+ * Two-arrow sort indicator — down arrow (↓) and up arrow (↑) side by side.
+ * Inactive:   both arrows shown in muted color
+ * Ascending:  up arrow highlighted blue, down arrow muted
+ * Descending: down arrow highlighted blue, up arrow muted
+ */
 function SortIndicator({ direction, sortable }: SortIndicatorProps): React.ReactElement | null {
-  if (direction === 'asc') {
-    return (
-      <span className="ml-1 inline-flex flex-shrink-0" aria-hidden="true">
-        <ChevronUp size={12} className="text-blue-600 dark:text-blue-400" />
-      </span>
-    );
-  }
-  if (direction === 'desc') {
-    return (
-      <span className="ml-1 inline-flex flex-shrink-0" aria-hidden="true">
-        <ChevronDown size={12} className="text-blue-600 dark:text-blue-400" />
-      </span>
-    );
-  }
-  if (sortable) {
-    return (
-      <span className="ml-1 inline-flex flex-shrink-0" aria-hidden="true">
-        <ChevronsUpDown size={12} className="text-slate-300 dark:text-slate-600" />
-      </span>
-    );
-  }
-  return null;
+  if (!sortable && !direction) return null;
+
+  const isInactive = !direction;
+  const downActive = direction === 'desc';
+  const upActive   = direction === 'asc';
+
+  return (
+    <span className="ml-1 inline-flex shrink-0 items-center gap-[1px]" aria-hidden="true">
+      {/* Down arrow ↓ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={downActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 7L0.5 2.5H5.5L3 7Z" fill="currentColor" />
+        <line x1="3" y1="0.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+      {/* Up arrow ↑ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={upActive ? 'text-blue-600 dark:text-blue-400' : isInactive ? 'text-slate-300 dark:text-slate-600' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 1L5.5 5.5H0.5L3 1Z" fill="currentColor" />
+        <line x1="3" y1="7.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 // ─── DataGrid Component ──────────────────────────────────────────────────────

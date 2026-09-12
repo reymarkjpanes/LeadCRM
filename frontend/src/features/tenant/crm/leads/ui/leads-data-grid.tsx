@@ -424,7 +424,6 @@ export function LeadsDataGrid({
         onSortChange={onSortChange}
         onRowClick={onRowClick}
         quickActions={quickActions}
-        enableColumnMenu
         onHideColumn={onHideColumn}
         rowActions={getRowActions}
         onSettingsClick={onManageColumns}
