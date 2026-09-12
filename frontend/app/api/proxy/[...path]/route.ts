@@ -115,10 +115,15 @@ async function proxyRequest(
     '127.0.0.1';
   headers['X-Forwarded-For'] = clientIp;
 
-  const body =
-    req.method !== 'GET' && req.method !== 'HEAD'
-      ? await req.text()
-      : undefined;
+  let body: string | ArrayBuffer | undefined;
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const ct = req.headers.get('content-type') ?? '';
+    if (ct.startsWith('multipart/form-data')) {
+      body = await req.arrayBuffer();
+    } else {
+      body = await req.text();
+    }
+  }
 
   try {
     const backendRes = await fetch(url, { method: req.method, headers, body });

@@ -35,9 +35,9 @@ export async function getVerificationStatus(tenantId: string): Promise<TenantVer
     documentKey: doc.documentKey as DocumentKey,
     fileName: doc.fileName,
     fileSize: doc.fileSize,
-    mimeType: (doc as unknown as Record<string, unknown>).mimeType as string | null ?? null,
+    mimeType: doc.mimeType ?? null,
     status: doc.status,
-    rejectionReason: (doc as unknown as Record<string, unknown>).rejectionReason as string | null ?? null,
+    rejectionReason: doc.rejectionReason ?? null,
     uploadedAt: doc.uploadedAt,
   }));
 
@@ -101,9 +101,9 @@ export async function upsertDocument(
     documentKey: doc.documentKey as DocumentKey,
     fileName: doc.fileName,
     fileSize: doc.fileSize,
-    mimeType: (doc as unknown as Record<string, unknown>).mimeType as string | null ?? null,
+    mimeType: doc.mimeType ?? null,
     status: doc.status,
-    rejectionReason: (doc as unknown as Record<string, unknown>).rejectionReason as string | null ?? null,
+    rejectionReason: doc.rejectionReason ?? null,
     uploadedAt: doc.uploadedAt,
   };
 
@@ -174,6 +174,6 @@ export async function getDocumentFilePath(
   return {
     filePath: doc.filePath,
     fileName: doc.fileName,
-    mimeType: (doc as unknown as Record<string, unknown>).mimeType as string | null ?? null,
+    mimeType: doc.mimeType ?? null,
   };
 }

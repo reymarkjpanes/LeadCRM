@@ -17,7 +17,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Clock, CheckCircle2, XCircle, Upload, X, FileText,
+  Clock, CheckCircle2, Upload, X, FileText,
   Building2, AlertTriangle, Loader2, ChevronRight, RefreshCw,
   ArrowLeft, Sparkles,
 } from 'lucide-react';

@@ -34,7 +34,7 @@ router.use(tenantMiddleware);
 // Must be accessible to SANDBOX tenants before subscribing.
 // billing paths are whitelisted from subscriptionGate — no additional gate needed here.
 router.get(  '/verification',                                          authorize('billing.view'),   verificationController.getVerificationStatus);
-router.post( '/verification/documents',   uploadSingleDocument,       authorize('billing.manage'), verificationController.uploadVerificationDocument);
+router.post( '/verification/documents',                               authorize('billing.manage'), uploadSingleDocument, verificationController.uploadVerificationDocument);
 router.delete('/verification/documents/:documentKey',                  authorize('billing.manage'), verificationController.removeVerificationDocument);
 router.post( '/verification/submit',                                   authorize('billing.manage'), billingMutationRateLimiter, verificationController.submitVerification);
 router.get(  '/verification/documents/:documentKey/file',             authorize('billing.view'),   verificationController.downloadVerificationDocument);
