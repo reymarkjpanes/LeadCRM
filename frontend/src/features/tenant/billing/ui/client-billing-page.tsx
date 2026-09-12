@@ -13,6 +13,8 @@ import { BackButton } from '@/shared/components/ui/back-button';
 import { SeatManagementCard } from './seat-management-card';
 import { getTenantCurrency, formatCurrency as formatTenantCurrency } from '@/shared/utils/currency';
 import type { BillingCycle, PricingPlan } from '../types/billing.types';
+import { BusinessVerificationModal } from './business-verification-modal';
+import { verificationApi } from '@/shared/services/verification.api';
 import type { Invoice } from '@/store/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -79,6 +81,14 @@ export default function ClientBillingPage() {
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<BillingCycle>('MONTHLY');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  // Business verification modal state
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationPendingPlan, setVerificationPendingPlan] = useState<{
+    planId: string;
+    cycle: BillingCycle;
+    planName: string;
+  } | null>(null);
 
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -174,7 +184,25 @@ export default function ClientBillingPage() {
       const targetTier = PLAN_TIER[targetPlan?.planType ?? 'STARTER'] ?? 0;
 
       if (!subscription) {
-        // No subscription — use checkout flow
+        // No subscription — check business verification before checkout
+        try {
+          const verificationRes = await verificationApi.getVerificationStatus();
+          if (verificationRes.data.verificationStatus !== 'APPROVED') {
+            // Guest not yet verified — show verification modal, preserve plan selection
+            setVerificationPendingPlan({
+              planId,
+              cycle: selectedCycle,
+              planName: targetPlan?.name ?? '',
+            });
+            setShowPlanModal(false);
+            setShowVerificationModal(true);
+            setCheckoutLoading(false);
+            return;
+          }
+        } catch {
+          // If verification check fails, let backend gate handle it
+        }
+        // Verified (or check failed) — proceed to checkout
         const response = await billingService.createCheckoutSession(planId, selectedCycle);
         window.location.href = response.data.checkoutUrl;
         return;
@@ -713,6 +741,20 @@ export default function ClientBillingPage() {
           loading={checkoutLoading}
         />
       )}
+
+      {/* ─── Business Verification Modal ───────────────────────────────────────── */}
+      <BusinessVerificationModal
+        isOpen={showVerificationModal}
+        pendingPlanId={verificationPendingPlan?.planId ?? null}
+        pendingCycle={verificationPendingPlan?.cycle ?? null}
+        pendingPlanName={verificationPendingPlan?.planName ?? null}
+        onProceedToCheckout={(planId, cycle) => {
+          setShowVerificationModal(false);
+          setSelectedCycle(cycle);
+          handleUpgradePlan(planId);
+        }}
+        onClose={() => setShowVerificationModal(false)}
+      />
 
       {/* ─── Cancel Confirmation Dialog ────────────────────────────────────── */}
       {showCancelDialog && subscription && (

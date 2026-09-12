@@ -197,6 +197,10 @@ model Tenant {
   maxDeals           Int?
   approvedById       String? // SystemAdmin id who approved
   approvedAt         DateTime?
+  // -- Business Verification ─────────────────────────────────────────────────
+  verificationStatus          String    @default("NOT_SUBMITTED") // NOT_SUBMITTED | PENDING | APPROVED | REJECTED | REQUIRES_RESUBMISSION
+  businessType                String?   // Sole Proprietorship | Corporation | Partnership | Cooperative | Other
+  verificationRejectionReason String?   // Reason provided by admin on REJECTED or REQUIRES_RESUBMISSION
   // -- Onboarding ----------------------------------------------------
   onboardingStep        Int       @default(0) // 0=not started, 1=workspace, 2=invite, 3=tour
   onboardingCompletedAt DateTime?
@@ -576,19 +580,23 @@ model TenantDomainSettings {
 // TENANT DOCUMENT (onboarding files, contracts, etc.)
 // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 model TenantDocument {
-  id           String    @id @default(uuid())
-  tenantId     String
-  fileName     String
-  documentType String // "contract" | "business_permit" | "id_proof" | "other"
-  filePath     String // URL to object storage G�� NOT base64
-  fileSize     Int? // bytes
-  status       String    @default("pending") // pending|verified|rejected
-  uploadedAt   DateTime  @default(now())
-  verifiedById String? // SystemAdmin id
-  verifiedAt   DateTime?
+  id             String    @id @default(uuid())
+  tenantId       String
+  documentKey    String    // businessRegistration | birCertificate | businessPermit | proofOfAddress | articlesOfIncorporation | articlesOfPartnership | industryPermit
+  fileName       String    // Original filename for display
+  documentType   String    @default("business_doc") // Classification: "business_doc" for verification docs
+  filePath       String    // Relative path on server filesystem (e.g. uploads/documents/tenantId-key-timestamp.pdf)
+  fileSize       Int?      // bytes
+  mimeType       String?   // e.g. application/pdf
+  status         String    @default("pending") // pending | verified | rejected
+  rejectionReason String?  // Reason for rejection (set by admin)
+  uploadedAt     DateTime  @default(now())
+  verifiedById   String?   // SystemAdmin id who reviewed
+  verifiedAt     DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, documentKey])
   @@index([tenantId, status])
 }
 
