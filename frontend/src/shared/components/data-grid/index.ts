@@ -52,11 +52,8 @@ export { useColumnResize } from './use-column-resize';
 export { useDataGridSort } from './use-data-grid-sort';
 export { useDataGridColumns } from './use-data-grid-columns';
 export type { CellRendererMap, CellRendererFn } from './use-data-grid-columns';
-export { useColumnDragReorder } from './use-column-drag-reorder';
-export type { UseColumnDragReorderOptions, UseColumnDragReorderReturn } from './use-column-drag-reorder';
 export { useResponsiveColumns } from './use-responsive-columns';
 export { useGridKeyboardNav } from './use-grid-keyboard-nav';
-export { SortableHeaderCell } from './sortable-header-cell';
 
 // Types
 export type {

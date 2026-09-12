@@ -43,9 +43,9 @@ interface ContactsDataGridProps {
   /** Column preferences from useColumnPreferences */
   effectiveColumns: ColumnConfigItem[];
   /** Current sort state */
-  sort: SortState | null;
+  sort?: SortState | null;
   /** Sort change handler */
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange?: (sort: SortState | null) => void;
   /** Row click → open detail drawer */
   onRowClick: (contact: Contact) => void;
   /** Selected row IDs */
@@ -70,8 +70,6 @@ interface ContactsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
-  /** Column reorder handler — called when user drag-drops a column header */
-  onColumnReorder?: (columns: ColumnConfigItem[]) => void;
 }
 
 // ─── Status Variant Map (uses shared CONTACT_STATUS_VARIANTS) ────────────────
@@ -82,7 +80,7 @@ export function ContactsDataGrid({
   contacts,
   totalRecords,
   effectiveColumns,
-  sort,
+  sort = null,
   onSortChange,
   onRowClick,
   selectedIds,
@@ -96,7 +94,6 @@ export function ContactsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
-  onColumnReorder,
 }: ContactsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -237,8 +234,6 @@ export function ContactsDataGrid({
       emptyMessage="No contacts found. Adjust your filters or create a new contact."
       ariaLabel="Contacts data grid"
       viewMode={viewMode}
-      onColumnReorder={onColumnReorder}
-      effectiveColumns={effectiveColumns}
     />
   );
 }

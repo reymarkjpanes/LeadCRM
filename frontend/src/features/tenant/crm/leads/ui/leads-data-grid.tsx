@@ -71,9 +71,9 @@ interface LeadsDataGridProps {
   /** Column preferences from useColumnPreferences */
   effectiveColumns: ColumnConfigItem[];
   /** Current sort state */
-  sort: SortState | null;
+  sort?: SortState | null;
   /** Sort change handler */
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange?: (sort: SortState | null) => void;
   /** Row click → open detail drawer */
   onRowClick: (lead: Lead) => void;
   /** Selected row IDs */
@@ -105,8 +105,6 @@ interface LeadsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
-  /** Column reorder handler — called when user drag-drops a column header */
-  onColumnReorder?: (columns: ColumnConfigItem[]) => void;
 }
 
 // ─── Status Variant Map (uses shared LEAD_STATUS_VARIANTS) ───────────────────
@@ -117,7 +115,7 @@ export function LeadsDataGrid({
   leads,
   totalRecords,
   effectiveColumns,
-  sort,
+  sort = null,
   onSortChange,
   onRowClick,
   selectedIds,
@@ -135,7 +133,6 @@ export function LeadsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
-  onColumnReorder,
 }: LeadsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -435,8 +432,6 @@ export function LeadsDataGrid({
         emptyMessage="No leads found. Adjust your filters or create a new lead."
         ariaLabel="Leads data grid"
         viewMode={viewMode}
-        onColumnReorder={onColumnReorder}
-        effectiveColumns={effectiveColumns}
       />
     </div>
   );
