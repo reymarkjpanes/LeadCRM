@@ -178,6 +178,22 @@ export default function SidebarNav({
         })()}
       </nav>
 
+      {/* ── Settings pinned above footer ──────────────────────── */}
+      {(() => {
+        const settingsItem = filteredNav.find((item) => item.path === 'settings');
+        if (!settingsItem) return null;
+        return (
+          <div className="shrink-0 px-2 pb-1.5 pt-1.5">
+            <NavButton
+              item={settingsItem as any}
+              isActive={currentPath === 'settings'}
+              isCollapsed={isCollapsed}
+              onClick={() => { navigate('settings'); onCloseSidebar(); }}
+            />
+          </div>
+        );
+      })()}
+
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-[var(--sidebar-border)]">
         {/* Sandbox badge — shown for SANDBOX tenants only, non-collapsed */}
