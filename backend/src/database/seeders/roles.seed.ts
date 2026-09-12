@@ -44,7 +44,7 @@ const GUEST_PERMISSIONS = [
   { module: 'users',      canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
   { module: 'roles',      canView: false, canCreate: false, canEdit: false, canDelete: false },
   // ── Billing: full access so Guest can upgrade ─────────────────────────────
-  { module: 'billing',    canView: true,  canCreate: false, canEdit: true,  canDelete: false },
+  { module: 'billing',    canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
   { module: 'audit',      canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 

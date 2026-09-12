@@ -382,7 +382,7 @@ export default function ClientBillingPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Manage your plan, payment methods, and billing history.</p>
         </div>
         <div className="flex items-center gap-3">
-          {userCan('billing', 'canCreate') && (
+          {userCan('billing', 'canView') && (
             <button
               onClick={() => setShowPlanModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
