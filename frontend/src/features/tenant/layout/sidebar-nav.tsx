@@ -109,9 +109,9 @@ export default function SidebarNav({
             }
           });
 
-          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing'];
+          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing', 'Settings'];
 
-          // Merge Operations/Marketing/Automation/Billing into "WORKSPACE"
+          // Merge Operations/Marketing/Automation/Billing/Settings into "WORKSPACE"
           const mergedGroups: { label: string; items: typeof filteredNav }[] = [];
           const workspaceItems: typeof filteredNav = [];
           const systemItems: typeof filteredNav = [];
@@ -120,7 +120,7 @@ export default function SidebarNav({
             if (!groups[g]) return;
             if (g === 'CRM') {
               mergedGroups.push({ label: 'CRM', items: groups[g] });
-            } else if (['Operations', 'Marketing', 'Automation', 'Billing'].includes(g)) {
+            } else if (['Operations', 'Marketing', 'Automation', 'Billing', 'Settings'].includes(g)) {
               workspaceItems.push(...groups[g]);
             } else {
               systemItems.push(...groups[g]);
@@ -177,22 +177,6 @@ export default function SidebarNav({
           );
         })()}
       </nav>
-
-      {/* ── Settings pinned above footer ──────────────────────── */}
-      {(() => {
-        const settingsItem = filteredNav.find((item) => item.path === 'settings');
-        if (!settingsItem) return null;
-        return (
-          <div className="shrink-0 px-2 pb-1.5 pt-1.5">
-            <NavButton
-              item={settingsItem as any}
-              isActive={currentPath === 'settings'}
-              isCollapsed={isCollapsed}
-              onClick={() => { navigate('settings'); onCloseSidebar(); }}
-            />
-          </div>
-        );
-      })()}
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-[var(--sidebar-border)]">
