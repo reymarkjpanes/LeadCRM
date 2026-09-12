@@ -25,11 +25,12 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <DataProvider>
           {children}
           <GlobalLoader />
-          <Toaster 
-            position="top-right" 
+          <Toaster
+            position="top-right"
             expand={true}
             closeButton
             duration={4000}
+            gap={10}
           />
         </DataProvider>
       </AuthProvider>

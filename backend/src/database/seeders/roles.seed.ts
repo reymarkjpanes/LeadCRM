@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 // ── Permission row definitions ─────────────────────────────────────────────
 // Only non-super roles get RolePermission rows.
-// Admin / Super User bypass all checks at the middleware level (isSuperRole()).
+// Client Admin / System Admin bypass all checks at the middleware level (isSuperRole()).
 
 const USER_PERMISSIONS = [
   { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
@@ -23,23 +23,29 @@ const USER_PERMISSIONS = [
   { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 
-const RESTRICTED_USER_PERMISSIONS = [
-  { module: 'dashboard',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'contacts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'accounts',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'deals',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'tasks',         canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'campaigns',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'workflows',     canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'settings',      canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'reports',       canView: true,  canCreate: false, canEdit: false, canDelete: false },
-  { module: 'users',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  { module: 'roles',         canView: false, canCreate: false, canEdit: false, canDelete: false },
-  // canEdit: true enables billing.manage — required to initiate a Stripe checkout/upgrade
-  // from a sandbox workspace. Restricted Users cannot manage other users or roles,
-  // but they must be able to upgrade their own workspace to a paid plan.
-  { module: 'billing',       canView: true,  canCreate: false, canEdit: true,  canDelete: false },
-  { module: 'audit',         canView: false, canCreate: false, canEdit: false, canDelete: false },
+const GUEST_PERMISSIONS = [
+  // ── Free sandbox plan: full CRUD on all basic CRM modules ─────────────────
+  // Limits enforced by recordLimitGate (100 contacts, 3 users).
+  // Premium features (campaigns, workflows) blocked by planGate (require PRO/ENTERPRISE).
+  { module: 'dashboard',  canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'contacts',   canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'accounts',   canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'deals',      canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'tasks',      canView: true,  canCreate: true,  canEdit: true,  canDelete: true  },
+  { module: 'settings',   canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'reports',    canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  // ── Premium features — view only; mutations blocked by planGate ───────────
+  // canCreate/canEdit are intentionally false so the RBAC layer returns 403
+  // before planGate even fires, giving users a consistent "upgrade required"
+  // signal rather than a silent empty state.
+  { module: 'campaigns',  canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  { module: 'workflows',  canView: true,  canCreate: false, canEdit: false, canDelete: false },
+  // ── Team management: view only; limited to 3 users via recordLimitGate ────
+  { module: 'users',      canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'roles',      canView: false, canCreate: false, canEdit: false, canDelete: false },
+  // ── Billing: full access so Guest can upgrade ─────────────────────────────
+  { module: 'billing',    canView: true,  canCreate: true,  canEdit: true,  canDelete: false },
+  { module: 'audit',      canView: false, canCreate: false, canEdit: false, canDelete: false },
 ];
 
 export async function seedSystemRoles(tenantId: string): Promise<void> {
@@ -56,18 +62,6 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       permissions: null, // Client Admin bypasses all RolePermission checks via isSuperRole()
     },
     {
-      name: Role.ADMIN,
-      description: 'Full administrative access to all features and settings within the tenant.',
-      isSystemRole: true,
-      permissions: null, // Admin bypasses all checks — no RolePermission rows needed
-    },
-    {
-      name: Role.SUPER_USER,
-      description: 'Advanced user with access to most features and settings, excluding sensitive billing operations.',
-      isSystemRole: true,
-      permissions: null, // Super User bypasses all checks — no RolePermission rows needed
-    },
-    {
       name: Role.USER,
       description: 'Standard access for everyday operations, sales, and reporting.',
       isSystemRole: true,
@@ -77,10 +71,10 @@ export async function seedSystemRoles(tenantId: string): Promise<void> {
       // Lifecycle role: used during the sandbox/guest phase (pre-subscription).
       // This is the role assigned at registration — NOT Client Admin.
       // Can browse demo CRM data and access billing to upgrade.
-      name: Role.RESTRICTED_USER,
-      description: 'Sandbox/pre-subscription access. Can view demo CRM data and initiate a plan subscription.',
+      name: Role.GUEST,
+      description: 'Free sandbox plan. Full CRM CRUD (leads, contacts, deals, tasks). Limited to 100 contacts and 3 team members. Automation and campaigns require a paid plan.',
       isSystemRole: true,
-      permissions: RESTRICTED_USER_PERMISSIONS,
+      permissions: GUEST_PERMISSIONS,
     },
   ];
 
@@ -122,7 +116,7 @@ if (require.main === module) {
     console.error('Usage: ts-node roles.seed.ts <tenantId>');
     process.exit(1);
   }
-  
+
   seedSystemRoles(tenantId)
     .catch((err) => { console.error('[Seed] Error:', err); process.exit(1); })
     .finally(() => prisma.$disconnect());

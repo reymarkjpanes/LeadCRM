@@ -229,7 +229,7 @@ export default function UsersPage() {
   const [formLastName, setFormLastName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
-  const [formRole, setFormRole] = useState("Sales Rep");
+  const [formRole, setFormRole] = useState("User");
   const [formJobTitle, setFormJobTitle] = useState("");
   const [formDepartment, setFormDepartment] = useState("");
   const [formStatus, setFormStatus] = useState("Active");
@@ -902,7 +902,7 @@ export default function UsersPage() {
         lowerName.includes("rep") ||
         lowerName.includes("agent") ||
         lowerName.includes("tech") ||
-        role.name === "Sales Rep" ||
+        role.name === "User" ||
         role.name === "Support Agent" ||
         role.name === "Technician"
       ) {
@@ -1666,7 +1666,7 @@ export default function UsersPage() {
     setFormLastName("");
     setFormEmail("");
     setFormPhone("");
-    setFormRole("Sales Rep");
+    setFormRole("User");
     setFormJobTitle("");
     setFormDepartment("");
     setFormStatus("Active");

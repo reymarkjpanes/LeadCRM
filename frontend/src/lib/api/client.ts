@@ -65,6 +65,22 @@ async function request<T>(
           requiredPlan: (rawError as Record<string, unknown>).requiredPlan as string ?? 'PRO',
         });
       }
+      // SUBSCRIPTION_REQUIRED — fully unsubscribed user attempted a mutation.
+      // Dispatch a custom event so the CRM layout can show the upgrade prompt.
+      if (res.status === 403 && errorCode === 'SUBSCRIPTION_REQUIRED') {
+        const { dispatchSubscriptionRequired } = await import('@/shared/hooks/use-billing-interceptor');
+        dispatchSubscriptionRequired({ reason: 'subscription' });
+      }
+      // RECORD_LIMIT_REACHED — Free/sandbox user hit a plan limit (100 contacts, 3 users).
+      // Reuse the sandbox upgrade modal with limit-specific messaging.
+      if (res.status === 403 && errorCode === 'RECORD_LIMIT_REACHED') {
+        const { dispatchSubscriptionRequired } = await import('@/shared/hooks/use-billing-interceptor');
+        dispatchSubscriptionRequired({
+          reason: 'record_limit',
+          entityType: (rawError as Record<string, unknown>).entityType as string ?? 'records',
+          max: (rawError as Record<string, unknown>).max as number ?? undefined,
+        });
+      }
       if (res.status === 402 && errorCode === 'PAYMENT_REQUIRED') {
         const { dispatchPaymentRequired } = await import('@/shared/hooks/use-billing-interceptor');
         dispatchPaymentRequired();

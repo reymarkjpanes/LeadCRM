@@ -36,9 +36,9 @@ interface DealsDataGridProps {
   /** Column preferences from useColumnPreferences */
   effectiveColumns: ColumnConfigItem[];
   /** Current sort state */
-  sort: SortState | null;
+  sort?: SortState | null;
   /** Sort change handler */
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange?: (sort: SortState | null) => void;
   /** Row click → open detail modal */
   onRowClick: (deal: Deal) => void;
   /** Selected row IDs */
@@ -67,8 +67,6 @@ interface DealsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
-  /** Column reorder handler — called when user drag-drops a column header */
-  onColumnReorder?: (columns: ColumnConfigItem[]) => void;
   /** Tenant currency configuration for formatting monetary values */
   currencyConfig?: CurrencyConfig;
 }
@@ -79,7 +77,7 @@ export function DealsDataGrid({
   deals,
   totalRecords,
   effectiveColumns,
-  sort,
+  sort = null,
   onSortChange,
   onRowClick,
   selectedIds,
@@ -95,7 +93,6 @@ export function DealsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
-  onColumnReorder,
   currencyConfig,
 }: DealsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
@@ -232,7 +229,6 @@ export function DealsDataGrid({
       sort={sort}
       onSortChange={onSortChange}
       onRowClick={onRowClick}
-      enableColumnMenu
       onHideColumn={onHideColumn}
       rowActions={getRowActions}
       onSettingsClick={onManageColumns}
@@ -240,9 +236,6 @@ export function DealsDataGrid({
       emptyMessage="No deals found. Adjust your filters or create a new deal."
       ariaLabel="Deals data grid"
       viewMode={viewMode}
-      onColumnReorder={onColumnReorder}
-      effectiveColumns={effectiveColumns}
-      lockedColumns={['title']}
     />
   );
 }

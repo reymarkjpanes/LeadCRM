@@ -9,6 +9,7 @@
 
 import prisma from '../../config/database.config';
 import bcrypt from 'bcryptjs';
+import { Role } from '../../shared/constants/roles';
 
 const TEST_TENANT_ID = 'tenant_test_prod';
 const TEST_USER_ID = 'user_test_prod';
@@ -64,7 +65,7 @@ async function seedProductionTestData() {
         firstName: 'Test',
         lastName: 'User',
         passwordHash: hashedPassword,
-        role: 'CLIENT_ADMIN',
+        role: Role.CLIENT_ADMIN,
         status: 'ACTIVE',
       },
     });
@@ -106,7 +107,7 @@ async function seedProductionTestData() {
       where: {
         tenantId_name: {
           tenantId: TEST_TENANT_ID,
-          name: 'Client Admin',
+          name: Role.CLIENT_ADMIN,
         },
       },
     });
@@ -116,7 +117,7 @@ async function seedProductionTestData() {
       await prisma.roleDefinition.create({
         data: {
           tenantId: TEST_TENANT_ID,
-          name: 'Client Admin',
+          name: Role.CLIENT_ADMIN,
           description: 'Full access to all tenant features',
           permissions: {
             create: [

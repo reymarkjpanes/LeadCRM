@@ -1,9 +1,9 @@
 /**
  * isSuperRole — returns true for roles that bypass RolePermission evaluation.
  *
- * The four super roles are: Admin, Super User, Client Admin, System Admin.
- * Admin and Super User were already treated as super roles before this helper existed.
- * This helper consolidates the pattern — it does NOT expand privileges.
+ * The two super roles are: Client Admin, System Admin.
+ * Client Admin is assigned after successful subscription payment.
+ * System Admin is the platform operator, independent of subscriptions.
  *
  * ╔══════════════════════════════════════════════════════════════════╗
  * ║  CRITICAL: Use this function for RBAC permission evaluation ONLY ║
@@ -15,5 +15,5 @@
  */
 export function isSuperRole(role: string): boolean {
   const n = role.toLowerCase().replace(/[\s_\-]/g, '');
-  return ['admin', 'superuser', 'clientadmin', 'systemadmin'].includes(n);
+  return ['clientadmin', 'systemadmin'].includes(n);
 }

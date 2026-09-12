@@ -19,7 +19,7 @@ const USE_MOCK_AUTH = process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== 'false';
 // ─── Super-role names ─────────────────────────────────────────────────────────
 // Module-level constant — never recreated per render.
 // These roles bypass RolePermission evaluation in userCan().
-const SUPER_ROLE_NAMES = ['Admin', 'Super User', 'Client Admin', 'System Admin'] as const;
+const SUPER_ROLE_NAMES = ['Client Admin', 'System Admin'] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(apiUser);
           // tenantId is always a UUID for real users — skip setTenant only for System Admin
           // (System Admin has no customer tenant; buildTenantFromApiUser is harmless but unnecessary)
-          if (apiUser.role !== 'System Admin') {
+          if (apiUser.role?.toLowerCase() !== 'system admin') {
             setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
           }
           // Fetch effective permissions non-blocking — failure doesn't break auth
@@ -301,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const apiUser = res.data.user as unknown as User;
         setUser(apiUser);
         // tenantId is always a UUID for real users — skip setTenant only for System Admin
-        if (apiUser.role !== 'System Admin') {
+        if (apiUser.role?.toLowerCase() !== 'system admin') {
           setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
         }
         setAuthError(null);
@@ -355,7 +355,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUser(apiUser);
     // tenantId is always a UUID for real users — skip setTenant only for System Admin
-    if (apiUser.role !== 'System Admin') {
+    if (apiUser.role?.toLowerCase() !== 'system admin') {
       setTenant(buildTenantFromApiUser(apiUser as unknown as Record<string, unknown>));
     }
     setAuthError(null);

@@ -481,9 +481,6 @@ export default function LeadsPage(): React.ReactElement {
         searchTerm={searchTerm}
         onSearch={setSearchTerm}
         searchPlaceholder="Search leads..."
-        sortableFields={LEADS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-        sort={sort}
-        onSortChange={setSort}
         pageSize={pageSize}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -537,8 +534,6 @@ export default function LeadsPage(): React.ReactElement {
             leads={paginatedLeads}
             totalRecords={sortedLeads.length}
             effectiveColumns={effectiveColumns}
-            sort={sort}
-            onSortChange={setSort}
             onRowClick={handleRowClick}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
@@ -568,15 +563,7 @@ export default function LeadsPage(): React.ReactElement {
                 toast.error('Failed to hide column. Reverted.');
               }
             }}
-            onColumnReorder={async (columns) => {
-              try {
-                await saveColumns(columns);
-              } catch {
-                toast.error('Failed to save column order. Reverted to previous layout.');
-              }
-            }}
-            viewMode={viewMode}
-          />
+            viewMode={viewMode}          />
         )}
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { hashPassword } from '../../shared/helpers/crypto';
+import { Role } from '../../shared/constants/roles';
 
 const prisma = new PrismaClient();
 
@@ -59,14 +60,14 @@ async function main() {
   
   const user = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: tenant.id, email: SEEDER_EMAIL } },
-    update: { passwordHash, status: 'ACTIVE', role: 'Client Admin', emailVerified: new Date() },
+    update: { passwordHash, status: 'ACTIVE', role: Role.CLIENT_ADMIN, emailVerified: new Date() },
     create: {
       tenantId: tenant.id,
       email: SEEDER_EMAIL,
       firstName: 'Seeder',
       lastName: 'Admin',
       passwordHash,
-      role: 'Client Admin',
+      role: Role.CLIENT_ADMIN,
       status: 'ACTIVE',
       emailVerified: new Date(),
     },
@@ -78,13 +79,13 @@ async function main() {
     where: {
       tenantId_name: {
         tenantId: tenant.id,
-        name: 'Client Admin',
+        name: Role.CLIENT_ADMIN,
       },
     },
     update: {},
     create: {
       tenantId: tenant.id,
-      name: 'Client Admin',
+      name: Role.CLIENT_ADMIN,
       description: 'Full access to all tenant features',
     },
   });
@@ -275,7 +276,7 @@ async function main() {
         companyName: 'Enterprise Solutions Inc',
         productInterest: ['CRM Enterprise', 'Service Orders'],
         source: 'Cold Email',
-        status: 'Active',
+        status: 'WARM',
       },
     }),
     prisma.contact.create({
@@ -288,7 +289,7 @@ async function main() {
         phone: '+1-555-0105',
         companyName: 'Independent Consulting',
         source: 'Website',
-        status: 'Active',
+        status: 'WARM',
       },
     }),
   ]);

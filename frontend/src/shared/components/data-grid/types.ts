@@ -210,14 +210,6 @@ export interface DataGridProps<T = Record<string, unknown>> {
   /** Contextual empty state configuration */
   emptyState?: DataGridEmptyStateProps;
 
-  // ─── Column Drag Reorder ────────────────────────────────────────────────
-  /** Callback when columns are reordered via drag-and-drop. Receives updated column config. */
-  onColumnReorder?: (columns: import('@leadcrm/shared').ColumnConfigItem[]) => void;
-  /** Column IDs that are pinned/locked and cannot be dragged */
-  lockedColumns?: string[];
-  /** The current effective columns (needed for drag reorder to know the full set) */
-  effectiveColumns?: import('@leadcrm/shared').ColumnConfigItem[];
-
   // ─── Settings Icon ──────────────────────────────────────────────────────
   /** Callback when settings (⚙) icon at end of header is clicked */
   onSettingsClick?: () => void;

@@ -342,9 +342,6 @@ export default function ContactsPage(): React.ReactElement {
       activeView={'table' as ViewType}
       onViewChange={setActiveView}
 
-      sortableFields={CONTACTS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-      sort={sort}
-      onSortChange={setSort}
       pageSize={pageSize}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
@@ -389,8 +386,6 @@ export default function ContactsPage(): React.ReactElement {
           contacts={paginatedContacts}
           totalRecords={filteredContacts.length}
           effectiveColumns={effectiveColumns}
-          sort={sort}
-          onSortChange={setSort}
           onRowClick={(contact) => setSelectedContact(contact)}
           selectedIds={contactSelectedIds}
           onSelectionChange={setContactSelectedIds}
@@ -423,13 +418,6 @@ export default function ContactsPage(): React.ReactElement {
             }
           }}
           viewMode={viewMode}
-          onColumnReorder={async (columns) => {
-            try {
-              await saveColumns(columns);
-            } catch {
-              toast.error('Failed to save column order. Reverted to previous layout.');
-            }
-          }}
         />
           )}
         </>

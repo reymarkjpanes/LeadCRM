@@ -1,25 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Lead } from '@/store/types';
 import { StatusBadge } from '@/shared/components/crm';
 import { cn } from '@/lib/utils';
 import type { ColumnConfigItem, ColumnDefinition } from '@leadcrm/shared';
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  horizontalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
 // ── Responsive Column Helpers ─────────────────────────────────────────────────
 
@@ -40,17 +25,32 @@ export function getResponsiveColumnClass(
   const regDef = registry.find((r) => r.id === colId);
   if (regDef?.required) return ''; // Required columns are always visible
 
-  // Find this column's index among non-required visible columns
   const nonRequiredVisible = visibleColumns.filter((c) => {
     const def = registry.find((r) => r.id === c.id);
     return !def?.required;
   });
   const idx = nonRequiredVisible.findIndex((c) => c.id === colId);
 
-  if (idx < 0) return 'hidden'; // Not in visible list
-  if (idx < 2) return ''; // First 2 non-required: always visible
-  if (idx < 4) return 'hidden md:block'; // 3rd-4th: visible at md+ (768px+)
-  return 'hidden lg:block'; // 5th+: visible at lg+ (1024px+)
+  if (idx < 0) return 'hidden';
+  if (idx < 2) return '';
+  if (idx < 4) return 'hidden md:block';
+  return 'hidden lg:block';
+}
+
+// ── Sortable Columns ──────────────────────────────────────────────────────────
+
+const SORTABLE_COLUMNS = new Set([
+  'firstName', 'lastName', 'email', 'phone', 'companyName',
+  'status', 'source', 'assignedUserId', 'createdAt', 'updatedAt',
+]);
+
+// ── Sort Types ────────────────────────────────────────────────────────────────
+
+type SortDirection = 'asc' | 'desc';
+
+interface SortState {
+  field: string;
+  direction: SortDirection;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -76,53 +76,40 @@ export interface LeadsListViewProps {
   visibleColumns: ColumnConfigItem[];
   registry: ColumnDefinition[];
   dense?: boolean;
+  /** @deprecated Column drag-and-drop has been removed. This prop is ignored. */
   onColumnsReorder?: (newColumns: ColumnConfigItem[]) => void;
 }
 
-// ── Sortable Header Cell ──────────────────────────────────────────────────────
+// ── Sort Indicator ────────────────────────────────────────────────────────────
 
-interface SortableHeaderCellProps {
-  id: string;
-  label: string;
-  responsiveClass: string;
-  disabled?: boolean;
+interface SortIndicatorProps {
+  direction: SortDirection | null;
 }
 
-function SortableHeaderCell({ id, label, responsiveClass, disabled }: SortableHeaderCellProps): React.ReactElement {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id, disabled });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
+function SortIndicator({ direction }: SortIndicatorProps): React.ReactElement {
+  const downActive = direction === 'desc';
+  const upActive   = direction === 'asc';
   return (
-    <span
-      ref={setNodeRef}
-      style={{ ...style, minWidth: 140 }}
-      {...attributes}
-      {...listeners}
-      className={cn(
-        'px-3 truncate flex-1 select-none whitespace-nowrap',
-        responsiveClass,
-        !disabled && 'cursor-grab active:cursor-grabbing',
-      )}
-    >
-      {label}
+    <span className="ml-1 inline-flex shrink-0 items-center gap-[1px]" aria-hidden="true">
+      {/* Down arrow ↓ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={downActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 7L0.5 2.5H5.5L3 7Z" fill="currentColor" />
+        <line x1="3" y1="0.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+      {/* Up arrow ↑ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={upActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 1L5.5 5.5H0.5L3 1Z" fill="currentColor" />
+        <line x1="3" y1="7.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
     </span>
   );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-// UPDATED: Table always renders with header/footer even when empty
 
 export function LeadsListView({
   leads,
@@ -144,50 +131,99 @@ export function LeadsListView({
   visibleColumns,
   registry,
   dense = false,
-  onColumnsReorder,
 }: LeadsListViewProps): React.ReactElement {
+  // ── Sort State ───────────────────────────────────────────────────────────
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  const handleHeaderClick = useCallback((colId: string) => {
+    if (!SORTABLE_COLUMNS.has(colId)) return;
+    setSort((prev) => {
+      if (!prev || prev.field !== colId) return { field: colId, direction: 'asc' };
+      if (prev.direction === 'asc') return { field: colId, direction: 'desc' };
+      return null; // third click clears sort
+    });
+  }, []);
+
+  const getSortDirection = useCallback(
+    (colId: string): SortDirection | null => {
+      if (!sort || sort.field !== colId) return null;
+      return sort.direction;
+    },
+    [sort],
+  );
+
+  // ── Sort Comparator ──────────────────────────────────────────────────────
+  const sortedLeads = useMemo(() => {
+    if (!sort) return leads;
+
+    return [...leads].sort((a, b) => {
+      let aVal: unknown;
+      let bVal: unknown;
+
+      switch (sort.field) {
+        case 'firstName':
+          aVal = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim().toLowerCase();
+          bVal = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim().toLowerCase();
+          break;
+        case 'lastName':
+          aVal = (a.lastName ?? '').toLowerCase();
+          bVal = (b.lastName ?? '').toLowerCase();
+          break;
+        case 'email':
+          aVal = (a.email ?? '').toLowerCase();
+          bVal = (b.email ?? '').toLowerCase();
+          break;
+        case 'phone':
+          aVal = a.phone ?? '';
+          bVal = b.phone ?? '';
+          break;
+        case 'companyName':
+          aVal = (a.companyName ?? '').toLowerCase();
+          bVal = (b.companyName ?? '').toLowerCase();
+          break;
+        case 'status':
+          aVal = (a.status ?? '').toLowerCase();
+          bVal = (b.status ?? '').toLowerCase();
+          break;
+        case 'source':
+          aVal = (a.leadSource ?? a.source ?? '').toLowerCase();
+          bVal = (b.leadSource ?? b.source ?? '').toLowerCase();
+          break;
+        case 'assignedUserId':
+          aVal = (a.assignedUserId ?? '').toLowerCase();
+          bVal = (b.assignedUserId ?? '').toLowerCase();
+          break;
+        case 'createdAt':
+          aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          bVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          break;
+        case 'updatedAt': {
+          const aRec = a as unknown as Record<string, unknown>;
+          const bRec = b as unknown as Record<string, unknown>;
+          aVal = aRec.updatedAt ? new Date(aRec.updatedAt as string).getTime() : 0;
+          bVal = bRec.updatedAt ? new Date(bRec.updatedAt as string).getTime() : 0;
+          break;
+        }
+        default:
+          return 0;
+      }
+
+      if (aVal === bVal) return 0;
+      if (aVal == null || aVal === '') return 1;
+      if (bVal == null || bVal === '') return -1;
+
+      const cmp = typeof aVal === 'number' && typeof bVal === 'number'
+        ? aVal - bVal
+        : String(aVal).localeCompare(String(bVal), undefined, { numeric: true, sensitivity: 'base' });
+
+      return sort.direction === 'asc' ? cmp : -cmp;
+    });
+  }, [leads, sort]);
+
   /** Resolve label for a column id */
   const getColumnLabel = (colId: string): string => {
     const def = registry.find((r) => r.id === colId);
     return def?.label ?? colId;
-  };
-
-  // ── DnD Sensors ─────────────────────────────────────────────────────────
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
-
-  /** Draggable column IDs — only visible, non-hidden columns */
-  const draggableColumnIds = visibleColumns
-    .filter((col) => {
-      const responsiveClass = getResponsiveColumnClass(col.id, visibleColumns, registry);
-      return responsiveClass !== 'hidden';
-    })
-    .map((col) => col.id);
-
-  /** Handle drag end — reorder columns and persist */
-  const handleDragEnd = (event: DragEndEvent): void => {
-    const { active, over } = event;
-    if (!over || active.id === over.id || !onColumnsReorder) return;
-
-    const oldIndex = visibleColumns.findIndex((col) => col.id === active.id);
-    const newIndex = visibleColumns.findIndex((col) => col.id === over.id);
-
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reorderedVisible = arrayMove(visibleColumns, oldIndex, newIndex);
-
-    // Rebuild the full columns array: assign sequential order values to visible,
-    // keep hidden columns with their original order values
-    const allColumns = visibleColumns.map((col) => ({ ...col }));
-    // Get all columns (including hidden ones from the parent's full list)
-    // Since we only have visibleColumns here, we reconstruct with new order values
-    const newColumns: ColumnConfigItem[] = reorderedVisible.map((col, idx) => ({
-      ...col,
-      order: idx,
-    }));
-
-    onColumnsReorder(newColumns);
   };
 
   // Handle case where no columns are visible
@@ -329,50 +365,76 @@ export function LeadsListView({
 
   return (
     <div className="bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl overflow-hidden overflow-x-auto">
-      {/* Table header */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={draggableColumnIds} strategy={horizontalListSortingStrategy}>
-          <div
-            className={cn(
-              'inline-flex items-center min-w-full border-b border-[#E4E9F0] dark:border-slate-700 bg-[#F6F8FB] dark:bg-slate-800/60 sticky top-0 z-10',
-              'text-[11.5px] font-semibold uppercase tracking-wide text-[#5A6B85] dark:text-slate-400',
-              dense ? 'h-10 px-3' : 'h-11 px-3',
-            )}
-          >
-            <label className="flex items-center justify-center w-10 shrink-0">
-              <input
-                type="checkbox"
-                checked={selectedIds.length === leads.length && leads.length > 0}
-                onChange={onSelectAll}
-                className="w-3.5 h-3.5 rounded border-[#E4E9F0] dark:border-slate-600 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
-                aria-label="Select all leads"
-              />
-            </label>
-            {visibleColumns.map((col) => {
-              const responsiveClass = getResponsiveColumnClass(col.id, visibleColumns, registry);
-              const isHidden = responsiveClass === 'hidden';
-              return (
-                <SortableHeaderCell
-                  key={col.id}
-                  id={col.id}
-                  label={getColumnLabel(col.id)}
-                  responsiveClass={responsiveClass}
-                  disabled={isHidden || !onColumnsReorder}
-                />
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {/* Table header — fixed, no drag */}
+      <div
+        className={cn(
+          'inline-flex items-center min-w-full border-b border-[#E4E9F0] dark:border-slate-700 bg-[#F6F8FB] dark:bg-slate-800/60 sticky top-0 z-10',
+          'text-[11.5px] font-semibold uppercase tracking-wide text-[#5A6B85] dark:text-slate-400',
+          dense ? 'h-10 px-3' : 'h-11 px-3',
+        )}
+      >
+        {/* Select-all checkbox */}
+        <label className="flex items-center justify-center w-10 shrink-0">
+          <input
+            type="checkbox"
+            checked={selectedIds.length === leads.length && leads.length > 0}
+            onChange={onSelectAll}
+            className="w-3.5 h-3.5 rounded border-[#E4E9F0] dark:border-slate-600 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
+            aria-label="Select all leads"
+          />
+        </label>
+
+        {/* Column headers with sort icons */}
+        {visibleColumns.map((col) => {
+          const responsiveClass = getResponsiveColumnClass(col.id, visibleColumns, registry);
+          const isSortable = SORTABLE_COLUMNS.has(col.id);
+          const sortDir = getSortDirection(col.id);
+          const sortLabel = isSortable
+            ? sortDir === 'asc'
+              ? `Sort by ${getColumnLabel(col.id)} descending`
+              : sortDir === 'desc'
+              ? `Clear sort on ${getColumnLabel(col.id)}`
+              : `Sort by ${getColumnLabel(col.id)} ascending`
+            : undefined;
+
+          return (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => handleHeaderClick(col.id)}
+              disabled={!isSortable}
+              title={sortLabel}
+              aria-label={sortLabel}
+              aria-sort={
+                sortDir === 'asc' ? 'ascending' :
+                sortDir === 'desc' ? 'descending' : 'none'
+              }
+              className={cn(
+                'px-3 truncate flex-1 select-none whitespace-nowrap inline-flex items-center',
+                responsiveClass,
+                isSortable
+                  ? 'cursor-pointer hover:text-[#3C4858] dark:hover:text-slate-300'
+                  : 'cursor-default',
+                // Active sort column text color
+                sortDir != null && 'text-[#3C4858] dark:text-slate-300',
+              )}
+              style={{ minWidth: 140 }}
+            >
+              <span className="truncate">{getColumnLabel(col.id)}</span>
+              {isSortable && <SortIndicator direction={sortDir} />}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Rows */}
       <div className="divide-y divide-[#E4E9F0] dark:divide-slate-700">
-        {leads.length === 0 && (
+        {sortedLeads.length === 0 && (
           <div className="flex items-center justify-center py-16 text-[13px] text-[#5A6B85] dark:text-slate-400">
             No leads found. Adjust your filters or create a new lead.
           </div>
         )}
-        {leads.map((lead) => {
+        {sortedLeads.map((lead) => {
           const isSelected = selectedIds.includes(lead.id);
 
           return (
@@ -390,7 +452,10 @@ export function LeadsListView({
               )}
             >
               {/* Checkbox */}
-              <label className="flex items-center justify-center w-10 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <label
+                className="flex items-center justify-center w-10 shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <input
                   type="checkbox"
                   checked={isSelected}
@@ -404,11 +469,17 @@ export function LeadsListView({
               {visibleColumns.map((col) => {
                 const responsiveClass = getResponsiveColumnClass(col.id, visibleColumns, registry);
                 return (
-                  <div key={col.id} style={{ minWidth: 140 }} className={cn(
-                    'px-3 flex-1',
-                    responsiveClass,
-                    viewMode === 'clip' ? '[&_p]:truncate [&_span]:truncate' : '[&_p]:whitespace-normal [&_p]:break-words [&_span]:whitespace-normal [&_span]:break-words',
-                  )}>
+                  <div
+                    key={col.id}
+                    style={{ minWidth: 140 }}
+                    className={cn(
+                      'px-3 flex-1',
+                      responsiveClass,
+                      viewMode === 'clip'
+                        ? '[&_p]:truncate [&_span]:truncate'
+                        : '[&_p]:whitespace-normal [&_p]:break-words [&_span]:whitespace-normal [&_span]:break-words',
+                    )}
+                  >
                     {renderCell(col.id, lead)}
                   </div>
                 );

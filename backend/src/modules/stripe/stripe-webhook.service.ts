@@ -26,14 +26,21 @@ export function constructStripeEvent(
     throw new AppError('Missing Stripe-Signature header', 400);
   }
 
-  try {
-    return stripe.webhooks.constructEvent(rawBody, signatureHeader, STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    throw new AppError(
-      `Webhook signature verification failed: ${err instanceof Error ? err.message : 'unknown'}`,
-      400,
-    );
+  const secrets = STRIPE_WEBHOOK_SECRET.split(',').map((s) => s.trim()).filter(Boolean);
+  let lastError: Error | null = null;
+
+  for (const secret of secrets) {
+    try {
+      return stripe.webhooks.constructEvent(rawBody, signatureHeader, secret);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
   }
+
+  throw new AppError(
+    `Webhook signature verification failed: ${lastError ? lastError.message : 'unknown'}`,
+    400,
+  );
 }
 
 // ─── Event Router ─────────────────────────────────────────────────────────────

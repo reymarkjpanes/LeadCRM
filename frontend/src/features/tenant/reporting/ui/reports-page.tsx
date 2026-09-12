@@ -173,7 +173,7 @@ export default function ReportsPage(): React.ReactElement {
       ),
     );
     return users
-      .filter((u) => u.role === 'Sales Rep' || u.role === 'Client Admin')
+      .filter((u) => u.role?.toLowerCase() === 'user' || u.role?.toLowerCase() === 'client admin')
       .map((user) => {
         const wonDeals = deals.filter(
           (d) => d.assignedUserId === user.id && wonStageIds.has(d.stageId),

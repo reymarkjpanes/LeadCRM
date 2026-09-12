@@ -4,6 +4,7 @@ import * as repo from './preferences.repository';
 import { isValidModule, isValidSortField } from './column-registry';
 import { AppError } from '../../shared/errors/app-error';
 import { DEFAULT_ROLE_PERMISSIONS } from '../../core/permissions/permission.registry';
+import { isSuperRole } from '../../shared/utils/is-super-role';
 
 // ─────────────────────────────────────────────────────
 // Table Preferences Controller
@@ -11,9 +12,6 @@ import { DEFAULT_ROLE_PERMISSIONS } from '../../core/permissions/permission.regi
 // Uses the existing UserPreference table with different keys.
 // Unknown modules return 404 — never reveal module existence.
 // ─────────────────────────────────────────────────────
-
-// Super roles that bypass permission checks
-const SUPER_ROLES = ['admin', 'super user', 'client admin', 'system admin', 'client_admin', 'clientadmin', 'superuser', 'systemadmin'];
 
 // Map module IDs to their view permission key
 // "leads" maps to "contacts.view" since they share the same permission surface
@@ -33,7 +31,7 @@ function hasModuleViewPermission(req: Request, module: string): boolean {
   if (!role) return false;
 
   // Super roles bypass all checks
-  if (SUPER_ROLES.includes(role.toLowerCase().replace(/[\s_\-]/g, ''))) return true;
+  if (isSuperRole(role)) return true;
 
   const requiredPermission = MODULE_VIEW_PERMISSIONS[module];
   if (!requiredPermission) return true; // Unknown module — let isValidModule catch it

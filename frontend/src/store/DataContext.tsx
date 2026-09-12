@@ -236,7 +236,7 @@ const MOCK_AUDIT_LO·S: AuditLog[] = [
     userEmail: "admin@democorp.com",
     action: "Role Updated",
     details:
-      "Updated access definitions and user authorization parameters for role: 'Sales Rep'.",
+      "Updated access definitions and user authorization parameters for role: 'User'.",
     timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
     ipAddress: "192.168.1.15",
     tenantId: "tenant_demo",
@@ -593,9 +593,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Column preferences: use system default in mock mode
     setColumnPreferences(prev => ({ ...prev, leads: LEADS_SYSTEM_DEFAULT }));
 
-    if (user?.role === "System Admin") {
-      setAuditLogs(logs);
-      setOrganizations(orgs);
+    if (user?.role?.toLowerCase() === "system admin") {
       setContacts(l);
       setDeals(d);
       setPipelines(p);
@@ -636,7 +634,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } else if (
         !canViewAllLeads &&
         !canViewOwnLeads &&
-        user?.role !== "Client Admin"
+        user?.role?.toLowerCase() !== "client admin"
       ) {
         filteredLeads = [];
       }
@@ -649,7 +647,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } else if (
         !canViewAllDeals &&
         !canViewOwnDeals &&
-        user?.role !== "Client Admin"
+        user?.role?.toLowerCase() !== "client admin"
       ) {
         filteredDeals = [];
       }
@@ -2163,7 +2161,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       firstName,
       lastName,
       email: userData.email || "",
-      role: userData.role || "Sales Rep",
+      role: userData.role || "User",
       status: userData.status || "active",
       phone: userData.phone || "",
       jobTitle: userData.jobTitle || "",
@@ -2473,7 +2471,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const updatedLogs = [newLog, ...allLogs].slice(0, 500); // Keep last 500 logs
     localStorage.setItem("leadcrm_audit_logs", JSON.stringify(updatedLogs));
 
-    if (user?.role === "System Admin") {
+    if (user?.role?.toLowerCase() === "system admin") {
       setAuditLogs(updatedLogs);
     } else if (tenant) {
       setAuditLogs(

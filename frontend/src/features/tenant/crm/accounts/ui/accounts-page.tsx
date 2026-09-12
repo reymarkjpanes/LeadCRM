@@ -324,9 +324,6 @@ export default function AccountsPage(): React.ReactElement {
         activeView={'table' as ViewType}
         onViewChange={setActiveView}
 
-        sortableFields={ACCOUNTS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-        sort={sort}
-        onSortChange={setSort}
         pageSize={pageSize}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -370,8 +367,6 @@ export default function AccountsPage(): React.ReactElement {
             accounts={paginatedAccounts}
             totalRecords={filteredAccounts.length}
             effectiveColumns={effectiveColumns}
-            sort={sort}
-            onSortChange={setSort}
             onRowClick={handleRowClick}
             selectedIds={accountSelectedIds}
             onSelectionChange={setAccountSelectedIds}
@@ -391,13 +386,6 @@ export default function AccountsPage(): React.ReactElement {
               }
             }}
             viewMode={viewMode}
-            onColumnReorder={async (columns) => {
-              try {
-                await saveColumns(columns);
-              } catch {
-                toast.error('Failed to save column order. Reverted to previous layout.');
-              }
-            }}
           />
             )}
           </>

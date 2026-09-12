@@ -167,9 +167,6 @@ export default function DealsPage() {
         activeView={activeView}
         onViewChange={setActiveView}
 
-        sortableFields={DEALS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-        sort={sort}
-        onSortChange={setSort}
         pageSize={pageSize}
         onPageSizeChange={setPageSize}
         viewMode={viewMode}
@@ -213,8 +210,6 @@ export default function DealsPage() {
               deals={paginatedDeals}
               totalRecords={totalItems}
               effectiveColumns={effectiveColumns}
-              sort={sort}
-              onSortChange={setSort}
               onRowClick={setSelectedDeal}
               selectedIds={dealSelectedIds}
               onSelectionChange={setDealSelectedIds}
@@ -246,13 +241,6 @@ export default function DealsPage() {
               }}
               viewMode={viewMode}
               currencyConfig={tenantCurrency}
-              onColumnReorder={async (columns) => {
-                try {
-                  await saveColumns(columns);
-                } catch {
-                  toast.error('Failed to save column order. Reverted to previous layout.');
-                }
-              }}
             />
             </ModuleErrorBoundary>
             )}
