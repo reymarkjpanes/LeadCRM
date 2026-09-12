@@ -14,6 +14,9 @@ const OnboardingPage = dynamic(
 export default function OnboardingRoute(): React.ReactElement {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  // OAuth-only users (hasPassword=false) need to complete /company-setup after onboarding.
+  // Manual registration users (hasPassword=true or undefined) go straight to dashboard.
+  const needsCompanySetup = user?.hasPassword === false;
 
   useEffect(() => {
     if (isLoading) return;
@@ -35,6 +38,10 @@ export default function OnboardingRoute(): React.ReactElement {
       router.push('/billing/client');
       return;
     }
+    if (path === 'company-setup') {
+      router.push('/company-setup');
+      return;
+    }
     if (path === 'dashboard') {
       router.push('/dashboard');
       return;
@@ -46,5 +53,5 @@ export default function OnboardingRoute(): React.ReactElement {
     router.push('/dashboard');
   };
 
-  return <OnboardingPage onNavigate={handleNavigate} />;
+  return <OnboardingPage onNavigate={handleNavigate} needsCompanySetup={needsCompanySetup} />;
 }

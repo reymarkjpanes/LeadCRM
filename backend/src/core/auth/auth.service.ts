@@ -61,6 +61,8 @@ export interface AuthUserSource {
   tenantId: string;
   status?: string;
   emailVerified?: Date | null;
+  /** Used only to compute hasPassword — never exposed in responses directly */
+  passwordHash?: string | null;
   tenant?: {
     name?: string | null;
     status?: string | null;
@@ -100,6 +102,8 @@ export interface AuthUserResponse {
   currency: string | null;
   onboardingStep: number;
   onboardingCompletedAt: Date | null;
+  /** True when the user registered with a password (manual). False for OAuth-only users. */
+  hasPassword: boolean;
 }
 
 /**
@@ -129,6 +133,7 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
     currency:              tenant?.currency             ?? null,
     onboardingStep:        tenant?.onboardingStep       ?? 0,
     onboardingCompletedAt: tenant?.onboardingCompletedAt ?? null,
+    hasPassword:           user.passwordHash !== null && user.passwordHash !== undefined,
   };
 }
 

@@ -94,6 +94,18 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // ── Gate 2.5: Company setup for OAuth-only users (server-backed) ──────
+      // OAuth users (hasPassword=false) who have completed onboarding but haven't
+      // filled in company details (industry) yet must complete /company-setup.
+      // Manual registration users are exempt — they fill in industry/companySize
+      // during the onboarding wizard's workspace step (saveOnboardingWorkspace).
+      const hasOnboardingCompleted = !!onboardingCompletedAt || !!localOnboardingDone;
+      if (hasOnboardingCompleted && user.hasPassword === false && !user.industry) {
+        sessionStorage.removeItem('leadcrm_redirect_after_login');
+        router.replace('/company-setup');
+        return;
+      }
+
       // ── Gate 3: Sandbox awareness (informational — no hard redirect) ───────
       // Sandbox users (tenantStatus=SANDBOX, subscriptionStatus=NONE) are allowed
       // to navigate freely. The backend subscriptionGate blocks mutations.

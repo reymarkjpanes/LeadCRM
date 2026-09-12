@@ -91,7 +91,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
       where: { id: req.user!.userId, tenantId: req.user!.tenantId },
       select: {
         id: true, email: true, role: true, firstName: true, lastName: true,
-        tenantId: true, status: true, emailVerified: true,
+        tenantId: true, status: true, emailVerified: true, passwordHash: true,
         tenant: {
           select: {
             name: true, industry: true, companySize: true, status: true,

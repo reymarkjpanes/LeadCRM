@@ -218,8 +218,10 @@ export async function findOrCreateUserByOAuth(
         status:             'SANDBOX',
         subscriptionStatus: 'NONE',
         plan:               null,
-        onboardingStep:     3,
-        onboardingCompletedAt: new Date(),
+        // New OAuth users start onboarding from scratch — same as manual registration.
+        // onboardingCompletedAt is set only after the user explicitly completes the flow.
+        onboardingStep:        0,
+        onboardingCompletedAt: null,
       },
     });
 
@@ -255,6 +257,13 @@ export async function findOrCreateUserByOAuth(
           : null,
         updatedAt:         new Date(),
       },
+    });
+
+    // Set ownerUserId — immutable after creation, used by Stripe webhook for
+    // promoting the correct user to Client Admin on payment confirmation.
+    await tx.tenant.update({
+      where: { id: tenant.id },
+      data:  { ownerUserId: user.id },
     });
 
     return user;
