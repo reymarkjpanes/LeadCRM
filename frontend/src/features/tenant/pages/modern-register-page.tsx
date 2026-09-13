@@ -32,13 +32,14 @@ const registerSchema = z.object({
   businessWebsite: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
   
   // Account details
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
+  firstName: z.string().min(2, 'Please enter your first name'),
+  lastName: z.string().min(2, 'Please enter your last name'),
   email: z.string().email('Please enter a valid email'),
   password: z.string()
     .min(8, 'At least 8 characters')
     .regex(/[A-Z]/, 'At least 1 uppercase')
-    .regex(/[0-9]/, 'At least 1 number'),
+    .regex(/[0-9]/, 'At least 1 number')
+    .regex(/[^A-Za-z0-9]/, 'At least 1 special character'),
   confirmPassword: z.string()
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -107,6 +108,35 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
     fetchSandboxInfo();
   }, []);
 
+  // Debounced email checking while typing
+  React.useEffect(() => {
+    if (!formData.email) return;
+    const validator = FIELD_VALIDATORS.email;
+    const message = validator?.(formData.email, formData);
+    if (message) return; // invalid format, don't check API yet
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const response = await authApi.checkEmail(formData.email);
+        if (response?.data?.exists) {
+          setErrors(prev => ({ ...prev, email: 'This email address is already in use.' }));
+        } else {
+          setErrors(prev => {
+            const next = { ...prev };
+            if (next.email === 'This email address is already in use.') {
+              delete next.email;
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        // Silently fail
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.email]);
+
   const handleChange = (field: string, value: string) => {
     setFormData(prev => {
       const next = { ...prev, [field]: value };
@@ -117,7 +147,16 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
         const validator = FIELD_VALIDATORS[field];
         const message = validator ? validator(value, next) : undefined;
         const updated = { ...prevErrors };
-        if (message) updated[field] = message; else delete updated[field];
+        
+        // Don't override the "email in use" error if we're just typing a valid email format
+        if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+           // keep the existing error until debounce effect clears it
+        } else if (message) {
+           updated[field] = message; 
+        } else {
+           delete updated[field];
+        }
+
         // Keep confirmPassword in sync when password changes
         if (field === 'password' && next.confirmPassword) {
           if (next.confirmPassword !== value) updated.confirmPassword = "Passwords don't match";
@@ -133,10 +172,18 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   const handleBlur = (field: string) => {
     const validator = FIELD_VALIDATORS[field];
     if (!validator) return;
-    const message = validator(formData[field as keyof typeof formData], formData);
+    const value = formData[field as keyof typeof formData];
+    const message = validator(value, formData);
+
     setErrors(prev => {
       const updated = { ...prev };
-      if (message) updated[field] = message; else delete updated[field];
+      if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+        // keep it
+      } else if (message) {
+        updated[field] = message; 
+      } else {
+        delete updated[field];
+      }
       return updated;
     });
   };
@@ -240,8 +287,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
         errorMessage = 'Network error. Please check your internet connection.';
       }
       
-      setErrors({ general: errorMessage });
-      toast.error(errorMessage);
+      if (errorMessage.includes('A user with this email already exists') || errorMessage.includes('email already exists') || errorMessage.includes('Email already in use')) {
+        setErrors({ email: 'This email address is already in use.' });
+      } else {
+        setErrors({ general: errorMessage });
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }

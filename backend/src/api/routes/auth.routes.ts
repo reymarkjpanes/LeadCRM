@@ -26,6 +26,9 @@ const router = Router();
 // GET /api/v1/auth/sandbox-info — returns sandbox configuration (public, no auth required)
 router.get('/sandbox-info', authController.getSandboxInfo);
 
+// GET /api/v1/auth/check-email — checks if an email is already registered
+router.get('/check-email', registerRateLimiter, authController.checkEmail);
+
 // POST /api/v1/auth/login — rate-limited, validated
 router.post('/login', authRateLimiter, validate(LoginSchema), authController.login);
 

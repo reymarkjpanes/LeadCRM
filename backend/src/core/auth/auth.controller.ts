@@ -1,4 +1,4 @@
-﻿import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import {
   loginUser,
@@ -52,6 +52,27 @@ export async function getSandboxInfo(req: Request, res: Response): Promise<void>
       isDevelopment: process.env.NODE_ENV !== 'production',
     },
   });
+}
+
+/**
+ * GET /api/v1/auth/check-email?email=...
+ * Checks if an email is already in use without exposing other user details.
+ */
+export async function checkEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const email = (req.query.email as string || '').toLowerCase().trim();
+    if (!email) {
+      res.json({ success: true, data: { exists: false } });
+      return;
+    }
+    const user = await prisma.user.findFirst({
+      where: { email },
+      select: { id: true },
+    });
+    res.json({ success: true, data: { exists: !!user } });
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
