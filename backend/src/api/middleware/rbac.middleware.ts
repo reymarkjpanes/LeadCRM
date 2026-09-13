@@ -123,11 +123,17 @@ export function authorize(permission: PermissionKey) {
       });
 
       if (rolePermissions.length === 0) {
-        // No RolePermission rows exist for this module — warn and deny.
+        // No RolePermission rows exist for this module — DB seed incomplete.
+        // Fall back to the static DEFAULT_ROLE_PERMISSIONS registry via User.role string
+        // (same strategy as the userRoles.length === 0 path above).
+        // This ensures Guest users can always access billing/verification routes even
+        // when seedSystemRoles() didn't fully complete for their tenant.
         console.warn(
           `[RBAC] No RolePermission rows for module "${module}" — ` +
-          `userId=${userId} roleIds=${roleIds.join(',')} permission=${permission}`
+          `userId=${userId} roleIds=${roleIds.join(',')} permission=${permission} — falling back to static registry`,
         );
+        const staticPerms: string[] = DEFAULT_ROLE_PERMISSIONS[req.user.role] ?? [];
+        if (staticPerms.includes(permission)) return next();
         return next(new AppError('Access denied', 403));
       }
 

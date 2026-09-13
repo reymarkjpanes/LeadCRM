@@ -46,15 +46,41 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   ],
 
   // ── Sandbox / pre-subscription role (assigned at registration) ──────────────
-  // Guest can browse demo CRM data and access billing to subscribe.
-  // They cannot create, edit, or delete real CRM records.
+  // Guest gets full CRUD on basic CRM modules (contacts, accounts, deals, tasks)
+  // with limits enforced by recordLimitGate (100 contacts, 3 users).
+  // Premium features (campaigns, workflows) are view-only.
+  // Billing has full manage access so Guest can upgrade.
+  // This MUST mirror GUEST_PERMISSIONS in roles.seed.ts so the static-registry
+  // fallback in rbac.middleware.ts produces the same outcome as a fully seeded DB.
   // isSuperRole('Guest') === false — this IS evaluated via RolePermission.
   [Role.GUEST]: [
+    // CRM core — full CRUD (limits enforced by recordLimitGate)
     Permission.CONTACTS_VIEW,
-    Permission.DEALS_VIEW,
+    Permission.CONTACTS_CREATE,
+    Permission.CONTACTS_EDIT,
+    Permission.CONTACTS_DELETE,
     Permission.ACCOUNTS_VIEW,
+    Permission.ACCOUNTS_CREATE,
+    Permission.ACCOUNTS_EDIT,
+    Permission.ACCOUNTS_DELETE,
+    Permission.DEALS_VIEW,
+    Permission.DEALS_CREATE,
+    Permission.DEALS_EDIT,
+    Permission.DEALS_DELETE,
+    // Premium features — view only; mutations blocked by planGate
+    Permission.CAMPAIGNS_VIEW,
+    Permission.WORKFLOWS_VIEW,
+    // Reports — view only
+    Permission.REPORTS_VIEW,
+    // Team management — view + manage; limited to 3 users via recordLimitGate
+    Permission.USERS_VIEW,
+    Permission.USERS_MANAGE,
+    // Settings — view + edit
+    Permission.SETTINGS_VIEW,
+    Permission.SETTINGS_EDIT,
+    // Billing — full access so Guest can upgrade
     Permission.BILLING_VIEW,
-    Permission.BILLING_MANAGE,  // required to initiate checkout and upgrade from sandbox
+    Permission.BILLING_MANAGE,
   ],
 };
 
