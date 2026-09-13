@@ -52,18 +52,19 @@ export function SandboxBillingBanner({
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/20"
+      className="flex items-center justify-between gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/20"
     >
       {/* Left — icon + message */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
         <Sparkles
           className="h-4 w-4 text-amber-500 dark:text-amber-400 shrink-0"
           aria-hidden="true"
         />
-        <p className="text-[12.5px] text-amber-800 dark:text-amber-300 font-medium leading-snug truncate">
-          You&apos;re exploring{' '}
-          <span className="font-semibold">LeadCRM Sandbox</span>.{' '}
-          Choose a plan to unlock full production CRM access.
+        <p className="text-[12px] text-amber-800 dark:text-amber-300 font-medium leading-snug">
+          <span className="hidden sm:inline">You&apos;re exploring </span>
+          <span className="font-semibold">LeadCRM Sandbox</span>
+          <span className="hidden sm:inline">. Choose a plan to unlock full production CRM access.</span>
+          <span className="sm:hidden">. Upgrade to unlock full access.</span>
         </p>
       </div>
 

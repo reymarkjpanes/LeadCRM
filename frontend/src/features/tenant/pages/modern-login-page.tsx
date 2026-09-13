@@ -132,12 +132,20 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
     try {
       const success = await login(email, password);
       if (!success) {
-        toast.error('The email or password you entered is incorrect. Please try again.');
+        // Edge case: API returned 2xx but no user object — structural backend issue.
+        // login() throws for all real errors (401, 403, 502, network), so this
+        // branch only fires when the response shape is unexpectedly empty.
+        toast.error('Sign in failed. Please try again or contact support.');
         setIsSigningIn(false);
       }
-      // If success, the useEffect above will handle navigation
+      // On success, AuthGuard's useEffect handles role-based navigation.
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
+      // login() throws with the real server message — display it directly so
+      // the user knows what actually went wrong instead of a generic fallback.
+      // Examples: "Invalid email or password", "Account is inactive",
+      // "Backend unreachable", "Unable to reach the server."
+      const message = err instanceof Error ? err.message : 'Sign in failed. Please try again.';
+      toast.error(message);
       setIsSigningIn(false);
     }
   };
@@ -180,7 +188,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
   if (authView === 'reset') {
     return (
       <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-gray-200 dark:border-white/5 shadow-xl">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl border border-gray-200 dark:border-white/5 shadow-xl">
           <div className="flex flex-col items-center mb-8">
             <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-lg ring-1 ring-slate-200 dark:ring-slate-700 flex items-center justify-center mb-4">
               <img 
@@ -327,7 +335,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
         </div>
 
         {/* Right side - Confirmation */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
           <div className="w-full max-w-md space-y-6 text-center">
             <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-200 dark:border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto">
               <CheckCircle2 className="text-emerald-600 dark:text-emerald-400" size={40} />
@@ -406,7 +414,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
         </div>
 
         {/* Right side - Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
           <div className="w-full max-w-md space-y-6">
             <button
               onClick={() => { setAuthView('login'); setError(''); }}
@@ -520,7 +528,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
       </div>
 
       {/* Right side - Login form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
         <div className="w-full max-w-md space-y-8">
           {/* Header */}
           <div>

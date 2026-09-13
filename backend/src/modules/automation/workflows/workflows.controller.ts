@@ -35,7 +35,7 @@ export async function toggleWorkflow(req: Request, res: Response, next: NextFunc
 export async function archiveWorkflow(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveWorkflow(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 

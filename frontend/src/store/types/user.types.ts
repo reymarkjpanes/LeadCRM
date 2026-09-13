@@ -1,6 +1,6 @@
 // ─── User, Tenant, RBAC ────────────────────────────────────────────────────
 
-export type Role = 'System Admin' | 'Client Admin' | 'Sales Rep' | 'Viewer' | string;
+export type Role = 'System Admin' | 'Client Admin' | 'User' | 'Guest' | string;
 
 export interface Permission {
   id: string;
@@ -47,6 +47,10 @@ export interface User {
   plan?: string | null;
   onboardingStep?: number;
   onboardingCompletedAt?: string | null;
+  /** Flattened from tenant — used for OAuth company-setup gate in AuthGuard */
+  industry?: string | null;
+  /** True when the user registered with a password (manual). False for OAuth-only users. */
+  hasPassword?: boolean;
 }
 
 export interface Tenant {

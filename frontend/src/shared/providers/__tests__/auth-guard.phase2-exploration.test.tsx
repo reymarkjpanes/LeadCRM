@@ -62,7 +62,7 @@ import { AuthGuard } from '../auth-guard';
 const SEEDED_USER_NULL_EMAIL_VERIFIED = {
   id: 'admin-democorp-id',
   email: 'admin@democorp.com',
-  role: 'Admin',
+  role: 'Client Admin',
   firstName: 'Client',
   lastName: 'Admin',
   tenantId: 'demo-corp-tenant',

@@ -5,7 +5,8 @@ import { NotFoundError, ValidationError } from '../../../shared/errors/http-erro
 import { enforcePlanLimit } from '../../../config/database.config';
 import { CreateContactDto, UpdateContactDto, ConvertContactDto } from './contacts.dto';
 import { paginate } from '../../../shared/helpers/pagination';
-import { fireContactCreated, fireContactStatusChanged } from '../../automation/triggers/triggers.service';
+import { fireContactCreated, fireContactStatusChanged, fireLeadCreated, fireLeadStatusChanged } from '../../automation/triggers/triggers.service';
+import { createNotification } from '../../notifications/notifications.service';
 import prisma from '../../../config/database.config';
 
 export async function getContacts(tenantId: string, query: Record<string, unknown>) {
@@ -31,11 +32,41 @@ export async function createContact(tenantId: string, userId: string, dto: Creat
     after:      { firstName: dto.firstName, lastName: dto.lastName },
   });
 
-  // Fire workflow trigger (non-blocking)
+  // Fire workflow triggers (both lead.created and contact.created — non-blocking)
+  // contact.created: retained for backward compatibility with existing workflows
+  // lead.created:    new — allows workflows that specifically target Lead entities
   fireContactCreated({
     tenantId,
     contact: contact as never,
   }).catch(() => {});
+
+  fireLeadCreated({
+    tenantId,
+    lead: {
+      id:             contact.id,
+      status:         String((contact as Record<string, unknown>).status ?? ''),
+      source:         (contact as Record<string, unknown>).source as string | null ?? null,
+      score:          Number((contact as Record<string, unknown>).score ?? 0),
+      assignedUserId: (contact as Record<string, unknown>).assignedUserId as string | null ?? null,
+      companyName:    (contact as Record<string, unknown>).companyName as string | null ?? null,
+    },
+  }).catch(() => {});
+
+  // Notify the assigned user when a lead is directly assigned to them on creation.
+  // Only fires when the creator is NOT the assignee (no self-notification).
+  if ((contact as Record<string, unknown>).assignedUserId &&
+      (contact as Record<string, unknown>).assignedUserId !== userId) {
+    createNotification({
+      tenantId,
+      userId:     String((contact as Record<string, unknown>).assignedUserId),
+      type:       'lead_assigned',
+      title:      `New lead assigned to you`,
+      body:       `${(contact as Record<string, unknown>).firstName ?? ''} ${(contact as Record<string, unknown>).lastName ?? ''}`.trim() ||
+                  'A new lead has been assigned to you.',
+      entityType: 'Lead',
+      entityId:   contact.id,
+    }).catch(() => {});
+  }
 
   return contact;
 }
@@ -56,12 +87,42 @@ export async function updateContact(
     entityId:   id,
   });
 
-  // Fire status-change trigger if status changed
+  // Fire status-change triggers if status changed (both lead.* and contact.* — non-blocking)
+  // contact.status_changed: retained for backward compatibility
+  // lead.status_changed:    new — targets Lead entity workflows specifically
   if (dto.status && dto.status !== before.status) {
     fireContactStatusChanged({
       tenantId,
       contact: contact as never,
       prevStatus: before.status,
+    }).catch(() => {});
+
+    fireLeadStatusChanged({
+      tenantId,
+      lead: {
+        id:             id,
+        status:         dto.status,
+        score:          Number((contact as Record<string, unknown>).score ?? 0),
+        assignedUserId: (contact as Record<string, unknown>).assignedUserId as string | null ?? null,
+      },
+      prevStatus: before.status,
+    }).catch(() => {});
+  }
+
+  // Notify the newly assigned user when a lead is reassigned to someone else.
+  // Guards: new assignee differs from previous, and is not the actor making the change.
+  const newAssignee = (dto as Record<string, unknown>).assignedUserId as string | undefined;
+  const prevAssignee = (before as Record<string, unknown>).assignedUserId as string | undefined;
+  if (newAssignee && newAssignee !== prevAssignee && newAssignee !== userId) {
+    const leadName = `${(contact as Record<string, unknown>).firstName ?? ''} ${(contact as Record<string, unknown>).lastName ?? ''}`.trim();
+    createNotification({
+      tenantId,
+      userId:     newAssignee,
+      type:       'lead_assigned',
+      title:      `Lead assigned to you`,
+      body:       leadName ? `"${leadName}" has been assigned to you.` : 'A lead has been assigned to you.',
+      entityType: 'Lead',
+      entityId:   id,
     }).catch(() => {});
   }
 

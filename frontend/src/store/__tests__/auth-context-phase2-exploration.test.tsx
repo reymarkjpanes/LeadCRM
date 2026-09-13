@@ -176,7 +176,7 @@ describe('Feature: auth-login-blank-screen-fix, RC-11 — login() returns true a
     const LOGIN_PAYLOAD_USER = {
       id: 'user-login-1',
       email: 'alice@democorp.com',
-      role: 'Admin',
+      role: 'Client Admin',
       firstName: 'Alice',
       lastName: 'Admin',
       tenantId: 'tenant-1',

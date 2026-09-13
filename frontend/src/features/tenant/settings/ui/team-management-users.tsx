@@ -165,7 +165,7 @@ function UserFormModal({ mode, user, roleNames, onSave, onClose }: UserFormModal
   const [lastName, setLastName] = useState(user?.lastName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
-  const [role, setRole] = useState(user?.role ?? (roleNames[0] ?? 'Sales Rep'));
+  const [role, setRole] = useState(user?.role ?? (roleNames[0] ?? 'User'));
   const [jobTitle, setJobTitle] = useState(user?.jobTitle ?? '');
   const [department, setDepartment] = useState(user?.department ?? '');
   const [status, setStatus] = useState(user?.status ?? 'active');

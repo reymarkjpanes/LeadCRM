@@ -100,6 +100,6 @@ export const ROUTES = {
 } as const;
 
 // ─── Roles ─────────────────────────────────────────────────────────────────
-export const CRM_ROLES = ['Client Admin', 'Sales Rep', 'Viewer', 'Technician', 'Guest'] as const;
+export const CRM_ROLES = ['Client Admin', 'User', 'Guest'] as const;
 export const ADMIN_ROLES = ['System Admin'] as const;
 export const ALL_ROLES = [...ADMIN_ROLES, ...CRM_ROLES] as const;

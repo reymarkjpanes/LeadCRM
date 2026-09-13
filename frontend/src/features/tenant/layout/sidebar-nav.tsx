@@ -109,9 +109,9 @@ export default function SidebarNav({
             }
           });
 
-          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing'];
+          const groupOrder = ['CRM', 'Operations', 'Marketing', 'Automation', 'Billing', 'Settings'];
 
-          // Merge Operations/Marketing/Automation/Billing into "WORKSPACE"
+          // Merge Operations/Marketing/Automation/Billing/Settings into "WORKSPACE"
           const mergedGroups: { label: string; items: typeof filteredNav }[] = [];
           const workspaceItems: typeof filteredNav = [];
           const systemItems: typeof filteredNav = [];
@@ -120,7 +120,7 @@ export default function SidebarNav({
             if (!groups[g]) return;
             if (g === 'CRM') {
               mergedGroups.push({ label: 'CRM', items: groups[g] });
-            } else if (['Operations', 'Marketing', 'Automation', 'Billing'].includes(g)) {
+            } else if (['Operations', 'Marketing', 'Automation', 'Billing', 'Settings'].includes(g)) {
               workspaceItems.push(...groups[g]);
             } else {
               systemItems.push(...groups[g]);
@@ -189,7 +189,7 @@ export default function SidebarNav({
               </span>
               <button
                 type="button"
-                onClick={() => { navigate('settings'); onCloseSidebar(); }}
+                onClick={() => { navigate('client-billing'); onCloseSidebar(); }}
                 className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
               >
                 Upgrade

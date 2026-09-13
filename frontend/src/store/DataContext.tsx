@@ -236,7 +236,7 @@ const MOCK_AUDIT_LO·S: AuditLog[] = [
     userEmail: "admin@democorp.com",
     action: "Role Updated",
     details:
-      "Updated access definitions and user authorization parameters for role: 'Sales Rep'.",
+      "Updated access definitions and user authorization parameters for role: 'User'.",
     timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
     ipAddress: "192.168.1.15",
     tenantId: "tenant_demo",
@@ -344,15 +344,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (!user) return;
 
       try {
-        // Batch 1 — core CRM (already migrated)
-        const [contactsRes, orgsRes, dealsRes, pipelinesRes, activitiesRes, usersRes, rolesRes] = await Promise.all([
+        // Batch 1 — core CRM data (roles excluded — admin-only, 403 for Guest)
+        // usersService.getRoles() requires roles.manage which Guest does not have.
+        // Moving it to a separate non-blocking call prevents a 403 from killing
+        // the entire Batch 1 load (contacts, deals, pipelines, users).
+        const [contactsRes, orgsRes, dealsRes, pipelinesRes, activitiesRes, usersRes] = await Promise.all([
           contactsService.getAll({ limit: 100 }),
           organizationsService.getAll({ limit: 100 }),
           pipelineService.getDeals(undefined, 100),
           pipelineService.getPipelines(),
           activitiesService.getAll({ limit: 50 }),
           usersService.getAll({ limit: 200 }),
-          usersService.getRoles(),
         ]);
 
         const apiContacts   = (contactsRes?.data ?? []).map(toFrontendContact);
@@ -363,15 +365,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
           : ((pipelinesRes as any)?.data ? [(pipelinesRes as any).data].map(toFrontendPipeline) : []);
         const apiActivities = activitiesRes?.data ?? [];
         const apiUsers      = usersRes?.data ?? [];
-        const apiRoles      = rolesRes?.data ?? [];
 
         setContacts((apiContacts as Contact[]).filter((c: any) => !c.isArchived));
         setOrganizations((apiOrgs as Organization[]).filter((o: any) => !o.isArchived));
         setDeals((apiDeals as Deal[]).filter((d: any) => !d.isArchived));
         setPipelines((apiPipelines as Pipeline[]).filter((p: any) => !p.isArchived));
-        setActivities(apiActivities as Activity[]);
+        setActivities(apiActivities as unknown as Activity[]);
         setUsers((apiUsers as any[]).filter((u: any) => !u.isArchived));
-        setRoles((apiRoles as any[]).filter((r: any) => !r.isArchived));
       } catch (err) {
         console.error('[DataContext] Failed to load CRM data from API:', err);
         // RC-03 fix: surface genuine transport failures as a user-visible toast so
@@ -381,6 +381,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (err instanceof Error && !err.message.includes('403')) {
           toast.error('Failed to load data. Please refresh the page.');
         }
+      }
+
+      // Batch 1b — admin-only data (roles). Silently ignored for non-admin roles
+      // such as Guest (sandbox) which lack roles.manage permission.
+      try {
+        const rolesRes = await usersService.getRoles();
+        const apiRoles = rolesRes?.data ?? [];
+        setRoles((apiRoles as any[]).filter((r: any) => !r.isArchived));
+      } catch {
+        // 403 for Guest/User roles is expected — leave roles as empty array
+        setRoles([]);
       }
 
       // ── Column Preferences (Batch 1 addition) ─────────────────────────────
@@ -593,9 +604,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Column preferences: use system default in mock mode
     setColumnPreferences(prev => ({ ...prev, leads: LEADS_SYSTEM_DEFAULT }));
 
-    if (user?.role === "System Admin") {
-      setAuditLogs(logs);
-      setOrganizations(orgs);
+    if (user?.role?.toLowerCase() === "system admin") {
       setContacts(l);
       setDeals(d);
       setPipelines(p);
@@ -636,7 +645,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } else if (
         !canViewAllLeads &&
         !canViewOwnLeads &&
-        user?.role !== "Client Admin"
+        user?.role?.toLowerCase() !== "client admin"
       ) {
         filteredLeads = [];
       }
@@ -649,7 +658,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } else if (
         !canViewAllDeals &&
         !canViewOwnDeals &&
-        user?.role !== "Client Admin"
+        user?.role?.toLowerCase() !== "client admin"
       ) {
         filteredDeals = [];
       }
@@ -2163,7 +2172,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       firstName,
       lastName,
       email: userData.email || "",
-      role: userData.role || "Sales Rep",
+      role: userData.role || "User",
       status: userData.status || "active",
       phone: userData.phone || "",
       jobTitle: userData.jobTitle || "",
@@ -2473,7 +2482,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const updatedLogs = [newLog, ...allLogs].slice(0, 500); // Keep last 500 logs
     localStorage.setItem("leadcrm_audit_logs", JSON.stringify(updatedLogs));
 
-    if (user?.role === "System Admin") {
+    if (user?.role?.toLowerCase() === "system admin") {
       setAuditLogs(updatedLogs);
     } else if (tenant) {
       setAuditLogs(
@@ -2494,7 +2503,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       try {
         const res = await activitiesService.create(activityData as any);
         if (res.data) {
-          setActivities((prev) => [res.data as Activity, ...prev]);
+          setActivities((prev) => [res.data as unknown as Activity, ...prev]);
         }
       } catch (error) {
         console.error('Failed to create activity via API', error);

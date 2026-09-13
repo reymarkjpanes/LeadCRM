@@ -53,6 +53,16 @@ import { Pagination } from '@/shared/components/ui/pagination';
 import { invitationsApi } from '@/shared/services/invitations.api';
 import type { PendingInvitation } from '@/store/types/invitation.types';
 import { USE_MOCK_DATA } from '@/lib/config';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
+
+// ─── Confirm dialog state type ───────────────────────────────────────────────
+interface ConfirmDialogState {
+  title: string;
+  description: string;
+  warning: string;
+  confirmLabel: string;
+  onConfirm: () => void | Promise<void>;
+}
 
 // Initial state matching existing database style
 
@@ -203,6 +213,9 @@ export default function UsersPage() {
   const [isPermissionsOpen, setIsPermissionsOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
 
+  // ── Confirm dialog (handles role delete + user delete) ────────────────────
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+
   // ── Invitation state ──────────────────────────────────────────────────────
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -216,7 +229,7 @@ export default function UsersPage() {
   const [formLastName, setFormLastName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
-  const [formRole, setFormRole] = useState("Sales Rep");
+  const [formRole, setFormRole] = useState("User");
   const [formJobTitle, setFormJobTitle] = useState("");
   const [formDepartment, setFormDepartment] = useState("");
   const [formStatus, setFormStatus] = useState("Active");
@@ -593,16 +606,16 @@ export default function UsersPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (
-                              window.confirm(
-                                `Are you sure you want to delete the role "${role.name}"?`,
-                              )
-                            ) {
-                              deleteRole(role.id);
-                              toast.success(
-                                `Role "${role.name}" has been deleted.`,
-                              );
-                            }
+                            setConfirmDialog({
+                              title: 'Delete Role',
+                              description: `Delete the role "${role.name}"?`,
+                              warning: 'Any users assigned this role will lose its permissions.',
+                              confirmLabel: 'Delete Role',
+                              onConfirm: () => {
+                                deleteRole(role.id);
+                                toast.success(`Role "${role.name}" has been deleted.`);
+                              },
+                            });
                           }}
                           className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all cursor-pointer"
                           title="Delete Role"
@@ -889,7 +902,7 @@ export default function UsersPage() {
         lowerName.includes("rep") ||
         lowerName.includes("agent") ||
         lowerName.includes("tech") ||
-        role.name === "Sales Rep" ||
+        role.name === "User" ||
         role.name === "Support Agent" ||
         role.name === "Technician"
       ) {
@@ -1653,7 +1666,7 @@ export default function UsersPage() {
     setFormLastName("");
     setFormEmail("");
     setFormPhone("");
-    setFormRole("Sales Rep");
+    setFormRole("User");
     setFormJobTitle("");
     setFormDepartment("");
     setFormStatus("Active");
@@ -1713,15 +1726,17 @@ export default function UsersPage() {
     }
   };
 
-  const handleDeleteUser = (id: string, name: string) => {
-    if (
-      window.confirm(
-        `Are you absolutely sure you want to revoke system privileges and delete ${name}?`,
-      )
-    ) {
-      deleteUser(id);
-      toast.success(`${name} has been removed.`);
-    }
+  const handleDeleteUser = (id: string, name: string): void => {
+    setConfirmDialog({
+      title: 'Delete User',
+      description: `Remove ${name} from the system?`,
+      warning: 'This will revoke all their access and cannot be undone.',
+      confirmLabel: 'Delete User',
+      onConfirm: () => {
+        deleteUser(id);
+        toast.success(`${name} has been removed.`);
+      },
+    });
   };
 
   const toggleUserStatusDirect = (
@@ -3218,6 +3233,23 @@ export default function UsersPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Confirm dialog — handles role delete + user delete */}
+      {confirmDialog && (
+        <ConfirmActionDialog
+          open={true}
+          onOpenChange={(open) => { if (!open) setConfirmDialog(null); }}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          warning={confirmDialog.warning}
+          confirmLabel={confirmDialog.confirmLabel}
+          variant="destructive"
+          onConfirm={async () => {
+            await confirmDialog.onConfirm();
+            setConfirmDialog(null);
+          }}
+        />
+      )}
     </div>
   );
 }

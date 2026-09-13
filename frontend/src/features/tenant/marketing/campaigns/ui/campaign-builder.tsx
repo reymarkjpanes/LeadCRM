@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Send, Mail, MessageSquare, Calendar, Plus, Trash2,
   Wand2, Monitor, Smartphone, ListOrdered, Zap, Tags, Clock, Loader2,
+  EyeOff, Eye,
 } from 'lucide-react';
 import { DatePicker, TimePicker } from '@/shared/components/ui/date-time-picker';
 import { campaignsApi } from '@/shared/services/campaigns.api';
@@ -43,6 +44,7 @@ export function CampaignBuilder({
   const [isSequence, setIsSequence] = useState(false);
   const [sequenceSteps, setSequenceSteps] = useState([{ delay: 0, unit: 'days', content: '' }]);
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('mobile');
+  const [showPreview, setShowPreview] = useState(true);
   const [showVarDropdown, setShowVarDropdown] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
@@ -148,6 +150,16 @@ export function CampaignBuilder({
           </div>
         </div>
         <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* Mobile preview toggle — hidden on lg+ where side-by-side layout handles it */}
+          <button
+            type="button"
+            onClick={() => setShowPreview((prev) => !prev)}
+            className="lg:hidden flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 rounded-lg transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label={showPreview ? 'Hide live preview' : 'Show live preview'}
+          >
+            {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
+            <span className="hidden xs:inline">{showPreview ? 'Hide Preview' : 'Preview'}</span>
+          </button>
           <button onClick={handleSaveDraft} disabled={isSending} className="px-3 sm:px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg border border-gray-200 dark:border-white/10 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
             Save Draft
           </button>
@@ -347,16 +359,28 @@ export function CampaignBuilder({
           </div>
         </div>
 
-        {/* Right Side — Live Preview */}
+        {/* Right Side — Live Preview: always shown on lg+, toggleable on smaller screens */}
+        {(showPreview) && (
         <div className="w-full lg:w-105 shrink-0 flex flex-col bg-linear-to-br from-slate-50 via-slate-100 to-blue-50/30 dark:from-[#030712] dark:via-[#0a1020] dark:to-blue-950/10 overflow-y-auto">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-white/5 bg-white/50 dark:bg-white/2 backdrop-blur-lg">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Live Preview</span>
-            <div className="flex gap-0.5 bg-slate-200/80 dark:bg-white/5 p-0.5 rounded-lg border border-gray-200 dark:border-white/5">
-              <button type="button" onClick={() => setPreviewDevice('desktop')} className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${previewDevice === 'desktop' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`} aria-label="Desktop preview">
-                <Monitor size={14} />
-              </button>
-              <button type="button" onClick={() => setPreviewDevice('mobile')} className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${previewDevice === 'mobile' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`} aria-label="Mobile preview">
-                <Smartphone size={14} />
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 bg-slate-200/80 dark:bg-white/5 p-0.5 rounded-lg border border-gray-200 dark:border-white/5">
+                <button type="button" onClick={() => setPreviewDevice('desktop')} className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${previewDevice === 'desktop' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`} aria-label="Desktop preview">
+                  <Monitor size={14} />
+                </button>
+                <button type="button" onClick={() => setPreviewDevice('mobile')} className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${previewDevice === 'mobile' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`} aria-label="Mobile preview">
+                  <Smartphone size={14} />
+                </button>
+              </div>
+              {/* Close preview — only visible on smaller screens where it can block content */}
+              <button
+                type="button"
+                onClick={() => setShowPreview(false)}
+                className="lg:hidden p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="Close preview"
+              >
+                <EyeOff size={14} />
               </button>
             </div>
           </div>
@@ -421,6 +445,7 @@ export function CampaignBuilder({
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

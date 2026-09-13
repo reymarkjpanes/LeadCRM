@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DataGrid Types — Core type definitions for the reusable data-grid component.
  *
  * This is the canonical type source for the entire DataGrid system.
@@ -210,14 +210,6 @@ export interface DataGridProps<T = Record<string, unknown>> {
   /** Contextual empty state configuration */
   emptyState?: DataGridEmptyStateProps;
 
-  // ─── Column Drag Reorder ────────────────────────────────────────────────
-  /** Callback when columns are reordered via drag-and-drop. Receives updated column config. */
-  onColumnReorder?: (columns: import('@leadcrm/shared').ColumnConfigItem[]) => void;
-  /** Column IDs that are pinned/locked and cannot be dragged */
-  lockedColumns?: string[];
-  /** The current effective columns (needed for drag reorder to know the full set) */
-  effectiveColumns?: import('@leadcrm/shared').ColumnConfigItem[];
-
   // ─── Settings Icon ──────────────────────────────────────────────────────
   /** Callback when settings (⚙) icon at end of header is clicked */
   onSettingsClick?: () => void;
@@ -225,6 +217,12 @@ export interface DataGridProps<T = Record<string, unknown>> {
   // ─── Hidden Columns Indicator ─────────────────────────────────────────
   /** Count of columns auto-hidden by the responsive column strategy */
   hiddenColumnsCount?: number;
+
+  // u{2500}u{2500}u{2500} Row Highlight u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}
+  /** ID of a single row to highlight (e.g. navigated from global search).
+   *  The highlighted row gets a blue ring + tinted background and auto-scrolls
+   *  into view on mount. Highlight fades after 2.5 s. */
+  highlightRowId?: string;
 }
 
 // ─── Empty State Types ────────────────────────────────────────────────────────

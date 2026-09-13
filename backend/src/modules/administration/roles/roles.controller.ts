@@ -33,7 +33,7 @@ export async function updateRole(req: Request, res: Response, next: NextFunction
 export async function archiveRole(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archiveRole(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -48,7 +48,7 @@ export async function removeRoleFromUser(req: Request, res: Response, next: Next
   try {
     const { userId, roleId } = req.body as AssignRoleDto;
     await service.removeRoleFromUser(userId, roleId, req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -57,7 +57,7 @@ export async function getUserPermissions(req: Request, res: Response, next: Next
     const targetUserId = String(req.params.id);
     const { userId, tenantId, role } = req.user!;
 
-    const SUPER_ROLES = ['Admin', 'Super User', 'Client Admin', 'System Admin'];
+    const SUPER_ROLES = ['Guest', 'User', 'Client Admin', 'System Admin'];
     const isAdmin = SUPER_ROLES.some(r => r.toLowerCase() === (role ?? '').toLowerCase().trim());
 
     if (!isAdmin && targetUserId !== userId) {

@@ -132,9 +132,12 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     pathname.startsWith('/billing');
 
   if (isProtected && isGoogleSession) {
-    // Authenticated Google user but profile not complete
+    // Authenticated Google user but profile not complete — redirect to /company-setup
+    // (not /onboarding: new OAuth users have onboardingCompletedAt already set,
+    // which makes the onboarding page immediately redirect to /dashboard,
+    // creating an infinite loop with the middleware)
     if (requiresCompletion && !isCompletionExempt) {
-      return NextResponse.redirect(new URL('/onboarding', req.url));
+      return NextResponse.redirect(new URL('/company-setup', req.url));
     }
   }
 

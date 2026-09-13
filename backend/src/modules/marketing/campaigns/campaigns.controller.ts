@@ -17,5 +17,5 @@ export async function sendCampaign(req: Request, res: Response, next: NextFuncti
   try { res.json({ success: true, data: await service.sendCampaign(String(req.params.id), req.user!.tenantId, req.user!.userId) }); } catch (e) { next(e); }
 }
 export async function archiveCampaign(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try { await service.archiveCampaign(String(req.params.id), req.user!.tenantId, req.user!.userId); res.status(204).send(); } catch (e) { next(e); }
+  try { await service.archiveCampaign(String(req.params.id), req.user!.tenantId, req.user!.userId); res.json({ success: true }); } catch (e) { next(e); }
 }

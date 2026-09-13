@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { pricingApiService } from '../services/pricing.service';
 import { adminStripeService } from '../services/admin-stripe.service';
-import type { PlanPaymentMethod } from '@leadcrm/shared';
+import type { PlanPaymentMethod, BillingCycle } from '@leadcrm/shared';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +34,11 @@ export interface EditorPlan {
   paymentMethods: PlanPaymentMethod[];
   /** Index in the plans array — used to re-apply isPopular after save */
   planIndex:      number;
+  // -- Stripe linkage (null until an existing product/price is attached) --------
+  stripeProductId:        string | null;
+  stripeMonthlyPriceId:   string | null;
+  stripeQuarterlyPriceId: string | null;
+  stripeAnnualPriceId:    string | null;
 }
 
 interface PlanEditorPageProps {
@@ -159,6 +164,9 @@ export default function PlanEditorPage({
   }));
   const [billingView, setBillingView]       = useState<BillingView>('Monthly');
   const [isSaving, setIsSaving]             = useState(false);
+  const [priceIdInput, setPriceIdInput]     = useState('');
+  const [attachCycle, setAttachCycle]       = useState<BillingCycle>('MONTHLY');
+  const [isAttaching, setIsAttaching]       = useState(false);
 
   // ── Feature helpers ─────────────────────────────────────────────────────────
 
@@ -253,6 +261,10 @@ export default function PlanEditorPage({
           enabled: f.enabled,
         })),
         paymentMethods: saved.paymentMethods,
+        stripeProductId:        saved.stripeProductId,
+        stripeMonthlyPriceId:   saved.stripeMonthlyPriceId,
+        stripeQuarterlyPriceId: saved.stripeQuarterlyPriceId,
+        stripeAnnualPriceId:    saved.stripeAnnualPriceId,
       };
 
       onSaved(updatedEditorPlan);
@@ -269,10 +281,64 @@ export default function PlanEditorPage({
     }
   }, [draft, isSaving, onSaved]);
 
+  // ── Attach existing Stripe price ──────────────────────────────────────────
+
+  const handleAttachStripePrice = useCallback(async (): Promise<void> => {
+    if (isAttaching) return;
+
+    const priceId = priceIdInput.trim();
+    if (!priceId.startsWith('price_')) {
+      toast.error('Enter a valid Stripe Price ID (starts with "price_").');
+      return;
+    }
+
+    setIsAttaching(true);
+    try {
+      const response = await pricingApiService.attachStripePrice(draft.id, {
+        billingCycle: attachCycle,
+        priceId,
+      });
+
+      if (!response.success) {
+        throw new Error('Attach returned a failure response.');
+      }
+
+      const result = response.data;
+
+      // Server is authoritative — update the draft with the returned Stripe IDs.
+      setDraft((prev) => ({
+        ...prev,
+        stripeProductId:        result.plan.stripeProductId,
+        stripeMonthlyPriceId:   result.plan.stripeMonthlyPriceId,
+        stripeQuarterlyPriceId: result.plan.stripeQuarterlyPriceId,
+        stripeAnnualPriceId:    result.plan.stripeAnnualPriceId,
+      }));
+      setPriceIdInput('');
+
+      toast.success(`Stripe price attached for ${attachCycle.toLowerCase()} billing.`);
+      // Surface non-blocking reconciliation warnings (e.g. currency/amount mismatch)
+      result.warnings.forEach((warning) => toast.warning(warning));
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Failed to attach Stripe price. Please try again.';
+      toast.error(message);
+    } finally {
+      setIsAttaching(false);
+    }
+  }, [attachCycle, draft.id, isAttaching, priceIdInput]);
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const previewPrice = getPreviewPrice(draft.price, billingView);
   const previewLabel = getPreviewLabel(billingView);
+
+  const stripeCycleRows: Array<{ cycle: BillingCycle; label: string; priceId: string | null }> = [
+    { cycle: 'MONTHLY',   label: 'Monthly',   priceId: draft.stripeMonthlyPriceId   },
+    { cycle: 'QUARTERLY', label: 'Quarterly', priceId: draft.stripeQuarterlyPriceId },
+    { cycle: 'ANNUAL',    label: 'Annual',    priceId: draft.stripeAnnualPriceId    },
+  ];
 
   return (
     <div className="flex flex-col min-h-full">
@@ -519,6 +585,115 @@ export default function PlanEditorPage({
           </SectionCard>
           </div>
           {/* end Features + Payment Methods grid */}
+
+          {/* ── Stripe Integration ───────────────────────────────────────────── */}
+          <SectionCard>
+            <SectionTitle>Stripe Integration</SectionTitle>
+            <SectionDescription>
+              Attach an existing Stripe price (created in the Stripe Dashboard) to enable
+              checkout for this plan. The product is derived and verified from the price.
+            </SectionDescription>
+
+            {/* Product id */}
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Stripe Product
+              </p>
+              <p className="text-sm font-mono text-slate-700 dark:text-slate-200 break-all">
+                {draft.stripeProductId ?? (
+                  <span className="font-sans italic text-slate-400 dark:text-slate-500">
+                    Not linked yet
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {/* Per-cycle attached price ids */}
+            <div className="space-y-2 mb-6">
+              {stripeCycleRows.map((row) => (
+                <div
+                  key={row.cycle}
+                  className="flex items-center gap-4 rounded-lg border border-slate-100 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] px-4 py-3"
+                >
+                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 w-24 shrink-0">
+                    {row.label}
+                  </span>
+                  {row.priceId ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm font-mono text-slate-600 dark:text-slate-300 break-all">
+                      <CheckCircle2 size={15} className="text-blue-500 shrink-0" />
+                      {row.priceId}
+                    </span>
+                  ) : (
+                    <span className="text-sm italic text-slate-400 dark:text-slate-500">
+                      No price attached
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Attach control */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+              <div className="sm:w-40 shrink-0">
+                <label
+                  htmlFor="stripe-attach-cycle"
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Billing Cycle
+                </label>
+                <div
+                  role="group"
+                  aria-label="Billing cycle to attach"
+                  id="stripe-attach-cycle"
+                  className="inline-flex items-center gap-1 p-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.02] w-full"
+                >
+                  {(['MONTHLY', 'QUARTERLY', 'ANNUAL'] as BillingCycle[]).map((cycle) => (
+                    <button
+                      key={cycle}
+                      type="button"
+                      onClick={() => setAttachCycle(cycle)}
+                      aria-pressed={attachCycle === cycle}
+                      className={cn(
+                        'flex-1 px-2 h-7 rounded-lg text-[11px] font-semibold transition-colors active:scale-95',
+                        attachCycle === cycle
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] hover:text-slate-900 dark:hover:text-white',
+                      )}
+                    >
+                      {cycle.charAt(0) + cycle.slice(1).toLowerCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1">
+                <label
+                  htmlFor="stripe-price-id"
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Stripe Price ID
+                </label>
+                <input
+                  id="stripe-price-id"
+                  type="text"
+                  value={priceIdInput}
+                  onChange={(e) => setPriceIdInput(e.target.value)}
+                  placeholder="price_..."
+                  className="w-full border border-slate-200 dark:border-white/[0.10] rounded-lg px-3 py-2 text-sm font-mono bg-white dark:bg-white/[0.04] text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAttachStripePrice}
+                disabled={isAttaching || priceIdInput.trim() === ''}
+                className="px-5 h-[38px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-70 active:scale-95 shrink-0"
+              >
+                {isAttaching && <Loader2 size={15} className="animate-spin" />}
+                Attach
+              </button>
+            </div>
+          </SectionCard>
 
           {/* Bottom spacer so content isn't hidden behind sticky bar */}
           <div className="h-4" />

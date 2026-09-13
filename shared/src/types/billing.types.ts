@@ -34,6 +34,11 @@ export interface PricingPlanDto {
   isActive:       boolean;
   features:       PlanFeatureDto[];
   paymentMethods: PlanPaymentMethod[];
+  // -- Stripe linkage (null until an existing product/price is attached) --------
+  stripeProductId:        string | null;
+  stripeMonthlyPriceId:   string | null;
+  stripeQuarterlyPriceId: string | null;
+  stripeAnnualPriceId:    string | null;
 }
 
 // ── Payment Methods (per-plan configuration) ──────────────────────────────────
@@ -50,6 +55,22 @@ export interface UpdatePlanRequest {
   monthlyPrice?:   number;
   features?:       Array<{ name: string; enabled: boolean }>;
   paymentMethods?: Array<{ id: string; name: string; description: string; enabled: boolean }>;
+}
+
+// ── Attach existing Stripe product/price to a plan ────────────────────────────
+
+export interface AttachStripePriceRequest {
+  billingCycle: BillingCycle;
+  priceId:      string; // existing Stripe Price id (price_xxx)
+}
+
+export interface AttachStripePriceResult {
+  plan:         PricingPlanDto;
+  billingCycle: BillingCycle;
+  priceId:      string;
+  productId:    string;
+  /** Non-blocking warnings — e.g. Stripe price currency/amount differs from the plan's advertised price. */
+  warnings:     string[];
 }
 
 // Default payment methods used when a plan has no saved configuration

@@ -21,7 +21,7 @@ export async function markRead(req: Request, res: Response, next: NextFunction):
       req.user!.tenantId,
       req.user!.userId,
     );
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -30,7 +30,7 @@ export async function markRead(req: Request, res: Response, next: NextFunction):
 export async function markAllRead(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.markAllRead(req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

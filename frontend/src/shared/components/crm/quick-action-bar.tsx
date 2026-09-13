@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
   FileText,
   Phone,
@@ -238,6 +238,17 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
   const canEdit = useHasPermission('deals.edit');
   const canCreate = useHasPermission('deals.create');
 
+  // Maps the current CRM module to the correct Activity FK field the backend expects.
+  // The backend DTO uses individual FK columns (dealId, accountId, leadId) rather than
+  // the legacy frontend relatedToType/relatedToId pattern.
+  const entityFk = useMemo((): Record<string, string> => {
+    switch (module) {
+      case 'deals':    return { dealId: recordId };
+      case 'accounts': return { accountId: recordId };
+      default:         return { leadId: recordId }; // 'leads' and 'contacts' map to Lead FK
+    }
+  }, [module, recordId]);
+
   const handleClose = useCallback((): void => {
     setActiveComposer(null);
   }, []);
@@ -260,9 +271,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
       await activitiesService.create({
         type: 'note',
         title: text,
-        relatedToType: module === 'accounts' ? 'company' : module === 'deals' ? 'deal' : 'contact',
-        relatedToId: recordId,
-        createdBy: 'current-user',
+        ...entityFk,
       });
       toast.success('Note added');
       setActiveComposer(null);
@@ -272,7 +281,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
     } finally {
       setIsSubmitting(false);
     }
-  }, [recordId, module, onActivityCreated]);
+  }, [entityFk, onActivityCreated]);
 
   const handleCallSubmit = useCallback(async (outcome: string, notes: string): Promise<void> => {
     setIsSubmitting(true);
@@ -280,9 +289,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
       await activitiesService.create({
         type: 'call',
         title: `Call — ${outcome}${notes ? `: ${notes}` : ''}`,
-        relatedToType: module === 'accounts' ? 'company' : module === 'deals' ? 'deal' : 'contact',
-        relatedToId: recordId,
-        createdBy: 'current-user',
+        ...entityFk,
         metadata: { outcome },
       });
       toast.success('Call logged');
@@ -293,7 +300,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
     } finally {
       setIsSubmitting(false);
     }
-  }, [recordId, module, onActivityCreated]);
+  }, [entityFk, onActivityCreated]);
 
   const handleTaskSubmit = useCallback(async (title: string, dueDate: string): Promise<void> => {
     setIsSubmitting(true);
@@ -301,9 +308,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
       await activitiesService.create({
         type: 'task',
         title,
-        relatedToType: module === 'accounts' ? 'company' : module === 'deals' ? 'deal' : 'contact',
-        relatedToId: recordId,
-        createdBy: 'current-user',
+        ...entityFk,
         metadata: dueDate ? { dueDate: `${dueDate}T00:00:00.000Z` } : undefined,
       });
       toast.success('Task created');
@@ -314,7 +319,7 @@ export function QuickActionBar({ module, recordId, onActivityCreated }: QuickAct
     } finally {
       setIsSubmitting(false);
     }
-  }, [recordId, module, onActivityCreated]);
+  }, [entityFk, onActivityCreated]);
 
   if (!canEdit && !canCreate) return <></>;
 

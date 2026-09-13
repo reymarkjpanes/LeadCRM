@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -24,8 +24,8 @@ const EXEMPT_ROUTES = ['/onboarding', '/verify-email', '/email-verification', '/
  */
 export function isSandboxUser(user: { role?: string; tenantStatus?: string | null; subscriptionStatus?: string | null } | null): boolean {
   if (!user) return false;
-  const tenantStatus      = (user as any).tenantStatus;
-  const subscriptionStatus = (user as any).subscriptionStatus;
+  const tenantStatus      = user.tenantStatus;
+  const subscriptionStatus = user.subscriptionStatus;
   return tenantStatus === 'SANDBOX' && (!subscriptionStatus || subscriptionStatus === 'NONE');
 }
 
@@ -66,7 +66,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // System Admin — platform operator, bypasses all customer-side gates.
     // Uses role string from /auth/me (server-backed JWT).
-    const isSystemAdmin = user.role === 'System Admin'
+    const isSystemAdmin = user.role?.toLowerCase() === 'system admin'
       || user.tenantName?.toLowerCase().includes('system');
 
     const isExempt = EXEMPT_ROUTES.some((r) => pathname.startsWith(r));
@@ -91,6 +91,18 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       if (!tenantName && !localOnboardingDone && !onboardingCompletedAt) {
         sessionStorage.removeItem('leadcrm_redirect_after_login');
         router.replace('/onboarding');
+        return;
+      }
+
+      // ── Gate 2.5: Company setup for OAuth-only users (server-backed) ──────
+      // OAuth users (hasPassword=false) who have completed onboarding but haven't
+      // filled in company details (industry) yet must complete /company-setup.
+      // Manual registration users are exempt — they fill in industry/companySize
+      // during the onboarding wizard's workspace step (saveOnboardingWorkspace).
+      const hasOnboardingCompleted = !!onboardingCompletedAt || !!localOnboardingDone;
+      if (hasOnboardingCompleted && user.hasPassword === false && !user.industry) {
+        sessionStorage.removeItem('leadcrm_redirect_after_login');
+        router.replace('/company-setup');
         return;
       }
 

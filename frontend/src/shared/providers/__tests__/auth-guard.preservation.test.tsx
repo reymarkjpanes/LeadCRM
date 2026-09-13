@@ -62,7 +62,7 @@ interface AuthScenario {
   loggedIn: boolean;             // false => user === null
   emailVerified: boolean;        // has a non-null emailVerified timestamp
   tenantConfigured: boolean;     // tenant has a workspace name (brand-new unconfigured = false)
-  role: 'Client Admin' | 'Sales Rep' | 'System Admin';
+  role: 'Client Admin' | 'User' | 'System Admin';
   status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
   enteredVia: EnteredVia;
   pathname: string;
@@ -177,9 +177,9 @@ const authScenarioArb: fc.Arbitrary<AuthScenario> = fc.record({
   loggedIn: fc.boolean(),
   emailVerified: fc.boolean(),
   tenantConfigured: fc.boolean(),
-  role: fc.constantFrom<'Client Admin' | 'Sales Rep' | 'System Admin'>(
+  role: fc.constantFrom<'Client Admin' | 'User' | 'System Admin'>(
     'Client Admin',
-    'Sales Rep',
+    'User',
     'System Admin',
   ),
   status: fc.constantFrom<'ACTIVE' | 'PENDING' | 'SUSPENDED'>('ACTIVE', 'PENDING', 'SUSPENDED'),
@@ -226,7 +226,7 @@ const VERIFIED_ONBOARDED_ADMIN = {
 const UNVERIFIED_USER = {
   id: 'user-2',
   email: 'bob@democorp.com',
-  role: 'Sales Rep',
+  role: 'User',
   firstName: 'Bob',
   lastName: 'Rep',
   tenantId: 'tenant-1',

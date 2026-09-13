@@ -1,76 +1,97 @@
-'use client';
+// ─── Marketing Forms Service ─────────────────────────────────────────────────
+// This service is the single integration point between the forms UI and the
+// backend API. It was previously backed by localStorage; it now uses the real
+// API via formsApi so form data persists across sessions and devices.
+//
+// All exported functions are async. Callers must await them and handle errors
+// with toast notifications — never silent catches.
+//
+// getShareLink / getEmbedCode are pure helpers with no network dependency.
 
-import { FormRecord, CreateFormInput, DEFAULT_DESIGN, DEFAULT_SETTINGS, DEFAULT_FIELDS } from '../types/form.types';
+import { formsApi } from '@/shared/services/forms.api';
+import type {
+  FormRecord,
+  CreateFormInput,
+} from '../types/form.types';
 
-const STORAGE_KEY = 'leadcrm_forms';
+// ─── Queries ──────────────────────────────────────────────────────────────────
 
-function loadForms(): FormRecord[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as FormRecord[]) : [];
-  } catch {
-    return [];
-  }
+/**
+ * Return all non-archived forms for the tenant.
+ * tenantId is kept in the signature for API compatibility but is resolved
+ * server-side from the JWT — it is not sent in the request body.
+ */
+export async function getFormsByTenant(_tenantId: string): Promise<FormRecord[]> {
+  const res = await formsApi.list();
+  // Cast is safe: the backend shape aligns with FormRecord (id, name, status,
+  // fields, design, settings, publishedAt, createdAt, updatedAt)
+  return (res?.data ?? []) as FormRecord[];
 }
 
-function saveForms(forms: FormRecord[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
+/**
+ * Fetch a single form by id.
+ * Returns undefined if the API returns null/undefined (e.g. 404 caught upstream).
+ */
+export async function getFormById(id: string): Promise<FormRecord | undefined> {
+  const res = await formsApi.getById(id);
+  return res?.data as FormRecord | undefined;
 }
 
-export function getFormsByTenant(tenantId: string): FormRecord[] {
-  return loadForms().filter((f) => f.tenantId === tenantId);
+// ─── Mutations ────────────────────────────────────────────────────────────────
+
+/**
+ * Create a new draft form with the given name.
+ * Fields, design, and settings are initialised to empty by the backend.
+ */
+export async function createForm(input: CreateFormInput): Promise<FormRecord> {
+  const res = await formsApi.create(input.name);
+  if (!res?.data) throw new Error('Failed to create form — no data returned');
+  return res.data as FormRecord;
 }
 
-export function getFormById(id: string): FormRecord | undefined {
-  return loadForms().find((f) => f.id === id);
+/**
+ * Partially update a form. Send only the fields that changed.
+ * Accepts name, fields array, design object, or settings object in any combination.
+ */
+export async function updateForm(
+  id: string,
+  updates: Partial<Omit<FormRecord, 'id' | 'tenantId' | 'createdAt'>>,
+): Promise<FormRecord> {
+  const res = await formsApi.update(id, updates);
+  if (!res?.data) throw new Error('Failed to update form — no data returned');
+  return res.data as FormRecord;
 }
 
-export function createForm(input: CreateFormInput): FormRecord {
-  const now = new Date().toISOString();
-  const form: FormRecord = {
-    id: `form_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-    tenantId: input.tenantId,
-    name: input.name,
-    status: 'draft',
-    fields: DEFAULT_FIELDS.map((f) => ({ ...f, id: `${f.id}_${Date.now()}` })),
-    design: { ...DEFAULT_DESIGN },
-    settings: {
-      ...DEFAULT_SETTINGS,
-      utmParams: DEFAULT_SETTINGS.utmParams.map((p) => ({ ...p })),
-    },
-    createdAt: now,
-    updatedAt: now,
-  };
-  const forms = loadForms();
-  forms.push(form);
-  saveForms(forms);
-  return form;
+/**
+ * Publish a form — transitions status from 'draft' → 'published'.
+ */
+export async function publishForm(id: string): Promise<FormRecord> {
+  const res = await formsApi.publish(id);
+  if (!res?.data) throw new Error('Failed to publish form — no data returned');
+  return res.data as FormRecord;
 }
 
-export function updateForm(id: string, updates: Partial<Omit<FormRecord, 'id' | 'tenantId' | 'createdAt'>>): FormRecord {
-  const forms = loadForms();
-  const idx = forms.findIndex((f) => f.id === id);
-  if (idx === -1) throw new Error(`Form ${id} not found`);
-  forms[idx] = { ...forms[idx], ...updates, updatedAt: new Date().toISOString() };
-  saveForms(forms);
-  return forms[idx];
+/**
+ * Soft-delete a form. The form is archived on the server (isArchived = true)
+ * and will no longer appear in list responses.
+ */
+export async function deleteForm(id: string): Promise<void> {
+  await formsApi.archive(id);
 }
 
-export function publishForm(id: string): FormRecord {
-  return updateForm(id, { status: 'published', publishedAt: new Date().toISOString() });
-}
+// ─── Pure Helpers (no network) ────────────────────────────────────────────────
 
-export function deleteForm(id: string): void {
-  const forms = loadForms().filter((f) => f.id !== id);
-  saveForms(forms);
-}
-
+/**
+ * Return the public embed URL for a published form.
+ * This is a client-side computation — no API call needed.
+ */
 export function getShareLink(formId: string): string {
   return `https://forms.leadcrm.app/${formId}`;
 }
 
+/**
+ * Return the HTML snippet used to embed a form in an external page.
+ */
 export function getEmbedCode(formId: string): string {
   return `<script src="https://forms.leadcrm.app/embed.js" type="module" crossorigin="anonymous" defer></script><leadcrm-form id="${formId}"></leadcrm-form>`;
 }

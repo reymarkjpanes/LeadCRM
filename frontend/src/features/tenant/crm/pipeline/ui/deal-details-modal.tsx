@@ -641,7 +641,7 @@ export function DealDetailsModal({
                     <label className="block text-xs font-medium text-slate-500 mb-1">User</label>
                     <select value={newActivity.userId} onChange={e => setNewActivity({ ...newActivity, userId: e.target.value })}
                       className="w-full bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none">
-                      {users.filter(u => u.role === 'Sales Rep' || u.role === 'Client Admin').map(u => (
+                      {users.filter(u => u.role?.toLowerCase() === 'user' || u.role?.toLowerCase() === 'client admin').map(u => (
                         <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
                       ))}
                     </select>

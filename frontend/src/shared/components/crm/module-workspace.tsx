@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, ReactNode } from 'react';
 import {
   List, LayoutGrid, Table2, Columns3, Grid3X3,
-  TrendingUp, Filter, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Search,
+  TrendingUp, Filter, RefreshCw, Search,
   Settings2, ChevronDown, ChevronLeft, ChevronRight, X, Upload,
   ListOrdered, Eye, Check, FileUp, UserPlus,
 } from 'lucide-react';
@@ -12,7 +12,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import type { SortPreference, ViewMode } from '@/shared/hooks/use-table-preferences';
 import type { ModuleConfig, ViewType as SharedViewType, ColumnConfigItem } from '@leadcrm/shared';
 import { useViewTypePreference } from '@/shared/hooks/use-view-type-preference';
-import { useTablePreferences } from '@/shared/hooks/use-table-preferences';
 import { VIEW_OPTIONS as VIEW_RENDERERS } from './view-registry';
 import { validateModuleConfig } from './validate-module-config';
 import { PaginationControls } from './pagination-controls';
@@ -209,9 +208,8 @@ export function ModuleWorkspace({
   searchTerm = '',
   onSearch,
   searchPlaceholder = 'Search records...',
-  sortableFields,
-  sort = null,
-  onSortChange,
+  // sortableFields, sort, onSortChange retained on props for backward compat
+  // but the global Sort button has been removed — sorting is per-column in DataGrid
   pageSize = 25,
   onPageSizeChange,
   viewMode = 'wrap',
@@ -257,27 +255,9 @@ export function ModuleWorkspace({
     onViewChange(view);
   }, [moduleConfig, configViewPref, onViewChange]);
 
-  // ── Sort from Module_Config (Data_View_System) ─────────────────────────────
-  // When moduleConfig is provided, use useTablePreferences internally for sort persistence
-  const internalTablePrefs = useTablePreferences(
-    moduleConfig?.moduleId ?? '__noop__',
-  );
-
-  // Resolve effective sort state: external prop takes priority, then internal hook
-  const effectiveSort = moduleConfig && !onSortChange ? internalTablePrefs.sort : sort;
-  const effectiveSortChange = useMemo(() => {
-    if (onSortChange) return onSortChange;
-    if (moduleConfig) return internalTablePrefs.setSort;
-    return undefined;
-  }, [onSortChange, moduleConfig, internalTablePrefs.setSort]);
-
-  // When moduleConfig provides sortableFields, derive the SortableField[] for the sort dropdown
-  const effectiveSortableFields = useMemo((): SortableField[] | undefined => {
-    if (moduleConfig?.sortableFields && moduleConfig.sortableFields.length > 0) {
-      return moduleConfig.sortableFields.map((f) => ({ id: f.id, label: f.label }));
-    }
-    return sortableFields;
-  }, [moduleConfig, sortableFields]);
+  // ── Sort state and sortable fields are retained on the props interface
+  // for backward compatibility, but the global Sort button has been removed.
+  // Per-column sorting is handled directly inside the DataGrid component.
 
   // ── Available views from Module_Config ─────────────────────────────────────
   const effectiveAvailableViews = useMemo((): ViewType[] => {
@@ -380,16 +360,7 @@ export function ModuleWorkspace({
           Filter
         </button>
 
-        {/* 3. Sort Dropdown (dynamic per module — from moduleConfig.sortableFields or prop) */}
-        {effectiveSortableFields && effectiveSortableFields.length > 0 && effectiveSortChange && (
-          <SortDropdownInline
-            sort={effectiveSort ?? null}
-            onSortChange={effectiveSortChange}
-            fields={effectiveSortableFields}
-          />
-        )}
-
-        {/* 4. Page-size selector */}
+        {/* 3. Page-size selector */}
         {onPageSizeChange && (
           <PageSizeSelectorInline pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
         )}
@@ -587,7 +558,74 @@ export function ModuleWorkspace({
 
       {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 gap-0">
-        {/* Filter Rail */}
+        {/* Filter Rail — backdrop for mobile */}
+        {showFilters && filterGroups && (
+          <div
+            className="fixed inset-0 z-30 bg-black/30 sm:hidden"
+            onClick={onToggleFilters}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Filter Rail — mobile: fixed overlay slide-in from left (hidden on sm+) */}
+        <AnimatePresence>
+          {showFilters && filterGroups && (
+            <motion.aside
+              initial={{ x: -260, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -260, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 z-40 w-[260px] sm:hidden shadow-2xl"
+            >
+              <div className="w-full h-full flex flex-col bg-white dark:bg-slate-800 border-r border-[#E4E9F0] dark:border-slate-700 overflow-hidden">
+                {/* Filter header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
+                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
+                    Filter by
+                  </span>
+                  <button
+                    onClick={onToggleFilters}
+                    className="p-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
+                    aria-label="Close filters"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {/* Filter search */}
+                <div className="px-3 py-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={filterSearchTerm}
+                      onChange={(e) => onFilterSearch?.(e.target.value)}
+                      placeholder="Search filters"
+                      aria-label="Search filters"
+                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
+                    />
+                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
+                  </div>
+                </div>
+                {/* Filter groups */}
+                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
+                  {filterGroups.map((group) => (
+                    <FilterGroupSection
+                      key={group.id}
+                      group={group}
+                      filterSearchTerm={filterSearchTerm}
+                      onToggle={onFilterToggle}
+                    />
+                  ))}
+                </div>
+                {/* Footer */}
+                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
+                  {totalRecords} records in this module
+                </div>
+              </div>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* Filter Rail — desktop: inline side panel animates width (hidden on mobile) */}
         <AnimatePresence>
           {showFilters && filterGroups && (
             <motion.aside
@@ -595,7 +633,7 @@ export function ModuleWorkspace({
               animate={{ width: 260, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="shrink-0 overflow-hidden"
+              className="hidden sm:block shrink-0 overflow-hidden"
             >
               <div className="w-[260px] h-full flex flex-col bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl mr-3 overflow-hidden">
                 {/* Filter header */}
@@ -700,108 +738,6 @@ export function ModuleWorkspace({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Sort Dropdown (inline sub-component)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-interface SortDropdownInlineProps {
-  sort: SortPreference | null;
-  onSortChange: (sort: SortPreference | null) => void;
-  fields: SortableField[];
-}
-
-function SortDropdownInline({ sort, onSortChange, fields }: SortDropdownInlineProps): React.ReactElement {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent): void {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  const handleFieldClick = (fieldId: string): void => {
-    if (sort?.field === fieldId) {
-      onSortChange({ field: fieldId, direction: sort.direction === 'asc' ? 'desc' : 'asc' });
-    } else {
-      onSortChange({ field: fieldId, direction: 'asc' });
-    }
-    setIsOpen(false);
-  };
-
-  const handleClearSort = (): void => {
-    onSortChange(null);
-    setIsOpen(false);
-  };
-
-  const activeLabel = sort ? fields.find((f) => f.id === sort.field)?.label ?? sort.field : null;
-
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={cn(
-          'inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border transition-colors',
-          sort
-            ? 'bg-[#2563EB]/10 text-[#2563EB] dark:text-blue-400 border-[#2563EB]/30 hover:bg-[#2563EB]/20'
-            : 'text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700',
-        )}
-        aria-expanded={isOpen}
-        aria-haspopup="true"
-        aria-label="Sort"
-      >
-        <ArrowUpDown size={13} />
-        Sort
-        {sort && (
-          <span className="text-[11px] opacity-80">
-            · {activeLabel} {sort.direction === 'asc' ? '↑' : '↓'}
-          </span>
-        )}
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-52 max-h-72 overflow-y-auto bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5">
-          {sort && (
-            <>
-              <button
-                onClick={handleClearSort}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-              >
-                <X size={13} />
-                Clear Sort
-              </button>
-              <div className="my-1 border-t border-[#E4E9F0] dark:border-slate-700" />
-            </>
-          )}
-          {fields.map((field) => {
-            const isActive = sort?.field === field.id;
-            return (
-              <button
-                key={field.id}
-                onClick={() => handleFieldClick(field.id)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-2 text-[13px] font-medium transition-colors',
-                  isActive
-                    ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
-                    : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
-                )}
-              >
-                <span className="flex-1 text-left truncate">{field.label}</span>
-                {isActive && sort!.direction === 'asc' && <ArrowUp size={13} />}
-                {isActive && sort!.direction === 'desc' && <ArrowDown size={13} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -1054,7 +990,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
         onClick={() => !isFirstPage && onPageChange(currentPage - 1)}
         disabled={isFirstPage}
         className={cn(
-          'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+          'inline-flex items-center justify-center w-7 h-7 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md border transition-colors',
           isFirstPage
             ? 'border-[#E4E9F0] dark:border-slate-700 text-[#C5CDD8] dark:text-slate-600 cursor-not-allowed'
             : 'border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-[#0F172A] dark:hover:text-white',
@@ -1067,7 +1003,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
         onClick={() => !isLastPage && onPageChange(currentPage + 1)}
         disabled={isLastPage}
         className={cn(
-          'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+          'inline-flex items-center justify-center w-7 h-7 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md border transition-colors',
           isLastPage
             ? 'border-[#E4E9F0] dark:border-slate-700 text-[#C5CDD8] dark:text-slate-600 cursor-not-allowed'
             : 'border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-[#0F172A] dark:hover:text-white',

@@ -6,7 +6,23 @@ import { authApi } from '@/shared/services/auth.api';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { GoogleSignInButton } from '@/shared/components/google-sign-in-button';
+import { PasswordStrengthMeter, isPasswordValid } from '@/shared/components/password-strength-meter';
+import { cn } from '@/lib/utils';
 import { z } from 'zod';
+
+// Shared input classes — error state paints a red border + red focus ring so
+// the field itself signals the problem, matching the inline-error design.
+const baseInputClass =
+  'w-full h-11 bg-white dark:bg-slate-900 border rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none transition-colors';
+function inputClass(hasError: boolean, extra = ''): string {
+  return cn(
+    baseInputClass,
+    hasError
+      ? 'border-red-400 dark:border-red-500/60 focus:border-red-500'
+      : 'border-gray-200 dark:border-white/8 focus:border-blue-500',
+    extra,
+  );
+}
 
 const registerSchema = z.object({
   // Company details
@@ -16,15 +32,33 @@ const registerSchema = z.object({
   businessWebsite: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
   
   // Account details
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  firstName: z.string().min(2, 'Please enter your first name'),
+  lastName: z.string().min(2, 'Please enter your last name'),
+  email: z.string().email('Please enter a valid email'),
+  password: z.string()
+    .min(8, 'At least 8 characters')
+    .regex(/[A-Z]/, 'At least 1 uppercase')
+    .regex(/[0-9]/, 'At least 1 number')
+    .regex(/[^A-Za-z0-9]/, 'At least 1 special character'),
   confirmPassword: z.string()
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
+
+// Per-field validators — used for inline (onBlur / onChange) validation so each
+// field surfaces its own error immediately below the input instead of a toast.
+const FIELD_VALIDATORS: Record<string, (value: string, all: Record<string, string>) => string | undefined> = {
+  companyName: (v) => (v.trim().length < 2 ? 'Please enter your company name' : undefined),
+  industry:    (v) => (!v ? 'Please select an industry' : undefined),
+  companySize: (v) => (!v ? 'Please select company size' : undefined),
+  businessWebsite: (v) => (v && !/^https?:\/\/.+/.test(v) ? 'Please enter a valid URL' : undefined),
+  firstName:   (v) => (v.trim().length < 2 ? 'Please enter your first name' : undefined),
+  lastName:    (v) => (v.trim().length < 2 ? 'Please enter your last name' : undefined),
+  email:       (v) => (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? 'Please enter a valid email' : undefined),
+  password:    (v) => (!isPasswordValid(v) ? 'Password does not meet the requirements' : undefined),
+  confirmPassword: (v, all) => (v !== all.password ? "Passwords don't match" : undefined),
+};
 
 interface ModernRegisterPageProps {
   onNavigate: (path: string) => void;
@@ -56,6 +90,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isEmailChecking, setIsEmailChecking] = useState(false);
 
   // Fetch sandbox configuration on mount
   React.useEffect(() => {
@@ -74,16 +109,95 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
     fetchSandboxInfo();
   }, []);
 
+  // Debounced email duplicate check — fires 500 ms after the user stops typing
+  // a syntactically valid email address.
+  React.useEffect(() => {
+    // Reset checking indicator whenever the email value changes
+    setIsEmailChecking(false);
+
+    if (!formData.email) return;
+
+    const isFormatValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email);
+    if (!isFormatValid) return; // wait for a valid format before hitting the API
+
+    setIsEmailChecking(true);
+
+    const timerId = setTimeout(async () => {
+      try {
+        const response = await authApi.checkEmail(formData.email);
+        if (response?.data?.exists) {
+          setErrors(prev => ({ ...prev, email: 'This email address is already in use.' }));
+        } else {
+          setErrors(prev => {
+            const next = { ...prev };
+            if (next.email === 'This email address is already in use.') {
+              delete next.email;
+            }
+            return next;
+          });
+        }
+      } catch {
+        // Non-blocking — duplicate check failure should not block registration
+      } finally {
+        setIsEmailChecking(false);
+      }
+    }, 500);
+
+    return () => {
+      clearTimeout(timerId);
+      setIsEmailChecking(false);
+    };
+  }, [formData.email]);
+
   const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
+    setFormData(prev => {
+      const next = { ...prev, [field]: value };
+      // If the field was already flagged, re-validate live so the error clears
+      // as soon as the input becomes valid (no need to blur again).
+      setErrors(prevErrors => {
+        if (!prevErrors[field] && field !== 'password') return prevErrors;
+        const validator = FIELD_VALIDATORS[field];
+        const message = validator ? validator(value, next) : undefined;
+        const updated = { ...prevErrors };
+        
+        // Don't override the "email in use" error if we're just typing a valid email format
+        if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+           // keep the existing error until debounce effect clears it
+        } else if (message) {
+           updated[field] = message; 
+        } else {
+           delete updated[field];
+        }
+
+        // Keep confirmPassword in sync when password changes
+        if (field === 'password' && next.confirmPassword) {
+          if (next.confirmPassword !== value) updated.confirmPassword = "Passwords don't match";
+          else delete updated.confirmPassword;
+        }
+        return updated;
       });
-    }
+      return next;
+    });
+  };
+
+  // Validate a single field on blur and show its error inline.
+  const handleBlur = (field: string) => {
+    const validator = FIELD_VALIDATORS[field];
+    if (!validator) return;
+    const value = formData[field as keyof typeof formData];
+    const message = validator(value, formData);
+
+    setErrors(prev => {
+      const updated = { ...prev };
+      if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+        // keep it
+      } else if (message) {
+        updated[field] = message; 
+      } else {
+        delete updated[field];
+      }
+      return updated;
+    });
   };
 
   // Quick fill for testing
@@ -104,34 +218,22 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   };
 
   const handleNextStep = () => {
-    // Validate current step before proceeding
+    // Validate step-1 fields; show each error inline below its field (no toast).
+    const step1Fields = ['companyName', 'industry', 'companySize', 'businessWebsite'];
     const newErrors: Record<string, string> = {};
-    
-    if (currentStep === 1) {
-      if (!formData.companyName || formData.companyName.length < 2) {
-        newErrors.companyName = 'Company name must be at least 2 characters';
-      }
-      if (!formData.industry) {
-        newErrors.industry = 'Please select an industry';
-      }
-      if (!formData.companySize) {
-        newErrors.companySize = 'Please select company size';
-      }
-      if (formData.businessWebsite && !formData.businessWebsite.match(/^https?:\/\/.+/)) {
-        newErrors.businessWebsite = 'Please enter a valid URL';
-      }
-    }
-    
+
+    step1Fields.forEach((field) => {
+      const validator = FIELD_VALIDATORS[field];
+      const message = validator?.(formData[field as keyof typeof formData], formData);
+      if (message) newErrors[field] = message;
+    });
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      // Show first error as toast
-      const firstError = Object.values(newErrors)[0];
-      if (firstError) {
-        toast.error(firstError);
-      }
       return;
     }
-    
+
+    setErrors({});
     setCurrentStep(2);
   };
 
@@ -149,12 +251,8 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
           newErrors[error.path[0] as string] = error.message;
         }
       });
+      // Show each error inline below its field — no toast for validation.
       setErrors(newErrors);
-      // Show first error as toast
-      const firstError = Object.values(newErrors)[0];
-      if (firstError) {
-        toast.error(firstError);
-      }
       return;
     }
 
@@ -201,8 +299,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
         errorMessage = 'Network error. Please check your internet connection.';
       }
       
-      setErrors({ general: errorMessage });
-      toast.error(errorMessage);
+      if (errorMessage.includes('A user with this email already exists') || errorMessage.includes('email already exists') || errorMessage.includes('Email already in use')) {
+        setErrors({ email: 'This email address is already in use.' });
+      } else {
+        setErrors({ general: errorMessage });
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -268,7 +370,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
       </div>
 
       {/* Right side - Registration form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950 overflow-y-auto">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950 overflow-y-auto">
         <div className="w-full max-w-md space-y-6">
           {/* Header */}
           <div>
@@ -309,11 +411,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                   type="text"
                   value={formData.companyName}
                   onChange={(e) => handleChange('companyName', e.target.value)}
-                  className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                  onBlur={() => handleBlur('companyName')}
+                  aria-invalid={!!errors.companyName}
+                  className={inputClass(!!errors.companyName)}
                   placeholder="Your Company Inc."
-                  required
                 />
-                {errors.companyName && <p className="text-xs text-red-500 mt-1">{errors.companyName}</p>}
+                {errors.companyName && <p className="text-xs text-red-500 mt-1.5">{errors.companyName}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -325,8 +428,9 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     id="industry"
                     value={formData.industry}
                     onChange={(e) => handleChange('industry', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    required
+                    onBlur={() => handleBlur('industry')}
+                    aria-invalid={!!errors.industry}
+                    className={inputClass(!!errors.industry)}
                   >
                     <option value="">Select...</option>
                     <option value="IT Solutions">IT Solutions</option>
@@ -337,7 +441,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     <option value="Retail">Retail</option>
                     <option value="Other">Other</option>
                   </select>
-                  {errors.industry && <p className="text-xs text-red-500 mt-1">{errors.industry}</p>}
+                  {errors.industry && <p className="text-xs text-red-500 mt-1.5">{errors.industry}</p>}
                 </div>
 
                 <div>
@@ -348,8 +452,9 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     id="companySize"
                     value={formData.companySize}
                     onChange={(e) => handleChange('companySize', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    required
+                    onBlur={() => handleBlur('companySize')}
+                    aria-invalid={!!errors.companySize}
+                    className={inputClass(!!errors.companySize)}
                   >
                     <option value="">Select...</option>
                     <option value="1-10">1-10</option>
@@ -358,7 +463,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     <option value="201-500">201-500</option>
                     <option value="500+">500+</option>
                   </select>
-                  {errors.companySize && <p className="text-xs text-red-500 mt-1">{errors.companySize}</p>}
+                  {errors.companySize && <p className="text-xs text-red-500 mt-1.5">{errors.companySize}</p>}
                 </div>
               </div>
 
@@ -371,10 +476,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                   type="url"
                   value={formData.businessWebsite}
                   onChange={(e) => handleChange('businessWebsite', e.target.value)}
-                  className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                  onBlur={() => handleBlur('businessWebsite')}
+                  aria-invalid={!!errors.businessWebsite}
+                  className={inputClass(!!errors.businessWebsite)}
                   placeholder="https://yourcompany.com"
                 />
-                {errors.businessWebsite && <p className="text-xs text-red-500 mt-1">{errors.businessWebsite}</p>}
+                {errors.businessWebsite && <p className="text-xs text-red-500 mt-1.5">{errors.businessWebsite}</p>}
               </div>
               
                 <button
@@ -412,11 +519,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     type="text"
                     value={formData.firstName}
                     onChange={(e) => handleChange('firstName', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                    onBlur={() => handleBlur('firstName')}
+                    aria-invalid={!!errors.firstName}
+                    className={inputClass(!!errors.firstName)}
                     placeholder="John"
-                    required
                   />
-                  {errors.firstName && <p className="text-xs text-red-500 mt-1">{errors.firstName}</p>}
+                  {errors.firstName && <p className="text-xs text-red-500 mt-1.5">{errors.firstName}</p>}
                 </div>
 
                 <div>
@@ -428,11 +536,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     type="text"
                     value={formData.lastName}
                     onChange={(e) => handleChange('lastName', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                    onBlur={() => handleBlur('lastName')}
+                    aria-invalid={!!errors.lastName}
+                    className={inputClass(!!errors.lastName)}
                     placeholder="Doe"
-                    required
                   />
-                  {errors.lastName && <p className="text-xs text-red-500 mt-1">{errors.lastName}</p>}
+                  {errors.lastName && <p className="text-xs text-red-500 mt-1.5">{errors.lastName}</p>}
                 </div>
               </div>
 
@@ -445,11 +554,23 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                   type="email"
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
-                  className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                  onBlur={() => handleBlur('email')}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? 'email-error' : undefined}
+                  className={inputClass(!!errors.email)}
                   placeholder="john@company.com"
-                  required
                 />
-                {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+                {isEmailChecking && !errors.email && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" aria-hidden="true" />
+                    Checking availability...
+                  </p>
+                )}
+                {errors.email && (
+                  <p id="email-error" role="alert" className="text-xs text-red-500 mt-1.5">
+                    {errors.email}
+                  </p>
+                )}
                 {isDevelopment && isSandboxMode && formData.email && !sandboxEmails.includes(formData.email) && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                     ⚠️ Email verification will only work with: {sandboxEmails.join(', ')}
@@ -467,9 +588,10 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     type={showPassword ? 'text' : 'password'}
                     value={formData.password}
                     onChange={(e) => handleChange('password', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 pr-11 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                    onBlur={() => handleBlur('password')}
+                    aria-invalid={!!errors.password}
+                    className={inputClass(!!errors.password, 'pr-11')}
                     placeholder="••••••••••"
-                    required
                   />
                   <button
                     type="button"
@@ -479,7 +601,8 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-                {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+                {/* Live password strength meter + requirement checklist */}
+                <PasswordStrengthMeter password={formData.password} />
               </div>
 
               <div>
@@ -492,9 +615,10 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     type={showConfirmPassword ? 'text' : 'password'}
                     value={formData.confirmPassword}
                     onChange={(e) => handleChange('confirmPassword', e.target.value)}
-                    className="w-full h-11 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/8 rounded-xl px-4 pr-11 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                    onBlur={() => handleBlur('confirmPassword')}
+                    aria-invalid={!!errors.confirmPassword}
+                    className={inputClass(!!errors.confirmPassword, 'pr-11')}
                     placeholder="••••••••••"
-                    required
                   />
                   <button
                     type="button"
@@ -504,12 +628,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                     {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-                {errors.confirmPassword && <p className="text-xs text-red-500 mt-1">{errors.confirmPassword}</p>}
+                {errors.confirmPassword && <p className="text-xs text-red-500 mt-1.5">{errors.confirmPassword}</p>}
               </div>
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || isEmailChecking}
                 className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isLoading ? 'Creating Account...' : 'Create Account'}

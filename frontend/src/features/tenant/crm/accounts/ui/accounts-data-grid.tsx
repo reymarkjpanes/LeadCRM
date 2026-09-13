@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AccountsDataGrid — Accounts table implemented with the shared DataGrid component.
  *
  * This replaces the legacy flex-based inline layout for the "table" view type,
@@ -43,9 +43,9 @@ interface AccountsDataGridProps {
   /** Column preferences from useColumnPreferences */
   effectiveColumns: ColumnConfigItem[];
   /** Current sort state */
-  sort: SortState | null;
+  sort?: SortState | null;
   /** Sort change handler */
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange?: (sort: SortState | null) => void;
   /** Row click → open detail drawer */
   onRowClick: (account: Account) => void;
   /** Selected row IDs */
@@ -68,8 +68,8 @@ interface AccountsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
-  /** Column reorder handler — called when user drag-drops a column header */
-  onColumnReorder?: (columns: ColumnConfigItem[]) => void;
+  /** Row ID to highlight (navigated from global search) */
+  highlightRowId?: string;
 }
 
 // ─── Account Type Variant (uses shared ACCOUNT_TYPE_VARIANTS) ────────────────
@@ -80,7 +80,7 @@ export function AccountsDataGrid({
   accounts,
   totalRecords,
   effectiveColumns,
-  sort,
+  sort = null,
   onSortChange,
   onRowClick,
   selectedIds,
@@ -93,7 +93,7 @@ export function AccountsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
-  onColumnReorder,
+  highlightRowId,
 }: AccountsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -232,16 +232,14 @@ export function AccountsDataGrid({
       sort={sort}
       onSortChange={onSortChange}
       onRowClick={onRowClick}
-      enableColumnMenu
       onHideColumn={onHideColumn}
       rowActions={getRowActions}
       onSettingsClick={onManageColumns}
       summaryLabel={`${totalRecords} total records`}
       emptyMessage="No accounts found. Adjust your filters or create a new account."
       ariaLabel="Accounts data grid"
+      highlightRowId={highlightRowId}
       viewMode={viewMode}
-      onColumnReorder={onColumnReorder}
-      effectiveColumns={effectiveColumns}
     />
   );
 }

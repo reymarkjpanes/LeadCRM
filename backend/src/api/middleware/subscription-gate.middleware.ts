@@ -31,21 +31,17 @@ const READ_ONLY_WRITES_STATUSES = new Set(['PAST_DUE']);
  *
  * Access policy:
  *   ACTIVE             → Full access
- *   NONE               → Sandbox read-only (GET passes; mutations blocked with 403)
+ *   NONE + SANDBOX     → Sandbox Free plan: mutations pass through to recordLimitGate
+ *                        and planGate which enforce 100-contact / 3-user limits and
+ *                        block premium features (automation, campaigns).
+ *   NONE (non-SANDBOX) → Read-only (GET passes; mutations blocked with 403)
  *   PAST_DUE           → Reads pass; mutations blocked with 402
  *   CANCELLED / EXPIRED → Reads pass; mutations blocked with 402
  *
  * System Admin (role === 'System Admin') bypasses this gate entirely.
  * Whitelisted paths always pass (billing, auth, preferences).
  *
- * ╔══════════════════════════════════════════════════════════════════╗
- * ║  IMPORTANT: The sandbox/NONE check (403 SUBSCRIPTION_REQUIRED)  ║
- * ║  is the environment gate for the Guest lifecycle.                ║
- * ║  A new user starts as Restricted User + SANDBOX/NONE.           ║
- * ║  They must subscribe via Stripe before mutations are allowed.    ║
- * ╚══════════════════════════════════════════════════════════════════╝
- *
- * Placement: authMiddleware → tenantMiddleware → subscriptionGate → authorize → planGate → controller
+ * Placement: authMiddleware → tenantMiddleware → subscriptionGate → authorize → planGate/recordLimitGate → controller
  */
 export function subscriptionGate(
   req: Request,
@@ -84,8 +80,14 @@ async function checkSubscriptionAccess(
     const isReadMethod = READ_METHODS.has(req.method.toUpperCase());
     if (isReadMethod) return next();
 
-    // NONE — sandbox/pre-subscription state. Reads allowed (above), mutations blocked.
-    // This is the Guest lifecycle gate: subscribe to unlock mutations.
+    // NONE + SANDBOX — Free sandbox plan.
+    // Mutations are allowed but subject to recordLimitGate (100 contacts, 3 users)
+    // and planGate (automation requires PRO, campaigns require ENTERPRISE).
+    if ((status === 'NONE' || !status) && planData.tenantStatus === 'SANDBOX') {
+      return next();
+    }
+
+    // NONE without SANDBOX status — fully unsubscribed, read-only.
     if (status === 'NONE' || !status) {
       res.status(403).json({
         success: false,

@@ -12,30 +12,6 @@ import React from 'react';
 import { DataGrid } from '../data-grid';
 import type { DataGridColumnDef } from '../types';
 
-// Mock @dnd-kit modules used internally by DataGrid
-vi.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
-  closestCenter: vi.fn(),
-  useSensor: vi.fn(),
-  useSensors: vi.fn(() => []),
-  PointerSensor: vi.fn(),
-  KeyboardSensor: vi.fn(),
-}));
-
-vi.mock('@dnd-kit/sortable', () => ({
-  SortableContext: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
-  horizontalListSortingStrategy: vi.fn(),
-  sortableKeyboardCoordinates: vi.fn(),
-  useSortable: () => ({
-    attributes: {},
-    listeners: {},
-    setNodeRef: vi.fn(),
-    transform: null,
-    transition: null,
-    isDragging: false,
-  }),
-}));
-
 // Mock ResizeObserver
 global.ResizeObserver = class {
   observe(): void {}
