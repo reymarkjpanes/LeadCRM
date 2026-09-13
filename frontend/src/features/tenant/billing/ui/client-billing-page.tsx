@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { CreditCard, Download, CheckCircle2, Sparkles, TrendingUp, ExternalLink, AlertTriangle, Loader2, XCircle, Check, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,17 +11,20 @@ import { invoicesApi } from '@/shared/services/invoices.api';
 import { ModalCloseButton } from '@/shared/components/ui/modal-close-button';
 import { BackButton } from '@/shared/components/ui/back-button';
 import { SeatManagementCard } from './seat-management-card';
+import { getTenantCurrency, formatCurrency as formatTenantCurrency } from '@/shared/utils/currency';
 import type { BillingCycle, PricingPlan } from '../types/billing.types';
+import { BusinessVerificationModal } from './business-verification-modal';
+import { verificationApi } from '@/shared/services/verification.api';
 import type { Invoice } from '@/store/types';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// - Helpers -
 
-function formatCurrency(amount: number): string {
-  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+// formatCurrency is tenant-aware - defined inside the component using useMemo
+// so it always reflects the tenant's configured currency (e.g. USD, EUR, PHP).
+// The local formatDate, getCycleLabel, and getStatusBadge helpers remain pure.
 
 function formatDate(dateString: string | null): string {
-  if (!dateString) return '—';
+  if (!dateString) return '-';
   return new Date(dateString).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
@@ -54,20 +57,38 @@ function getStatusBadge(status: string): { text: string; className: string } {
 }
 
 // Retry delays for post-payment activation polling (ms).
-// Declared at module scope — never changes, no need to recreate per render.
+// Declared at module scope - never changes, no need to recreate per render.
 const ACTIVATION_RETRY_DELAYS = [0, 1000, 2000, 4000, 6000] as const;
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// - Main Component -
 
 export default function ClientBillingPage() {
   const { tenant, userCan, restoreSession } = useAuth();
   const { subscription, plans, seats, isLoading, error, refetch, refetchSeats } = useBillingData();
   const [activeTab, setActiveTab] = useState<'overview' | 'history' | 'payment-methods'>('overview');
 
+  // Tenant-aware currency formatter.
+  // All monetary amounts on this page (subscription cost, invoice totals, plan prices)
+  // must reflect the tenant's configured currency - never hardcode a symbol.
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
+  const formatCurrency = useCallback(
+    (amount: number): string =>
+      formatTenantCurrency(amount, tenantCurrency),
+    [tenantCurrency],
+  );
+
   // Plan selection modal state
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<BillingCycle>('MONTHLY');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  // Business verification modal state
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationPendingPlan, setVerificationPendingPlan] = useState<{
+    planId: string;
+    cycle: BillingCycle;
+    planName: string;
+  } | null>(null);
 
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -85,18 +106,18 @@ export default function ClientBillingPage() {
   const [activationPending, setActivationPending] = useState(false);
   const [activationStalled, setActivationStalled] = useState(false);
 
-  // ─── Post-payment activation polling ────────────────────────────────────────
+  // - Post-payment activation polling -
   // Stripe redirects back with ?session_id= after checkout.
-  // The webhook fires asynchronously — we poll /auth/me with bounded exponential
+  // The webhook fires asynchronously - we poll /auth/me with bounded exponential
   // backoff until tenant.status becomes ACTIVE, then clear the pending state.
-  // The frontend is READ-ONLY here — it never activates the account itself.
+  // The frontend is READ-ONLY here - it never activates the account itself.
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
     if (!sessionId) return;
 
-    // Clean the URL immediately — do not leave session_id in browser history
+    // Clean the URL immediately - do not leave session_id in browser history
     window.history.replaceState({}, '', window.location.pathname);
 
     setActivationPending(true);
@@ -106,7 +127,7 @@ export default function ClientBillingPage() {
     let cancelled = false;
 
     const pollOnce = async (): Promise<void> => {
-      // Read-only — GET /auth/me and GET /billing/subscription. Never activates.
+      // Read-only - GET /auth/me and GET /billing/subscription. Never activates.
       await restoreSession();
       await refetch();
     };
@@ -122,7 +143,7 @@ export default function ClientBillingPage() {
       setTimeout(() => {
         if (cancelled) return;
         pollOnce().catch(() => {
-          // Non-fatal — watcher below resolves when tenant.status updates
+          // Non-fatal - watcher below resolves when tenant.status updates
         });
         scheduleNext();
       }, delay);
@@ -134,9 +155,9 @@ export default function ClientBillingPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once on mount — session_id detection is a one-time bootstrap
+  }, []); // Runs once on mount - session_id detection is a one-time bootstrap
 
-  // Watch for account activation — resolves pending state when the webhook fires.
+  // Watch for account activation - resolves pending state when the webhook fires.
   // Checks tenant.environment (set by AuthContext from tenantStatus) rather than
   // tenant.status directly, because the frontend Tenant type uses lowercase status values
   // while the backend returns uppercase ('ACTIVE'). environment is always correctly mapped.
@@ -149,7 +170,37 @@ export default function ClientBillingPage() {
     }
   }, [tenant?.environment, activationPending, refetch]);
 
-  // ─── Actions ────────────────────────────────────────────────────────────────
+  // - Actions -
+
+  // - Direct checkout - bypasses verification check (used after APPROVED) -
+  // Called from onProceedToCheckout in BusinessVerificationModal so we never
+  // re-run the verification check after the user has just been approved.
+  const handleDirectCheckout = useCallback(async (planId: string, cycle: BillingCycle): Promise<void> => {
+    try {
+      setCheckoutLoading(true);
+      const response = await billingService.createCheckoutSession(planId, cycle);
+      window.location.href = response.data.checkoutUrl;
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'BILLING_NOT_CONFIGURED') {
+        toast.error('Billing configuration is incomplete', {
+          description: 'Stripe plan pricing is not yet configured. Contact an administrator to enable checkout.',
+        });
+      } else if (code === 'VERIFICATION_REQUIRED') {
+        // Backend blocked checkout - surface the verification modal again
+        setVerificationPendingPlan({
+          planId,
+          cycle,
+          planName: plans.find((p) => p.id === planId)?.name ?? '',
+        });
+        setShowVerificationModal(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Failed to start checkout');
+      }
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }, [plans]);
 
   const handleUpgradePlan = useCallback(async (planId: string) => {
     try {
@@ -162,27 +213,61 @@ export default function ClientBillingPage() {
       const currentTier = PLAN_TIER[currentPlanType] ?? 0;
       const targetTier = PLAN_TIER[targetPlan?.planType ?? 'STARTER'] ?? 0;
 
-      if (!subscription) {
-        // No subscription — use checkout flow
-        const response = await billingService.createCheckoutSession(planId, selectedCycle);
-        window.location.href = response.data.checkoutUrl;
+      // Gate: guests without an ACTIVE subscription must pass business verification.
+      // Covers: no subscription, CANCELLED, EXPIRED, TRIAL states.
+      const hasActiveSubscription =
+        subscription?.status === 'ACTIVE' || subscription?.status === 'PAST_DUE';
+
+      if (!hasActiveSubscription) {
+        // Check verification status from the real API - never from local/cached state
+        let verificationStatus = 'NOT_SUBMITTED';
+        try {
+          const verificationRes = await verificationApi.getVerificationStatus();
+          verificationStatus = verificationRes.data.verificationStatus;
+        } catch (verifyErr: unknown) {
+          // API error - block checkout and surface the error. Do NOT silently fall through.
+          toast.error(
+            verifyErr instanceof Error && verifyErr.message
+              ? verifyErr.message
+              : 'Unable to verify business status. Please try again.',
+          );
+          setCheckoutLoading(false);
+          return;
+        }
+
+        if (verificationStatus !== 'APPROVED') {
+          // Not yet approved - show verification modal, preserve plan + cycle selection
+          setVerificationPendingPlan({
+            planId,
+            cycle: selectedCycle,
+            planName: targetPlan?.name ?? '',
+          });
+          setShowPlanModal(false);
+          setShowVerificationModal(true);
+          setCheckoutLoading(false);
+          return;
+        }
+
+        // Verification approved - go directly to checkout
+        setCheckoutLoading(false);
+        await handleDirectCheckout(planId, selectedCycle);
         return;
       }
 
       if (targetTier > currentTier) {
-        // Upgrade — immediate with proration
+        // Upgrade - immediate with proration
         const response = await billingService.upgradeSubscription(planId, selectedCycle);
         toast.success(`Upgraded to ${response.data.newPlan}! Changes are effective immediately.`);
         setShowPlanModal(false);
         refetch();
       } else if (targetTier < currentTier) {
-        // Downgrade — scheduled at period end
+        // Downgrade - scheduled at period end
         const response = await billingService.downgradeSubscription(planId, selectedCycle);
         toast.success(`Downgrade to ${response.data.pendingPlan} scheduled for ${formatDate(response.data.effectiveDate)}.`);
         setShowPlanModal(false);
         refetch();
       } else {
-        // Same tier, different cycle — use checkout for plan change
+        // Same tier, different cycle - use checkout for plan change
         const response = await billingService.createCheckoutSession(planId, selectedCycle);
         window.location.href = response.data.checkoutUrl;
         return;
@@ -191,7 +276,7 @@ export default function ClientBillingPage() {
       const code = (err as { code?: string })?.code;
       if (code === 'BILLING_NOT_CONFIGURED') {
         toast.error('Billing configuration is incomplete', {
-          description: 'Stripe plan pricing is not yet configured. If you are an administrator, go to Admin → Billing → Sync Plans to Stripe to enable checkout.',
+          description: 'Stripe plan pricing is not yet configured. If you are an administrator, go to Admin - Billing - Sync Plans to Stripe to enable checkout.',
         });
         setShowPlanModal(false);
       } else {
@@ -201,7 +286,7 @@ export default function ClientBillingPage() {
     } finally {
       setCheckoutLoading(false);
     }
-  }, [selectedCycle, subscription, plans, refetch]);
+  }, [selectedCycle, subscription, plans, refetch, handleDirectCheckout]);
 
   const handleCancelSubscription = useCallback(async () => {
     try {
@@ -251,7 +336,7 @@ export default function ClientBillingPage() {
     }
   }, [activeTab, fetchInvoices]);
 
-  // ─── Loading State ──────────────────────────────────────────────────────────
+  // - Loading State -
 
   if (isLoading) {
     return (
@@ -269,7 +354,7 @@ export default function ClientBillingPage() {
     );
   }
 
-  // ─── Error State ────────────────────────────────────────────────────────────
+  // - Error State -
 
   if (error) {
     return (
@@ -289,7 +374,7 @@ export default function ClientBillingPage() {
     );
   }
 
-  // ─── Derived values ─────────────────────────────────────────────────────────
+  // - Derived values -
 
   const statusBadge = subscription ? getStatusBadge(subscription.status) : getStatusBadge('NONE');
   const isCancelled = !!subscription?.cancelledAt;
@@ -297,7 +382,7 @@ export default function ClientBillingPage() {
 
   return (
     <div className="p-6 lg:p-8 space-y-8 max-w-[1200px] mx-auto">
-      {/* ─── Post-payment activation notices ─────────────────────────────── */}
+      {/* - Post-payment activation notices - */}
       {activationPending && (
         <div
           role="status"
@@ -309,7 +394,7 @@ export default function ClientBillingPage() {
             aria-hidden="true"
           />
           <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">
-            Finalizing your account… Please wait.
+            Finalizing your account... Please wait.
           </p>
         </div>
       )}
@@ -371,7 +456,7 @@ export default function ClientBillingPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Manage your plan, payment methods, and billing history.</p>
         </div>
         <div className="flex items-center gap-3">
-          {userCan('billing', 'canCreate') && (
+          {userCan('billing', 'canView') && (
             <button
               onClick={() => setShowPlanModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
@@ -409,7 +494,7 @@ export default function ClientBillingPage() {
 
       {/* Content */}
       <div className="min-h-[400px]">
-        {/* ─── Overview Tab ──────────────────────────────────────────────── */}
+        {/* - Overview Tab - */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-6">
@@ -531,7 +616,7 @@ export default function ClientBillingPage() {
                 <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-sm">
                   <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">Next Payment</h3>
                   <div className="text-2xl font-bold text-slate-900 dark:text-white mb-1">
-                    {subscription.nextBillingDate ? formatDate(subscription.nextBillingDate) : '—'}
+                    {subscription.nextBillingDate ? formatDate(subscription.nextBillingDate) : '-'}
                   </div>
                   <div className="text-sm text-slate-500 dark:text-slate-400 mb-4">
                     Amount: {formatCurrency(subscription.amount)}
@@ -580,7 +665,7 @@ export default function ClientBillingPage() {
           </div>
         )}
 
-        {/* ─── Billing History Tab ───────────────────────────────────────── */}
+        {/* - Billing History Tab - */}
         {activeTab === 'history' && (
           <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700">
@@ -638,7 +723,7 @@ export default function ClientBillingPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
-                              onClick={() => toast.info(`Invoice ${inv.id.slice(0, 8)} — download coming soon`)}
+                              onClick={() => toast.info(`Invoice ${inv.id.slice(0, 8)} - download coming soon`)}
                               className="text-slate-600 dark:text-slate-400 hover:text-blue-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
                             >
                               <Download size={14} /> Download
@@ -654,7 +739,7 @@ export default function ClientBillingPage() {
           </div>
         )}
 
-        {/* ─── Payment Methods Tab ───────────────────────────────────────── */}
+        {/* - Payment Methods Tab - */}
         {activeTab === 'payment-methods' && (
           <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700">
@@ -690,7 +775,7 @@ export default function ClientBillingPage() {
         )}
       </div>
 
-      {/* ─── Plan Selection Modal ──────────────────────────────────────────── */}
+      {/* - Plan Selection Modal - */}
       {showPlanModal && (
         <PlanSelectionModal
           plans={plans}
@@ -703,7 +788,23 @@ export default function ClientBillingPage() {
         />
       )}
 
-      {/* ─── Cancel Confirmation Dialog ────────────────────────────────────── */}
+      {/* - Business Verification Modal - */}
+      <BusinessVerificationModal
+        isOpen={showVerificationModal}
+        pendingPlanId={verificationPendingPlan?.planId ?? null}
+        pendingCycle={verificationPendingPlan?.cycle ?? null}
+        pendingPlanName={verificationPendingPlan?.planName ?? null}
+        onProceedToCheckout={(planId, cycle) => {
+          setShowVerificationModal(false);
+          setSelectedCycle(cycle);
+          // Use handleDirectCheckout - verification is already confirmed APPROVED.
+          // Do NOT call handleUpgradePlan which would re-run the verification check.
+          handleDirectCheckout(planId, cycle);
+        }}
+        onClose={() => setShowVerificationModal(false)}
+      />
+
+      {/* - Cancel Confirmation Dialog - */}
       {showCancelDialog && subscription && (
         <CancelConfirmationDialog
           endsAt={subscription.nextBillingDate}
@@ -716,7 +817,7 @@ export default function ClientBillingPage() {
   );
 }
 
-// ─── Plan Selection Modal ─────────────────────────────────────────────────────
+// - Plan Selection Modal -
 
 interface PlanSelectionModalProps {
   plans: PricingPlan[];
@@ -728,7 +829,7 @@ interface PlanSelectionModalProps {
   loading: boolean;
 }
 
-// Savings calculated from DB prices — never hardcoded
+// Savings calculated from DB prices - never hardcoded
 function getQuarterlySavings(plan: PricingPlan): number {
   if (!plan.monthlyPrice) return 0;
   return Math.round((1 - plan.quarterlyPrice / (plan.monthlyPrice * 3)) * 100);
@@ -747,7 +848,7 @@ function getPriceForCycle(plan: PricingPlan, cycle: BillingCycle): number {
   }
 }
 
-// Cycle label for CTA — must match exactly, never show annual/quarterly prices as "/month"
+// Cycle label for CTA - must match exactly, never show annual/quarterly prices as "/month"
 const CYCLE_CTA_LABELS: Record<BillingCycle, string> = {
   MONTHLY:   '/month',
   QUARTERLY: '/3 months',
@@ -765,6 +866,15 @@ function PlanSelectionModal({
 }: PlanSelectionModalProps) {
   const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
 
+  // Tenant-aware currency for plan prices - this modal is a separate component
+  // so it must derive currency independently rather than via closure.
+  const { tenant } = useAuth();
+  const tenantCurrency = React.useMemo(() => getTenantCurrency(tenant), [tenant]);
+  const formatCurrency = React.useCallback(
+    (amount: number) => formatTenantCurrency(amount, tenantCurrency),
+    [tenantCurrency],
+  );
+
   const activePlan = selectedPlanId
     ? plans.find((p) => p.id === selectedPlanId) ?? null
     : null;
@@ -779,7 +889,7 @@ function PlanSelectionModal({
     }
   };
 
-  // Compute savings for each cycle button — use first plan as representative
+  // Compute savings for each cycle button - use first plan as representative
   // (all plans share the same discount structure)
   const representativePlan = plans[0];
   const quarterlySavingsPct = representativePlan ? getQuarterlySavings(representativePlan) : 0;
@@ -872,7 +982,7 @@ function PlanSelectionModal({
                       handleSelect(plan.id);
                     }
                   }}
-                  aria-label={isCurrent ? `${plan.name} — current plan` : `Select ${plan.name}`}
+                  aria-label={isCurrent ? `${plan.name} - current plan` : `Select ${plan.name}`}
                 >
                   {/* Animated selection ring */}
                   <AnimatePresence>
@@ -981,13 +1091,13 @@ function PlanSelectionModal({
           )}
         </div>
 
-        {/* Footer CTA — always shows the correct per-cycle price and interval */}
+        {/* Footer CTA - always shows the correct per-cycle price and interval */}
         <div className="shrink-0 px-6 py-4 border-t border-gray-200 dark:border-white/[0.05] bg-white dark:bg-slate-900/50">
           {activePlan ? (
             <div className="flex items-center justify-between gap-4">
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 <span className="font-semibold text-slate-900 dark:text-white">{activePlan.name}</span>
-                {' — '}
+                {' - '}
                 <span className="font-bold text-blue-600 dark:text-blue-400">
                   {formatCurrency(getPriceForCycle(activePlan, selectedCycle))}
                 </span>
@@ -1004,7 +1114,7 @@ function PlanSelectionModal({
                 {loading ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
-                    Processing…
+                    Processing...
                   </>
                 ) : (
                   <>
@@ -1025,7 +1135,7 @@ function PlanSelectionModal({
   );
 }
 
-// ─── Cancel Confirmation Dialog ───────────────────────────────────────────────
+// - Cancel Confirmation Dialog -
 
 interface CancelConfirmationDialogProps {
   endsAt: string | null;
@@ -1079,3 +1189,4 @@ function CancelConfirmationDialog({ endsAt, onConfirm, onCancel, loading }: Canc
     </div>
   );
 }
+

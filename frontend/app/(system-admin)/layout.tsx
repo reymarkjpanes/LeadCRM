@@ -8,7 +8,15 @@ import AdminLayoutShell from '@/features/system-admin/layout/admin-layout-shell'
 
 /**
  * SystemAdminGuard — blocks non-system-admin users from accessing /admin/* routes.
- * Uses the same detection logic as use-layout.ts and AuthGuard.
+ *
+ * Detection matches auth-guard.tsx:
+ *   1. role === 'System Admin'  — primary check (server-backed JWT)
+ *   2. tenantName includes 'system'  — fallback for edge cases
+ *
+ * tenantId is always a UUID in production — never the literal strings 'system'
+ * or 'leadcrm-system-demo', so those old checks have been removed.
+ *
+ * On failure: redirect to /login so users never see a blank screen.
  */
 function SystemAdminGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -16,13 +24,13 @@ function SystemAdminGuard({ children }: { children: React.ReactNode }) {
 
   const isSystemAdmin =
     user?.role === 'System Admin' ||
-    user?.tenantId === 'system' ||
-    user?.tenantId === 'leadcrm-system-demo';
+    user?.tenantName?.toLowerCase().includes('system');
 
   useEffect(() => {
     if (isLoading) return;
-    if (user && !isSystemAdmin) {
-      router.replace('/dashboard');
+    if (!user) return; // AuthGuard (parent) handles unauthenticated redirect to /login
+    if (!isSystemAdmin) {
+      router.replace('/login');
     }
   }, [user, isLoading, isSystemAdmin, router]);
 

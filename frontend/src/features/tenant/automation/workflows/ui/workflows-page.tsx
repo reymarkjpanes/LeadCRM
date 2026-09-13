@@ -27,7 +27,6 @@ import {
   Compass,
   LayoutGrid,
   List,
-  ArrowUpDown,
   Copy,
   Check,
   Activity,
@@ -535,24 +534,8 @@ export default function WorkflowsPage() {
           </div>
         </div>
 
-        {/* Right: Sort & Density Controls */}
+        {/* Right: Density Controls */}
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
-          {/* Sorting Dropdown */}
-          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md px-2.5 h-9 text-xs">
-            <ArrowUpDown size={13} className="text-slate-400" />
-            <span className="text-slate-500 dark:text-slate-400 font-medium hidden xs:inline">Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-transparent text-slate-700 dark:text-slate-200 font-medium focus:outline-none cursor-pointer"
-              aria-label="Sort workflows by"
-            >
-              <option value="name">Name (A-Z)</option>
-              <option value="executions">Most Executed</option>
-              <option value="status">Status (Active First)</option>
-            </select>
-          </div>
-
           {/* Density Toggle (Comfortable vs Compact) */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-md border border-slate-200 dark:border-slate-700">
             <button

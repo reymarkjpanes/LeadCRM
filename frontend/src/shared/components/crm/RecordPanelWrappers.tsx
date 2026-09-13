@@ -39,6 +39,9 @@ import { useData } from '@/store/DataContext';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import type { Lead, Contact, Deal, Task } from '@/store/types';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/store/AuthContext';
+import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
+import type { CurrencyConfig } from '@/shared/utils/currency';
 import {
   DEFAULT_LEAD_STATUSES,
   DEFAULT_CONTACT_STATUSES,
@@ -148,6 +151,10 @@ function ExpandableDealCard({ deal, isExpanded, onToggle, pipelines, users, cont
   const currentPipeline = pipelines.find((p) => p.id === deal.pipelineId);
   const stagesForPipeline = currentPipeline?.stages ?? [];
 
+  // Tenant-aware currency for all deal monetary values in this card
+  const { tenant } = useAuth();
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
+
   const [localValues, setLocalValues] = useState({
     pipelineId: deal.pipelineId || '',
     stageId: deal.stageId || '',
@@ -239,7 +246,7 @@ function ExpandableDealCard({ deal, isExpanded, onToggle, pipelines, users, cont
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground group-hover:text-primary transition-colors">{deal.title}</p>
           <p className="text-xs text-muted-foreground">
-            ₱{deal.value?.toLocaleString() ?? 0} · {deal.priority || 'Medium'}
+            {formatCurrency(deal.value ?? 0, tenantCurrency)} · {deal.priority || 'Medium'}
           </p>
         </div>
         <Chip className="bg-warning/20 text-warning-foreground">{deal.priority || 'Medium'}</Chip>
@@ -301,7 +308,7 @@ function ExpandableDealCard({ deal, isExpanded, onToggle, pipelines, users, cont
               {/* Row 2: Value + Billing Frequency */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className={inlineLabelCls}>Value (₱)</label>
+                  <label className={inlineLabelCls}>Value ({tenantCurrency.code})</label>
                   <input
                     type="number"
                     value={localValues.value}
@@ -1113,13 +1120,18 @@ export function LeadPanel({ open, onOpenChange, lead, onEdit }: LeadPanelProps) 
           label: 'Delete Lead',
           icon: Trash2,
           destructive: true,
-          onSelect: async () => {
-            if (window.confirm(`Delete lead ${leadName}?`)) {
+          onSelect: () => showConfirm({
+            title: 'Delete Lead',
+            description: `Delete ${leadName}?`,
+            warning: 'All associated activities and tasks will also be affected.',
+            confirmLabel: 'Delete Lead',
+            variant: 'destructive',
+            onConfirm: async () => {
               await deleteLead(lead.id);
               onOpenChange(false);
               toast.success('Lead deleted');
-            }
-          },
+            },
+          }),
         },
       ]}
     />
@@ -1146,6 +1158,11 @@ export function ContactPanel({ open, onOpenChange, contact, onEdit }: ContactPan
   const [customFields, setCustomFields] = useState<CustomFieldItem[]>([]);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const { dialogProps: confirmDialogProps, confirm: showConfirm } = useConfirmDialog();
+
+  // Tenant-aware currency for deal values shown in this panel
+  const { tenant } = useAuth();
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
 
   if (!contact) return null;
 
@@ -1164,13 +1181,18 @@ export function ContactPanel({ open, onOpenChange, contact, onEdit }: ContactPan
     {
       label: 'Delete',
       icon: <Trash2 className="size-4" />,
-      onClick: async () => {
-        if (window.confirm(`Delete contact ${contactName}?`)) {
+      onClick: () => showConfirm({
+        title: 'Delete Contact',
+        description: `Delete ${contactName}?`,
+        warning: 'This cannot be undone.',
+        confirmLabel: 'Delete Contact',
+        variant: 'destructive',
+        onConfirm: async () => {
           await deleteContact(contact.id);
           onOpenChange(false);
           toast.success('Contact deleted');
-        }
-      },
+        },
+      }),
       destructive: true,
       permission: 'contacts.delete',
     },
@@ -1324,7 +1346,7 @@ export function ContactPanel({ open, onOpenChange, contact, onEdit }: ContactPan
             >
               <div>
                 <p className="font-medium text-foreground group-hover:text-primary transition-colors">{d.title}</p>
-                <p className="text-xs text-muted-foreground">₱{d.value?.toLocaleString() ?? 0}</p>
+                <p className="text-xs text-muted-foreground">{formatCurrency(d.value ?? 0, tenantCurrency)}</p>
               </div>
               <Chip>Active</Chip>
             </button>
@@ -1403,6 +1425,7 @@ export function ContactPanel({ open, onOpenChange, contact, onEdit }: ContactPan
 
   return (
     <>
+    <ConfirmActionDialog {...confirmDialogProps} />
     <RecordPanel
       open={open}
       onOpenChange={onOpenChange}
@@ -1446,13 +1469,18 @@ export function ContactPanel({ open, onOpenChange, contact, onEdit }: ContactPan
           label: 'Delete Contact',
           icon: Trash2,
           destructive: true,
-          onSelect: async () => {
-            if (window.confirm(`Delete contact ${contactName}?`)) {
+          onSelect: () => showConfirm({
+            title: 'Delete Contact',
+            description: `Delete ${contactName}?`,
+            warning: 'This cannot be undone.',
+            confirmLabel: 'Delete Contact',
+            variant: 'destructive',
+            onConfirm: async () => {
               await deleteContact(contact.id);
               onOpenChange(false);
               toast.success('Contact deleted');
-            }
-          },
+            },
+          }),
         },
       ]}
     />
@@ -1487,6 +1515,11 @@ export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPan
   const [customFields, setCustomFields] = useState<CustomFieldItem[]>([]);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const { dialogProps: confirmDialogProps, confirm: showConfirm } = useConfirmDialog();
+
+  // Tenant-aware currency for deal values shown in this panel
+  const { tenant } = useAuth();
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
 
   if (!account) return null;
 
@@ -1502,13 +1535,18 @@ export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPan
     {
       label: 'Delete',
       icon: <Trash2 className="size-4" />,
-      onClick: async () => {
-        if (window.confirm(`Delete account ${accountName}?`)) {
+      onClick: () => showConfirm({
+        title: 'Delete Account',
+        description: `Delete ${accountName}?`,
+        warning: 'Associated leads, contacts, and deals will be unlinked.',
+        confirmLabel: 'Delete Account',
+        variant: 'destructive',
+        onConfirm: async () => {
           await deleteOrganization(account.id);
           onOpenChange(false);
           toast.success('Account deleted');
-        }
-      },
+        },
+      }),
       destructive: true,
       permission: 'accounts.delete',
     },
@@ -1634,7 +1672,7 @@ export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPan
             <div key={d.id} onClick={() => setSelectedDealId(d.id)} className="p-3 flex justify-between items-center hover:bg-secondary/50 transition-colors cursor-pointer group">
               <div>
                 <p className="font-medium text-foreground group-hover:text-primary transition-colors">{d.title}</p>
-                <p className="text-xs text-muted-foreground">₱{d.value?.toLocaleString() ?? 0}</p>
+                <p className="text-xs text-muted-foreground">{formatCurrency(d.value ?? 0, tenantCurrency)}</p>
               </div>
               <Chip>In Progress</Chip>
             </div>
@@ -1713,6 +1751,7 @@ export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPan
 
   return (
     <>
+      <ConfirmActionDialog {...confirmDialogProps} />
       <RecordPanel
         open={open}
         onOpenChange={onOpenChange}
@@ -1750,13 +1789,18 @@ export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPan
             label: 'Delete Account',
             icon: Trash2,
             destructive: true,
-            onSelect: async () => {
-              if (window.confirm(`Delete account ${accountName}?`)) {
+            onSelect: () => showConfirm({
+              title: 'Delete Account',
+              description: `Delete ${accountName}?`,
+              warning: 'Associated leads, contacts, and deals will be unlinked.',
+              confirmLabel: 'Delete Account',
+              variant: 'destructive',
+              onConfirm: async () => {
                 await deleteOrganization(account.id);
                 onOpenChange(false);
                 toast.success('Account deleted');
-              }
-            },
+              },
+            }),
           },
         ]}
       />
@@ -1798,6 +1842,11 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
   const [files, setFiles] = useState<FileRecord[]>(
     (deal as any)?.files ?? []
   );
+  const { dialogProps: confirmDialogProps, confirm: showConfirm } = useConfirmDialog();
+
+  // Tenant-aware currency for all deal monetary values in this panel
+  const { tenant } = useAuth();
+  const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
 
   if (!deal) return null;
 
@@ -1877,13 +1926,18 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
     {
       label: 'Delete',
       icon: <Trash2 className="size-4" />,
-      onClick: async () => {
-        if (window.confirm(`Delete deal ${deal.title}?`)) {
+      onClick: () => showConfirm({
+        title: 'Delete Deal',
+        description: `Delete ${deal.title}?`,
+        warning: 'This cannot be undone.',
+        confirmLabel: 'Delete Deal',
+        variant: 'destructive',
+        onConfirm: async () => {
           await deleteDeal(deal.id);
           onOpenChange(false);
           toast.success('Deal deleted');
-        }
-      },
+        },
+      }),
       destructive: true,
       permission: 'deals.delete',
     },
@@ -1934,7 +1988,7 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
           <div className="flex justify-between px-4 py-2">
             <span className="text-muted-foreground self-center">Deal Value</span>
             <div className="flex items-center">
-              <span className="text-muted-foreground mr-1">₱</span>
+              <span className="text-muted-foreground mr-1">{tenantCurrency.symbol}</span>
               <EditableField 
                 value={deal.value?.toString() || '0'} 
                 placeholder="0"
@@ -2215,6 +2269,8 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
   ];
 
   return (
+    <>
+    <ConfirmActionDialog {...confirmDialogProps} />
     <RecordPanel
       open={open}
       onOpenChange={onOpenChange}
@@ -2223,7 +2279,7 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
       record={{
         id: deal.id,
         title: deal.title,
-        subtitle: `₱${deal.value?.toLocaleString() ?? 0} · ${dealPipeline?.name || 'Pipeline'}`,
+        subtitle: `${formatCurrency(deal.value ?? 0, tenantCurrency)} · ${dealPipeline?.name || 'Pipeline'}`,
         company: deal.companyName,
         tags: [deal.priority ? `${deal.priority} Priority` : 'Medium Priority'],
       }}
@@ -2267,15 +2323,21 @@ export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel
           label: 'Delete Deal',
           icon: Trash2,
           destructive: true,
-          onSelect: async () => {
-            if (window.confirm(`Delete deal ${deal.title}?`)) {
+          onSelect: () => showConfirm({
+            title: 'Delete Deal',
+            description: `Delete ${deal.title}?`,
+            warning: 'This cannot be undone.',
+            confirmLabel: 'Delete Deal',
+            variant: 'destructive',
+            onConfirm: async () => {
               await deleteDeal(deal.id);
               onOpenChange(false);
               toast.success('Deal deleted');
-            }
-          },
+            },
+          }),
         },
       ]}
     />
+    </>
   );
 }

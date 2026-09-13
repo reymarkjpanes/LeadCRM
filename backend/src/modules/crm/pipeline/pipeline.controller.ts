@@ -36,14 +36,14 @@ export async function updatePipeline(req: Request, res: Response, next: NextFunc
 export async function deletePipeline(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.deletePipeline(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function archivePipeline(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.archivePipeline(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -63,7 +63,7 @@ export async function updateStage(req: Request, res: Response, next: NextFunctio
 export async function deleteStage(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     await service.deleteStage(String(req.params.id), req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 

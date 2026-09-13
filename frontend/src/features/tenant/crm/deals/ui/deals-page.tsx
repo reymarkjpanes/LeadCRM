@@ -23,6 +23,8 @@ import { usePagination } from '@/shared/hooks/use-pagination';
 import { Pagination } from '@/shared/components/ui/pagination';
 import { toast } from 'sonner';
 import { formatCurrency, getTenantCurrency } from '@/shared/utils/currency';
+import { Briefcase } from 'lucide-react';
+import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
 
 export default function DealsPage() {
   const { user, tenant } = useAuth();
@@ -165,9 +167,6 @@ export default function DealsPage() {
         activeView={activeView}
         onViewChange={setActiveView}
 
-        sortableFields={DEALS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-        sort={sort}
-        onSortChange={setSort}
         pageSize={pageSize}
         onPageSizeChange={setPageSize}
         viewMode={viewMode}
@@ -192,13 +191,25 @@ export default function DealsPage() {
         {/* ── Table View (DataGrid) ──────────────────────────────────── */}
         {activeView === 'table' && (
           <div className="space-y-4">
+            {searchFilteredDeals.length === 0 && (
+              <ActionableEmptyState
+                icon={Briefcase}
+                title={debouncedSearch ? 'No deals match your search' : 'No deals yet'}
+                description={
+                  debouncedSearch
+                    ? 'Try a different search term or clear your filters.'
+                    : 'Create your first deal to start tracking opportunities in your pipeline.'
+                }
+                actionLabel={!debouncedSearch && canCreate ? 'Add Deal' : undefined}
+                onAction={!debouncedSearch && canCreate ? () => setIsCreateFormOpen(true) : undefined}
+              />
+            )}
+            {searchFilteredDeals.length > 0 && (
             <ModuleErrorBoundary fallbackLabel="Deals Table">
             <DealsDataGrid
               deals={paginatedDeals}
               totalRecords={totalItems}
               effectiveColumns={effectiveColumns}
-              sort={sort}
-              onSortChange={setSort}
               onRowClick={setSelectedDeal}
               selectedIds={dealSelectedIds}
               onSelectionChange={setDealSelectedIds}
@@ -230,15 +241,9 @@ export default function DealsPage() {
               }}
               viewMode={viewMode}
               currencyConfig={tenantCurrency}
-              onColumnReorder={async (columns) => {
-                try {
-                  await saveColumns(columns);
-                } catch {
-                  toast.error('Failed to save column order. Reverted to previous layout.');
-                }
-              }}
             />
             </ModuleErrorBoundary>
+            )}
 
             <div className="mt-4">
               <Pagination

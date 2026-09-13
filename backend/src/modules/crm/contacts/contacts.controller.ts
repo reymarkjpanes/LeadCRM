@@ -57,7 +57,7 @@ export async function archiveContact(req: Request, res: Response, next: NextFunc
   try {
     const id = String(req.params.id);
     await service.archiveContact(id, req.user!.tenantId, req.user!.userId);
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

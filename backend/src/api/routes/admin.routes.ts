@@ -50,6 +50,8 @@ router.post('/billing/refunds',         adminBillingController.createRefund);
 // ── Pricing Plan CRUD ─────────────────────────────────────────────────────────
 router.get('/plans',     pricingPlansController.listPlans);
 router.put('/plans/:id', pricingPlansController.updatePlan);
+// Attach an EXISTING Stripe product/price to a plan (reuses a Dashboard-created price)
+router.post('/plans/:id/stripe-price', pricingPlansController.attachStripePrice);
 
 // ── Plan → Stripe Sync ────────────────────────────────────────────────────────
 router.post('/billing/plans/sync-all',  adminBillingController.syncAllPlansStripe);

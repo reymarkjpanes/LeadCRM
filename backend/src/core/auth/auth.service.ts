@@ -61,6 +61,8 @@ export interface AuthUserSource {
   tenantId: string;
   status?: string;
   emailVerified?: Date | null;
+  /** Used only to compute hasPassword — never exposed in responses directly */
+  passwordHash?: string | null;
   tenant?: {
     name?: string | null;
     status?: string | null;
@@ -68,6 +70,7 @@ export interface AuthUserSource {
     plan?: string | null;
     industry?: string | null;
     companySize?: string | null;
+    currency?: string | null;
     onboardingStep?: number | null;
     onboardingCompletedAt?: Date | null;
   } | null;
@@ -96,8 +99,11 @@ export interface AuthUserResponse {
   plan: string | null;
   industry: string | null;
   companySize: string | null;
+  currency: string | null;
   onboardingStep: number;
   onboardingCompletedAt: Date | null;
+  /** True when the user registered with a password (manual). False for OAuth-only users. */
+  hasPassword: boolean;
 }
 
 /**
@@ -124,33 +130,62 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUserResponse {
     plan:                  tenant?.plan                 ?? null,
     industry:              tenant?.industry             ?? null,
     companySize:           tenant?.companySize          ?? null,
+    currency:              tenant?.currency             ?? null,
     onboardingStep:        tenant?.onboardingStep       ?? 0,
     onboardingCompletedAt: tenant?.onboardingCompletedAt ?? null,
+    hasPassword:           user.passwordHash !== null && user.passwordHash !== undefined,
   };
 }
 
 export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
-  const user = await prisma.user.findFirst({
-    where: { email: dto.email },
+  // Normalise the incoming email so casing differences never cause a lookup
+  // failure (e.g. "Admin@Gmail.com" → "admin@gmail.com").
+  const normalisedEmail = dto.email.toLowerCase().trim();
+
+  // Fetch ALL rows for this email across tenants, ordered oldest-first so the
+  // canonical seeded account is preferred when duplicates exist.
+  //
+  // Background: the email column is unique per (tenantId, email) pair, not
+  // globally unique. A seed refactor previously wrote admin@gmail.com into two
+  // different tenants (leadcrm-system-demo and leadcrm-system). A plain
+  // findFirst() with no ordering would non-deterministically pick either row,
+  // causing "invalid credentials" whenever the stale row came first.
+  //
+  // The fix: fetch all candidates and find the first whose password hash
+  // actually matches the supplied password. This is safe because bcrypt.compare
+  // is constant-time — iterating a small list of candidates does not leak
+  // timing information about which row matched.
+  const candidates = await prisma.user.findMany({
+    where: { email: normalisedEmail },
     include: {
       tenant: {
         select: {
           name: true, industry: true, companySize: true, status: true,
           subscriptionStatus: true, plan: true,
+          currency: true,
           onboardingStep: true, onboardingCompletedAt: true,
         },
       },
     },
+    orderBy: { createdAt: 'asc' },
   });
 
-  // Generic message — do not reveal whether email exists
+  // Generic message — do not reveal whether the email exists.
+  if (candidates.length === 0) throw new AppError('Invalid email or password', 401);
+
+  // Find the first candidate whose password hash matches.
+  let user: typeof candidates[0] | null = null;
+  for (const candidate of candidates) {
+    if (!candidate.passwordHash) continue;
+    const matches = await comparePassword(dto.password, candidate.passwordHash);
+    if (matches) {
+      user = candidate;
+      break;
+    }
+  }
+
+  // No candidate matched the password — use a generic 401.
   if (!user) throw new AppError('Invalid email or password', 401);
-
-  // OAuth-only users have no password — reject password login attempts
-  if (!user.passwordHash) throw new AppError('Invalid email or password', 401);
-
-  const valid = await comparePassword(dto.password, user.passwordHash);
-  if (!valid) throw new AppError('Invalid email or password', 401);
 
   // Block unverified users — they must complete email verification first.
   // DEMO/DEV bypass: allowed only in non-production environments.
@@ -211,6 +246,7 @@ export async function registerUser(dto: RegisterDto) {
       lastName:     dto.lastName,
       email:        dto.email,
       passwordHash,
+      role:         Role.GUEST, // Explicit — never fall through to schema default
     },
   });
 
@@ -269,8 +305,11 @@ async function generateVerificationCredentials(email: string, userId: string): P
  * Logs prominently on failure so the issue is visible in production logs.
  */
 async function sendVerificationEmail(email: string, token: string, otpCode: string): Promise<boolean> {
-  const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
-  const verificationUrl = `${appUrl}/api/v1/auth/verify-email?token=${token}`;
+  // BACKEND_URL is the base URL of this Express server (e.g. https://leadcrm-backend-os8d.onrender.com).
+  // The /api/v1/auth/verify-email route lives on the backend, NOT on the frontend (APP_URL).
+  // Using APP_URL here produces a broken link pointing to Vercel instead of the backend.
+  const backendUrl = process.env.BACKEND_URL ?? `http://localhost:${process.env.PORT ?? 4000}`;
+  const verificationUrl = `${backendUrl}/api/v1/auth/verify-email?token=${token}`;
 
   try {
     await sendMail({
@@ -287,7 +326,7 @@ async function sendVerificationEmail(email: string, token: string, otpCode: stri
     console.error(
       `[Auth] ⚠️  FAILED to send verification email to ${email}. User is stuck in PENDING status.\n` +
       `[Auth] Error: ${message}\n` +
-      `[Auth] Check: GMAIL_SYSTEM_SENDER_USER_ID, ENCRYPTION_KEY, RESEND_API_KEY env vars on Render.`,
+      `[Auth] Check: BREVO_API_KEY, BREVO_FROM_EMAIL env vars on Render.`,
     );
     return false;
   }
@@ -306,7 +345,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
 
   // Check for invitation token — if present, join existing tenant
   if (dto.invitationToken) {
-    return registerWithInvitation(dto, normalizedEmail, passwordHash, 'Client Admin');
+    return registerWithInvitation(dto, normalizedEmail, passwordHash, Role.CLIENT_ADMIN);
   }
 
   // At this point, invitationToken is absent, so companyName is guaranteed by Zod superRefine
@@ -330,11 +369,14 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         plan: null,                  // No plan until payment — never pre-assign a plan
         onboardingStep: 0,
         onboardingCompletedAt: null,
+        // Free sandbox limits — enforced by recordLimitGate
+        maxContacts: 100,
+        maxUsers:    3,
       },
     });
 
     // 2. Create User as PENDING (will be ACTIVE after email verification).
-    //    Role: Restricted User — the sandbox/pre-subscription role.
+    //    Role: Guest — the sandbox/pre-subscription role.
     //    Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
@@ -343,7 +385,7 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: Role.RESTRICTED_USER, // Sandbox role — NOT Client Admin until payment confirmed
+        role: Role.GUEST, // Sandbox role — NOT Client Admin until payment confirmed
         status: 'PENDING',
       },
     });
@@ -391,13 +433,13 @@ export async function registerClientAdmin(dto: ClientAdminRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
-  // ↔ UserRole → Restricted User RoleDefinition. Both are in sync from registration.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Guest
+  // ↔ UserRole → Guest RoleDefinition. Both are in sync from registration.
   // The Stripe webhook promotes this user to Client Admin by updating BOTH transactionally.
   // Tenant safety: role is looked up within the same tenant as the user — never cross-tenant.
   try {
     const restrictedRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
+      where: { tenantId: result.tenant.id, name: Role.GUEST },
     });
     if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({
@@ -437,7 +479,7 @@ export async function registerGuest(dto: GuestRegisterDto) {
 
   // Check for invitation token — if present, join existing tenant
   if (dto.invitationToken) {
-    return registerWithInvitation(dto, normalizedEmail, passwordHash, 'Sales Rep');
+    return registerWithInvitation(dto, normalizedEmail, passwordHash, Role.USER);
   }
 
   // Guest gets their own sandbox tenant
@@ -456,11 +498,14 @@ export async function registerGuest(dto: GuestRegisterDto) {
         plan: null,                  // No plan until payment
         onboardingStep: 0,
         onboardingCompletedAt: null,
+        // Free sandbox limits — enforced by recordLimitGate
+        maxContacts: 100,
+        maxUsers:    3,
       },
     });
 
-    // Role: Restricted User — sandbox/pre-subscription role, NOT Client Admin.
-    // Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
+    // Role: Guest — sandbox/pre-subscription role, NOT Client Admin.
+    //    Promoted to Client Admin ONLY after Stripe checkout.session.completed webhook fires.
     const user = await tx.user.create({
       data: {
         tenantId: tenant.id,
@@ -468,7 +513,7 @@ export async function registerGuest(dto: GuestRegisterDto) {
         lastName: dto.lastName,
         email: normalizedEmail,
         passwordHash,
-        role: Role.RESTRICTED_USER, // Sandbox role — not Client Admin until payment confirmed
+        role: Role.GUEST, // Sandbox role — not Client Admin until payment confirmed
         status: 'PENDING',
       },
     });
@@ -514,11 +559,11 @@ export async function registerGuest(dto: GuestRegisterDto) {
     // Non-blocking — registration should still succeed even if role seeding fails
   });
 
-  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Restricted User
-  // ↔ UserRole → Restricted User RoleDefinition. Tenant safety: same-tenant lookup only.
+  // Create UserRole junction — ROLE STATE INVARIANT: User.role = Guest
+  // ↔ UserRole → Guest RoleDefinition. Tenant safety: same-tenant lookup only.
   try {
     const restrictedRoleDef = await prisma.roleDefinition.findFirst({
-      where: { tenantId: result.tenant.id, name: Role.RESTRICTED_USER },
+      where: { tenantId: result.tenant.id, name: Role.GUEST },
     });
     if (restrictedRoleDef && restrictedRoleDef.tenantId === result.tenant.id) {
       await prisma.userRole.upsert({

@@ -133,7 +133,7 @@ type AuthScenarioP2 = {
   emailVerified: string | null;
   tenantName: string | null;
   onboardingCompletedAt: string | null;
-  role: 'Client Admin' | 'Sales Rep' | 'System Admin';
+  role: 'Client Admin' | 'User' | 'System Admin';
   status: 'ACTIVE' | 'PENDING';
   pathname: string;
   savedRedirect: string | null;
@@ -208,9 +208,9 @@ describe(
       emailVerified: fc.option(fc.constant('2026-01-01T00:00:00.000Z'), { nil: null }),
       tenantName: fc.option(fc.constantFrom('Demo Corp', 'Acme Corp', ''), { nil: null }),
       onboardingCompletedAt: fc.option(fc.constant('2026-01-02T00:00:00.000Z'), { nil: null }),
-      role: fc.constantFrom<'Client Admin' | 'Sales Rep' | 'System Admin'>(
+      role: fc.constantFrom<'Client Admin' | 'User' | 'System Admin'>(
         'Client Admin',
-        'Sales Rep',
+        'User',
         'System Admin',
       ),
       status: fc.constantFrom<'ACTIVE' | 'PENDING'>('ACTIVE', 'PENDING'),
@@ -320,7 +320,7 @@ describe(
 const GENUINELY_UNVERIFIED_USER = {
   id: 'unverified-1',
   email: 'unverified@example.com',
-  role: 'Sales Rep',
+  role: 'User',
   firstName: 'Unverified',
   lastName: 'User',
   tenantId: 'tenant-1',
@@ -346,7 +346,7 @@ const SYSTEM_ADMIN_WITH_ADMIN_SAVED_REDIRECT = {
 const REGULAR_USER_WITH_SAVED_REDIRECT = {
   id: 'user-crm-1',
   email: 'user@democorp.com',
-  role: 'Sales Rep',
+  role: 'User',
   firstName: 'Sales',
   lastName: 'Rep',
   tenantId: 'tenant-1',

@@ -22,20 +22,23 @@ services:
     runtime: node
     rootDir: backend
 
-    # Install deps, generate Prisma client, compile TypeScript
+    # Install deps (including devDeps for ts-node), generate Prisma client, compile TypeScript
     buildCommand: >
-      npm install &&
+      npm install --include=dev &&
       npx prisma generate &&
-      npx tsc
+      npx tsc &&
+      node -e "require('fs').copyFileSync('start.js','dist/start.js')"
 
-    # Apply migrations then seed demo accounts then start the server
-    # - prisma migrate deploy: safe for production (no data loss, no resets)
-    # - prisma db seed: idempotent — upserts only, safe on every deploy
+    # Apply migrations, run idempotent seed to repair accounts, then start the server.
+    # - prisma migrate deploy: safe for production (no data loss, no destructive resets)
     # - SKIP_DEMO_TENANTS=true: skip the faker 10-tenant generator in production
+    # - npx ts-node prisma/seed.ts: runs the seed in-place using devDeps installed during build
+    #   Seeds admin@gmail.com with SYSTEM_ADMIN_PASSWORD from env vars (upsert — idempotent)
+    # - node dist/start.js: boots the compiled Express server via the module-alias shim
     startCommand: >
       npx prisma migrate deploy &&
-      SKIP_DEMO_TENANTS=true npx prisma db seed &&
-      node dist/server.js
+      SKIP_DEMO_TENANTS=true npx ts-node prisma/seed.ts &&
+      node dist/start.js
 
     envVars:
       - key: NODE_ENV

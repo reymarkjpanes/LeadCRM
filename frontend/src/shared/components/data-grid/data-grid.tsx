@@ -1,11 +1,11 @@
-/**
+﻿/**
  * DataGrid — A modern, reusable data-grid component for LeadCRM.
  *
  * Features:
  * - Sticky header (pinned during vertical scroll)
  * - Pinned left columns (checkbox + primary identifier stay visible during horizontal scroll)
  * - Resizable columns (drag handles on header cell right edge)
- * - Multi-column sorting (header click cycles asc → desc → none)
+ * - Per-column sorting (header click cycles asc → desc → none; icon shows current state)
  * - Bulk selection (select-all checkbox + row checkboxes)
  * - Quick-action icons (inline on hover, no row selection trigger)
  * - Summary/calculation sticky footer
@@ -44,14 +44,10 @@
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { ChevronUp, ChevronDown, Settings2, SearchX, Inbox, Plus, EyeOff } from 'lucide-react';
-import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
+import { Settings2, SearchX, Inbox, Plus, EyeOff } from 'lucide-react';
 import { useColumnResize } from './use-column-resize';
 import { useDataGridSort } from './use-data-grid-sort';
 import { useBulkSelection } from './use-bulk-selection';
-import { useColumnDragReorder } from './use-column-drag-reorder';
-import { SortableHeaderCell } from './sortable-header-cell';
 import { ColumnHeaderMenu } from './column-header-menu';
 import { RowActionsMenu } from './row-actions-menu';
 import { TruncatedCellTooltip } from './truncated-cell-tooltip';
@@ -130,6 +126,8 @@ interface DataGridRowProps<T> {
   onRowClick?: (row: T) => void;
   toggleRow: (id: string) => void;
   renderCellContent: (col: DataGridColumnDef<T>, row: T, rowIdx: number) => React.ReactNode;
+  /** Whether this row should render with a highlight ring */
+  highlighted?: boolean;
 }
 
 function DataGridRowInner<T>({
@@ -154,14 +152,29 @@ function DataGridRowInner<T>({
   onRowClick,
   toggleRow,
   renderCellContent,
+  highlighted = false,
 }: DataGridRowProps<T>): React.ReactElement {
+  const rowRef = React.useRef<HTMLTableRowElement>(null);
+
+  // Auto-scroll highlighted row into view on mount
+  React.useEffect(() => {
+    if (!highlighted || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Fade out the highlight after 2.5 s by triggering a re-render via the parent
+    // (the parent controls `highlightRowId` and can clear it if desired; we don't
+    // self-clear here to keep this component pure)
+  }, [highlighted]);
+
   return (
     <tr
+      ref={rowRef}
       className={cn(
         'transition-colors duration-100 cursor-pointer group/row border-b border-[#eef0f3] dark:border-slate-800',
-        selected
-          ? 'bg-blue-50 dark:bg-blue-500/10'
-          : 'hover:bg-[#f7f8fa] dark:hover:bg-slate-800/50',
+        highlighted
+          ? 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500 bg-blue-50/70 dark:bg-blue-500/15 animate-pulse-once'
+          : selected
+            ? 'bg-blue-50 dark:bg-blue-500/10'
+            : 'hover:bg-[#f7f8fa] dark:hover:bg-slate-800/50',
       )}
       style={viewMode === 'wrap' ? { minHeight: rowHeight, maxHeight: 156 } : { height: rowHeight }}
       onClick={() => onRowClick?.(row)}
@@ -367,17 +380,39 @@ const DataGridRow = React.memo(DataGridRowInner) as typeof DataGridRowInner;
 
 interface SortIndicatorProps {
   direction: SortDirection | null;
+  /** When true and direction is null, shows the neutral two-arrow icon */
+  sortable?: boolean;
 }
 
-function SortIndicator({ direction }: SortIndicatorProps): React.ReactElement | null {
-  if (!direction) return null;
+/**
+ * Two-arrow sort indicator — down arrow (↓) and up arrow (↑) side by side.
+ * Inactive:   both arrows shown in muted color
+ * Ascending:  up arrow highlighted blue, down arrow muted
+ * Descending: down arrow highlighted blue, up arrow muted
+ */
+function SortIndicator({ direction, sortable }: SortIndicatorProps): React.ReactElement | null {
+  if (!sortable && !direction) return null;
+
+  const isInactive = !direction;
+  const downActive = direction === 'desc';
+  const upActive   = direction === 'asc';
+
   return (
-    <span className="ml-1 inline-flex flex-shrink-0">
-      {direction === 'asc' ? (
-        <ChevronUp size={12} className="text-blue-600 dark:text-blue-400" />
-      ) : (
-        <ChevronDown size={12} className="text-blue-600 dark:text-blue-400" />
-      )}
+    <span className="ml-1 inline-flex shrink-0 items-center gap-[1px]" aria-hidden="true">
+      {/* Down arrow ↓ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={downActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 7L0.5 2.5H5.5L3 7Z" fill="currentColor" />
+        <line x1="3" y1="0.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+      {/* Up arrow ↑ */}
+      <svg width="6" height="8" viewBox="0 0 6 8" fill="none" xmlns="http://www.w3.org/2000/svg"
+        className={upActive ? 'text-blue-600 dark:text-blue-400' : isInactive ? 'text-slate-300 dark:text-slate-600' : 'text-slate-300 dark:text-slate-600'}
+      >
+        <path d="M3 1L5.5 5.5H0.5L3 1Z" fill="currentColor" />
+        <line x1="3" y1="7.5" x2="3" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
     </span>
   );
 }
@@ -414,10 +449,8 @@ export function DataGrid<T = Record<string, unknown>>({
   onSettingsClick,
   viewMode = 'clip',
   emptyState,
-  onColumnReorder,
-  lockedColumns,
-  effectiveColumns,
   hiddenColumnsCount,
+  highlightRowId,
 }: DataGridProps<T>): React.ReactElement {
   // ─── Internal column widths state (when uncontrolled) ──────────────────
   const [internalWidths, setInternalWidths] = useState<Record<string, number>>({});
@@ -463,19 +496,6 @@ export function DataGrid<T = Record<string, unknown>>({
     getRowId,
     selectedIds: externalSelectedIds,
     onSelectionChange,
-  });
-
-  // ─── Column Drag Reorder ───────────────────────────────────────────────
-  const {
-    sensors: dragSensors,
-    handleDragEnd,
-    sortableColumnIds,
-    isDraggable,
-  } = useColumnDragReorder({
-    effectiveColumns: effectiveColumns ?? [],
-    onReorder: onColumnReorder ?? (() => {}),
-    lockedColumns: lockedColumns ?? [],
-    disabled: !onColumnReorder,
   });
 
   // ─── Computed column layout ────────────────────────────────────────────
@@ -707,15 +727,6 @@ export function DataGrid<T = Record<string, unknown>>({
         className="flex-1 overflow-auto relative"
         style={isResizing ? { cursor: 'col-resize' } : undefined}
       >
-        <DndContext
-          sensors={dragSensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-        <SortableContext
-          items={sortableColumnIds}
-          strategy={horizontalListSortingStrategy}
-        >
         <table
           className="border-collapse table-fixed"
           style={{ minWidth: '100%', width: 'max-content' }}
@@ -790,6 +801,14 @@ export function DataGrid<T = Record<string, unknown>>({
               {/* Pinned left header cells */}
               {pinnedLeftColumns.map((col, colIdx) => {
                 const isLastPinned = colIdx === pinnedLeftColumns.length - 1;
+                const sortDir = getSortDirection(col.id);
+                const sortLabel = col.sortable
+                  ? sortDir === 'asc'
+                    ? `Sort by ${col.header} descending`
+                    : sortDir === 'desc'
+                    ? `Clear sort on ${col.header}`
+                    : `Sort by ${col.header} ascending`
+                  : undefined;
                 return (
                 <th
                   key={col.id}
@@ -806,14 +825,15 @@ export function DataGrid<T = Record<string, unknown>>({
                   )}
                   style={{ left: pinnedLeftOffsets[col.id] }}
                   onClick={() => col.sortable && handleHeaderClick(col.id)}
+                  title={sortLabel}
                   aria-sort={
-                    getSortDirection(col.id) === 'asc' ? 'ascending' :
-                    getSortDirection(col.id) === 'desc' ? 'descending' : 'none'
+                    sortDir === 'asc' ? 'ascending' :
+                    sortDir === 'desc' ? 'descending' : 'none'
                   }
                 >
                   <div className="flex items-center truncate">
                     <span className="truncate">{col.header}</span>
-                    {col.sortable && <SortIndicator direction={getSortDirection(col.id)} />}
+                    {col.sortable && <SortIndicator direction={sortDir} sortable />}
                   </div>
                   {col.resizable && (
                     <ResizeHandle
@@ -828,79 +848,104 @@ export function DataGrid<T = Record<string, unknown>>({
               })}
 
               {/* Scrollable header cells */}
-              {scrollableColumns.map((col) => (
-                <SortableHeaderCell
-                  key={col.id}
-                  columnId={col.id}
-                  isDraggable={isDraggable(col.id)}
-                  className={cn(
-                    'px-3 text-left group/header relative bg-white dark:bg-slate-900 border-r border-[#eef0f3] dark:border-slate-800',
-                    'text-[12px] font-medium text-[#8899a6] dark:text-slate-500',
-                    col.sortable && !enableColumnMenu && 'cursor-pointer hover:text-[#3C4858] dark:hover:text-slate-300 select-none',
-                  )}
-                  onClick={() => !enableColumnMenu && col.sortable && handleHeaderClick(col.id)}
-                  ariaSort={
-                    getSortDirection(col.id) === 'asc' ? 'ascending' :
-                    getSortDirection(col.id) === 'desc' ? 'descending' : 'none'
-                  }
-                >
-                  <div className="flex items-center gap-1 truncate">
-                    <span className="truncate flex-1">{col.header}</span>
-                    {!enableColumnMenu && col.sortable && <SortIndicator direction={getSortDirection(col.id)} />}
-                    {enableColumnMenu && (
-                      <ColumnHeaderMenu
+              {scrollableColumns.map((col) => {
+                const sortDir = getSortDirection(col.id);
+                const sortLabel = col.sortable
+                  ? sortDir === 'asc'
+                    ? `Sort by ${col.header} descending`
+                    : sortDir === 'desc'
+                    ? `Clear sort on ${col.header}`
+                    : `Sort by ${col.header} ascending`
+                  : undefined;
+                return (
+                  <th
+                    key={col.id}
+                    scope="col"
+                    className={cn(
+                      'px-3 text-left group/header relative bg-white dark:bg-slate-900 border-r border-[#eef0f3] dark:border-slate-800',
+                      'text-[12px] font-medium text-[#8899a6] dark:text-slate-500',
+                      col.sortable && 'cursor-pointer hover:text-[#3C4858] dark:hover:text-slate-300 select-none',
+                    )}
+                    onClick={() => col.sortable && handleHeaderClick(col.id)}
+                    title={sortLabel}
+                    aria-sort={
+                      sortDir === 'asc' ? 'ascending' :
+                      sortDir === 'desc' ? 'descending' : 'none'
+                    }
+                  >
+                    <div className="flex items-center gap-1 truncate">
+                      <span className="truncate flex-1">{col.header}</span>
+                      {col.sortable && <SortIndicator direction={sortDir} sortable />}
+                      {enableColumnMenu && (
+                        <ColumnHeaderMenu
+                          columnId={col.id}
+                          columnLabel={col.header}
+                          isRequired={col.required}
+                          isPinned={col.pinned === 'left'}
+                          sortDirection={sortDir}
+                          onSortAsc={(id) => { onSortChange?.({ field: id, direction: 'asc' }); }}
+                          onSortDesc={(id) => { onSortChange?.({ field: id, direction: 'desc' }); }}
+                          onPinColumn={onPinColumn}
+                          onFilterBy={onFilterByColumn}
+                          onHideColumn={onHideColumn}
+                        />
+                      )}
+                    </div>
+                    {col.resizable && (
+                      <ResizeHandle
                         columnId={col.id}
-                        columnLabel={col.header}
-                        isRequired={col.required}
-                        isPinned={col.pinned === 'left'}
-                        sortDirection={getSortDirection(col.id)}
-                        onSortAsc={(id) => onSortChange?.({ field: id, direction: 'asc' })}
-                        onSortDesc={(id) => onSortChange?.({ field: id, direction: 'desc' })}
-                        onPinColumn={onPinColumn}
-                        onFilterBy={onFilterByColumn}
-                        onHideColumn={onHideColumn}
+                        currentWidth={getColumnWidth(col)}
+                        onStartResize={startResize}
+                        isResizing={resizingColumnId === col.id}
                       />
                     )}
-                  </div>
-                  {col.resizable && (
-                    <ResizeHandle
-                      columnId={col.id}
-                      currentWidth={getColumnWidth(col)}
-                      onStartResize={startResize}
-                      isResizing={resizingColumnId === col.id}
-                    />
-                  )}
-                </SortableHeaderCell>
-              ))}
+                  </th>
+                );
+              })}
 
               {/* Pinned right header cells */}
-              {pinnedRightColumns.map((col) => (
-                <th
-                  key={col.id}
-                  scope="col"
-                  className={cn(
-                    'sticky right-0 z-30 bg-white dark:bg-slate-900',
-                    'px-3 text-left group/header relative',
-                    'text-[12px] font-medium text-[#8899a6] dark:text-slate-500',
-                    'shadow-[inset_1px_0_0_0_#eef0f3] dark:shadow-[inset_1px_0_0_0_rgba(255,255,255,0.06)]',
-                    col.sortable && 'cursor-pointer hover:text-[#3C4858] dark:hover:text-slate-300 select-none',
-                  )}
-                  onClick={() => col.sortable && handleHeaderClick(col.id)}
-                >
-                  <div className="flex items-center truncate">
-                    <span className="truncate">{col.header}</span>
-                    {col.sortable && <SortIndicator direction={getSortDirection(col.id)} />}
-                  </div>
-                  {col.resizable && (
-                    <ResizeHandle
-                      columnId={col.id}
-                      currentWidth={getColumnWidth(col)}
-                      onStartResize={startResize}
-                      isResizing={resizingColumnId === col.id}
-                    />
-                  )}
-                </th>
-              ))}
+              {pinnedRightColumns.map((col) => {
+                const sortDir = getSortDirection(col.id);
+                const sortLabel = col.sortable
+                  ? sortDir === 'asc'
+                    ? `Sort by ${col.header} descending`
+                    : sortDir === 'desc'
+                    ? `Clear sort on ${col.header}`
+                    : `Sort by ${col.header} ascending`
+                  : undefined;
+                return (
+                  <th
+                    key={col.id}
+                    scope="col"
+                    className={cn(
+                      'sticky right-0 z-30 bg-white dark:bg-slate-900',
+                      'px-3 text-left group/header relative',
+                      'text-[12px] font-medium text-[#8899a6] dark:text-slate-500',
+                      'shadow-[inset_1px_0_0_0_#eef0f3] dark:shadow-[inset_1px_0_0_0_rgba(255,255,255,0.06)]',
+                      col.sortable && 'cursor-pointer hover:text-[#3C4858] dark:hover:text-slate-300 select-none',
+                    )}
+                    onClick={() => col.sortable && handleHeaderClick(col.id)}
+                    title={sortLabel}
+                    aria-sort={
+                      sortDir === 'asc' ? 'ascending' :
+                      sortDir === 'desc' ? 'descending' : 'none'
+                    }
+                  >
+                    <div className="flex items-center truncate">
+                      <span className="truncate">{col.header}</span>
+                      {col.sortable && <SortIndicator direction={sortDir} sortable />}
+                    </div>
+                    {col.resizable && (
+                      <ResizeHandle
+                        columnId={col.id}
+                        currentWidth={getColumnWidth(col)}
+                        onStartResize={startResize}
+                        isResizing={resizingColumnId === col.id}
+                      />
+                    )}
+                  </th>
+                );
+              })}
 
               {/* Quick actions header spacer */}
               {hasQuickActions && (
@@ -1057,13 +1102,12 @@ export function DataGrid<T = Record<string, unknown>>({
                   onRowClick={onRowClick}
                   toggleRow={toggleRow}
                   renderCellContent={renderCellContent}
+                  highlighted={highlightRowId !== undefined && highlightRowId === rowId}
                 />
               );
             })}
           </tbody>
         </table>
-        </SortableContext>
-        </DndContext>
       </div>
 
       {/* ─── Summary Footer (sticky bottom) ────────────────────────── */}

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ModuleWorkspace, ViewType, AccountPanel, StatusBadge } from '@/shared/components/crm';
@@ -21,7 +21,8 @@ import { SideSheet } from '@/shared/components/side-sheet';
 import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
+import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
 import { PageSizeSelect } from '@/shared/components/page-size-select';
 import type { Account } from '../types/account.types';
 import type { ColumnConfigItem } from '@leadcrm/shared';
@@ -79,6 +80,7 @@ export default function AccountsPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState(() => getParam('tab') || 'all');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => getParam('search'));
+  const highlightId = getParam('highlight') ?? undefined;
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [drawerTab, setDrawerTab] = useState('overview');
@@ -323,9 +325,6 @@ export default function AccountsPage(): React.ReactElement {
         activeView={'table' as ViewType}
         onViewChange={setActiveView}
 
-        sortableFields={ACCOUNTS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-        sort={sort}
-        onSortChange={setSort}
         pageSize={pageSize}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -350,12 +349,25 @@ export default function AccountsPage(): React.ReactElement {
       >
         {/* List View — DataGrid */}
         {(activeView === 'list' || activeView === 'table') && (
+          <>
+            {filteredAccounts.length === 0 && (
+              <ActionableEmptyState
+                icon={Building2}
+                title={debouncedSearch ? 'No accounts match your search' : 'No accounts yet'}
+                description={
+                  debouncedSearch
+                    ? 'Try a different search term or clear your filters.'
+                    : 'Add your first account to start tracking your companies and organisations.'
+                }
+                actionLabel={!debouncedSearch && canCreate ? 'Add Account' : undefined}
+                onAction={!debouncedSearch && canCreate ? handleOpenCreate : undefined}
+              />
+            )}
+            {filteredAccounts.length > 0 && (
           <AccountsDataGrid
             accounts={paginatedAccounts}
             totalRecords={filteredAccounts.length}
             effectiveColumns={effectiveColumns}
-            sort={sort}
-            onSortChange={setSort}
             onRowClick={handleRowClick}
             selectedIds={accountSelectedIds}
             onSelectionChange={setAccountSelectedIds}
@@ -374,15 +386,11 @@ export default function AccountsPage(): React.ReactElement {
                 toast.error('Failed to hide column. Reverted.');
               }
             }}
+            highlightRowId={highlightId}
             viewMode={viewMode}
-            onColumnReorder={async (columns) => {
-              try {
-                await saveColumns(columns);
-              } catch {
-                toast.error('Failed to save column order. Reverted to previous layout.');
-              }
-            }}
           />
+            )}
+          </>
         )}
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}

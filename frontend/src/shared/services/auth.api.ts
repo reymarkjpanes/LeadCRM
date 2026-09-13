@@ -152,4 +152,10 @@ export const authApi = {
    */
   getSandboxInfo: () =>
     apiClient.get<{ success: boolean; data: { isSandboxMode: boolean; allowedEmails: string[]; isDevelopment: boolean } }>('/auth/sandbox-info'),
+
+  /**
+   * Check if an email is already registered
+   */
+  checkEmail: (email: string) =>
+    apiClient.get<{ success: boolean; data: { exists: boolean } }>(`/auth/check-email?email=${encodeURIComponent(email)}`),
 };

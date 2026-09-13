@@ -23,7 +23,7 @@ const INDUSTRIES = [
 
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
 
-export default function OnboardingPage({ onNavigate }: OnboardingPageProps): React.ReactElement {
+export default function OnboardingPage({ onNavigate, needsCompanySetup }: OnboardingPageProps): React.ReactElement {
   const { refreshUser } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading]     = useState(true);
@@ -174,8 +174,13 @@ export default function OnboardingPage({ onNavigate }: OnboardingPageProps): Rea
       await refreshUser();
 
       toast.success('Your workspace is ready!');
-      // Show the success card — user explicitly clicks 'View Plans' to continue to billing
-      setSetupComplete(true);
+      if (needsCompanySetup) {
+        // OAuth user — redirect to company setup to fill in company details
+        onNavigate('company-setup');
+      } else {
+        // Manual registration user — show billing/plan selection card
+        setSetupComplete(true);
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to complete onboarding.');
     } finally {

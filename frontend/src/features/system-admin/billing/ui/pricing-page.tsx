@@ -22,6 +22,11 @@ export interface UiPlan {
   features:       UiPlanFeature[];
   paymentMethods: PricingPlanDto['paymentMethods'];
   isPopular:      boolean;
+  // -- Stripe linkage (null until an existing product/price is attached) --------
+  stripeProductId:        string | null;
+  stripeMonthlyPriceId:   string | null;
+  stripeQuarterlyPriceId: string | null;
+  stripeAnnualPriceId:    string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -52,6 +57,10 @@ export function apiPlanToUi(plan: PricingPlanDto, index: number): UiPlan {
     })),
     paymentMethods: plan.paymentMethods,
     isPopular:  index === 1,
+    stripeProductId:        plan.stripeProductId,
+    stripeMonthlyPriceId:   plan.stripeMonthlyPriceId,
+    stripeQuarterlyPriceId: plan.stripeQuarterlyPriceId,
+    stripeAnnualPriceId:    plan.stripeAnnualPriceId,
   };
 }
 
@@ -67,6 +76,7 @@ const FALLBACK_PLANS: UiPlan[] = [
     ],
     paymentMethods: [],
     isPopular: false,
+    stripeProductId: null, stripeMonthlyPriceId: null, stripeQuarterlyPriceId: null, stripeAnnualPriceId: null,
   },
   {
     id: 'professional', name: 'Professional', price: 3600,
@@ -78,6 +88,7 @@ const FALLBACK_PLANS: UiPlan[] = [
     ],
     paymentMethods: [],
     isPopular: true,
+    stripeProductId: null, stripeMonthlyPriceId: null, stripeQuarterlyPriceId: null, stripeAnnualPriceId: null,
   },
   {
     id: 'enterprise', name: 'Enterprise', price: 8950,
@@ -89,6 +100,7 @@ const FALLBACK_PLANS: UiPlan[] = [
     ],
     paymentMethods: [],
     isPopular: false,
+    stripeProductId: null, stripeMonthlyPriceId: null, stripeQuarterlyPriceId: null, stripeAnnualPriceId: null,
   },
 ];
 

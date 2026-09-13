@@ -7,7 +7,7 @@ import type { PermissionKey } from '@leadcrm/shared';
 import { USE_MOCK_AUTH } from '@/lib/config';
 
 // Roles that bypass all permission checks (case-insensitive check)
-const SUPER_ROLES = ['admin', 'super user', 'client admin', 'system admin', 'client_admin'] as const;
+const SUPER_ROLES = ['guest', 'user', 'client admin', 'system admin', 'client_admin'] as const;
 
 /**
  * PERMISSION_BRIDGE — exported for CrmLayout nav access checks.

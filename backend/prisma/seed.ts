@@ -94,9 +94,9 @@ async function main() {
   //     Safe to run on every deploy — uses upsert.
   await seedGmailSystemSender();
 
-  // 1. Demo accounts — idempotent upserts, safe on every deploy
-  //    Creates: admin@gmail.com, super@leadcrm.com, admin@democorp.com,
-  //             bob@democorp.com, guest@democorp.com
+  // 1. System Admin account — idempotent upsert, safe on every deploy.
+  //    Credentials controlled by SYSTEM_ADMIN_EMAIL + SYSTEM_ADMIN_PASSWORD env vars.
+  //    All other tenant/user accounts are created through the normal user workflow.
   await seedDemoAccounts();
 
   // 2. Pricing plans — idempotent, safe on every deploy

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useData } from '@/store/DataContext';
@@ -18,7 +18,8 @@ import { ContactFormSheet } from './contact-form';
 import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
 import { PageSizeSelect } from '@/shared/components/page-size-select';
 import { useRouter } from 'next/navigation';
 import { contactsV2Api } from '@/shared/services/contacts-v2.api';
@@ -85,6 +86,7 @@ export default function ContactsPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState(() => getParam('tab') || 'all');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => getParam('search'));
+  const highlightId = getParam('highlight') ?? undefined;
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [contactSelectedIds, setContactSelectedIds] = useState<Set<string>>(new Set());
 
@@ -341,9 +343,6 @@ export default function ContactsPage(): React.ReactElement {
       activeView={'table' as ViewType}
       onViewChange={setActiveView}
 
-      sortableFields={CONTACTS_COLUMN_REGISTRY.map((col) => ({ id: col.id, label: col.label }))}
-      sort={sort}
-      onSortChange={setSort}
       pageSize={pageSize}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
@@ -369,12 +368,25 @@ export default function ContactsPage(): React.ReactElement {
     >
       {/* ── List / Table View — DataGrid ─────────────────── */}
       {(activeView === 'list' || activeView === 'table') && (
+        <>
+          {filteredContacts.length === 0 && (
+            <ActionableEmptyState
+              icon={Users}
+              title={debouncedSearch ? 'No contacts match your search' : 'No contacts yet'}
+              description={
+                debouncedSearch
+                  ? `Try a different search term or clear your filters.`
+                  : 'Add your first contact to start building your CRM.'
+              }
+              actionLabel={!debouncedSearch && canCreate ? 'Add Contact' : undefined}
+              onAction={!debouncedSearch && canCreate ? () => { setEditingContact(undefined); setIsFormOpen(true); } : undefined}
+            />
+          )}
+          {filteredContacts.length > 0 && (
         <ContactsDataGrid
           contacts={paginatedContacts}
           totalRecords={filteredContacts.length}
           effectiveColumns={effectiveColumns}
-          sort={sort}
-          onSortChange={setSort}
           onRowClick={(contact) => setSelectedContact(contact)}
           selectedIds={contactSelectedIds}
           onSelectionChange={setContactSelectedIds}
@@ -406,15 +418,11 @@ export default function ContactsPage(): React.ReactElement {
               toast.error('Failed to hide column. Reverted.');
             }
           }}
+          highlightRowId={highlightId}
           viewMode={viewMode}
-          onColumnReorder={async (columns) => {
-            try {
-              await saveColumns(columns);
-            } catch {
-              toast.error('Failed to save column order. Reverted to previous layout.');
-            }
-          }}
         />
+          )}
+        </>
       )}
 
       {/* ── Bottom Pagination + Per Page ─────────────────────── */}

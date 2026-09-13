@@ -1,11 +1,12 @@
 ﻿'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { Lead, Organization } from '@/store/types';
 import { useData } from '@/store/DataContext';
 import { getCRMStatusStyles } from '@/lib/utils';
 import { AlertTriangle, Archive, Building, Briefcase, Calendar, Edit2, FileText, Mail, MapPin, Phone, Tag, TrendingUp, User } from 'lucide-react';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 
 const formatDate = (dateString: string) => {
   if (!dateString) return '--';
@@ -30,6 +31,9 @@ export function ClientDetailSheet({
   onEdit,
 }: ClientDetailSheetProps) {
   const { deals, pipelines } = useData();
+
+  // ── Archive confirmation state ───────────────────────────────────────────
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const clientName = React.useMemo(() => {
     if (!client) return '';
@@ -75,14 +79,12 @@ export function ClientDetailSheet({
     return stage ? stage.name : 'Unknown Stage';
   };
 
-  const handleArchive = () => {
-    if (window.confirm(`Are you sure you want to archive ${clientName}?`)) {
-      onArchive(client.id, clientType);
-      onClose();
-    }
+  const handleArchive = (): void => {
+    setConfirmOpen(true);
   };
 
   return (
+    <>
     <SlidingDrawer
       isOpen={isOpen}
       onClose={onClose}
@@ -92,14 +94,14 @@ export function ClientDetailSheet({
       headerActions={onEdit ? (
         <button
           onClick={onEdit}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 rounded-lg transition-colors"
         >
           <Edit2 size={13} />
           Edit
         </button>
       ) : undefined}
     >
-      <div className="p-6 md:p-8 overflow-y-auto space-y-8 pb-24 font-sans text-slate-800 dark:text-slate-200">
+      <div className="p-4 sm:p-6 md:p-8 overflow-y-auto space-y-8 pb-24 font-sans text-slate-800 dark:text-slate-200">
         
         {/* Header Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -274,6 +276,21 @@ export function ClientDetailSheet({
         </div>
       </div>
     </SlidingDrawer>
+
+    <ConfirmActionDialog
+      open={confirmOpen}
+      onOpenChange={setConfirmOpen}
+      title="Archive Client"
+      description={`This will archive ${clientName} and hide them from active views.`}
+      warning="Their historical data and associated deals are preserved."
+      confirmLabel="Archive"
+      variant="destructive"
+      onConfirm={async () => {
+        onArchive(client.id, clientType);
+        onClose();
+      }}
+    />
+    </>
   );
 }
 

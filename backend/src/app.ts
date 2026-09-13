@@ -11,8 +11,12 @@ import router from './api/routes/index';
 const app = express();
 
 // ── Trust Render/proxy headers ────────────────────────
-// Required for rate limiting behind Render's load balancer
-app.set('trust proxy', 1);
+// Render routes traffic through multiple proxy hops (Render LB + internal routing).
+// Setting trust proxy: 1 caused Express to read Render's LB IP as the client IP,
+// making ALL users share the same rate-limit bucket — every user on the platform
+// was rate-limited together instead of individually.
+// Setting to true makes Express correctly read the real client IP from X-Forwarded-For.
+app.set('trust proxy', true);
 
 // ── Security Headers (must be first) ─────────────────
 app.use(helmet());

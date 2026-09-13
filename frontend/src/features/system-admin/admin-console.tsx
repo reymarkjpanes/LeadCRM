@@ -88,6 +88,10 @@ export default function AdminConsole({ activeTabProp = 'dashboard' }: AdminConso
         planIndex,
         features:       plan.features.map((f) => ({ ...f })),
         paymentMethods: hydratePaymentMethods(plan.paymentMethods),
+        stripeProductId:        plan.stripeProductId,
+        stripeMonthlyPriceId:   plan.stripeMonthlyPriceId,
+        stripeQuarterlyPriceId: plan.stripeQuarterlyPriceId,
+        stripeAnnualPriceId:    plan.stripeAnnualPriceId,
       };
       setPricingSubView({ kind: 'editor', plan: editorPlan });
       setSubLabel(`Edit ${plan.name}`);

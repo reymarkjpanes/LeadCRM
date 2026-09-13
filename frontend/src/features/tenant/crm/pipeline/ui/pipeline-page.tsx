@@ -25,6 +25,7 @@ import EmptyState from '@/shared/components/empty-state';
 import { DealFormSheet } from '@/features/tenant/crm/deals/ui/deal-form';
 import type { CreateDealFormData, UpdateDealFormData } from '@/features/tenant/crm/deals/ui/deal-form';
 import { PipelineKanbanBoard } from './pipeline-kanban-board';
+import { PipelineMobileList } from './pipeline-mobile-list';
 import { PipelineTableView } from './pipeline-table-view';
 import { PIPELINE_TEMPLATES, STAGE_BADGE_CLASSES, DEFAULT_STAGE_BADGE } from './pipeline-templates';
 import { usePipelineViewMode } from '../hooks/use-pipeline-view-mode';
@@ -530,26 +531,26 @@ export default function PipelinePage({ navigate }: { navigate: (path: string) =>
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
-          className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-semibold rounded-lg border transition-colors ${
+          className={`inline-flex items-center gap-1.5 h-8 min-h-[44px] sm:min-h-0 px-3 text-[12px] font-semibold rounded-lg border transition-colors ${
             isFilterPanelOpen ? 'bg-[#2563EB] text-white border-[#2563EB]' : 'bg-white dark:bg-slate-800 text-[#5A6B85] dark:text-slate-300 border-[#E4E9F0] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
           }`}
         >
           <SlidersHorizontal size={13} />Filter
         </button>
 
-        <button className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+        <button className="inline-flex items-center gap-1.5 h-8 min-h-[44px] sm:min-h-0 px-3 text-[12px] font-medium text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
           <ArrowRight size={13} className="rotate-90" />Sort
         </button>
 
         <div className="inline-flex items-center bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-lg p-0.5">
-          <button onClick={() => handleViewModeChange('kanban')} title="Kanban View" className={`p-1.5 rounded-md transition-colors ${viewMode === 'kanban' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><LayoutGrid size={15} /></button>
-          <button onClick={() => handleViewModeChange('list')} title="List View" className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><List size={15} /></button>
-          <button onClick={() => handleViewModeChange('table')} title="Table View" className={`p-1.5 rounded-md transition-colors ${viewMode === 'table' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><Table size={15} /></button>
+          <button onClick={() => handleViewModeChange('kanban')} title="Kanban View" className={`p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md transition-colors ${viewMode === 'kanban' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><LayoutGrid size={15} /></button>
+          <button onClick={() => handleViewModeChange('list')} title="List View" className={`p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><List size={15} /></button>
+          <button onClick={() => handleViewModeChange('table')} title="Table View" className={`p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md transition-colors ${viewMode === 'table' ? 'bg-[#2563EB] text-white shadow-sm' : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white'}`}><Table size={15} /></button>
         </div>
 
-        <button type="button" onClick={toggleAutomatedOnly} aria-label={isAutomatedOnly ? 'Automation Mode: Active' : 'Automation Mode: Off'} className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-all ${isAutomatedOnly ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 border-blue-200 dark:border-blue-800/60' : 'bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] hover:bg-slate-50'}`}><Shield size={13} /></button>
+        <button type="button" onClick={toggleAutomatedOnly} aria-label={isAutomatedOnly ? 'Automation Mode: Active' : 'Automation Mode: Off'} className={`h-8 w-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg border transition-all ${isAutomatedOnly ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 border-blue-200 dark:border-blue-800/60' : 'bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] hover:bg-slate-50'}`}><Shield size={13} /></button>
 
-        <button className="p-1.5 text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" aria-label="Refresh"><RotateCcw size={15} /></button>
+        <button className="p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" aria-label="Refresh"><RotateCcw size={15} /></button>
 
         <div className="flex-1" />
 
@@ -559,12 +560,12 @@ export default function PipelinePage({ navigate }: { navigate: (path: string) =>
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search deals..."
-            className="h-8 w-48 lg:w-56 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+            className="h-8 w-40 sm:w-48 lg:w-56 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
           />
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" />
         </div>
 
-        <button className="p-1.5 text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" aria-label="Manage columns"><SlidersHorizontal size={15} /></button>
+        <button className="p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" aria-label="Manage columns"><SlidersHorizontal size={15} /></button>
       </div>
 
       {/* ── Main Content ──────────────────────────────────── */}
@@ -602,22 +603,37 @@ export default function PipelinePage({ navigate }: { navigate: (path: string) =>
 
         {/* Kanban View */}
         {viewMode === 'kanban' && activePipeline && (
-          <ModuleErrorBoundary fallbackLabel="Kanban Board">
-            <PipelineKanbanBoard
-              pipeline={activePipeline}
-              deals={USE_MOCK_DATA ? pipelineDeals : (paginatedDeals.length > 0 ? paginatedDeals : pipelineDeals)}
-              users={users}
-              canCreate={canCreateDeal}
-              canEdit={canEditDeal && !isAutomatedOnly}
-              canDelete={canDeleteDeal}
-              currencyConfig={tenantCurrency}
-              onDealClick={(deal) => setSelectedDealId(deal.id)}
-              onDealDragEnd={handleDealDragEnd}
-              onAddDeal={handleAddDealFromStage}
-              onLoadMore={handleLoadMore}
-              loadingStages={paginationLoadingStages}
-              hasMoreByStage={hasMoreByStage}
-            />
+          <ModuleErrorBoundary fallbackLabel="Pipeline Board">
+            {/* Mobile (<lg): collapsible stage-grouped deal list */}
+            <div className="lg:hidden overflow-y-auto flex-1">
+              <PipelineMobileList
+                pipeline={activePipeline}
+                deals={USE_MOCK_DATA ? pipelineDeals : (paginatedDeals.length > 0 ? paginatedDeals : pipelineDeals)}
+                users={users}
+                currencyConfig={tenantCurrency}
+                canCreate={canCreateDeal}
+                onDealClick={(deal) => setSelectedDealId(deal.id)}
+                onAddDeal={handleAddDealFromStage}
+              />
+            </div>
+            {/* Desktop (≥lg): full Kanban board */}
+            <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
+              <PipelineKanbanBoard
+                pipeline={activePipeline}
+                deals={USE_MOCK_DATA ? pipelineDeals : (paginatedDeals.length > 0 ? paginatedDeals : pipelineDeals)}
+                users={users}
+                canCreate={canCreateDeal}
+                canEdit={canEditDeal && !isAutomatedOnly}
+                canDelete={canDeleteDeal}
+                currencyConfig={tenantCurrency}
+                onDealClick={(deal) => setSelectedDealId(deal.id)}
+                onDealDragEnd={handleDealDragEnd}
+                onAddDeal={handleAddDealFromStage}
+                onLoadMore={handleLoadMore}
+                loadingStages={paginationLoadingStages}
+                hasMoreByStage={hasMoreByStage}
+              />
+            </div>
           </ModuleErrorBoundary>
         )}
 

@@ -83,7 +83,7 @@ vi.mock('@/store/DataContext', () => ({
 
 vi.mock('@/store/AuthContext', () => ({
   useAuth: () => ({
-    user: { id: 'u-1', role: 'Admin', email: 'admin@test.com' },
+    user: { id: 'u-1', role: 'Client Admin', email: 'admin@test.com' },
   }),
 }));
 

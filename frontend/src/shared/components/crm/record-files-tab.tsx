@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/shared/components/ui/button';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import type { PermissionKey } from '@leadcrm/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -152,11 +153,16 @@ interface FileRowProps {
 
 function FileRow({ file, canDelete, onDelete }: FileRowProps): React.ReactElement {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const Icon = getFileIcon(file.type);
 
-  const handleDelete = async (): Promise<void> => {
+  const handleDeleteClick = (): void => {
     if (!onDelete) return;
-    if (!window.confirm(`Delete "${file.name}"?`)) return;
+    setConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = async (): Promise<void> => {
+    if (!onDelete) return;
     setIsDeleting(true);
     try {
       await onDelete(file.id);
@@ -169,49 +175,63 @@ function FileRow({ file, canDelete, onDelete }: FileRowProps): React.ReactElemen
   };
 
   return (
-    <div className={cn(
-      'flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors group',
-      isDeleting && 'opacity-50'
-    )}>
-      {/* File icon */}
-      <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-        <Icon className="h-4.5 w-4.5 text-muted-foreground" />
+    <>
+      <div className={cn(
+        'flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors group',
+        isDeleting && 'opacity-50 pointer-events-none',
+      )}>
+        {/* File icon */}
+        <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+          <Icon className="h-4.5 w-4.5 text-muted-foreground" />
+        </div>
+
+        {/* File info */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {formatFileSize(file.size)} · {formatDate(file.uploadedAt)}
+            {file.uploadedBy && ` · ${file.uploadedBy}`}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {file.url && (
+            <a
+              href={file.url}
+              download={file.name}
+              className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-accent transition-colors"
+              aria-label={`Download ${file.name}`}
+            >
+              <Download className="h-3.5 w-3.5 text-muted-foreground" />
+            </a>
+          )}
+          {canDelete && onDelete && (
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              disabled={isDeleting}
+              className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={`Delete ${file.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* File info */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {formatFileSize(file.size)} · {formatDate(file.uploadedAt)}
-          {file.uploadedBy && ` · ${file.uploadedBy}`}
-        </p>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        {file.url && (
-          <a
-            href={file.url}
-            download={file.name}
-            className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-accent transition-colors"
-            aria-label={`Download ${file.name}`}
-          >
-            <Download className="h-3.5 w-3.5 text-muted-foreground" />
-          </a>
-        )}
-        {canDelete && onDelete && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-destructive/10 transition-colors"
-            aria-label={`Delete ${file.name}`}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-          </button>
-        )}
-      </div>
-    </div>
+      <ConfirmActionDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Delete File"
+        description={`Delete "${file.name}"?`}
+        warning="This file will be permanently removed."
+        confirmLabel="Delete"
+        variant="destructive"
+        isLoading={isDeleting}
+        onConfirm={handleDeleteConfirm}
+      />
+    </>
   );
 }
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LeadsDataGrid — Leads table implemented with the shared DataGrid component.
  *
  * Close.com-style features:
@@ -71,9 +71,9 @@ interface LeadsDataGridProps {
   /** Column preferences from useColumnPreferences */
   effectiveColumns: ColumnConfigItem[];
   /** Current sort state */
-  sort: SortState | null;
+  sort?: SortState | null;
   /** Sort change handler */
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange?: (sort: SortState | null) => void;
   /** Row click → open detail drawer */
   onRowClick: (lead: Lead) => void;
   /** Selected row IDs */
@@ -105,8 +105,8 @@ interface LeadsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
-  /** Column reorder handler — called when user drag-drops a column header */
-  onColumnReorder?: (columns: ColumnConfigItem[]) => void;
+  /** Row ID to highlight (navigated from global search) */
+  highlightRowId?: string;
 }
 
 // ─── Status Variant Map (uses shared LEAD_STATUS_VARIANTS) ───────────────────
@@ -117,7 +117,7 @@ export function LeadsDataGrid({
   leads,
   totalRecords,
   effectiveColumns,
-  sort,
+  sort = null,
   onSortChange,
   onRowClick,
   selectedIds,
@@ -135,7 +135,7 @@ export function LeadsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
-  onColumnReorder,
+  highlightRowId,
 }: LeadsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -427,16 +427,14 @@ export function LeadsDataGrid({
         onSortChange={onSortChange}
         onRowClick={onRowClick}
         quickActions={quickActions}
-        enableColumnMenu
         onHideColumn={onHideColumn}
         rowActions={getRowActions}
         onSettingsClick={onManageColumns}
         summaryLabel={`${totalRecords} total records`}
         emptyMessage="No leads found. Adjust your filters or create a new lead."
         ariaLabel="Leads data grid"
+        highlightRowId={highlightRowId}
         viewMode={viewMode}
-        onColumnReorder={onColumnReorder}
-        effectiveColumns={effectiveColumns}
       />
     </div>
   );

@@ -126,11 +126,11 @@ async function main() {
   // ── Tasks ──────────────────────────────────────────────────────────
   await prisma.task.createMany({
     data: [
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Follow up with Anna Reyes re: Enterprise demo', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 2 * 86400000), contactId: contacts[0].id, dealId: deals[0].id },
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Prepare proposal document for Nexwave', status: 'in-progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), contactId: contacts[1].id, dealId: deals[1].id },
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Contract negotiation call — CloudPH', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 1 * 86400000), contactId: contacts[2].id, dealId: deals[2].id },
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Send onboarding docs — CloudPH Won', status: 'completed', priority: 'Medium', dueDate: new Date(Date.now() - 3 * 86400000), contactId: contacts[7].id, dealId: deals[4].id },
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'LinkedIn outreach — Jerico Tan', status: 'pending', priority: 'Low', dueDate: new Date(Date.now() + 7 * 86400000), contactId: contacts[5].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Follow up with Anna Reyes re: Enterprise demo', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 2 * 86400000), customerId: contacts[0].id, dealId: deals[0].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Prepare proposal document for Nexwave', status: 'in-progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), customerId: contacts[1].id, dealId: deals[1].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Contract negotiation call — CloudPH', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 1 * 86400000), customerId: contacts[2].id, dealId: deals[2].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Send onboarding docs — CloudPH Won', status: 'completed', priority: 'Medium', dueDate: new Date(Date.now() - 3 * 86400000), customerId: contacts[7].id, dealId: deals[4].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'LinkedIn outreach — Jerico Tan', status: 'pending', priority: 'Low', dueDate: new Date(Date.now() + 7 * 86400000), customerId: contacts[5].id },
     ],
   });
   console.log('[Seed] Tasks created.');
@@ -138,11 +138,11 @@ async function main() {
   // ── Activities ─────────────────────────────────────────────────────
   await prisma.activity.createMany({
     data: [
-      { tenantId: TENANT_ID, createdById: USER_ID, type: 'call',         title: 'Discovery call with Anna Reyes',       description: 'Discussed CRM Enterprise requirements and budget.',     contactId: contacts[0].id, dealId: deals[0].id },
-      { tenantId: TENANT_ID, createdById: USER_ID, type: 'email',        title: 'Proposal sent to Marco Dela Cruz',     description: 'Sent CRM Pro pricing proposal.',                        contactId: contacts[1].id, dealId: deals[1].id },
-      { tenantId: TENANT_ID, createdById: USER_ID, type: 'meeting',      title: 'Product demo — CloudPH Telecom',       description: 'Conducted full product demo for procurement team.',     contactId: contacts[2].id, dealId: deals[2].id },
-      { tenantId: TENANT_ID, createdById: USER_ID, type: 'note',         title: 'Note: Danilo Cruz onboarded',          description: 'Customer signed contract and onboarding started.',      contactId: contacts[7].id, dealId: deals[4].id },
-      { tenantId: TENANT_ID, createdById: USER_ID, type: 'stage_change', title: 'Deal moved to Negotiation',            description: 'CloudPH deal advanced to negotiation stage.',           contactId: contacts[2].id, dealId: deals[2].id },
+      { tenantId: TENANT_ID, createdById: USER_ID, type: 'call',         title: 'Discovery call with Anna Reyes',       description: 'Discussed CRM Enterprise requirements and budget.',     customerId: contacts[0].id, dealId: deals[0].id },
+      { tenantId: TENANT_ID, createdById: USER_ID, type: 'email',        title: 'Proposal sent to Marco Dela Cruz',     description: 'Sent CRM Pro pricing proposal.',                        customerId: contacts[1].id, dealId: deals[1].id },
+      { tenantId: TENANT_ID, createdById: USER_ID, type: 'meeting',      title: 'Product demo — CloudPH Telecom',       description: 'Conducted full product demo for procurement team.',     customerId: contacts[2].id, dealId: deals[2].id },
+      { tenantId: TENANT_ID, createdById: USER_ID, type: 'note',         title: 'Note: Danilo Cruz onboarded',          description: 'Customer signed contract and onboarding started.',      customerId: contacts[7].id, dealId: deals[4].id },
+      { tenantId: TENANT_ID, createdById: USER_ID, type: 'stage_change', title: 'Deal moved to Negotiation',            description: 'CloudPH deal advanced to negotiation stage.',           customerId: contacts[2].id, dealId: deals[2].id },
     ],
   });
   console.log('[Seed] Activities created.');

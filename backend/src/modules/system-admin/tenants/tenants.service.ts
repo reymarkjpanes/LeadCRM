@@ -4,6 +4,7 @@ import { hashPassword } from '../../../shared/helpers/crypto';
 import { AppError } from '../../../shared/errors/app-error';
 import { ConflictError, NotFoundError } from '../../../shared/errors/http-error';
 import { activateTenantSubscription } from '../../billing/subscriptions/subscription-activation.service';
+import { Role } from '../../../shared/constants/roles';
 import type { CreateTenantDto } from './tenants.dto';
 
 function createSlug(name: string): string {
@@ -134,13 +135,16 @@ export async function createTenant(dto: CreateTenantDto, actorId: string) {
 
     const user = await tx.user.create({
       data: {
-        tenantId: tenant.id,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
+        tenantId:      tenant.id,
+        firstName:     dto.firstName,
+        lastName:      dto.lastName,
         email,
         passwordHash,
-        role: 'Client Admin',
-        status: 'ACTIVE',
+        role:          Role.CLIENT_ADMIN,
+        status:        'ACTIVE',
+        // System Admin is explicitly creating a pre-verified, active account —
+        // email verification is not required for admin-provisioned tenants.
+        emailVerified: new Date(),
       },
       select: { id: true, email: true, firstName: true, lastName: true, role: true },
     });

@@ -14,5 +14,5 @@ export async function updateTemplate(req: Request, res: Response, next: NextFunc
   try { res.json({ success: true, data: await service.updateTemplate(String(req.params.id), req.user!.tenantId, req.user!.userId, req.body) }); } catch (e) { next(e); }
 }
 export async function archiveTemplate(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try { await service.archiveTemplate(String(req.params.id), req.user!.tenantId, req.user!.userId); res.status(204).send(); } catch (e) { next(e); }
+  try { await service.archiveTemplate(String(req.params.id), req.user!.tenantId, req.user!.userId); res.json({ success: true }); } catch (e) { next(e); }
 }

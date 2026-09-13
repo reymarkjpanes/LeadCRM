@@ -1,10 +1,14 @@
 ﻿import * as repo from './roles.repository';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ForbiddenError, ConflictError } from '../../../shared/errors/http-error';
+import { isSuperRole as checkIsSuperRole } from '../../../shared/utils/is-super-role';
 import type { CreateRoleDto, UpdateRoleDto, AssignRoleDto } from './roles.dto';
 
 // Reserved names that cannot be used for custom roles (case-insensitive).
-const RESERVED_ROLE_NAMES = ['admin', 'super user', 'user', 'restricted user', 'client admin', 'system admin'];
+// Includes legacy role names to prevent re-creation of removed system roles.
+const RESERVED_ROLE_NAMES = [
+  'user', 'guest', 'client admin', 'system admin',
+];
 
 function isReservedName(name: string): boolean {
   return RESERVED_ROLE_NAMES.includes(name.toLowerCase().trim());
@@ -140,11 +144,8 @@ export async function getUserPermissions(
   userRole?: string,
 ): Promise<Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>> {
   const FULL_ACCESS = { canView: true, canCreate: true, canEdit: true, canDelete: true };
-  const superRoles = ['Admin', 'Super User', 'Client Admin', 'System Admin', 'client_admin', 'clientadmin', 'superuser', 'systemadmin', 'admin'];
-  const normalizedRole = (userRole ?? '').toLowerCase().replace(/[\s_\-]/g, '');
-  const isSuperRole = superRoles.some(r => r.toLowerCase().replace(/[\s_\-]/g, '') === normalizedRole);
 
-  if (isSuperRole) {
+  if (checkIsSuperRole(userRole ?? '')) {
     const modules = ['dashboard','contacts','accounts','deals','tasks','campaigns','workflows','settings','users','roles','reports','billing','audit'];
     return Object.fromEntries(modules.map(m => [m, FULL_ACCESS]));
   }
