@@ -90,6 +90,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isEmailChecking, setIsEmailChecking] = useState(false);
 
   // Fetch sandbox configuration on mount
   React.useEffect(() => {
@@ -108,14 +109,20 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
     fetchSandboxInfo();
   }, []);
 
-  // Debounced email checking while typing
+  // Debounced email duplicate check — fires 500 ms after the user stops typing
+  // a syntactically valid email address.
   React.useEffect(() => {
-    if (!formData.email) return;
-    const validator = FIELD_VALIDATORS.email;
-    const message = validator?.(formData.email, formData);
-    if (message) return; // invalid format, don't check API yet
+    // Reset checking indicator whenever the email value changes
+    setIsEmailChecking(false);
 
-    const delayDebounceFn = setTimeout(async () => {
+    if (!formData.email) return;
+
+    const isFormatValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email);
+    if (!isFormatValid) return; // wait for a valid format before hitting the API
+
+    setIsEmailChecking(true);
+
+    const timerId = setTimeout(async () => {
       try {
         const response = await authApi.checkEmail(formData.email);
         if (response?.data?.exists) {
@@ -129,12 +136,17 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
             return next;
           });
         }
-      } catch (err) {
-        // Silently fail
+      } catch {
+        // Non-blocking — duplicate check failure should not block registration
+      } finally {
+        setIsEmailChecking(false);
       }
     }, 500);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      clearTimeout(timerId);
+      setIsEmailChecking(false);
+    };
   }, [formData.email]);
 
   const handleChange = (field: string, value: string) => {
@@ -544,10 +556,21 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
                   onChange={(e) => handleChange('email', e.target.value)}
                   onBlur={() => handleBlur('email')}
                   aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? 'email-error' : undefined}
                   className={inputClass(!!errors.email)}
                   placeholder="john@company.com"
                 />
-                {errors.email && <p className="text-xs text-red-500 mt-1.5">{errors.email}</p>}
+                {isEmailChecking && !errors.email && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" aria-hidden="true" />
+                    Checking availability...
+                  </p>
+                )}
+                {errors.email && (
+                  <p id="email-error" role="alert" className="text-xs text-red-500 mt-1.5">
+                    {errors.email}
+                  </p>
+                )}
                 {isDevelopment && isSandboxMode && formData.email && !sandboxEmails.includes(formData.email) && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                     ⚠️ Email verification will only work with: {sandboxEmails.join(', ')}
@@ -610,7 +633,7 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || isEmailChecking}
                 className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isLoading ? 'Creating Account...' : 'Create Account'}
