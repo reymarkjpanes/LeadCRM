@@ -131,10 +131,25 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   };
 
   // Validate a single field on blur and show its error inline.
-  const handleBlur = (field: string) => {
+  const handleBlur = async (field: string) => {
     const validator = FIELD_VALIDATORS[field];
     if (!validator) return;
-    const message = validator(formData[field as keyof typeof formData], formData);
+    const value = formData[field as keyof typeof formData];
+    const message = validator(value, formData);
+
+    // If local validation passes and it's the email field, check if it's already in use
+    if (!message && field === 'email' && value) {
+      try {
+        const response = await authApi.checkEmail(value);
+        if (response?.data?.exists) {
+          setErrors(prev => ({ ...prev, [field]: 'This email address is already in use.' }));
+          return;
+        }
+      } catch (err) {
+        // Silently fail checking here, submit will catch it anyway if there's a network error
+      }
+    }
+
     setErrors(prev => {
       const updated = { ...prev };
       if (message) updated[field] = message; else delete updated[field];
