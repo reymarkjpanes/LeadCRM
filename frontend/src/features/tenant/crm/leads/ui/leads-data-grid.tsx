@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LeadsDataGrid — Leads table implemented with the shared DataGrid component.
  *
  * Close.com-style features:
@@ -105,6 +105,8 @@ interface LeadsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
+  /** Row ID to highlight (navigated from global search) */
+  highlightRowId?: string;
 }
 
 // ─── Status Variant Map (uses shared LEAD_STATUS_VARIANTS) ───────────────────
@@ -133,6 +135,7 @@ export function LeadsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
+  highlightRowId,
 }: LeadsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -430,6 +433,7 @@ export function LeadsDataGrid({
         summaryLabel={`${totalRecords} total records`}
         emptyMessage="No leads found. Adjust your filters or create a new lead."
         ariaLabel="Leads data grid"
+        highlightRowId={highlightRowId}
         viewMode={viewMode}
       />
     </div>

@@ -589,8 +589,10 @@ export async function resendVerification(req: Request, res: Response, next: Next
     });
 
     // Send combined verification email
-    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
-    const verificationUrl = `${appUrl}/api/v1/auth/verify-email?token=${token}`;
+    // BACKEND_URL is the base URL of this Express server.
+    // The /api/v1/auth/verify-email route lives on the backend, NOT on the frontend (APP_URL).
+    const backendUrl = process.env.BACKEND_URL ?? `http://localhost:${process.env.PORT ?? 4000}`;
+    const verificationUrl = `${backendUrl}/api/v1/auth/verify-email?token=${token}`;
 
     await sendMail({
       to: email,

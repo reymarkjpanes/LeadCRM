@@ -1,7 +1,7 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, Bell, Mail } from 'lucide-react';
+import { Menu, Bell, Mail, Search } from 'lucide-react';
 import { useNotifications } from '@/features/tenant/notifications/hooks/use-notifications';
 import { getGmailStatus, fetchGmailEmails } from '@/features/tenant/inbox/services/gmail.service';
 import { useLayout, NAV_ITEMS } from './use-layout';
@@ -9,17 +9,18 @@ import { useAuth } from '@/store/AuthContext';
 import { usePathname } from 'next/navigation';
 import NotificationsDropdown from '@/features/tenant/notifications/ui/notifications-dropdown';
 import { GlobalOmnibox } from '@/shared/components/global-omnibox';
+import { MobileSearchOverlay } from '@/shared/components/mobile-search-overlay';
 import { UserProfileDropdown } from './user-profile-dropdown';
 import { cn } from '@/lib/utils';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// -- Types ---------------------------------------------------------------------
 
 interface TopbarProps {
   onOpenSidebar: () => void;
   onOpenInbox: () => void;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// -- Component -----------------------------------------------------------------
 
 export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): React.ReactElement {
   const { unreadCount: notificationCount } = useNotifications();
@@ -28,11 +29,12 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
   const pathname = usePathname();
   const [inboxCount, setInboxCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [settingsBreadcrumb, setSettingsBreadcrumb] = useState<{ group: string; tab: string }>({ group: 'General', tab: 'Profile Settings' });
   const notificationButtonRef = useRef<HTMLButtonElement>(null!);
 
   // isSandbox: derived from server-backed tenantStatus (SANDBOX = pre-subscription).
-  // Reads from user.tenantStatus — same source sidebar uses correctly.
+  // Reads from user.tenantStatus � same source sidebar uses correctly.
   // Never reads tenant.environment which was previously hardcoded to 'production'.
   const isSandbox = (user as any)?.tenantStatus === 'SANDBOX';
 
@@ -51,7 +53,7 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
           setInboxCount(result.emails.length);
         }
       })
-      .catch(() => { /* silently ignore — Gmail may not be connected */ });
+      .catch(() => { /* silently ignore � Gmail may not be connected */ });
 
     return () => { isMounted = false; };
   }, []);
@@ -90,14 +92,24 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
 
   return (
     <header className="h-[52px] bg-[var(--surface)] border-b border-[var(--border)] flex items-center justify-between px-4 lg:px-5 shrink-0 sticky top-0 z-40 transition-colors duration-200">
-      {/* Left: Mobile hamburger + Breadcrumb */}
-      <div className="flex items-center gap-3 flex-1 min-w-0">
+      {/* Left: Mobile hamburger + Mobile search + Breadcrumb */}
+      <div className="flex items-center gap-1 flex-1 min-w-0">
         <button
-          className="lg:hidden text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1.5 rounded-lg transition-colors"
+          className="lg:hidden text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors"
           onClick={onOpenSidebar}
           aria-label="Open sidebar"
         >
           <Menu size={18} />
+        </button>
+
+        {/* Mobile search trigger — in left group so it stays clearly separate from right icons */}
+        <button
+          type="button"
+          className="md:hidden flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)] transition-colors"
+          onClick={() => setIsMobileSearchOpen(true)}
+          aria-label="Search"
+        >
+          <Search size={16} />
         </button>
 
         {/* Breadcrumb */}
@@ -135,12 +147,12 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-1.5 flex-1 justify-end">
+      <div className="flex items-center gap-1.5 flex-none md:flex-1 justify-end">
         {/* Inbox (Gmail) */}
         <button
           onClick={onOpenInbox}
           className={cn(
-            'relative w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+            'relative w-8 h-8 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center transition-colors',
             currentPath === 'inbox'
               ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
               : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]',
@@ -161,7 +173,7 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
           ref={notificationButtonRef}
           onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
           className={cn(
-            'relative w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+            'relative w-8 h-8 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center transition-colors',
             isNotificationsOpen
               ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
               : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]',
@@ -178,8 +190,8 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
         {/* Sandbox Indicator */}
         {isSandbox && (
           <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold tracking-wide uppercase"
-            title="Sandbox environment — test data only"
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold tracking-wide uppercase"
+            title="Sandbox environment � test data only"
             aria-label="Sandbox environment"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
@@ -198,6 +210,12 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
         triggerRef={notificationButtonRef}
+      />
+
+      {/* Mobile Search Overlay � fullscreen search panel for <md viewports */}
+      <MobileSearchOverlay
+        isOpen={isMobileSearchOpen}
+        onClose={() => setIsMobileSearchOpen(false)}
       />
     </header>
   );

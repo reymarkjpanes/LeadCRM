@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AccountsDataGrid — Accounts table implemented with the shared DataGrid component.
  *
  * This replaces the legacy flex-based inline layout for the "table" view type,
@@ -68,6 +68,8 @@ interface AccountsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
+  /** Row ID to highlight (navigated from global search) */
+  highlightRowId?: string;
 }
 
 // ─── Account Type Variant (uses shared ACCOUNT_TYPE_VARIANTS) ────────────────
@@ -91,6 +93,7 @@ export function AccountsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
+  highlightRowId,
 }: AccountsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -235,6 +238,7 @@ export function AccountsDataGrid({
       summaryLabel={`${totalRecords} total records`}
       emptyMessage="No accounts found. Adjust your filters or create a new account."
       ariaLabel="Accounts data grid"
+      highlightRowId={highlightRowId}
       viewMode={viewMode}
     />
   );

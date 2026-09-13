@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DataGrid Types — Core type definitions for the reusable data-grid component.
  *
  * This is the canonical type source for the entire DataGrid system.
@@ -217,6 +217,12 @@ export interface DataGridProps<T = Record<string, unknown>> {
   // ─── Hidden Columns Indicator ─────────────────────────────────────────
   /** Count of columns auto-hidden by the responsive column strategy */
   hiddenColumnsCount?: number;
+
+  // u{2500}u{2500}u{2500} Row Highlight u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}u{2500}
+  /** ID of a single row to highlight (e.g. navigated from global search).
+   *  The highlighted row gets a blue ring + tinted background and auto-scrolls
+   *  into view on mount. Highlight fades after 2.5 s. */
+  highlightRowId?: string;
 }
 
 // ─── Empty State Types ────────────────────────────────────────────────────────

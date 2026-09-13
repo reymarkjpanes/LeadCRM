@@ -344,15 +344,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (!user) return;
 
       try {
-        // Batch 1 — core CRM (already migrated)
-        const [contactsRes, orgsRes, dealsRes, pipelinesRes, activitiesRes, usersRes, rolesRes] = await Promise.all([
+        // Batch 1 — core CRM data (roles excluded — admin-only, 403 for Guest)
+        // usersService.getRoles() requires roles.manage which Guest does not have.
+        // Moving it to a separate non-blocking call prevents a 403 from killing
+        // the entire Batch 1 load (contacts, deals, pipelines, users).
+        const [contactsRes, orgsRes, dealsRes, pipelinesRes, activitiesRes, usersRes] = await Promise.all([
           contactsService.getAll({ limit: 100 }),
           organizationsService.getAll({ limit: 100 }),
           pipelineService.getDeals(undefined, 100),
           pipelineService.getPipelines(),
           activitiesService.getAll({ limit: 50 }),
           usersService.getAll({ limit: 200 }),
-          usersService.getRoles(),
         ]);
 
         const apiContacts   = (contactsRes?.data ?? []).map(toFrontendContact);
@@ -363,7 +365,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
           : ((pipelinesRes as any)?.data ? [(pipelinesRes as any).data].map(toFrontendPipeline) : []);
         const apiActivities = activitiesRes?.data ?? [];
         const apiUsers      = usersRes?.data ?? [];
-        const apiRoles      = rolesRes?.data ?? [];
 
         setContacts((apiContacts as Contact[]).filter((c: any) => !c.isArchived));
         setOrganizations((apiOrgs as Organization[]).filter((o: any) => !o.isArchived));
@@ -371,7 +372,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setPipelines((apiPipelines as Pipeline[]).filter((p: any) => !p.isArchived));
         setActivities(apiActivities as unknown as Activity[]);
         setUsers((apiUsers as any[]).filter((u: any) => !u.isArchived));
-        setRoles((apiRoles as any[]).filter((r: any) => !r.isArchived));
       } catch (err) {
         console.error('[DataContext] Failed to load CRM data from API:', err);
         // RC-03 fix: surface genuine transport failures as a user-visible toast so
@@ -381,6 +381,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (err instanceof Error && !err.message.includes('403')) {
           toast.error('Failed to load data. Please refresh the page.');
         }
+      }
+
+      // Batch 1b — admin-only data (roles). Silently ignored for non-admin roles
+      // such as Guest (sandbox) which lack roles.manage permission.
+      try {
+        const rolesRes = await usersService.getRoles();
+        const apiRoles = rolesRes?.data ?? [];
+        setRoles((apiRoles as any[]).filter((r: any) => !r.isArchived));
+      } catch {
+        // 403 for Guest/User roles is expected — leave roles as empty array
+        setRoles([]);
       }
 
       // ── Column Preferences (Batch 1 addition) ─────────────────────────────

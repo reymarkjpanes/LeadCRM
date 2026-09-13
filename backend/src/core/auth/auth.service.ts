@@ -305,8 +305,11 @@ async function generateVerificationCredentials(email: string, userId: string): P
  * Logs prominently on failure so the issue is visible in production logs.
  */
 async function sendVerificationEmail(email: string, token: string, otpCode: string): Promise<boolean> {
-  const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
-  const verificationUrl = `${appUrl}/api/v1/auth/verify-email?token=${token}`;
+  // BACKEND_URL is the base URL of this Express server (e.g. https://leadcrm-backend-os8d.onrender.com).
+  // The /api/v1/auth/verify-email route lives on the backend, NOT on the frontend (APP_URL).
+  // Using APP_URL here produces a broken link pointing to Vercel instead of the backend.
+  const backendUrl = process.env.BACKEND_URL ?? `http://localhost:${process.env.PORT ?? 4000}`;
+  const verificationUrl = `${backendUrl}/api/v1/auth/verify-email?token=${token}`;
 
   try {
     await sendMail({
@@ -323,7 +326,7 @@ async function sendVerificationEmail(email: string, token: string, otpCode: stri
     console.error(
       `[Auth] ⚠️  FAILED to send verification email to ${email}. User is stuck in PENDING status.\n` +
       `[Auth] Error: ${message}\n` +
-      `[Auth] Check: GMAIL_SYSTEM_SENDER_USER_ID, ENCRYPTION_KEY, RESEND_API_KEY env vars on Render.`,
+      `[Auth] Check: BREVO_API_KEY, BREVO_FROM_EMAIL env vars on Render.`,
     );
     return false;
   }

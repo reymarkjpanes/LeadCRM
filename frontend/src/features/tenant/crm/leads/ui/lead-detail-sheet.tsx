@@ -94,14 +94,14 @@ export function ClientDetailSheet({
       headerActions={onEdit ? (
         <button
           onClick={onEdit}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 rounded-lg transition-colors"
         >
           <Edit2 size={13} />
           Edit
         </button>
       ) : undefined}
     >
-      <div className="p-6 md:p-8 overflow-y-auto space-y-8 pb-24 font-sans text-slate-800 dark:text-slate-200">
+      <div className="p-4 sm:p-6 md:p-8 overflow-y-auto space-y-8 pb-24 font-sans text-slate-800 dark:text-slate-200">
         
         {/* Header Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -558,7 +558,74 @@ export function ModuleWorkspace({
 
       {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 gap-0">
-        {/* Filter Rail */}
+        {/* Filter Rail — backdrop for mobile */}
+        {showFilters && filterGroups && (
+          <div
+            className="fixed inset-0 z-30 bg-black/30 sm:hidden"
+            onClick={onToggleFilters}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Filter Rail — mobile: fixed overlay slide-in from left (hidden on sm+) */}
+        <AnimatePresence>
+          {showFilters && filterGroups && (
+            <motion.aside
+              initial={{ x: -260, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -260, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 z-40 w-[260px] sm:hidden shadow-2xl"
+            >
+              <div className="w-full h-full flex flex-col bg-white dark:bg-slate-800 border-r border-[#E4E9F0] dark:border-slate-700 overflow-hidden">
+                {/* Filter header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
+                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
+                    Filter by
+                  </span>
+                  <button
+                    onClick={onToggleFilters}
+                    className="p-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
+                    aria-label="Close filters"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {/* Filter search */}
+                <div className="px-3 py-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={filterSearchTerm}
+                      onChange={(e) => onFilterSearch?.(e.target.value)}
+                      placeholder="Search filters"
+                      aria-label="Search filters"
+                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
+                    />
+                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
+                  </div>
+                </div>
+                {/* Filter groups */}
+                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
+                  {filterGroups.map((group) => (
+                    <FilterGroupSection
+                      key={group.id}
+                      group={group}
+                      filterSearchTerm={filterSearchTerm}
+                      onToggle={onFilterToggle}
+                    />
+                  ))}
+                </div>
+                {/* Footer */}
+                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
+                  {totalRecords} records in this module
+                </div>
+              </div>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* Filter Rail — desktop: inline side panel animates width (hidden on mobile) */}
         <AnimatePresence>
           {showFilters && filterGroups && (
             <motion.aside
@@ -566,7 +633,7 @@ export function ModuleWorkspace({
               animate={{ width: 260, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="shrink-0 overflow-hidden"
+              className="hidden sm:block shrink-0 overflow-hidden"
             >
               <div className="w-[260px] h-full flex flex-col bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl mr-3 overflow-hidden">
                 {/* Filter header */}
@@ -923,7 +990,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
         onClick={() => !isFirstPage && onPageChange(currentPage - 1)}
         disabled={isFirstPage}
         className={cn(
-          'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+          'inline-flex items-center justify-center w-7 h-7 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md border transition-colors',
           isFirstPage
             ? 'border-[#E4E9F0] dark:border-slate-700 text-[#C5CDD8] dark:text-slate-600 cursor-not-allowed'
             : 'border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-[#0F172A] dark:hover:text-white',
@@ -936,7 +1003,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
         onClick={() => !isLastPage && onPageChange(currentPage + 1)}
         disabled={isLastPage}
         className={cn(
-          'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+          'inline-flex items-center justify-center w-7 h-7 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-md border transition-colors',
           isLastPage
             ? 'border-[#E4E9F0] dark:border-slate-700 text-[#C5CDD8] dark:text-slate-600 cursor-not-allowed'
             : 'border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-[#0F172A] dark:hover:text-white',

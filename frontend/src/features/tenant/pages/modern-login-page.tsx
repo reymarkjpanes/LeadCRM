@@ -188,7 +188,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
   if (authView === 'reset') {
     return (
       <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-gray-200 dark:border-white/5 shadow-xl">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl border border-gray-200 dark:border-white/5 shadow-xl">
           <div className="flex flex-col items-center mb-8">
             <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-lg ring-1 ring-slate-200 dark:ring-slate-700 flex items-center justify-center mb-4">
               <img 
@@ -335,7 +335,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
         </div>
 
         {/* Right side - Confirmation */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
           <div className="w-full max-w-md space-y-6 text-center">
             <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-200 dark:border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto">
               <CheckCircle2 className="text-emerald-600 dark:text-emerald-400" size={40} />
@@ -414,7 +414,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
         </div>
 
         {/* Right side - Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
           <div className="w-full max-w-md space-y-6">
             <button
               onClick={() => { setAuthView('login'); setError(''); }}
@@ -528,7 +528,7 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
       </div>
 
       {/* Right side - Login form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-slate-950">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 bg-white dark:bg-slate-950">
         <div className="w-full max-w-md space-y-8">
           {/* Header */}
           <div>

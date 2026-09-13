@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Mail, Phone, ExternalLink, X, ChevronDown, User, Building, Briefcase, Target, Tag } from 'lucide-react';
@@ -10,7 +10,11 @@ import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
 
 type ScopedModule = 'all' | 'leads' | 'contacts' | 'accounts' | 'deals';
 
-export function GlobalOmnibox() {
+interface GlobalOmniboxProps {
+  autoFocus?: boolean;
+}
+
+export function GlobalOmnibox({ autoFocus = false }: GlobalOmniboxProps) {
   const [query, setQuery] = useState('');
   const [module, setModule] = useState<ScopedModule>('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -53,6 +57,20 @@ export function GlobalOmnibox() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // 2. autoFocus — when used inside MobileSearchOverlay, focus the input on mount
+  useEffect(() => {
+    if (!autoFocus) return;
+    const timer = setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        setIsDropdownOpen(true);
+        setIsFocused(true);
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
 
   // Close on outside click
   useEffect(() => {
@@ -185,7 +203,7 @@ export function GlobalOmnibox() {
                     {results.leads.map((lead) => (
                       <div
                         key={lead.id}
-                        onClick={() => { router.push(`/leads?search=${encodeURIComponent(lead.leadPerson ?? lead.displayName ?? '')}`); setIsDropdownOpen(false); }}
+                        onClick={() => { router.push(`/crm/leads?search=${encodeURIComponent(lead.leadPerson ?? lead.displayName ?? '')}&highlight=${encodeURIComponent(lead.id)}`); setIsDropdownOpen(false); }}
                         className="group flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
                       >
                         <div className="min-w-0 flex-1">
@@ -217,7 +235,7 @@ export function GlobalOmnibox() {
                             </button>
                           )}
                           <button
-                            onClick={(e) => { e.stopPropagation(); router.push('/leads'); setIsDropdownOpen(false); }}
+                            onClick={(e) => { e.stopPropagation(); router.push('/crm/leads'); setIsDropdownOpen(false); }}
                             title="View Lead"
                             className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
                           >
@@ -240,7 +258,7 @@ export function GlobalOmnibox() {
                     {results.contacts.map((contact) => (
                       <div
                         key={contact.id}
-                        onClick={() => { router.push(`/contacts?search=${encodeURIComponent(contact.contactPerson ?? contact.firstName ?? '')}`); setIsDropdownOpen(false); }}
+                        onClick={() => { router.push(`/crm/contacts?search=${encodeURIComponent(contact.contactPerson ?? contact.firstName ?? '')}&highlight=${encodeURIComponent(contact.id)}`); setIsDropdownOpen(false); }}
                         className="group flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
                       >
                         <div className="min-w-0 flex-1">
@@ -287,7 +305,7 @@ export function GlobalOmnibox() {
                     {results.accounts.map((account) => (
                       <div
                         key={account.id}
-                        onClick={() => { router.push(`/accounts?search=${encodeURIComponent(account.name)}`); setIsDropdownOpen(false); }}
+                        onClick={() => { router.push(`/crm/accounts?search=${encodeURIComponent(account.name)}&highlight=${encodeURIComponent(account.id)}`); setIsDropdownOpen(false); }}
                         className="group flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
                       >
                         <div className="min-w-0 flex-1">
@@ -300,7 +318,7 @@ export function GlobalOmnibox() {
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={(e) => { e.stopPropagation(); router.push('/accounts'); setIsDropdownOpen(false); }}
+                            onClick={(e) => { e.stopPropagation(); router.push('/crm/accounts'); setIsDropdownOpen(false); }}
                             title="View Account"
                             className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
                           >
@@ -323,7 +341,7 @@ export function GlobalOmnibox() {
                     {results.deals.map((deal) => (
                       <div
                         key={deal.id}
-                        onClick={() => { router.push(`/pipeline?search=${encodeURIComponent(deal.title)}`); setIsDropdownOpen(false); }}
+                        onClick={() => { router.push(`/crm/pipeline?search=${encodeURIComponent(deal.title)}&highlight=${encodeURIComponent(deal.id)}`); setIsDropdownOpen(false); }}
                         className="group flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
                       >
                         <div className="min-w-0 flex-1">
@@ -336,7 +354,7 @@ export function GlobalOmnibox() {
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={(e) => { e.stopPropagation(); router.push('/pipeline'); setIsDropdownOpen(false); }}
+                            onClick={(e) => { e.stopPropagation(); router.push('/crm/pipeline'); setIsDropdownOpen(false); }}
                             title="Open Deal"
                             className="p-1 text-slate-400 hover:text-purple-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
                           >

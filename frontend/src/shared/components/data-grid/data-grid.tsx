@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DataGrid — A modern, reusable data-grid component for LeadCRM.
  *
  * Features:
@@ -126,6 +126,8 @@ interface DataGridRowProps<T> {
   onRowClick?: (row: T) => void;
   toggleRow: (id: string) => void;
   renderCellContent: (col: DataGridColumnDef<T>, row: T, rowIdx: number) => React.ReactNode;
+  /** Whether this row should render with a highlight ring */
+  highlighted?: boolean;
 }
 
 function DataGridRowInner<T>({
@@ -150,14 +152,29 @@ function DataGridRowInner<T>({
   onRowClick,
   toggleRow,
   renderCellContent,
+  highlighted = false,
 }: DataGridRowProps<T>): React.ReactElement {
+  const rowRef = React.useRef<HTMLTableRowElement>(null);
+
+  // Auto-scroll highlighted row into view on mount
+  React.useEffect(() => {
+    if (!highlighted || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Fade out the highlight after 2.5 s by triggering a re-render via the parent
+    // (the parent controls `highlightRowId` and can clear it if desired; we don't
+    // self-clear here to keep this component pure)
+  }, [highlighted]);
+
   return (
     <tr
+      ref={rowRef}
       className={cn(
         'transition-colors duration-100 cursor-pointer group/row border-b border-[#eef0f3] dark:border-slate-800',
-        selected
-          ? 'bg-blue-50 dark:bg-blue-500/10'
-          : 'hover:bg-[#f7f8fa] dark:hover:bg-slate-800/50',
+        highlighted
+          ? 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500 bg-blue-50/70 dark:bg-blue-500/15 animate-pulse-once'
+          : selected
+            ? 'bg-blue-50 dark:bg-blue-500/10'
+            : 'hover:bg-[#f7f8fa] dark:hover:bg-slate-800/50',
       )}
       style={viewMode === 'wrap' ? { minHeight: rowHeight, maxHeight: 156 } : { height: rowHeight }}
       onClick={() => onRowClick?.(row)}
@@ -433,6 +450,7 @@ export function DataGrid<T = Record<string, unknown>>({
   viewMode = 'clip',
   emptyState,
   hiddenColumnsCount,
+  highlightRowId,
 }: DataGridProps<T>): React.ReactElement {
   // ─── Internal column widths state (when uncontrolled) ──────────────────
   const [internalWidths, setInternalWidths] = useState<Record<string, number>>({});
@@ -1084,6 +1102,7 @@ export function DataGrid<T = Record<string, unknown>>({
                   onRowClick={onRowClick}
                   toggleRow={toggleRow}
                   renderCellContent={renderCellContent}
+                  highlighted={highlightRowId !== undefined && highlightRowId === rowId}
                 />
               );
             })}

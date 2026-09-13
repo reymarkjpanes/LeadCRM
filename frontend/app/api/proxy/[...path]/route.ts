@@ -125,8 +125,15 @@ async function proxyRequest(
     }
   }
 
+  // 9-second timeout ? Vercel serverless limit is 10s.
+  // Render Free tier cold starts can take 30-60s, causing silent 502s without this.
+  // When the signal fires, fetch throws AbortError, caught below and returned as 503.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
   try {
-    const backendRes = await fetch(url, { method: req.method, headers, body });
+    const backendRes = await fetch(url, { method: req.method, headers, body, signal: controller.signal });
+    clearTimeout(timeoutId);
     const data = await backendRes.text();
 
     const response = new NextResponse(data, {
@@ -149,13 +156,20 @@ async function proxyRequest(
 
     return response;
   } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
     const message = err instanceof Error ? err.message : 'Unknown proxy error';
     console.error('[Proxy] Backend fetch failed for %s %s: %s', req.method, path, message);
 
-    // Return a structured error envelope that matches the backend AppError shape
-    // so apiClient.ts can extract a useful message. Without this, the client
-    // receives an unstructured 502 body and falls back to res.statusText,
-    // producing a confusing "Bad Gateway" message instead of an actionable one.
+    if (isTimeout) {
+      // Render Free tier cold start exceeded the 9s proxy timeout.
+      // Return 503 so the frontend can show a "server waking up" message.
+      return NextResponse.json(
+        { success: false, error: { message: 'The server is warming up. Please wait a moment and try again.' } },
+        { status: 503 },
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,

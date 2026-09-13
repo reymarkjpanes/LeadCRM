@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ModuleWorkspace, ViewType, AccountPanel, StatusBadge } from '@/shared/components/crm';
@@ -80,6 +80,7 @@ export default function AccountsPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState(() => getParam('tab') || 'all');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => getParam('search'));
+  const highlightId = getParam('highlight') ?? undefined;
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [drawerTab, setDrawerTab] = useState('overview');
@@ -385,6 +386,7 @@ export default function AccountsPage(): React.ReactElement {
                 toast.error('Failed to hide column. Reverted.');
               }
             }}
+            highlightRowId={highlightId}
             viewMode={viewMode}
           />
             )}

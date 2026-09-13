@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ContactsDataGrid — Contacts table implemented with the shared DataGrid component.
  *
  * This replaces the legacy flex-based inline layout for the "table" view type,
@@ -70,6 +70,8 @@ interface ContactsDataGridProps {
   onHideColumn?: (columnId: string) => void;
   /** Display mode: wrap or clip cell content */
   viewMode?: 'wrap' | 'clip';
+  /** Row ID to highlight (navigated from global search) */
+  highlightRowId?: string;
 }
 
 // ─── Status Variant Map (uses shared CONTACT_STATUS_VARIANTS) ────────────────
@@ -94,6 +96,7 @@ export function ContactsDataGrid({
   onManageColumns,
   onHideColumn,
   viewMode = 'clip',
+  highlightRowId,
 }: ContactsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
@@ -232,6 +235,7 @@ export function ContactsDataGrid({
       summaryLabel={`${totalRecords} total records`}
       emptyMessage="No contacts found. Adjust your filters or create a new contact."
       ariaLabel="Contacts data grid"
+      highlightRowId={highlightRowId}
       viewMode={viewMode}
     />
   );

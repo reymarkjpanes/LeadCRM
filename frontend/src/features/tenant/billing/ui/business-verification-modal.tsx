@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 /**
  * business-verification-modal.tsx
@@ -6,9 +6,9 @@
  * Multi-step business verification modal shown to SANDBOX guests
  * before they can subscribe. Flow:
  *
- *   Step 1 � Business Type Selection
- *   Step 2 � Document Upload (dynamic based on business type)
- *   Step 3 � Status (Pending / Approved / Rejected)
+ *   Step 1 - Business Type Selection
+ *   Step 2 - Document Upload (dynamic based on business type)
+ *   Step 3 - Status (Pending / Approved / Rejected)
  *
  * The selected plan and billing cycle from PlanSelectionModal are
  * preserved and shown throughout, so the guest never loses context.
@@ -87,7 +87,7 @@ function PlanBadge({ planName, cycle }: { planName: string | null; cycle: Billin
   return (
     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-400 text-xs font-medium">
       <Sparkles size={11} />
-      {planName} � {cycleLabel}
+      {planName} - {cycleLabel}
     </div>
   );
 }
@@ -201,7 +201,7 @@ function DocumentRow({ requirement, uploadState, serverDocument, onFileSelect, o
             Choose File
           </button>
           <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-            PDF, JPEG, PNG or WEBP � Max 10 MB
+            PDF, JPEG, PNG or WEBP - Max 10 MB
           </p>
         </div>
       )}
@@ -256,7 +256,7 @@ export function BusinessVerificationModal({
       if (state.verificationStatus === 'PENDING' || state.verificationStatus === 'APPROVED') {
         setStep('status');
       } else if (state.verificationStatus === 'REJECTED' || state.verificationStatus === 'REQUIRES_RESUBMISSION') {
-        // Has existing documents � go straight to documents so they can resubmit
+        // Has existing documents - go straight to documents so they can resubmit
         setStep(state.businessType ? 'documents' : 'business-type');
       } else {
         // NOT_SUBMITTED
@@ -343,7 +343,7 @@ export function BusinessVerificationModal({
     try {
       await verificationApi.deleteDocument(key);
     } catch {
-      // Non-critical � UI already cleared. Server cleanup may have partially succeeded.
+      // Non-critical - UI already cleared. Server cleanup may have partially succeeded.
     }
   }, []);
 
@@ -420,7 +420,7 @@ export function BusinessVerificationModal({
             {(step === 'loading' || isFetching) && (
               <div className="flex flex-col items-center justify-center py-20 gap-3">
                 <Loader2 size={28} className="animate-spin text-blue-500" />
-                <p className="text-sm text-slate-500 dark:text-slate-400">Loading verification status�</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading verification status...</p>
               </div>
             )}
 
@@ -546,7 +546,7 @@ export function BusinessVerificationModal({
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Under Review</h3>
                       <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-md">
                         Your business documents have been submitted and are pending verification.
-                        Our team typically reviews submissions within 1�3 business days.
+                        Our team typically reviews submissions within 1-3 business days.
                         We'll notify you once the review is complete.
                       </p>
                     </div>
@@ -558,7 +558,7 @@ export function BusinessVerificationModal({
                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 text-sm font-semibold cursor-not-allowed"
                       >
                         <Clock size={15} />
-                        Verification Pending�
+                        Verification Pending...
                       </button>
                       <p className="text-xs text-slate-400 dark:text-slate-500">
                         Checkout will be available once your business is approved.
@@ -661,7 +661,7 @@ export function BusinessVerificationModal({
                     {isSubmitting ? (
                       <>
                         <Loader2 size={14} className="animate-spin" />
-                        Submitting�
+                        Submitting...
                       </>
                     ) : (
                       <>Submit for Verification</>
@@ -676,3 +676,5 @@ export function BusinessVerificationModal({
     </div>
   );
 }
+
+

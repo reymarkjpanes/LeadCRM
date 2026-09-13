@@ -137,7 +137,7 @@ export function TrelloFilter({
       {/* We match the exact dark Trello style or standard style */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-md transition-colors border shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+        className={`flex items-center gap-1.5 h-9 min-h-[44px] px-3 text-xs font-medium rounded-md transition-colors border shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
           isOpen || activeCount > 0
             ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/60'
             : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
@@ -160,9 +160,9 @@ export function TrelloFilter({
             className="fixed inset-0 z-40" 
             onClick={() => setIsOpen(false)} 
           />
-          <div className="absolute right-0 top-full mt-2 w-85 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-3.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="absolute right-0 top-full mt-2 w-[calc(100vw-1rem)] max-w-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-3.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200 max-h-[80vh] flex flex-col">
             {/* Header */}
-            <div className="flex justify-between items-center pb-2.5 mb-3 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex justify-between items-center pb-2.5 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
               <span className="text-xs font-semibold text-slate-900 dark:text-white uppercase tracking-wider">Filters</span>
               <button
                 onClick={() => setIsOpen(false)}
@@ -174,7 +174,7 @@ export function TrelloFilter({
             </div>
 
 
-            <div className="space-y-5 max-h-105 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+            <div className="space-y-5 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 flex-1">
               
               {/* Keyword */}
               {setSearchTerm !== undefined && (
@@ -418,7 +418,7 @@ export function TrelloFilter({
             </div>
             
             {activeCount > 0 && (
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 shrink-0">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{activeCount} applied</span>
                 <button
                   onClick={clearAll}

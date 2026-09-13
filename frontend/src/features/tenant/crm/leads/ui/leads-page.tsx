@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '@/store/DataContext';
@@ -97,6 +97,7 @@ export default function LeadsPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState(() => getParam('tab') || 'all');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => getParam('search'));
+  const highlightId = getParam('highlight') ?? undefined;
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | undefined>();
@@ -563,6 +564,7 @@ export default function LeadsPage(): React.ReactElement {
                 toast.error('Failed to hide column. Reverted.');
               }
             }}
+            highlightRowId={highlightId}
             viewMode={viewMode}          />
         )}
 

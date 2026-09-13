@@ -248,6 +248,7 @@ export default function Dashboard() {
           <div className="px-6 py-4 border-b border-gray-100 dark:border-white/[0.05]">
             <h3 className="font-semibold text-slate-900 dark:text-white">Active Tenants</h3>
           </div>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 dark:bg-white/[0.02] text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
               <tr>
@@ -272,6 +273,7 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </motion.div>
     );

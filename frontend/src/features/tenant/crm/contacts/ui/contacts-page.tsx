@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useData } from '@/store/DataContext';
@@ -86,6 +86,7 @@ export default function ContactsPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState(() => getParam('tab') || 'all');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => getParam('search'));
+  const highlightId = getParam('highlight') ?? undefined;
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [contactSelectedIds, setContactSelectedIds] = useState<Set<string>>(new Set());
 
@@ -417,6 +418,7 @@ export default function ContactsPage(): React.ReactElement {
               toast.error('Failed to hide column. Reverted.');
             }
           }}
+          highlightRowId={highlightId}
           viewMode={viewMode}
         />
           )}
