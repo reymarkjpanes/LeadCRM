@@ -32,13 +32,14 @@ const registerSchema = z.object({
   businessWebsite: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
   
   // Account details
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
+  firstName: z.string().min(2, 'Please enter your first name'),
+  lastName: z.string().min(2, 'Please enter your last name'),
   email: z.string().email('Please enter a valid email'),
   password: z.string()
     .min(8, 'At least 8 characters')
     .regex(/[A-Z]/, 'At least 1 uppercase')
-    .regex(/[0-9]/, 'At least 1 number'),
+    .regex(/[0-9]/, 'At least 1 number')
+    .regex(/[^A-Za-z0-9]/, 'At least 1 special character'),
   confirmPassword: z.string()
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -240,8 +241,12 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
         errorMessage = 'Network error. Please check your internet connection.';
       }
       
-      setErrors({ general: errorMessage });
-      toast.error(errorMessage);
+      if (errorMessage.includes('A user with this email already exists') || errorMessage.includes('email already exists') || errorMessage.includes('Email already in use')) {
+        setErrors({ email: 'This email address is already in use.' });
+      } else {
+        setErrors({ general: errorMessage });
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
