@@ -108,6 +108,35 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
     fetchSandboxInfo();
   }, []);
 
+  // Debounced email checking while typing
+  React.useEffect(() => {
+    if (!formData.email) return;
+    const validator = FIELD_VALIDATORS.email;
+    const message = validator?.(formData.email, formData);
+    if (message) return; // invalid format, don't check API yet
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const response = await authApi.checkEmail(formData.email);
+        if (response?.data?.exists) {
+          setErrors(prev => ({ ...prev, email: 'This email address is already in use.' }));
+        } else {
+          setErrors(prev => {
+            const next = { ...prev };
+            if (next.email === 'This email address is already in use.') {
+              delete next.email;
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        // Silently fail
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.email]);
+
   const handleChange = (field: string, value: string) => {
     setFormData(prev => {
       const next = { ...prev, [field]: value };
@@ -118,7 +147,16 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
         const validator = FIELD_VALIDATORS[field];
         const message = validator ? validator(value, next) : undefined;
         const updated = { ...prevErrors };
-        if (message) updated[field] = message; else delete updated[field];
+        
+        // Don't override the "email in use" error if we're just typing a valid email format
+        if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+           // keep the existing error until debounce effect clears it
+        } else if (message) {
+           updated[field] = message; 
+        } else {
+           delete updated[field];
+        }
+
         // Keep confirmPassword in sync when password changes
         if (field === 'password' && next.confirmPassword) {
           if (next.confirmPassword !== value) updated.confirmPassword = "Passwords don't match";
@@ -131,28 +169,21 @@ export default function ModernRegisterPage({ onNavigate }: ModernRegisterPagePro
   };
 
   // Validate a single field on blur and show its error inline.
-  const handleBlur = async (field: string) => {
+  const handleBlur = (field: string) => {
     const validator = FIELD_VALIDATORS[field];
     if (!validator) return;
     const value = formData[field as keyof typeof formData];
     const message = validator(value, formData);
 
-    // If local validation passes and it's the email field, check if it's already in use
-    if (!message && field === 'email' && value) {
-      try {
-        const response = await authApi.checkEmail(value);
-        if (response?.data?.exists) {
-          setErrors(prev => ({ ...prev, [field]: 'This email address is already in use.' }));
-          return;
-        }
-      } catch (err) {
-        // Silently fail checking here, submit will catch it anyway if there's a network error
-      }
-    }
-
     setErrors(prev => {
       const updated = { ...prev };
-      if (message) updated[field] = message; else delete updated[field];
+      if (field === 'email' && !message && updated.email === 'This email address is already in use.') {
+        // keep it
+      } else if (message) {
+        updated[field] = message; 
+      } else {
+        delete updated[field];
+      }
       return updated;
     });
   };
