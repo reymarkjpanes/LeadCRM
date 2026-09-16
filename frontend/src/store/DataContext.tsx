@@ -64,7 +64,6 @@ import { workflowsApi } from "@/shared/services/workflows.api";
 import { campaignsApi } from "@/shared/services/campaigns.api";
 import { templatesApi } from "@/shared/services/templates.api";
 import { invoicesApi } from "@/shared/services/invoices.api";
-import { auditApi } from "@/shared/services/audit.api";
 import { preferencesApi } from "@/shared/services/preferences.api";
 import type { ColumnConfigItem } from '@leadcrm/shared';
 import {
@@ -347,30 +346,47 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Batch 1 — core CRM data (roles excluded — admin-only, 403 for Guest)
         // usersService.getRoles() requires roles.manage which Guest does not have.
         // Moving it to a separate non-blocking call prevents a 403 from killing
-        // the entire Batch 1 load (contacts, deals, pipelines, users).
-        const [contactsRes, orgsRes, dealsRes, pipelinesRes, activitiesRes, usersRes] = await Promise.all([
-          contactsService.getAll({ limit: 100 }),
+        // the entire Batch 1 load (deals, pipelines, users).
+        //
+        // ── Migration status (route-scoped data-fetching plan) ──────────────
+        //
+        // COMPLETED — no longer fetched at startup:
+        //   ✅ contacts/leads   → useLeadsData (leads-page.tsx) — server-paginated + server-filtered
+        //   ✅ activities       → activities-page.tsx fetches independently
+        //   ✅ column prefs     → useColumnPreferences per module
+        //   ✅ campaigns        → useCampaignsData (campaigns-page.tsx)
+        //   ✅ templates        → useCampaignsData (campaigns-page.tsx, same hook)
+        //   ✅ invoices         → useInvoicesData (billing-page.tsx)
+        //   ✅ auditLogs        → TimelineDrawer fetches on-demand (settings page)
+        //   ✅ accounts list    → useAccounts (accounts-page.tsx) — server-paginated + server-filtered
+        //
+        // REMAINING — still loaded here (cross-module consumers prevent safe removal):
+        //   🔄 organizations   → RecordPanelWrappers, deals-page, contacts-page,
+        //                        global-omnibox (partial), use-record-detail
+        //   🔄 deals (flat)    → dashboard, reports, sidebar badges, command-palette,
+        //                        leads-table, notes-side-panel
+        //   🔄 pipelines       → 9 consumers: pipeline-page, deals-page, dashboard,
+        //                        reports, RecordPanelWrappers, form components
+        //   🔄 users           → 15+ consumers for assignee pickers across all modules
+        //   🔄 tasks           → task-board, dashboard, RecordPanelWrappers, deals-page
+        //   🔄 workflows       → workflows-page, campaign-builder, settings
+        const [orgsRes, dealsRes, pipelinesRes, usersRes] = await Promise.all([
           organizationsService.getAll({ limit: 100 }),
           pipelineService.getDeals(undefined, 100),
           pipelineService.getPipelines(),
-          activitiesService.getAll({ limit: 50 }),
           usersService.getAll({ limit: 200 }),
         ]);
 
-        const apiContacts   = (contactsRes?.data ?? []).map(toFrontendContact);
-        const apiOrgs       = (orgsRes?.data ?? []).map(toFrontendOrg);
-        const apiDeals      = (dealsRes?.data ?? []).map(toFrontendDeal);
-        const apiPipelines  = Array.isArray((pipelinesRes as any)?.data)
+        const apiOrgs      = (orgsRes?.data ?? []).map(toFrontendOrg);
+        const apiDeals     = (dealsRes?.data ?? []).map(toFrontendDeal);
+        const apiPipelines = Array.isArray((pipelinesRes as any)?.data)
           ? ((pipelinesRes as any).data as any[]).map(toFrontendPipeline)
           : ((pipelinesRes as any)?.data ? [(pipelinesRes as any).data].map(toFrontendPipeline) : []);
-        const apiActivities = activitiesRes?.data ?? [];
-        const apiUsers      = usersRes?.data ?? [];
+        const apiUsers     = usersRes?.data ?? [];
 
-        setContacts((apiContacts as Contact[]).filter((c: any) => !c.isArchived));
         setOrganizations((apiOrgs as Organization[]).filter((o: any) => !o.isArchived));
         setDeals((apiDeals as Deal[]).filter((d: any) => !d.isArchived));
         setPipelines((apiPipelines as Pipeline[]).filter((p: any) => !p.isArchived));
-        setActivities(apiActivities as unknown as Activity[]);
         setUsers((apiUsers as any[]).filter((u: any) => !u.isArchived));
       } catch (err) {
         console.error('[DataContext] Failed to load CRM data from API:', err);
@@ -394,65 +410,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setRoles([]);
       }
 
-      // ── Column Preferences (Batch 1 addition) ─────────────────────────────
-      try {
-        setColumnPreferencesLoading(true);
-        const colResponse = await preferencesApi.getEffectiveColumns('leads');
-        setColumnPreferences(prev => ({ ...prev, leads: colResponse.data.columns }));
-      } catch {
-        // Fallback to system default — don't block table render
-        setColumnPreferences(prev => ({ ...prev, leads: LEADS_SYSTEM_DEFAULT }));
-      } finally {
-        setColumnPreferencesLoading(false);
-      }
-
       // Batch 2 — deferred after initial paint so Batch 1 data renders first
       // Module flags are synchronous — load them now
       setIsBillingModuleEnabled(safeParse("leadcrm_billing_enabled", true));
 
-      // Defer network-heavy secondary modules to the next event-loop tick
-      // so Batch 1 data (contacts, deals, pipelines) is painted first.
+      // Defer network-heavy secondary modules to the next event-loop tick.
+      // Batch 2 COMPLETED migrations (removed from startup):
+      //   ✅ auditLogs  → TimelineDrawer fetches on-demand
+      //   ✅ campaigns  → useCampaignsData hook (campaigns-page.tsx)
+      //   ✅ templates  → useCampaignsData hook (same)
+      //   ✅ invoices   → useInvoicesData hook (billing-page.tsx)
+      // Batch 2 REMAINING (cross-module consumers — tasks: dashboard, RecordPanels,
+      //   deals-page, leads-table; workflows: workflows-page, campaign-builder):
       setTimeout(async () => {
-        // Use allSettled so a single plan-gated/failed module (e.g. workflows or
-        // campaigns on a FREE tenant) does not abort loading the others.
-        const [tasksRes, workflowsRes, campaignsRes, templatesRes, invoicesRes, auditRes] = await Promise.allSettled([
+        // Use allSettled so a single plan-gated module (e.g. workflows on FREE tenant)
+        // does not abort loading the other.
+        const [tasksRes, workflowsRes] = await Promise.allSettled([
           tasksApi.list({ limit: 100 }),
           workflowsApi.list({ limit: 200 }),
-          campaignsApi.list({ limit: 100 }),
-          templatesApi.list({ limit: 100 }),
-          invoicesApi.list({ limit: 100 }),
-          auditApi.list({ limit: 50 }),
         ]);
 
         // Fulfilled → set state; rejected (e.g. plan-gated 403) → default to empty.
         setTasks(tasksRes.status === 'fulfilled' ? ((tasksRes.value?.data ?? []) as Task[]) : []);
         setWorkflows(workflowsRes.status === 'fulfilled' ? ((workflowsRes.value?.data ?? []) as Workflow[]) : []);
-        setCampaigns(campaignsRes.status === 'fulfilled' ? ((campaignsRes.value?.data ?? []) as Campaign[]) : []);
-        setTemplates(templatesRes.status === 'fulfilled' ? ((templatesRes.value?.data ?? []) as Template[]) : []);
-        setInvoices(invoicesRes.status === 'fulfilled' ? ((invoicesRes.value?.data ?? []) as Invoice[]) : []);
 
-        if (auditRes.status === 'fulfilled') {
-          // Map backend audit shape → frontend AuditLog shape
-          const mappedLogs: AuditLog[] = (auditRes.value?.data ?? []).map((entry: any) => ({
-            id:        entry.id,
-            tenantId:  entry.tenantId ?? '',
-            userId:    entry.userId ?? entry.user?.id ?? 'system',
-            userEmail: entry.user?.email ?? '',
-            action:    entry.action,
-            details:   entry.changeset
-              ? JSON.stringify(entry.changeset)
-              : (entry.metadata ? JSON.stringify(entry.metadata) : entry.action),
-            timestamp: entry.createdAt,
-            ipAddress: entry.ipAddress ?? '',
-          }));
-          setAuditLogs(mappedLogs);
-        } else {
-          setAuditLogs([]);
-        }
-
-        // A plan-gated 403 for a FREE tenant is expected — keep it quiet, don't
-        // surface it as a console error. Only debug-log genuinely for diagnostics.
-        const rejected = [tasksRes, workflowsRes, campaignsRes, templatesRes, invoicesRes, auditRes]
+        // A plan-gated 403 for a FREE tenant is expected — keep it quiet.
+        const rejected = [tasksRes, workflowsRes]
           .filter((settledResult): settledResult is PromiseRejectedResult => settledResult.status === 'rejected');
         if (rejected.length > 0) {
           console.debug('[DataContext] Some secondary modules unavailable (likely plan-gated):', rejected.map((r) => r.reason?.message ?? r.reason));

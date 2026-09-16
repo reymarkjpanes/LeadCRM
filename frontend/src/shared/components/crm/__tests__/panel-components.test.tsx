@@ -176,12 +176,15 @@ describe('InlineDealForm', () => {
   });
 
   it('shows title required error on submit with empty title', async () => {
-    render(
+    const { container } = render(
       <InlineDealForm onSubmit={mockOnSubmit} />
     );
 
-    const submitButton = screen.getByText('Create Deal');
-    fireEvent.click(submitButton);
+    // The submit button is disabled when the form is invalid (isSubmitDisabled = !isValid).
+    // Submit the <form> element directly so validation fires regardless of button state.
+    const form = container.querySelector('form');
+    expect(form).toBeDefined();
+    fireEvent.submit(form!);
 
     await waitFor(() => {
       expect(screen.getByText('Title is required')).toBeDefined();
@@ -265,14 +268,23 @@ describe('PipelineProgressBar', () => {
   });
 
   it('shows compact text for narrow panels', () => {
-    render(
+    const { container } = render(
       <PipelineProgressBar
         stages={stages}
         currentStageId="stg-2"
       />
     );
 
-    // The compact view text should be present in the DOM (hidden via CSS on wider panels)
-    expect(screen.getByText('Stage 2 of 4')).toBeDefined();
+    // The compact view (sm:hidden) renders:
+    //   <span class="text-xs ...">Stage: <span>Proposal</span> (2/4)</span>
+    // Because the text is split across elements, check via the wrapper span's textContent.
+    const spans = Array.from(container.querySelectorAll('span'));
+    const compactSpan = spans.find(
+      (el) => {
+        const t = el.textContent ?? '';
+        return t.includes('Stage:') && t.includes('Proposal') && t.includes('2/4');
+      },
+    );
+    expect(compactSpan).toBeDefined();
   });
 });

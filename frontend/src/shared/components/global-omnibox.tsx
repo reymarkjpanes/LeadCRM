@@ -1,12 +1,20 @@
 ﻿'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Mail, Phone, ExternalLink, X, ChevronDown, User, Building, Briefcase, Target, Tag } from 'lucide-react';
 import { useData } from '@/store/DataContext';
 import { useDebounce } from '@/shared/hooks/use-debounce';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/store/AuthContext';
 import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
+import { leadsService } from '@/features/tenant/crm/leads/services/leads.service';
+import { accountsService } from '@/features/tenant/crm/accounts/services/accounts.service';
+import { pipelineService } from '@/features/tenant/crm/pipeline/services/pipeline.service';
+import { contactsV2Api } from '@/shared/services/contacts-v2.api';
+import { toFrontendContact } from '@/lib/api/adapters/contact.adapter';
+import { toFrontendOrg } from '@/lib/api/adapters/organization.adapter';
+import { toFrontendDeal } from '@/lib/api/adapters/deal.adapter';
+import type { Contact, Organization, Deal } from '@/store/types';
 
 type ScopedModule = 'all' | 'leads' | 'contacts' | 'accounts' | 'deals';
 
@@ -24,12 +32,92 @@ export function GlobalOmnibox({ autoFocus = false }: GlobalOmniboxProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const { contacts, deals, organizations } = useData();
+  // Only need deals from DataContext (still loaded at startup for cross-module use).
+  // Leads, contacts, accounts are now fetched server-side on search.
+  const { deals: contextDeals } = useData();
   const { tenant } = useAuth();
   const debouncedQuery = useDebounce(query, 300);
-
-  // Derives the tenant's configured currency for deal value display in search results.
   const tenantCurrency = useMemo(() => getTenantCurrency(tenant), [tenant]);
+
+  // ── Server-side search results ───────────────────────────────────────────
+  const [serverLeads,    setServerLeads]    = useState<Contact[]>([]);
+  const [serverContacts, setServerContacts] = useState<Contact[]>([]);
+  const [serverAccounts, setServerAccounts] = useState<Organization[]>([]);
+  const [isSearching,    setIsSearching]    = useState(false);
+
+  const isTagSearch = debouncedQuery.startsWith('#');
+  const cleanQuery  = isTagSearch
+    ? debouncedQuery.slice(1).trim().toLowerCase()
+    : debouncedQuery.trim().toLowerCase();
+
+  const searchServer = useCallback(async (term: string, scope: ScopedModule): Promise<void> => {
+    if (term.length < 3) {
+      setServerLeads([]);
+      setServerContacts([]);
+      setServerAccounts([]);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const [leadsRes, contactsRes, accountsRes] = await Promise.allSettled([
+        (scope === 'all' || scope === 'leads')
+          ? leadsService.getAll({ search: term, limit: 4 })
+          : Promise.resolve(null),
+        (scope === 'all' || scope === 'contacts')
+          ? contactsV2Api.list({ search: term, limit: 4 })
+          : Promise.resolve(null),
+        (scope === 'all' || scope === 'accounts')
+          ? accountsService.getAll({ search: term, limit: 4 })
+          : Promise.resolve(null),
+      ]);
+      setServerLeads(
+        leadsRes.status === 'fulfilled' && leadsRes.value
+          ? (leadsRes.value?.data ?? []).map(toFrontendContact) as Contact[]
+          : [],
+      );
+      setServerContacts(
+        contactsRes.status === 'fulfilled' && contactsRes.value
+          ? (contactsRes.value?.data ?? []) as Contact[]
+          : [],
+      );
+      setServerAccounts(
+        accountsRes.status === 'fulfilled' && accountsRes.value
+          ? (accountsRes.value?.data ?? []).map(toFrontendOrg) as Organization[]
+          : [],
+      );
+    } catch {
+      // Silent — partial results are fine; nav still works
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void searchServer(cleanQuery, module);
+  }, [cleanQuery, module, searchServer]);
+
+  // Deals: filter from DataContext since deals are still loaded at startup
+  const serverDeals = useMemo((): Deal[] => {
+    if (cleanQuery.length < 3) return [];
+    if (module !== 'all' && module !== 'deals') return [];
+    return contextDeals
+      .filter((d) => !d.isArchived && (
+        isTagSearch
+          ? (d.priority ?? '').toLowerCase().includes(cleanQuery) || (d.leadSource ?? '').toLowerCase().includes(cleanQuery)
+          : d.title.toLowerCase().includes(cleanQuery) || d.companyName.toLowerCase().includes(cleanQuery)
+      ))
+      .slice(0, 4);
+  }, [cleanQuery, isTagSearch, module, contextDeals]);
+
+  const results = useMemo(() => ({
+    leads:    serverLeads,
+    contacts: serverContacts,
+    accounts: serverAccounts,
+    deals:    serverDeals,
+  }), [serverLeads, serverContacts, serverAccounts, serverDeals]);
+
+  const totalResults = results.leads.length + results.contacts.length + results.accounts.length + results.deals.length;
+  const showResults  = isFocused && cleanQuery.length >= 3;
 
   // 1. Keyboard Shortcuts (/ and #)
   useEffect(() => {
@@ -83,55 +171,9 @@ export function GlobalOmnibox({ autoFocus = false }: GlobalOmniboxProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 2. Real-time Categorized Filter (Min 3 characters)
-  const isTagSearch = debouncedQuery.startsWith('#');
-  const cleanQuery = isTagSearch ? debouncedQuery.slice(1).trim().toLowerCase() : debouncedQuery.trim().toLowerCase();
-
-  const results = useMemo(() => {
-    if (cleanQuery.length < 3) return { leads: [], contacts: [], accounts: [], deals: [] };
-
-    const leadsRes = (module === 'all' || module === 'leads')
-      ? contacts.filter(c => !c.isArchived && c.recordType !== 'Organization' && (
-          isTagSearch
-            ? (c.leadSource ?? '').toLowerCase().includes(cleanQuery) || (c.customerType ?? '').toLowerCase().includes(cleanQuery)
-            : (c.leadPerson ?? c.displayName ?? '').toLowerCase().includes(cleanQuery) ||
-              (c.email ?? '').toLowerCase().includes(cleanQuery) ||
-              (c.companyName ?? '').toLowerCase().includes(cleanQuery)
-        )).slice(0, 4)
-      : [];
-
-    const contactsRes = (module === 'all' || module === 'contacts')
-      ? contacts.filter(c => !c.isArchived && (
-          isTagSearch
-            ? (c.customerType ?? '').toLowerCase().includes(cleanQuery)
-            : (c.contactPerson ?? c.firstName ?? '').toLowerCase().includes(cleanQuery) ||
-              (c.email ?? '').toLowerCase().includes(cleanQuery)
-        )).slice(0, 4)
-      : [];
-
-    const accountsRes = (module === 'all' || module === 'accounts')
-      ? organizations.filter(o => !o.isArchived && (
-          isTagSearch
-            ? (o.industry ?? '').toLowerCase().includes(cleanQuery)
-            : o.name.toLowerCase().includes(cleanQuery) || (o.industry ?? '').toLowerCase().includes(cleanQuery)
-        )).slice(0, 4)
-      : [];
-
-    const dealsRes = (module === 'all' || module === 'deals')
-      ? deals.filter(d => !d.isArchived && (
-          isTagSearch
-            ? (d.priority ?? '').toLowerCase().includes(cleanQuery) || (d.leadSource ?? '').toLowerCase().includes(cleanQuery)
-            : d.title.toLowerCase().includes(cleanQuery) || d.companyName.toLowerCase().includes(cleanQuery)
-        )).slice(0, 4)
-      : [];
-
-    return { leads: leadsRes, contacts: contactsRes, accounts: accountsRes, deals: dealsRes };
-  }, [cleanQuery, isTagSearch, module, contacts, deals, organizations]);
-
-  const totalResults = results.leads.length + results.contacts.length + results.accounts.length + results.deals.length;
-  const showResults = isFocused && cleanQuery.length >= 3;
-
   return (
+
+  // Close on outside click
     <div ref={dropdownRef} className="relative w-full max-w-[460px]">
       <div className="flex items-center h-8.5 w-full bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus-within:ring-2 focus-within:ring-[#2563EB]/20 focus-within:border-[#2563EB] focus-within:bg-white dark:focus-within:bg-slate-900 transition-all overflow-hidden shadow-2xs">
         {/* Module Scoper */}
@@ -167,6 +209,12 @@ export function GlobalOmnibox({ autoFocus = false }: GlobalOmniboxProps) {
             placeholder={isTagSearch ? "Filter by tag or category..." : "Search records (Press '/' or '#')..."}
             className="w-full h-full pl-8 pr-8 text-[12px] bg-transparent text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
           />
+          {isSearching && cleanQuery.length >= 3 && (
+            <div
+              className="absolute right-7 w-3 h-3 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"
+              aria-label="Searching"
+            />
+          )}
           {query ? (
             <button
               onClick={() => setQuery('')}

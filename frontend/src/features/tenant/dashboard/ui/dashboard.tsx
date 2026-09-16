@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import {
@@ -13,6 +13,8 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from '@/shared/components/charts/ChartComponents';
 import DashboardSkeleton from '@/shared/components/dashboard-skeleton';
+import { useModuleCounts } from '@/shared/hooks/use-module-counts';
+import { USE_MOCK_DATA } from '@/lib/config';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
@@ -22,19 +24,22 @@ export default function Dashboard() {
   const { user, tenant } = useAuth();
   const { contacts, deals, users, roles, tasks, tenants, pipelines } = useData();
   const tenantCurrency = useMemo<CurrencyConfig>(() => getTenantCurrency(tenant), [tenant]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 700);
-    return () => clearTimeout(t);
-  }, []);
+  // ── Lead / Contact count via lightweight server fetch ────────────────────
+  // DataContext.contacts is no longer populated at startup (route-scoped migration).
+  // useModuleCounts fetches page=1&pageSize=1 → meta.total with a 5-minute cache.
+  // In mock mode we fall back to the DataContext contacts array length.
+  const { counts: moduleCounts } = useModuleCounts(USE_MOCK_DATA ? [] : ['leads']);
+  const totalLeadsCount = USE_MOCK_DATA
+    ? contacts.filter((c) => !c.isArchived).length
+    : (moduleCounts['leads'] ?? 0);
+
+  // isLoading: skeleton while DataContext global data hasn't arrived yet.
+  // contacts is empty after migration — use deals + users as the heuristic.
+  const isLoading = deals.length === 0 && users.length === 0;
 
   const handleRefresh = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      toast.success('Metrics refreshed');
-    }, 800);
+    toast.success('Metrics refreshed');
   };
 
   const handleExportCSV = () => {
@@ -57,14 +62,14 @@ export default function Dashboard() {
         csvRows.push(['Total Revenue', formatCurrency(totalRevenue, tenantCurrency), `${wonDeals.length} won`, 'Real data']);
         csvRows.push(['Forecasted Revenue', formatCurrency(Math.round(forecastedRevenue), tenantCurrency), `${activeDeals.length} active`, 'Real data']);
         csvRows.push(['Active Deals', activeDeals.length, `${allActive.length} total`, 'Real data']);
-        csvRows.push(['Total Leads', contacts.length, '', 'Real data']);
+        csvRows.push(['Total Leads', totalLeadsCount, '', 'Real data']);
         csvRows.push(['Win Rate', `${winRate}%`, `${wonDeals.length}/${allActive.length}`, 'Real data']);
         csvRows.push(['Avg Velocity', avgVelocity > 0 ? `${avgVelocity} days` : '—', 'to close', 'Real data']);
       } else {
         csvRows.push(['My Hot Leads', myHotLeads.length, `${myHotLeads.length} hot`, 'Active']);
         csvRows.push(['Pending Tasks', myPending.length, myOverdue.length > 0 ? `${myOverdue.length} overdue` : 'On track', myOverdue.length === 0 ? 'Good' : 'Alert']);
         csvRows.push(['My Active Deals', activeDeals.filter(d => d.assignedUserId === user.id).length, 'Active', 'Current']);
-        csvRows.push(['Total Contacts', contacts.length, '+recent', 'Growing']);
+        csvRows.push(['Total Contacts', totalLeadsCount, '+recent', 'Growing']);
         csvRows.push(['Win Rate', `${winRate}%`, 'This month', 'Tracking']);
         csvRows.push(['Avg Velocity', `${avgVelocity} days`, 'To close', 'Current']);
       }
@@ -143,6 +148,8 @@ export default function Dashboard() {
   const myTasks           = tasks.filter(t => t.assignedUserId === user?.id);
   const myPending         = myTasks.filter(t => t.status === 'pending');
   const myOverdue         = myTasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled' && t.dueDate && new Date(t.dueDate) < new Date());
+  // myHotLeads: contacts is empty in real-API mode after route-scoped migration.
+  // This personal KPI shows 0 in real-API mode; future work: dedicated user-scoped hook.
   const myHotLeads        = contacts.filter(c => c.status === 'Hot' && c.assignedUserId === user?.id);
   const forecastedRevenue = activeDeals.reduce((acc, d) => acc + (d.value ?? 0) * ((stageMap.get(d.stageId)?.probability ?? 10) / 100), 0);
 
@@ -192,14 +199,14 @@ export default function Dashboard() {
     { label: 'Total Revenue', value: formatCurrency(totalRevenue, tenantCurrency),                 icon: DollarSign, color: 'blue',    trend: `${wonDeals.length} won`,                              up: wonDeals.length > 0 },
     { label: 'Forecasted',    value: formatCurrency(Math.round(forecastedRevenue), tenantCurrency), icon: TrendingUp, color: 'emerald', trend: `${activeDeals.length} active`,                        up: true },
     { label: 'Active Deals',  value: activeDeals.length,                                   icon: Briefcase,  color: 'purple',  trend: `${allActive.length} total`,                           up: true },
-    { label: 'Total Leads',   value: contacts.length,                                      icon: Users,      color: 'orange',  trend: 'all leads',                                           up: true },
+    { label: 'Total Leads',   value: totalLeadsCount,                                      icon: Users,      color: 'orange',  trend: 'all leads',                                           up: true },
     { label: 'Win Rate',      value: `${winRate}%`,                                        icon: Target,     color: 'pink',    trend: `${wonDeals.length}/${allActive.length}`,              up: winRate > 0 },
     { label: 'Avg Velocity',  value: avgVelocity > 0 ? `${avgVelocity}d` : '—',           icon: Zap,        color: 'indigo',  trend: 'to close',                                            up: true },
   ] : [
     { label: 'My Hot Leads',    value: myHotLeads.length,                                                                 icon: Zap,      color: 'orange',  trend: `${myHotLeads.length} hot`,                                                     up: true },
     { label: 'Pending Tasks',   value: myPending.length,                                                                  icon: Clock,    color: 'red',     trend: myOverdue.length > 0 ? `${myOverdue.length} overdue` : 'On track',              up: myOverdue.length === 0 },
     { label: 'My Active Deals', value: activeDeals.filter(d => d.assignedUserId === user?.id).length,                    icon: Briefcase,color: 'blue',    trend: 'Active',                                                                       up: true },
-    { label: 'Total Contacts',  value: contacts.length,                                                                   icon: Users,    color: 'purple',  trend: 'all contacts',                                                                 up: true },
+    { label: 'Total Contacts',  value: totalLeadsCount,                                                                   icon: Users,    color: 'purple',  trend: 'all contacts',                                                                 up: true },
     { label: 'Win Rate',        value: `${winRate}%`,                                                                     icon: Target,   color: 'emerald', trend: 'This month',                                                                   up: winRate > 0 },
     { label: 'Avg Velocity',    value: avgVelocity > 0 ? `${avgVelocity}d` : '—',                                        icon: Zap,      color: 'indigo',  trend: 'To close',                                                                     up: true },
   ];

@@ -85,6 +85,11 @@ export function useRecordDetail({ module, id }: UseRecordDetailParams): UseRecor
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // ── DataContext fallback for instant rendering ──────────────────────────
+  // NOTE: After the route-scoped migration, DataContext.contacts is no longer
+  // populated at startup. For leads/contacts, this fallback returns null and the
+  // hook immediately falls through to its own API fetch (fetchData below).
+  // The slight first-render latency is acceptable — no blank screen occurs because
+  // the hook renders a RecordDetailSkeleton while isLoading=true.
   const { contacts, organizations, deals } = useData();
 
   const dataContextRecord = useMemo((): Record<string, unknown> | null => {

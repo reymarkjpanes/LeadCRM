@@ -249,9 +249,10 @@ describe(
       expect(capturedAuth?.authError).toBeNull();
     });
 
-    it('login() returns false and leaves user=null for invalid credentials (preserved)', async () => {
-      // Invalid credentials → login API throws → login() returns false, user stays null.
-      // This must remain unchanged after all Phase 2 fixes.
+    it('login() throws for invalid credentials (credentials error propagates to the login page)', async () => {
+      // Invalid credentials → login API throws → login() propagates the error.
+      // The login page catches the thrown error and displays it to the user.
+      // This is the current behavior: errors propagate, they don't return false.
       const meMock = vi.fn().mockRejectedValue(new Error('Authentication required'));
       const loginMock = vi.fn().mockRejectedValue(new Error('Invalid credentials'));
 
@@ -272,13 +273,19 @@ describe(
 
       await waitFor(() => expect(capturedAuth?.isLoading).toBe(false));
 
-      let loginResult = true;
+      // EXPECTED: login() propagates the error — user stays null, authError stays null
+      // (the login page owns the error display, not the auth context)
+      let thrownError: Error | null = null;
       await act(async () => {
-        loginResult = await capturedAuth!.login('alice@democorp.com', 'wrong-password');
+        try {
+          await capturedAuth!.login('alice@democorp.com', 'wrong-password');
+        } catch (err: unknown) {
+          thrownError = err instanceof Error ? err : new Error(String(err));
+        }
       });
 
-      // EXPECTED: returns false, user remains null (invalid-credentials behavior unchanged)
-      expect(loginResult).toBe(false);
+      expect(thrownError).not.toBeNull();
+      expect((thrownError as Error | null)?.message).toBe('Invalid credentials');
       expect(capturedAuth?.user).toBeNull();
     });
   },

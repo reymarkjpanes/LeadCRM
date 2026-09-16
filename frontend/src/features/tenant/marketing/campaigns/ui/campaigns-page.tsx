@@ -4,6 +4,9 @@ import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import type { Campaign, Template } from '@/store/types';
 import { useData } from '@/store/DataContext';
+import { useCampaignsData } from '../hooks/use-campaigns-data';
+import { USE_MOCK_DATA } from '@/lib/config';
+import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
 import { useAuth } from '@/store/AuthContext';
 import { toast } from 'sonner';
 import { Plus, Send, X, Mail, MessageSquare, Megaphone, BarChart2, Eye, MousePointerClick, Edit2, Trash2, Play, Pause, Search, Filter, TrendingUp, TrendingDown, Copy, Calendar, ArrowLeft, SplitSquareHorizontal, ListOrdered, Monitor, Smartphone, Tags, Wand2, LayoutTemplate, Zap, Trophy, MoreVertical, Sparkles, Users, Loader2 } from 'lucide-react';
@@ -18,7 +21,24 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shar
 
 
 export default function CampaignsPage() {
-  const { campaigns, templates, roles, addCampaign, updateCampaign, deleteCampaign, addTemplate } = useData();
+  // Mutations stay in DataContext (also used by campaign-builder + create-campaign-panel).
+  // List data (campaigns, templates) is now fetched route-scoped by useCampaignsData.
+  const { roles, addCampaign, updateCampaign, deleteCampaign, addTemplate } = useData();
+
+  // Route-scoped fetch — replaces DataContext Batch 2 startup load
+  const {
+    campaigns: serverCampaigns,
+    templates: serverTemplates,
+    isInitialLoad,
+    isRefreshing,
+    error: campaignsError,
+    refetch: refetchCampaigns,
+  } = useCampaignsData();
+
+  // Mock mode: DataContext still populates via localStorage
+  const { campaigns: mockCampaigns, templates: mockTemplates } = useData();
+  const campaigns = USE_MOCK_DATA ? mockCampaigns : serverCampaigns;
+  const templates = USE_MOCK_DATA ? mockTemplates : serverTemplates;
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'all' | 'email' | 'sms'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -453,6 +473,30 @@ export default function CampaignsPage() {
         onMetricTabChange={setActiveMetricTab}
         onBack={() => setSelectedCampaignForReport(null)}
       />
+    );
+  }
+
+  // ── Initial load skeleton ─────────────────────────────────────────────────
+  if (isInitialLoad) {
+    return (
+      <div className="p-4 lg:p-6">
+        <DataLoadingSkeleton rowCount={6} columnCount={5} />
+      </div>
+    );
+  }
+
+  // ── Error state (only when no data to show) ───────────────────────────────
+  if (campaignsError && campaigns.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <p className="text-sm text-red-500 dark:text-red-400 mb-3">{campaignsError}</p>
+        <button
+          onClick={refetchCampaigns}
+          className="text-xs text-blue-500 hover:text-blue-600 underline underline-offset-2 cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
     );
   }
 

@@ -4,6 +4,8 @@ import React, { useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
+import { useModuleCounts } from '@/shared/hooks/use-module-counts';
+import { USE_MOCK_DATA } from '@/lib/config';
 import { useLayout } from './use-layout';
 import { cn } from '@/lib/utils';
 
@@ -30,24 +32,41 @@ export default function SidebarNav({
 }: SidebarNavProps): React.ReactElement {
   const { currentPath, filteredNav } = useLayout();
   const { user } = useAuth();
-  const { contacts, deals, organizations } = useData();
 
-  // Record counts for CRM badge display
-  const recordCounts = useMemo(() => ({
-    leads: contacts.filter(c => !c.isArchived).length,
-    // contacts: contacts.filter(c => !c.isArchived).length, // TODO: Implement V2 Contacts count from real API
-    accounts: organizations.filter(o => !o.isArchived).length,
-    pipeline: deals.filter(d => !d.isArchived).length,
-  }), [contacts, deals, organizations]);
+  // ── Badge counts ────────────────────────────────────────────────────────
+  // Real-API mode: fetch lightweight counts (page=1&pageSize=1) independently.
+  //   Counts are cached 5 min, refreshed on focus. Sidebar never receives full
+  //   contact/deal/org arrays — those belong to their own route hooks now.
+  // Mock mode: fall back to DataContext arrays (full dataset in memory).
+  const { contacts: mockContacts, deals: mockDeals, organizations: mockOrgs } = useData();
+
+  const { counts: apiCounts } = useModuleCounts(
+    USE_MOCK_DATA ? [] : ['leads', 'accounts', 'deals'],
+  );
+
+  const recordCounts = useMemo(() => {
+    if (USE_MOCK_DATA) {
+      return {
+        leads:    mockContacts.filter((c) => !c.isArchived).length,
+        accounts: mockOrgs.filter((o) => !o.isArchived).length,
+        pipeline: mockDeals.filter((d) => !d.isArchived).length,
+      };
+    }
+    return {
+      leads:    apiCounts['leads']    ?? 0,
+      accounts: apiCounts['accounts'] ?? 0,
+      pipeline: apiCounts['deals']    ?? 0,
+    };
+  }, [apiCounts, mockContacts, mockDeals, mockOrgs]);
 
   const getBadgeCount = (path: string): number | undefined => {
-    const counts: Record<string, number | undefined> = {
-      leads: recordCounts.leads,
-      contacts: recordCounts.leads, // Contacts shares the same count as leads (same data source)
-      accounts: recordCounts.accounts,
-      pipeline: recordCounts.pipeline,
+    const map: Record<string, number | undefined> = {
+      leads:    recordCounts.leads    || undefined, // hide 0 — badge renders nothing
+      contacts: recordCounts.leads    || undefined,
+      accounts: recordCounts.accounts || undefined,
+      pipeline: recordCounts.pipeline || undefined,
     };
-    return counts[path];
+    return map[path];
   };
 
   return (

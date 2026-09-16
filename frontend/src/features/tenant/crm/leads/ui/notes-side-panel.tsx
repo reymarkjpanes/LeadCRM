@@ -3,6 +3,9 @@ import { uuid } from '@/lib/utils';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '@/store/DataContext';
+import { leadsService } from '@/features/tenant/crm/leads/services/leads.service';
+import { toFrontendContact } from '@/lib/api/adapters/contact.adapter';
+import type { Contact } from '@/store/types';
 import { 
   Pin, Trash2, Edit3, Plus, Search, X, Check, Copy, 
   FileText, Link2, User, Briefcase, Sparkles, StickyNote, RefreshCw
@@ -77,7 +80,18 @@ const COLOR_MAP = {
 };
 
 export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps) {
-  const { contacts: leads, deals } = useData();
+  const { deals } = useData();
+
+  // ── Leads loaded on-demand when panel opens ──────────────────────────────
+  // Notes panel uses leads only for the "link to lead" dropdown.
+  // Loading all leads at startup is wasteful — fetch a small list here instead.
+  const [leads, setLeads] = useState<Contact[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    leadsService.getAll({ limit: 50 })
+      .then((res) => setLeads((res?.data ?? []).map(toFrontendContact) as Contact[]))
+      .catch(() => setLeads([]));
+  }, [isOpen]);
 
   // Notes state
   const [notes, setNotes] = useState<QuickNote[]>([]);

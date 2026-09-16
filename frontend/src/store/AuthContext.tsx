@@ -11,6 +11,7 @@ import type { ResolvedPermissions, PermissionAction } from './types/roles.types'
 import { MOCK_USERS, MOCK_TENANTS } from './mockData';
 import { authApi } from '@/shared/services/auth.api';
 import { rolesApi } from '@/shared/services/roles.api';
+import { clearModuleCountsCache } from '@/shared/hooks/use-module-counts';
 
 // When true, auth calls hit the mock localStorage data instead of the backend.
 // Set NEXT_PUBLIC_USE_MOCK_AUTH=false in .env.local to use the real API.
@@ -32,7 +33,13 @@ const SUPER_ROLE_NAMES = ['Client Admin', 'System Admin'] as const;
  * transport failure that should surface an auth-init error state.
  */
 export function isNoSessionError(error: unknown): boolean {
-  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  let message = '';
+  try {
+    message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  } catch {
+    // Pathological objects whose toString/toPrimitive throws — not a session error
+    return false;
+  }
   return (
     message.includes('authentication required') ||
     message.includes('invalid or expired token') ||
@@ -435,6 +442,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTenant(null);
     setAuthError(null);
+    // Clear sidebar badge count cache — prevents stale counts leaking to a
+    // different tenant session that may start in the same browser tab.
+    clearModuleCountsCache();
     localStorage.removeItem('leadcrm_user');
     localStorage.removeItem('leadcrm_tenant');
     // Clear onboarding flags so the next user on this browser sees the

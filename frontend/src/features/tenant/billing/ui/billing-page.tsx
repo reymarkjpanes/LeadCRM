@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useData } from '@/store/DataContext';
+import { useInvoicesData } from '../hooks/use-invoices-data';
+import { USE_MOCK_DATA } from '@/lib/config';
+import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import type { Invoice } from '@/store/types';
 
@@ -46,10 +49,46 @@ export default function BillingPage() {
   const canView   = useHasPermission('billing.view');
   const canCreate = useHasPermission('billing.manage');
 
-  const { invoices, addInvoice, updateInvoice, removeInvoice } = useData();
+  // Mutations stay in DataContext; list data owned by useInvoicesData
+  const { invoices: mockInvoices, addInvoice, updateInvoice, removeInvoice } = useData();
+  const {
+    invoices: serverInvoices,
+    isInitialLoad,
+    isRefreshing,
+    error: invoicesError,
+    refetch: refetchInvoices,
+  } = useInvoicesData();
+
+  // Mock mode: use DataContext (localStorage); real mode: use server hook
+  const invoices = USE_MOCK_DATA ? mockInvoices : serverInvoices;
 
   const [searchQuery, setSearchQuery]   = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
+
+  // Initial load skeleton
+  if (isInitialLoad) {
+    return (
+      <div className="p-4 lg:p-6">
+        <DataLoadingSkeleton rowCount={6} columnCount={4} />
+      </div>
+    );
+  }
+
+  // Error state (only when no data at all)
+  if (invoicesError && invoices.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <AlertCircle size={28} className="text-red-400 mx-auto mb-2" />
+        <p className="text-sm text-red-500 dark:text-red-400 mb-3">{invoicesError}</p>
+        <button
+          onClick={refetchInvoices}
+          className="text-xs text-blue-500 hover:text-blue-600 underline underline-offset-2 cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (!canView) {
     return (
@@ -135,13 +174,14 @@ export default function BillingPage() {
                 <TooltipTrigger asChild>
                   <button
                     aria-label="New Contract"
-                    className="h-9 w-9 flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 cursor-pointer"
-                    onClick={() => {/* TODO: open invoice form sheet */}}
+                    className="h-9 w-9 flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 cursor-pointer opacity-50 cursor-not-allowed"
+                    disabled
+                    title="Invoice creation — coming soon"
                   >
                     <Plus size={18} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>New Contract</TooltipContent>
+                <TooltipContent>New Contract (coming soon)</TooltipContent>
               </Tooltip>
             )}
           </TooltipProvider>

@@ -5,7 +5,6 @@ import { SessionProvider } from 'next-auth/react';
 import { AuthProvider } from '@/store/AuthContext';
 import { DataProvider } from '@/store/DataContext';
 import { Toaster } from 'sonner';
-import GlobalLoader from '@/shared/components/global-loader';
 
 /**
  * AppProviders — wraps the entire app with auth + data context.
@@ -24,7 +23,6 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <DataProvider>
           {children}
-          <GlobalLoader />
           <Toaster
             position="top-right"
             expand={true}

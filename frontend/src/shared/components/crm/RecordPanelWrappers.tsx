@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Info,
@@ -38,6 +38,8 @@ import { Checkbox } from '@/shared/components/ui/checkbox';
 import { useData } from '@/store/DataContext';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import type { Lead, Contact, Deal, Task } from '@/store/types';
+import { leadsService } from '@/features/tenant/crm/leads/services/leads.service';
+import { toFrontendContact } from '@/lib/api/adapters/contact.adapter';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/store/AuthContext';
 import { getTenantCurrency, formatCurrency } from '@/shared/utils/currency';
@@ -1509,7 +1511,27 @@ export interface AccountPanelProps {
 }
 
 export function AccountPanel({ open, onOpenChange, account, onEdit }: AccountPanelProps) {
-  const { contacts, deals, updateOrganization, deleteOrganization } = useData();
+  const { contacts: contextContacts, deals, updateOrganization, deleteOrganization } = useData();
+
+  // ── On-demand contacts fetch ─────────────────────────────────────────────
+  // DataContext.contacts is no longer populated at startup.
+  // Fetch a small list when this panel opens to populate related contacts/leads.
+  const [panelContacts, setPanelContacts] = useState<Contact[]>([]);
+  const contacts = panelContacts.length > 0 ? panelContacts : contextContacts;
+
+  const fetchPanelContacts = useCallback(async (): Promise<void> => {
+    if (!account) return;
+    try {
+      const res = await leadsService.getAll({ limit: 100 });
+      setPanelContacts((res?.data ?? []).map(toFrontendContact) as Contact[]);
+    } catch {
+      // silent — panel still renders with empty related lists
+    }
+  }, [account]);
+
+  useEffect(() => {
+    if (open) void fetchPanelContacts();
+  }, [open, fetchPanelContacts]);
 
   // Local UI states
   const [customFields, setCustomFields] = useState<CustomFieldItem[]>([]);
@@ -1829,10 +1851,28 @@ export interface DealPanelProps {
 }
 
 export function DealPanel({ open, onOpenChange, deal, onEdit, onOpenContactPanel, onOpenAccountPanel }: DealPanelProps) {
-  const { pipelines, moveDealStage, deleteDeal, tasks, contacts, organizations, addTask, updateDeal, updateTask } = useData();
+  const { pipelines, moveDealStage, deleteDeal, tasks, contacts: contextContacts, organizations, addTask, updateDeal, updateTask } = useData();
   const canEditDeal = useHasPermission('deals.edit');
   const canDeleteDeal = useHasPermission('deals.delete');
   const canCreateDeal = useHasPermission('deals.create');
+
+  // ── On-demand contacts fetch ─────────────────────────────────────────────
+  const [panelContacts, setPanelContacts] = useState<Contact[]>([]);
+  const contacts = panelContacts.length > 0 ? panelContacts : contextContacts;
+
+  const fetchDealContacts = useCallback(async (): Promise<void> => {
+    if (!deal) return;
+    try {
+      const res = await leadsService.getAll({ limit: 100 });
+      setPanelContacts((res?.data ?? []).map(toFrontendContact) as Contact[]);
+    } catch {
+      // silent
+    }
+  }, [deal]);
+
+  useEffect(() => {
+    if (open) void fetchDealContacts();
+  }, [open, fetchDealContacts]);
 
   // Local UI states for DealPanel
   const [showTaskForm, setShowTaskForm] = useState(false);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, Plus, X, Edit2, Trash2, Mail, Phone,
   Building2, Calendar, ShieldAlert, CheckCircle2,
@@ -14,6 +14,7 @@ import { useData } from '@/store/DataContext';
 import { usePagination } from '@/shared/hooks/use-pagination';
 import { Pagination } from '@/shared/components/ui/pagination';
 import { invitationsApi } from '@/shared/services/invitations.api';
+import { auditApi } from '@/shared/services/audit.api';
 import { TrelloFilter } from '@/shared/components/trello-filter';
 import { cn } from '@/lib/utils';
 import { USE_MOCK_DATA } from '@/lib/config';
@@ -48,29 +49,59 @@ function roleColor(role: string): string {
 
 interface TimelineDrawerProps {
   selectedUser: User;
-  auditLogs: Array<{ id: string; userId?: string; userEmail?: string; action: string; details: string; timestamp: string; ipAddress?: string }>;
   onClose: () => void;
 }
 
-function TimelineDrawer({ selectedUser, auditLogs, onClose }: TimelineDrawerProps): React.ReactElement {
+type AuditEntry = { id: string; userId?: string; userEmail?: string; action: string; details: string; timestamp: string; ipAddress?: string };
+
+function TimelineDrawer({ selectedUser, onClose }: TimelineDrawerProps): React.ReactElement {
   const [filter, setFilter] = useState<'all' | 'auth' | 'edits' | 'permissions'>('all');
   const [search, setSearch] = useState('');
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const enriched = useMemo(() => {
-    const uEmail = selectedUser.email?.toLowerCase() ?? '';
-    const uName = `${selectedUser.firstName ?? ''} ${selectedUser.lastName ?? ''}`.toLowerCase();
-    const logs = auditLogs.filter((log) => {
-      const logEmail = log.userEmail?.toLowerCase() ?? '';
-      const detailsLower = log.details?.toLowerCase() ?? '';
-      const isPerformer = log.userId === selectedUser.id || (logEmail && logEmail === uEmail);
-      const isTarget = (uName && detailsLower.includes(uName.trim())) || (uEmail && detailsLower.includes(uEmail));
-      return isPerformer || isTarget;
-    });
-    return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [auditLogs, selectedUser]);
+  // Fetch audit logs for this user on open — on-demand, not at startup
+  const fetchLogs = useCallback(async (): Promise<void> => {
+    setIsLoadingLogs(true);
+    setLoadError(null);
+    try {
+      const res = await auditApi.list({ limit: 100 });
+      const all = (res?.data ?? []).map((entry) => ({
+        id:        entry.id,
+        userId:    entry.userId,
+        userEmail: entry.user?.email,
+        action:    entry.action,
+        details:   entry.changeset
+          ? JSON.stringify(entry.changeset)
+          : (entry.metadata ? JSON.stringify(entry.metadata) : entry.action),
+        timestamp: entry.createdAt,
+        ipAddress: entry.ipAddress,
+      })) as AuditEntry[];
+      const uEmail = selectedUser.email?.toLowerCase() ?? '';
+      const uName  = `${selectedUser.firstName ?? ''} ${selectedUser.lastName ?? ''}`.toLowerCase();
+      const relevant = all.filter((log) => {
+        const logEmail    = log.userEmail?.toLowerCase() ?? '';
+        const detailsLow  = log.details?.toLowerCase() ?? '';
+        return (
+          log.userId === selectedUser.id ||
+          (logEmail && logEmail === uEmail) ||
+          (uName && detailsLow.includes(uName.trim())) ||
+          (uEmail && detailsLow.includes(uEmail))
+        );
+      });
+      setAuditLogs(relevant.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load activity');
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, [selectedUser.id, selectedUser.email, selectedUser.firstName, selectedUser.lastName]);
+
+  useEffect(() => { void fetchLogs(); }, [fetchLogs]);
 
   const filtered = useMemo(() => {
-    let result = enriched;
+    let result = auditLogs;
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((l) => l.action.toLowerCase().includes(q) || l.details.toLowerCase().includes(q));
@@ -85,7 +116,7 @@ function TimelineDrawer({ selectedUser, auditLogs, onClose }: TimelineDrawerProp
       });
     }
     return result;
-  }, [enriched, search, filter]);
+  }, [auditLogs, search, filter]);
 
   return (
     <motion.div
@@ -122,12 +153,38 @@ function TimelineDrawer({ selectedUser, auditLogs, onClose }: TimelineDrawerProp
       </div>
       {/* Timeline */}
       <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
-        {filtered.length === 0 ? (
+        {isLoadingLogs && (
+          <div className="space-y-3 pt-2" role="status" aria-label="Loading activity">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 animate-pulse shrink-0 motion-reduce:animate-none" />
+                <div className="flex-1 space-y-1.5 pt-0.5">
+                  <div className="h-3 w-3/4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse motion-reduce:animate-none" />
+                  <div className="h-2.5 w-1/2 bg-slate-100 dark:bg-slate-800 rounded animate-pulse motion-reduce:animate-none" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoadingLogs && loadError && (
+          <div className="py-12 text-center">
+            <ShieldAlert size={28} className="text-red-400 mx-auto mb-2" />
+            <p className="text-xs text-slate-400 mb-3">{loadError}</p>
+            <button
+              onClick={() => { void fetchLogs(); }}
+              className="text-xs text-blue-500 hover:text-blue-600 underline underline-offset-2 cursor-pointer"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        {!isLoadingLogs && !loadError && filtered.length === 0 && (
           <div className="py-16 text-center">
             <Clock size={32} className="text-slate-300 dark:text-slate-700 mx-auto mb-3" />
             <p className="text-xs text-slate-400">No activity found</p>
           </div>
-        ) : filtered.map((log) => (
+        )}
+        {!isLoadingLogs && !loadError && filtered.map((log) => (
           <div key={log.id} className="flex gap-3">
             <div className="flex flex-col items-center">
               <div className="w-6 h-6 rounded-full bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
@@ -323,7 +380,7 @@ function InviteModal({ roles, onClose, onInvited }: InviteModalProps): React.Rea
 
 export function UsersSubTab(): React.ReactElement {
   const { user: currentUser, userCan } = useAuth();
-  const { users: allUsers, roles, addUser, updateUser, deleteUser, auditLogs } = useData();
+  const { users: allUsers, roles, addUser, updateUser, deleteUser } = useData();
   const tenantId = currentUser?.tenantId ?? '';
 
   const tenantUsers = useMemo(
@@ -613,7 +670,6 @@ export function UsersSubTab(): React.ReactElement {
         {timelineUser && (
           <TimelineDrawer
             selectedUser={timelineUser}
-            auditLogs={auditLogs as Parameters<typeof TimelineDrawer>[0]['auditLogs']}
             onClose={() => setTimelineUser(null)}
           />
         )}

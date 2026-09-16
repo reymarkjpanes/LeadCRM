@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ModuleWorkspace, ViewType, AccountPanel, StatusBadge } from '@/shared/components/crm';
+import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useColumnPreferences } from '@/shared/hooks/use-column-preferences';
 import { useAccounts } from '../hooks/use-accounts';
@@ -34,21 +35,6 @@ export default function AccountsPage(): React.ReactElement {
   const canCreate = useHasPermission('accounts.create');
   const canEdit = useHasPermission('accounts.edit');
   const canDelete = useHasPermission('accounts.delete');
-
-  const {
-    accounts,
-    totalCount,
-    filters,
-    setFilters,
-    isFormOpen,
-    editTarget,
-    handleCreate,
-    handleUpdate,
-    handleDelete,
-    handleOpenCreate,
-    handleOpenEdit,
-    handleCloseForm,
-  } = useAccounts();
 
   const { deals, users } = useData();
   const { getParam, getArrayParam, updateParams } = useFilterUrlSync('accounts');
@@ -96,7 +82,7 @@ export default function AccountsPage(): React.ReactElement {
 
   const debouncedSearch = useDebounce(searchTerm, 300);
 
-  // Sync to URL
+  // ── Sync to URL ────────────────────────────────────────────────────────
   useEffect(() => {
     updateParams({
       tab: activeTab !== 'all' ? activeTab : null,
@@ -131,51 +117,63 @@ export default function AccountsPage(): React.ReactElement {
     persistFilters(conditions);
   }, [selectedIndustries, selectedTypes, selectedOwners, selectedRelated, selectedSystemFilters, persistFilters]);
 
-  // ── Filtered list ────────────────────────────────────────────────────
-  const filteredAccounts = useMemo(() => {
-    let result = accounts;
-
-    if (debouncedSearch) {
-      const term = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (a) =>
-          a.name.toLowerCase().includes(term) ||
-          (a.industry ?? '').toLowerCase().includes(term) ||
-          (a.city ?? '').toLowerCase().includes(term),
-      );
-    }
-
-    if (selectedIndustries.length > 0) {
-      result = result.filter((a) => selectedIndustries.includes(a.industry ?? ''));
-    }
-
-    if (selectedTypes.length > 0) {
-      result = result.filter((a) => selectedTypes.includes(a.size ?? ''));
-    }
-
-    if (selectedOwners.length > 0) {
-      result = result.filter((a) => selectedOwners.includes(a.assignedUserId ?? ''));
-    }
-
-    if (selectedRelated.includes('has_deals')) {
-      result = result.filter((a) => deals.some((d) => d.organizationId === a.id && !d.isArchived));
-    }
-
-    return result;
-  }, [accounts, debouncedSearch, selectedIndustries, selectedTypes, selectedOwners, selectedRelated, deals]);
-
   // ── Pagination ───────────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1);
+
+  // ── Server-side filter conditions ─────────────────────────────────────────
+  // Industry, size/type, and assignedUserId are now sent to the server.
+  // selectedRelated (has_deals) stays client-side — no direct DB field.
+  const serverFilters = useMemo((): import('@leadcrm/shared').FilterCondition[] => {
+    const conditions: import('@leadcrm/shared').FilterCondition[] = [];
+    if (selectedIndustries.length > 0) {
+      conditions.push({ field: 'industry', operator: 'in', value: selectedIndustries });
+    }
+    if (selectedTypes.length > 0) {
+      // Frontend sends 'type', backend field alias maps it to 'size'
+      conditions.push({ field: 'type', operator: 'in', value: selectedTypes });
+    }
+    if (selectedOwners.length > 0) {
+      conditions.push({ field: 'assignedUserId', operator: 'in', value: selectedOwners });
+    }
+    return conditions;
+  }, [selectedIndustries, selectedTypes, selectedOwners]);
+
+  const {
+    accounts,
+    totalCount,
+    filters,
+    setFilters,
+    isFormOpen,
+    isLoading,
+    isRefreshing,
+    editTarget,
+    handleCreate,
+    handleUpdate,
+    handleDelete,
+    handleOpenCreate,
+    handleOpenEdit,
+    handleCloseForm,
+  } = useAccounts({
+    page: currentPage,
+    pageSize,
+    sort: sort ?? null,
+    search: debouncedSearch || undefined,
+    filter: serverFilters.length > 0 ? serverFilters : undefined,
+  });
+
+  // Server total from metadata
+  const serverTotal = totalCount;
 
   // Reset page on filter/search/pageSize/sort changes
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, selectedIndustries, selectedTypes, selectedOwners, selectedRelated, pageSize, sort]);
 
-  const paginatedAccounts = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredAccounts.slice(start, start + pageSize);
-  }, [filteredAccounts, currentPage, pageSize]);
+  // Client-side secondary filter — only has_deals (no server equivalent)
+  const filteredAccounts = useMemo(() => {
+    if (!selectedRelated.includes('has_deals')) return accounts;
+    return accounts.filter((a) => deals.some((d) => d.organizationId === a.id && !d.isArchived));
+  }, [accounts, selectedRelated, deals]);
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const getInitials = (name: string): string => {
@@ -340,7 +338,7 @@ export default function AccountsPage(): React.ReactElement {
         onToggleFilters={() => setShowFilters(!showFilters)}
         filterSearchTerm={filterSearchTerm}
         onFilterSearch={setFilterSearchTerm}
-        totalRecords={filteredAccounts.length}
+        totalRecords={serverTotal}
         searchTerm={searchTerm}
         onSearch={setSearchTerm}
         searchPlaceholder="Search accounts..."
@@ -350,7 +348,11 @@ export default function AccountsPage(): React.ReactElement {
         {/* List View — DataGrid */}
         {(activeView === 'list' || activeView === 'table') && (
           <>
-            {filteredAccounts.length === 0 && (
+            {/* Initial load skeleton */}
+            {isLoading && filteredAccounts.length === 0 && (
+              <DataLoadingSkeleton rowCount={8} columnCount={6} />
+            )}
+            {filteredAccounts.length === 0 && !isLoading && (
               <ActionableEmptyState
                 icon={Building2}
                 title={debouncedSearch ? 'No accounts match your search' : 'No accounts yet'}
@@ -365,8 +367,8 @@ export default function AccountsPage(): React.ReactElement {
             )}
             {filteredAccounts.length > 0 && (
           <AccountsDataGrid
-            accounts={paginatedAccounts}
-            totalRecords={filteredAccounts.length}
+            accounts={filteredAccounts}
+            totalRecords={serverTotal}
             effectiveColumns={effectiveColumns}
             onRowClick={handleRowClick}
             selectedIds={accountSelectedIds}
@@ -394,19 +396,24 @@ export default function AccountsPage(): React.ReactElement {
         )}
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}
-        {(activeView === 'list' || activeView === 'table') && filteredAccounts.length > 0 && (
+        {(activeView === 'list' || activeView === 'table') && serverTotal > 0 && (
           <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
             <div className="flex items-center gap-2">
               <label htmlFor="accounts-page-size" className="text-xs text-slate-500 dark:text-slate-400">Per page</label>
               <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
-              <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">{filteredAccounts.length} total records</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">
+                {serverTotal} total records
+                {isRefreshing && (
+                  <span className="ml-1.5 text-blue-400 dark:text-blue-500" aria-live="polite" aria-label="Refreshing data">↻</span>
+                )}
+              </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Page {currentPage} of {Math.ceil(filteredAccounts.length / pageSize) || 1}</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Page {currentPage} of {Math.ceil(serverTotal / pageSize) || 1}</span>
               <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage <= 1 ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Previous page">
                 <ChevronLeft size={14} />
               </button>
-              <button onClick={() => setCurrentPage(Math.min(Math.ceil(filteredAccounts.length / pageSize), currentPage + 1))} disabled={currentPage >= Math.ceil(filteredAccounts.length / pageSize)} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage >= Math.ceil(filteredAccounts.length / pageSize) ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Next page">
+              <button onClick={() => setCurrentPage(Math.min(Math.ceil(serverTotal / pageSize), currentPage + 1))} disabled={currentPage >= Math.ceil(serverTotal / pageSize)} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage >= Math.ceil(serverTotal / pageSize) ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Next page">
                 <ChevronRight size={14} />
               </button>
             </div>

@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '@/store/DataContext';
 import { useAuth } from '@/store/AuthContext';
+import { useLeadsData } from '../hooks/use-leads-data';
+import { DataLoadingSkeleton, DataErrorState } from '@/shared/components/crm/data-view-states';
 import type { Lead, Organization } from '@/store/types';
 import { ModuleWorkspace, ViewType, LeadPanel, StatusBadge } from '@/shared/components/crm';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -35,7 +37,6 @@ import { PageSizeSelect } from '@/shared/components/page-size-select';
 export default function LeadsPage(): React.ReactElement {
   const router = useRouter();
   const {
-    contacts: leads,
     addContact: addLead,
     updateContact: updateLead,
     deleteContact: deleteLead,
@@ -117,6 +118,63 @@ export default function LeadsPage(): React.ReactElement {
 
   const debouncedSearch = useDebounce(searchTerm, 300);
 
+  // ── Server-side data (replaces DataContext contacts array) ────────────
+  // useLeadsData owns the fetch, implements stale-while-revalidate, and
+  // drives background refresh every 60s + on window focus.
+  // Placed after debouncedSearch so the hook param is always defined.
+
+  // Build FilterCondition[] from the filter rail state.
+  // Only fields the backend repository handles are included.
+  // System filters (touched/untouched) remain client-side — no DB equivalent.
+  // The 'my' tab sends an assignedUserId filter; 'active' tab sends a status filter.
+  const serverFilters = useMemo((): import('@leadcrm/shared').FilterCondition[] => {
+    const conditions: import('@leadcrm/shared').FilterCondition[] = [];
+
+    // Tab filter
+    if (activeTab === 'my' && user?.id) {
+      conditions.push({ field: 'assignedUserId', operator: 'equals', value: user.id });
+    }
+    if (activeTab === 'active') {
+      conditions.push({ field: 'status', operator: 'in', value: ['Hot', 'Warm', 'Inquiry'] });
+    }
+
+    // Status filter
+    if (selectedStatuses.length > 0) {
+      conditions.push({ field: 'status', operator: 'in', value: selectedStatuses });
+    }
+
+    // Source filter — frontend calls it 'leadSource'; backend Prisma field is 'source'
+    if (selectedSources.length > 0) {
+      conditions.push({ field: 'leadSource', operator: 'in', value: selectedSources });
+    }
+
+    // Owner filter
+    if (selectedOwners.length > 0) {
+      conditions.push({ field: 'assignedUserId', operator: 'in', value: selectedOwners });
+    }
+
+    return conditions;
+  }, [activeTab, user?.id, selectedStatuses, selectedSources, selectedOwners]);
+
+  const {
+    leads,
+    meta: leadsMeta,
+    isInitialLoad: isLeadsInitialLoad,
+    isRefreshing: isLeadsRefreshing,
+    error: leadsError,
+    refetch: refetchLeads,
+  } = useLeadsData({
+    page: currentPage,
+    pageSize,
+    sort: sort ?? null,
+    search: debouncedSearch || undefined,
+    filter: serverFilters.length > 0 ? serverFilters : undefined,
+  });
+
+  // Total record count from server metadata (falls back to current page
+  // length while metadata is still loading on first render)
+  const serverTotal = leadsMeta?.total ?? leads.length;
+
   // Sync to URL
   useEffect(() => {
     updateParams({
@@ -152,139 +210,35 @@ export default function LeadsPage(): React.ReactElement {
     persistFilters(conditions);
   }, [selectedStatuses, selectedSources, selectedOwners, selectedRelated, selectedSystemFilters, persistFilters]);
 
-  // ── Filtered Data ────────────────────────────────────────────────────
+  // ── Filtered Data ─────────────────────────────────────────────────────
+  // Status/source/owner/tab filters are now server-side via serverFilters.
+  // The `leads` array contains only the current page, already filtered.
+  // `activeLeads` aliases the current page for filter group count computations;
+  // counts are approximate (current page only) — server handles actual filtering.
+  // selectedRelated (has_email/has_phone) and selectedSystemFilters (touched/untouched)
+  // remain client-side: no direct DB field equivalent, applied to current page.
   const activeLeads = useMemo(
-    () => leads.filter((l) => !l.isArchived && l.recordType !== 'Organization'),
-    [leads],
+    () => leads.filter((l) => {
+      if (selectedRelated.includes('has_email') && !l.email) return false;
+      if (selectedRelated.includes('has_phone') && !l.phone) return false;
+      return true;
+    }),
+    [leads, selectedRelated],
   );
 
-  const filteredLeads = useMemo(() => {
-    let result = activeLeads;
 
-    // Tab filter
-    if (activeTab === 'my') {
-      result = result.filter((l) => l.assignedUserId === user?.id);
-    }
-    if (activeTab === 'active') {
-      result = result.filter((l) => l.status === 'Hot' || l.status === 'Warm' || l.status === 'Inquiry');
-    }
-
-    // Search
-    if (debouncedSearch) {
-      const term = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (l) =>
-          (l.leadPerson ?? l.displayName ?? '').toLowerCase().includes(term) ||
-          (l.email ?? '').toLowerCase().includes(term) ||
-          (l.companyName ?? '').toLowerCase().includes(term),
-      );
-    }
-
-    // System Filters
-    if (selectedSystemFilters.includes('touched')) {
-      result = result.filter((l) => l.lastUpdated || l.updateStatus);
-    }
-    if (selectedSystemFilters.includes('untouched')) {
-      result = result.filter((l) => !l.lastUpdated && !l.updateStatus);
-    }
-
-    // Status filter
-    if (selectedStatuses.length > 0) {
-      result = result.filter((l) => selectedStatuses.includes(l.status));
-    }
-
-    // Source filter
-    if (selectedSources.length > 0) {
-      result = result.filter((l) => selectedSources.includes(l.leadSource ?? ''));
-    }
-
-    // Owner filter
-    if (selectedOwners.length > 0) {
-      result = result.filter((l) => selectedOwners.includes(l.assignedUserId ?? ''));
-    }
-
-    // Related filter
-    if (selectedRelated.includes('has_email')) {
-      result = result.filter((l) => Boolean(l.email));
-    }
-    if (selectedRelated.includes('has_phone')) {
-      result = result.filter((l) => Boolean(l.phone));
-    }
-
-    return result;
-  }, [activeLeads, activeTab, user?.id, debouncedSearch, selectedSystemFilters, selectedStatuses, selectedSources, selectedOwners, selectedRelated]);
-
-
-  // Helpers needed by sortedLeads
+  // ── Helpers ──────────────────────────────────────────────────────────
   const getOwnerName = (userId?: string): string => {
     if (!userId) return 'Unassigned';
     const u = users.find((usr) => usr.id === userId);
     return u ? `${u.firstName} ${u.lastName}` : 'Unknown';
   };
 
-  /** Extract a sortable value from a lead by field id */
-  const getFieldValue = (lead: Lead, field: string): string | number | null => {
-    switch (field) {
-      case 'firstName':
-        return lead.leadPerson ?? lead.displayName ?? lead.firstName ?? '';
-      case 'lastName':
-        return lead.lastName ?? '';
-      case 'email':
-        return lead.email ?? '';
-      case 'phone':
-        return lead.phone ?? '';
-      case 'companyName':
-        return lead.companyName ?? '';
-      case 'status':
-        return lead.status ?? '';
-      case 'source':
-        return lead.leadSource ?? '';
-      case 'createdAt':
-        return lead.createdAt ?? '';
-      case 'updatedAt':
-        return (lead as unknown as Record<string, unknown>).updatedAt as string ?? '';
-      case 'city':
-      case 'address':
-      case 'primaryAddressCityState':
-        return lead.city ?? '';
-      case 'assignedUserId':
-        return getOwnerName(lead.assignedUserId);
-      default:
-        return (lead as unknown as Record<string, unknown>)[field] as string ?? '';
-    }
-  };
-
-  // ── Sorted Data ──────────────────────────────────────────────────────
-  const sortedLeads = useMemo(() => {
-    if (!sort) return filteredLeads;
-
-    const { field, direction } = sort;
-    const sorted = [...filteredLeads].sort((a, b) => {
-      const aVal = getFieldValue(a, field);
-      const bVal = getFieldValue(b, field);
-
-      if (aVal === bVal) return 0;
-      if (aVal == null) return 1;
-      if (bVal == null) return -1;
-
-      const comparison = String(aVal).localeCompare(String(bVal), undefined, { numeric: true, sensitivity: 'base' });
-      return direction === 'asc' ? comparison : -comparison;
-    });
-    return sorted;
-  }, [filteredLeads, sort]);
-
-  // ── Paginated Data ───────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(sortedLeads.length / pageSize));
-
-  // Reset page when filters/sort/pageSize change
+  // Reset to page 1 whenever the query params that affect server results change.
+  // The hook re-fetches automatically when `currentPage` or other params change.
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, activeTab, selectedSystemFilters, selectedStatuses, selectedSources, selectedOwners, selectedRelated, pageSize, sort]);
-
-  const paginatedLeads = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sortedLeads.slice(start, start + pageSize);
-  }, [sortedLeads, currentPage, pageSize]);
+  }, [debouncedSearch, activeTab, selectedStatuses, selectedSources, selectedOwners, selectedRelated, pageSize, sort]);
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const getInitials = (lead: Lead): string => {
@@ -444,12 +398,12 @@ export default function LeadsPage(): React.ReactElement {
   }, []);
 
   const handleSelectAll = useCallback(() => {
-    if (selectedIds.size === paginatedLeads.length) {
+    if (selectedIds.size === leads.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(paginatedLeads.map((l) => l.id)));
+      setSelectedIds(new Set(leads.map((l) => l.id)));
     }
-  }, [selectedIds.size, paginatedLeads]);
+  }, [selectedIds.size, leads]);
 
   // ── Render ───────────────────────────────────────────────────────────
   return (
@@ -478,7 +432,7 @@ export default function LeadsPage(): React.ReactElement {
         onToggleFilters={() => setShowFilters(!showFilters)}
         filterSearchTerm={filterSearchTerm}
         onFilterSearch={setFilterSearchTerm}
-        totalRecords={sortedLeads.length}
+        totalRecords={serverTotal}
         searchTerm={searchTerm}
         onSearch={setSearchTerm}
         searchPlaceholder="Search leads..."
@@ -506,6 +460,7 @@ export default function LeadsPage(): React.ReactElement {
                           await Promise.all(ids.map((id) => deleteLead(id)));
                           setSelectedIds(new Set());
                           toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted`);
+                          refetchLeads();
                         } catch (err: unknown) {
                           toast.error(err instanceof Error ? err.message : 'Failed to delete leads');
                         }
@@ -520,20 +475,34 @@ export default function LeadsPage(): React.ReactElement {
         }
       >
         {/* ── List View ─────────────────────────────────────────── */}
-        {(activeView === 'list' || activeView === 'table') && isColumnsLoading && (
+        {/* Initial load: show skeleton when no data has arrived yet */}
+        {(activeView === 'list' || activeView === 'table') && isLeadsInitialLoad && (
+          <DataLoadingSkeleton rowCount={8} columnCount={6} />
+        )}
+
+        {/* Error state: only show when there's no data at all to display */}
+        {(activeView === 'list' || activeView === 'table') && leadsError && !isLeadsInitialLoad && leads.length === 0 && (
+          <DataErrorState
+            message={leadsError}
+            onRetry={refetchLeads}
+          />
+        )}
+
+        {/* Column preferences loading (separate from data loading) */}
+        {(activeView === 'list' || activeView === 'table') && isColumnsLoading && !isLeadsInitialLoad && (
           <div className="bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-8">
             <div className="flex items-center justify-center gap-2 text-[13px] text-[#5A6B85] dark:text-slate-400">
               <div className="w-4 h-4 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
-              Loading leads...
+              Loading columns...
             </div>
           </div>
         )}
 
         {/* ── List / Table View (DataGrid) ─────────────────── */}
-        {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && (
+        {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && !isLeadsInitialLoad && (
           <LeadsDataGrid
-            leads={paginatedLeads}
-            totalRecords={sortedLeads.length}
+            leads={leads}
+            totalRecords={serverTotal}
             effectiveColumns={effectiveColumns}
             onRowClick={handleRowClick}
             selectedIds={selectedIds}
@@ -547,6 +516,7 @@ export default function LeadsPage(): React.ReactElement {
               if (!deleteLead) return;
               deleteLead(lead.id).then(() => {
                 toast.success(`Lead deleted successfully`);
+                refetchLeads();
               }).catch((err: unknown) => {
                 toast.error(err instanceof Error ? err.message : 'Failed to delete lead');
               });
@@ -569,7 +539,7 @@ export default function LeadsPage(): React.ReactElement {
         )}
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}
-        {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && sortedLeads.length > 0 && (
+        {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && !isLeadsInitialLoad && serverTotal > 0 && (
           <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
             <div className="flex items-center gap-2">
               <label className="text-xs text-slate-500 dark:text-slate-400">
@@ -577,12 +547,15 @@ export default function LeadsPage(): React.ReactElement {
               </label>
               <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
               <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">
-                {sortedLeads.length} total records
+                {serverTotal} total records
+                {isLeadsRefreshing && (
+                  <span className="ml-1.5 text-blue-400 dark:text-blue-500" aria-live="polite" aria-label="Refreshing data">↻</span>
+                )}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                Page {currentPage} of {Math.ceil(sortedLeads.length / pageSize) || 1}
+                Page {currentPage} of {Math.ceil(serverTotal / pageSize) || 1}
               </span>
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
@@ -598,11 +571,11 @@ export default function LeadsPage(): React.ReactElement {
                 <ChevronLeft size={14} />
               </button>
               <button
-                onClick={() => setCurrentPage(Math.min(Math.ceil(sortedLeads.length / pageSize), currentPage + 1))}
-                disabled={currentPage >= Math.ceil(sortedLeads.length / pageSize)}
+                onClick={() => setCurrentPage(Math.min(Math.ceil(serverTotal / pageSize), currentPage + 1))}
+                disabled={currentPage >= Math.ceil(serverTotal / pageSize)}
                 className={cn(
                   'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
-                  currentPage >= Math.ceil(sortedLeads.length / pageSize)
+                  currentPage >= Math.ceil(serverTotal / pageSize)
                     ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed'
                     : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700',
                 )}
@@ -617,7 +590,7 @@ export default function LeadsPage(): React.ReactElement {
         {/* ── Tile View ─────────────────────────────────────────── */}
         {activeView === 'tile' && (
           <LeadsTileView
-            leads={filteredLeads}
+            leads={leads}
             onCardClick={handleRowClick}
             getInitials={getInitials}
             getLeadName={getLeadName}
@@ -629,7 +602,7 @@ export default function LeadsPage(): React.ReactElement {
         {/* ── Grid View ─────────────────────────────────────────── */}
         {activeView === 'grid' && (
           <LeadsGridView
-            leads={filteredLeads}
+            leads={leads}
             onCardClick={handleRowClick}
             getInitials={getInitials}
             getLeadName={getLeadName}
@@ -639,7 +612,7 @@ export default function LeadsPage(): React.ReactElement {
         {/* ── Kanban View ───────────────────────────────────────── */}
         {activeView === 'kanban' && (
           <LeadsKanbanView
-            leads={filteredLeads}
+            leads={leads}
             onCardClick={handleRowClick}
             getInitials={getInitials}
             getLeadName={getLeadName}
@@ -664,13 +637,18 @@ export default function LeadsPage(): React.ReactElement {
         isOpen={isFormOpen}
         onClose={() => { setIsFormOpen(false); setEditingLead(undefined); }}
         initialData={editingLead}
-        onSave={(data) => {
-          if (editingLead) {
-            updateLead(editingLead.id, data);
-            toast.success('Lead updated');
-          } else {
-            addLead(data as any);
-            toast.success('Lead created');
+        onSave={async (data) => {
+          try {
+            if (editingLead) {
+              await updateLead(editingLead.id, data);
+              toast.success('Lead updated');
+            } else {
+              await addLead(data as any);
+              toast.success('Lead created');
+            }
+            refetchLeads();
+          } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to save lead');
           }
           setIsFormOpen(false);
           setEditingLead(undefined);

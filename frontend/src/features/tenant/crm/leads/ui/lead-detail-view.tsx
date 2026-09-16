@@ -1,8 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lead, Organization, User as UserType, Deal, Task, Campaign } from '@/store/types';
+import type { Contact } from '@/store/types';
 import { useData } from '@/store/DataContext';
+import { leadsService } from '@/features/tenant/crm/leads/services/leads.service';
+import { toFrontendContact } from '@/lib/api/adapters/contact.adapter';
 import { ClientProfileTabs } from './lead-profile-tabs';
 import { CompanyProfileTabs, ExtendedOrg } from './company-profile-tabs';
 import { ShieldCheck, TrendingUp } from 'lucide-react';
@@ -50,6 +53,18 @@ export const UnifiedDetailView = ({
 
   const { contacts: leads = [] } = useData({ includeArchived: true });
 
+  // ── On-demand leads fetch for org view ───────────────────────────────────
+  // DataContext.contacts is no longer populated at startup (route-scoped migration).
+  // Fetch a small list when this detail view mounts so orgLeads is populated.
+  const [fetchedLeads, setFetchedLeads] = useState<Contact[]>([]);
+  const leadsToUse = fetchedLeads.length > 0 ? fetchedLeads : leads;
+
+  useEffect(() => {
+    leadsService.getAll({ limit: 100 })
+      .then((res) => setFetchedLeads((res?.data ?? []).map(toFrontendContact) as Contact[]))
+      .catch(() => {/* silent — falls back to DataContext array which may be empty */});
+  }, []);
+
   // Robust organization entity normalization regardless of whether selectedItem is a Lead or an Organization
   const normalizedOrg: ExtendedOrg = React.useMemo(() => {
     const isLeadObj = 'companyName' in selectedItem || 'leadPerson' in selectedItem;
@@ -60,7 +75,7 @@ export const UnifiedDetailView = ({
     const id = isLeadObj ? (itemAsLead.organizationId || itemAsLead.id) : itemAsOrg.id;
 
     // Find all leads in dataset matching this organization
-    const orgLeads = leads.filter(c => 
+    const orgLeads = leadsToUse.filter(c => 
       !c.isArchived && (
         (id && c.organizationId === id) ||
         (c.companyName && name && c.companyName.toLowerCase().trim() === name.toLowerCase().trim())
@@ -83,7 +98,7 @@ export const UnifiedDetailView = ({
       estimatedValue: (selectedItem as any).estimatedValue || 0,
       repId: (selectedItem as any).assignedUserId || 'user_1',
     };
-  }, [selectedItem, leads]);
+  }, [selectedItem, leadsToUse]);
 
   // Dynamic Mappings for Status and Connected Deals
   const mappedStatus = type === 'individual' 
