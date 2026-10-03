@@ -1,37 +1,46 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { compareSortValues } from '@leadcrm/shared';
 import {
-  Search, Plus, X, Trash2, Filter,
+  Search, Plus, X,
   ShieldAlert, CheckCircle2,
-  Clock, Users,
+  Clock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { usePagination } from '@/shared/hooks/use-pagination';
-import { Pagination } from '@/shared/components/ui/pagination';
-import { invitationsApi } from '@/shared/services/invitations.api';
+import { LeadsPagination, LEADS_PAGE_SIZES } from '@/shared/components/crm/leads-pagination';
 import { auditApi } from '@/shared/services/audit.api';
 import { FilterGroupSection } from '@/shared/components/crm/module-workspace';
 import { usersService } from '@/features/tenant/administration/users/services/users.service';
+import { DataGrid, type DataGridColumnDef, type SortState } from '@/shared/components/data-grid';
+import { BulkSelectionBar, executeSelectedRows } from '@/shared/components/crm/bulk-selection-bar';
+import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
+import { FilterButton } from '@/shared/components/crm/filter-button';
+import { useModuleTableColumns } from '@/shared/hooks/use-module-table-columns';
+import { USERS_TABLE_COLUMNS } from '@leadcrm/shared';
 import { UserPanel } from './user-panel';
-import { DataLoadingSpinner, DataErrorState } from '@/shared/components/crm/data-view-states';
+import { UserAvatar as ProfileAvatar } from '@/shared/components/user-avatar';
+import { DataErrorState } from '@/shared/components/crm/data-view-states';
+import { TableLoadingState } from '@/shared/components/crm/table-loading-state';
 import { cn } from '@/lib/utils';
-import { USE_MOCK_DATA } from '@/lib/config';
 import type { User } from '@/store/types';
-import type { PendingInvitation } from '@/store/types/invitation.types';
 
 // ── Avatar ─────────────────────────────────────────────────────────────────
 
 function UserAvatar({ user, size = 8 }: { user: User; size?: number }): React.ReactElement {
-  const initials = `${user.firstName?.charAt(0) ?? ''}${user.lastName?.charAt(0) ?? ''}`.toUpperCase();
   const px = size * 4;
+  // Private profile images are read through the tenant's users permission guard.
+  const avatarUrl = user.avatarUrl?.startsWith('/api/proxy/auth/profile/avatar/')
+    ? user.avatarUrl.replace('/api/proxy/auth/profile/avatar/', `/api/proxy/administration/users/${encodeURIComponent(user.id)}/avatar/`)
+    : user.avatarUrl;
   return (
     <div style={{ width: px, height: px, minWidth: px }}
       className="rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shrink-0 text-[10px]">
-      {initials || '?'}
+      <ProfileAvatar user={{ ...user, avatarUrl }} />
     </div>
   );
 }
@@ -211,7 +220,7 @@ function TimelineDrawer({ selectedUser, onClose }: TimelineDrawerProps): React.R
 
 // ── Main UsersSubTab ──────────────────────────────────────────────────────────
 
-export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[]) => void }): React.ReactElement {
+export function UsersSubTab({ onUsersLoaded, renderHeader }: { renderHeader?: (action: React.ReactNode) => React.ReactNode; onUsersLoaded?: (users: User[]) => void }): React.ReactElement {
   const { user: currentUser, userCan } = useAuth();
   const { roles, rolesLoading, rolesError, refreshRoles } = useData();
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -222,7 +231,7 @@ export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[])
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setLoadError(null); setAllUsers([]);
+    setLoading(true); setLoadError(null);
     const load = async () => {
       try {
         const result: User[] = [];
@@ -255,46 +264,17 @@ export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[])
   const [roleFilter, setRoleFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
+  const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
   const [showFilters, setShowFilters] = useState(false);
   const departments = useMemo(() => [...new Set(tenantUsers.map(u => u.department).filter((value): value is string => !!value?.trim()))].sort(), [tenantUsers]);
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [initiallyEditing, setInitiallyEditing] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingUser, setEditingUser] = useState<User | null>(null);
   useEffect(() => { setEditingUser(null); setIsAddOpen(false); }, [tenantId]);
   const [timelineUser, setTimelineUser] = useState<User | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<User | null>(null);
-
-  // Pending invitations (real API mode only)
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
-  const [isInvitationsLoading, setIsInvitationsLoading] = useState(false);
-
-  useEffect(() => {
-    if (USE_MOCK_DATA) return;
-    loadInvitations();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadInvitations = async (): Promise<void> => {
-    setIsInvitationsLoading(true);
-    try {
-      const res = await invitationsApi.list();
-      setPendingInvitations(res?.data ?? []);
-    } catch {
-      // non-critical
-    } finally {
-      setIsInvitationsLoading(false);
-    }
-  };
-
-  const handleRevokeInvitation = async (id: string, email: string): Promise<void> => {
-    try {
-      await invitationsApi.revoke(id);
-      toast.success(`Invitation revoked for ${email}`);
-      setPendingInvitations((prev) => prev.filter((inv) => inv.id !== id));
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to revoke invitation');
-    }
-  };
 
   const filtered = useMemo(() => {
     return tenantUsers.filter((u) => {
@@ -305,16 +285,21 @@ export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[])
       const matchRole = roleFilter.length === 0 || roleFilter.includes(u.role);
       const matchStatus = statusFilter.length === 0 || statusFilter.some((s) => s.toLowerCase() === (u.status ?? '').toLowerCase());
       return matchSearch && matchRole && matchStatus && (departmentFilter.length === 0 || departmentFilter.includes(u.department ?? ''));
+    }).sort((a, b) => {
+      const value = (u: User) => sort.field === 'name' ? `${u.firstName} ${u.lastName}` : sort.field === 'createdAt' ? u.createdAt ? new Date(u.createdAt) : null : u[sort.field as keyof User];
+      return compareSortValues(value(a), value(b), sort.direction) || a.id.localeCompare(b.id);
     });
-  }, [tenantUsers, search, roleFilter, statusFilter, departmentFilter]);
+  }, [tenantUsers, search, roleFilter, statusFilter, departmentFilter, sort]);
 
-  const { currentPage, totalPages, pageSize, totalItems, paginateItems, goToPage, setPageSize } = usePagination({
+  const { currentPage, pageSize, totalItems, paginateItems, goToPage, setPageSize } = usePagination({
     totalItems: filtered.length,
     initialPageSize: 25,
-    pageSizeOptions: [10, 25, 50],
-    resetDeps: [search, roleFilter, statusFilter, departmentFilter],
+    pageSizeOptions: LEADS_PAGE_SIZES,
+    resetDeps: [search, roleFilter, statusFilter, departmentFilter, sort],
   });
   const paginated = paginateItems(filtered);
+  useEffect(() => { setSelected(new Set()); }, [tenantId, currentPage, pageSize, search, roleFilter, statusFilter, departmentFilter]);
+  const openUser = (user: User, edit = false) => { setInitiallyEditing(edit); setEditingUser(user); };
 
   const handleSavedUser = (saved: User) => {
     setAllUsers(previous => previous.some(user => user.id === saved.id) ? previous.map(user => user.id === saved.id ? saved : user) : [saved, ...previous]);
@@ -326,31 +311,36 @@ export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[])
     setArchiving(true);
     try {
       await usersService.archive(confirmArchive.id);
-      setConfirmArchive(null); setReload(value => value + 1);
+      setConfirmArchive(null); setSelected(new Set()); setReload(value => value + 1);
       toast.success('User archived');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to archive user.'); }
     finally { setArchiving(false); }
   };
 
-  const canManageUsers = userCan('users', 'canEdit');
+  const canAssignRoles = userCan('roles', 'canAssign');
+  const canManageUsers = userCan('users', 'canEdit'), canCreateUsers = userCan('users', 'canCreate') && userCan('roles', 'canAssign'), canActivateUsers = userCan('users', 'canActivate'), canArchiveUsers = userCan('users', 'canArchive');
+  const columns: DataGridColumnDef<User>[] = [
+    { id: 'name', sortable: true, header: 'User', accessor: u => `${u.firstName} ${u.lastName}`, width: 240, cell: (_, u) => <button aria-label={`View ${u.firstName} ${u.lastName}`} onClick={() => openUser(u)} className="flex items-center gap-2 text-left"><UserAvatar user={u} /><span>{u.firstName} {u.lastName}</span></button> },
+    { id: 'role', sortable: true, header: 'Role', accessor: u => u.role, width: 180, cell: (_, u) => <span className={cn('rounded-full border px-2 py-0.5 text-xs', roleColor(u.role))}>{u.role}</span> },
+    { id: 'email', sortable: true, header: 'Contact', accessor: u => u.email, width: 250, cell: (_, u) => <div><p>{u.email}</p><p className="text-xs text-muted-foreground">{u.phone}</p></div> },
+    { id: 'status', sortable: true, header: 'Status', accessor: u => u.status ?? 'active', width: 110, cell: (_, u) => <span className={cn('rounded-full px-2 py-1 text-xs', u.status === 'active' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-500/10 text-slate-500')}>{u.status ?? 'active'}</span> },
+    { id: 'department', sortable: true, header: 'Department', accessor: u => u.department || '—', width: 150 },
+    { id: 'activity', header: 'Actions', accessor: () => '', width: 90, cell: (_, u) => <button aria-label="View Activity" title="View Activity" className="min-h-11 min-w-11" onClick={() => setTimelineUser(u)}><Clock size={14} /></button> },
+  ];
+
+  const tableColumns = useModuleTableColumns('users', USERS_TABLE_COLUMNS, columns);
+  const createAction = canCreateUsers && <button aria-label="New user" title="New user" disabled={rolesLoading || !!rolesError} onClick={() => setIsAddOpen(true)} className="flex shrink-0 h-11 w-11 sm:h-auto sm:w-auto items-center justify-center gap-1.5 sm:px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50">
+      <Plus size={16} /> <span className="hidden sm:inline">New User</span>
+    </button>;
 
   return (
     <div className="min-w-0 max-w-full space-y-4">
+      {renderHeader ? renderHeader(createAction) : <div className="flex justify-end">{createAction}</div>}
+      {tableColumns.drawer}
       {rolesError && <div role="alert" className="text-sm text-red-500">{rolesError} <button onClick={() => void refreshRoles()} className="underline">Retry roles</button></div>}
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:flex-1 min-w-0 sm:max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="Search users..." value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-white/[0.08] text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors placeholder-slate-400" />
-        </div>
-        <button aria-expanded={showFilters} aria-controls="user-filters" onClick={() => setShowFilters(value => !value)} className={cn('flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold', showFilters ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300')}>
-          <Filter size={14} /> Filter
-        </button>
-        {canManageUsers && <button disabled={rolesLoading || !!rolesError} onClick={() => setIsAddOpen(true)} className="sm:ml-auto flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50">
-          <Plus size={13} /> New User
-        </button>}
-      </div>
+      <ModuleTableToolbar label="Users" search={search} onSearch={setSearch} placeholder="Search users..."
+        filter={<FilterButton title="users" open={showFilters} active={!!(roleFilter.length || statusFilter.length || departmentFilter.length)} onClick={() => setShowFilters(value => !value)} />}
+        refreshing={loading} onRefresh={() => setReload(value => value + 1)} onManageColumns={tableColumns.openColumns} />
 
       <div className="flex min-w-0 gap-3 items-stretch">
         {showFilters && <div className="fixed inset-0 z-30 bg-black/30 sm:hidden" aria-hidden="true" onClick={() => setShowFilters(false)} />}
@@ -369,108 +359,40 @@ export function UsersSubTab({ onUsersLoaded }: { onUsersLoaded?: (users: User[])
           <div className="shrink-0 border-t border-[#E4E9F0] dark:border-slate-700 px-4 py-2.5 text-xs text-slate-500">{filtered.length} users in this module</div>
         </motion.aside>}
         <div className="min-w-0 flex-1 space-y-4">
-      {/* Users table */}
-      <div className="bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-white/[0.07] rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-[minmax(160px,2fr)_minmax(120px,1.5fr)_minmax(180px,2fr)_80px_120px_64px] gap-3 px-4 py-2.5 border-b border-gray-100 dark:border-white/[0.05] min-w-[816px]">
-            {['User', 'Role', 'Contact', 'Status', 'Department', 'Actions'].map((h, i) => (
-              <div key={i} className="text-xs font-medium text-slate-500 dark:text-slate-400">{h}</div>
-            ))}
-          </div>
-          {loading ? <DataLoadingSpinner label="Loading users..." /> : loadError ? <DataErrorState message={loadError} onRetry={() => setReload(value => value + 1)} /> : paginated.length === 0 ? (
-            <div className="py-16 text-center">
-              <Users size={32} className="text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-              <p className="text-xs text-slate-400">No users found</p>
-            </div>
-          ) : paginated.map((u) => (
-            <div key={u.id} tabIndex={0} role="button" aria-label={`View ${u.firstName} ${u.lastName}`}
-              onClick={() => setEditingUser(u)} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setEditingUser(u); } }}
-              className={cn('grid grid-cols-[minmax(160px,2fr)_minmax(120px,1.5fr)_minmax(180px,2fr)_80px_120px_64px] gap-3 px-4 py-3 min-h-[56px] items-center border-b border-gray-100 dark:border-white/[0.04] last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors group min-w-[816px]',
-                u.isArchived && 'opacity-50')}>
-              {/* User */}
-              <div className="flex items-center gap-2.5 min-w-0">
-                <UserAvatar user={u} size={8} />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{u.firstName} {u.lastName}</p>
-                  {u.isArchived && <span className="text-[9px] text-rose-500 font-bold">Archived</span>}
-                </div>
-              </div>
-              {/* Role */}
-              <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full border w-fit', roleColor(u.role))}>{u.role}</span>
-              {/* Contact */}
-              <div className="min-w-0">
-                <p className="text-xs text-blue-500 truncate">{u.email}</p>
-                {u.phone && <p className="text-[10px] text-slate-400">{u.phone}</p>}
-              </div>
-              {/* Status */}
-              <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full border w-fit',
-                u.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' :
-                u.status === 'pending' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' :
-                'bg-slate-500/10 text-slate-500 border-slate-500/20')}>
-                {u.status ?? 'active'}
-              </span>
-              {/* Department */}
-              <span className="text-xs text-slate-500 dark:text-slate-400 truncate">{u.department || '—'}</span>
-              {/* Actions */}
-              <div onClick={event => event.stopPropagation()} className="flex items-center gap-0.5 opacity-100">
-                <button onClick={() => setTimelineUser(u)} title="View Activity" className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded cursor-pointer transition-colors"><Clock size={12} /></button>
-                {canManageUsers && !u.isArchived && (
-                      <button onClick={() => setConfirmArchive(u)} title="Archive" className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded cursor-pointer transition-colors"><Trash2 size={12} /></button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {loading ? <TableLoadingState label="Loading users..." /> : loadError ? <DataErrorState message={loadError} onRetry={() => setReload(value => value + 1)} /> :
+        <DataGrid<User> sort={sort} sortingMode="external" onSortChange={next => setSort(next ?? { field: 'createdAt', direction: 'desc' })} columns={tableColumns.columns} data={paginated} getRowId={row => row.id} height="auto" selectable={canArchiveUsers} selectedIds={selected} onSelectionChange={setSelected} enableColumnMenu={false} ariaLabel="Team Management table" emptyMessage="No users found"
+          onRowClick={u => openUser(u)} rowActions={u => [
+            { id: 'view', label: 'View', onClick: () => openUser(u) },
+            ...((canManageUsers || canAssignRoles || canActivateUsers || canArchiveUsers) ? [
+              { id: 'edit', label: canManageUsers ? 'Edit' : 'Change access', disabled: !canManageUsers && !canAssignRoles && !canActivateUsers, onClick: () => openUser(u, true) },
+              { id: 'status', label: u.status === 'active' ? 'Mark as Inactive' : 'Mark as Active', onClick: async () => { try { const result = await usersService.update(u.id, { status: u.status === 'active' ? 'inactive' : 'active' }); if (result.data) handleSavedUser(result.data); toast.success('User status updated.'); } catch (e) { toast.error(e instanceof Error ? e.message : 'Unable to update user status.'); } } },
+              { id: 'archive', label: 'Archive', disabled: !!u.isArchived || !canArchiveUsers, onClick: () => setConfirmArchive(u) },
+            ] : []),
+          ]} />}
+      <BulkSelectionBar selectedCount={selected.size} selectedIds={selected} onClearSelection={() => setSelected(new Set())} onRemoveIds={ids => setSelected(previous => new Set([...previous].filter(id => !ids.includes(id))))}
+        actions={canArchiveUsers ? [{ id: 'archive', label: 'Archive', entityName: 'user', destructive: true, onExecute: async ids => { const result = await executeSelectedRows(ids, usersService.archive); setReload(value => value + 1); return result; } }] : []} />
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <Pagination
+      {!loading && !loadError && (
+        <LeadsPagination
           currentPage={currentPage}
-          totalPages={totalPages}
           pageSize={pageSize}
-          totalItems={totalItems}
+          totalRecords={totalItems}
           onPageChange={goToPage}
           onPageSizeChange={setPageSize}
-          pageSizeOptions={[10, 25, 50]}
         />
       )}
 
         </div>
       </div>
 
-      {/* Pending Invitations */}
-      {!USE_MOCK_DATA && pendingInvitations.length > 0 && (
-        <div className="bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-white/[0.07] rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-gray-100 dark:border-white/[0.05]">
-            <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Pending Invitations ({isInvitationsLoading ? '…' : pendingInvitations.length})
-            </p>
-          </div>
-          {pendingInvitations.map((inv) => (
-            <div key={inv.id} className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-white/[0.04] last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
-              <div>
-                <p className="text-xs font-semibold text-slate-900 dark:text-white">{inv.email}</p>
-                <p className="text-[10px] text-slate-400">Expires {new Date(inv.expiresAt).toLocaleDateString()}</p>
-              </div>
-              {canManageUsers && (
-                <button onClick={() => handleRevokeInvitation(inv.id, inv.email)}
-                  className="px-3 py-1.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-lg cursor-pointer transition-colors">
-                  Revoke
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Modals */}
       <AnimatePresence>
         {isAddOpen && (
-          <UserPanel roles={roleObjs} canEdit={canManageUsers} onSaved={handleSavedUser} onClose={() => setIsAddOpen(false)} />
+          <UserPanel roles={roleObjs} canEdit={canCreateUsers} onSaved={handleSavedUser} onClose={() => setIsAddOpen(false)} />
         )}
         {editingUser && (
-          <UserPanel key={editingUser.id} user={editingUser} roles={roleObjs} canEdit={canManageUsers} onSaved={handleSavedUser} onClose={() => setEditingUser(null)} />
+          <UserPanel key={`${editingUser.id}:${initiallyEditing}`} initiallyEditing={initiallyEditing} user={editingUser} roles={roleObjs} canEdit={canManageUsers} onSaved={handleSavedUser} onClose={() => setEditingUser(null)} />
         )}
         {confirmArchive && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

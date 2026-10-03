@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as service from './users.service';
+import { z } from 'zod';
 
 export async function getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -10,6 +11,13 @@ export async function getAll(req: Request, res: Response, next: NextFunction): P
 export async function getById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     res.json({ success: true, data: await service.getById(String(req.params.id), req.user!.tenantId) });
+  } catch (err) { next(err); }
+}
+
+export async function getAvatar(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const bytes = await service.getAvatar(String(req.params.id), req.user!.tenantId, String(req.params.avatarId));
+    res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }).send(bytes);
   } catch (err) { next(err); }
 }
 
@@ -35,7 +43,7 @@ export async function archive(req: Request, res: Response, next: NextFunction): 
 
 export async function restore(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await service.restore(String(req.params.id), req.user!.tenantId, req.user!.userId);
+    await service.restore(z.string().uuid().parse(req.params.id), req.user!.tenantId, req.user!.userId);
     res.json({ success: true });
   } catch (err) { next(err); }
 }

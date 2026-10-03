@@ -17,7 +17,6 @@ export const ImportDealRowSchema = z.object({
   account: optionalText(255),
   contact: optionalText(255),
   assignedUser: optionalText(254),
-  description: optionalText(5000),
 }).strict();
 
 const rawFields = Object.fromEntries(Object.keys(ImportDealRowSchema.shape).map(key => [key, z.string().max(10000).optional().default('')]));

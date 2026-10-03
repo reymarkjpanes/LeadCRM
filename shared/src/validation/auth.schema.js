@@ -11,9 +11,8 @@ exports.RegisterSchema = zod_1.z.object({
     email: security_schema_1.EmployeeEmailSchema,
     password: exports.StrongPasswordSchema,
     acceptTerms: zod_1.z.boolean().optional(),
-    invitationToken: zod_1.z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
-    if (!data.invitationToken && data.acceptTerms !== true) {
+    if (data.acceptTerms !== true) {
         ctx.addIssue({
             code: zod_1.z.ZodIssueCode.custom,
             path: ['acceptTerms'],

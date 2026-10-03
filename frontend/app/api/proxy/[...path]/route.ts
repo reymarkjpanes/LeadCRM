@@ -45,8 +45,6 @@ async function proxyRequest(
     'Content-Type': req.headers.get('content-type') ?? 'application/json',
     'Accept': 'application/json',
   };
-  const environment = req.headers.get('x-crm-environment');
-  if (environment) headers['X-CRM-Environment'] = environment;
 
   // Forward the HttpOnly cookie server-side — this is the whole reason the
   // proxy exists. Browsers block third-party cookies on cross-origin fetches,
@@ -56,8 +54,6 @@ async function proxyRequest(
   if (token) {
     headers['Cookie'] = `leadcrm_token=${token}`;
   }
-  const challenge = req.cookies.get('leadcrm_mfa_challenge')?.value;
-  if (challenge && /^[a-f0-9]{64}$/.test(challenge)) headers['Cookie'] = [headers['Cookie'], `leadcrm_mfa_challenge=${challenge}`].filter(Boolean).join('; ');
 
   // Forward the real client IP so the backend rate limiter sees the actual
   // user address rather than the Vercel edge node IP.
@@ -70,7 +66,7 @@ async function proxyRequest(
   let body: string | ArrayBuffer | undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const ct = req.headers.get('content-type') ?? '';
-    if (ct.startsWith('multipart/form-data') || ct.startsWith('image/')) {
+    if (ct.startsWith('multipart/form-data') || ct.startsWith('image/') || ct.startsWith('application/octet-stream')) {
       body = await req.arrayBuffer();
     } else {
       body = await req.text();
@@ -95,6 +91,10 @@ async function proxyRequest(
           backendRes.headers.get('content-type') ?? 'application/json',
       },
     });
+
+    const disposition = backendRes.headers.get('content-disposition');
+    if (disposition) response.headers.set('Content-Disposition', disposition);
+    response.headers.set('X-Content-Type-Options', 'nosniff');
 
     // Forward and rewrite Set-Cookie headers from the backend to the browser.
     // Critical for auth — the login endpoint sets the HttpOnly leadcrm_token

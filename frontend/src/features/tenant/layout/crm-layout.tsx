@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { ModuleAccessGuard } from '@/shared/providers/module-access-guard';
 import SidebarNav from './sidebar-nav';
 import Topbar from './topbar';
 import { useLayout } from './use-layout';
@@ -126,8 +127,8 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
 
 
 
-        <main key={`${user?.id}:${user?.activeEnvironment}`} className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
-          {children}
+        <main key={`${user?.id}`} className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
+          <ModuleAccessGuard>{children}</ModuleAccessGuard>
         </main>
       </div>
 

@@ -33,6 +33,6 @@ describe('campaign validation and rendering', () => {
   it('deduplicates emails and excludes staff, invalid, missing, suppressed and Sandbox addresses', () => {
     const records = ['Customer@example.com', 'CUSTOMER@example.com', ' staff@camxian.com ', 'bad', null, 'optout@example.com', 'blocked@example.com', 'outside@example.com'].map(email => ({ email, reason: null, personalization: {} }));
     const result = classifyRecipients(records, new Set(['staff@camxian.com']), new Map([['optout@example.com', 'UNSUBSCRIBED'], ['blocked@example.com', 'BLOCKED']]), new Set(['customer@example.com']));
-    expect(result.breakdown).toMatchObject({ matched: 8, eligible: 1, duplicateEmail: 1, staffEmail: 1, invalidEmail: 1, missingEmail: 1, unsubscribed: 1, blocked: 1, sandboxBlocked: 1 });
+    expect(result.breakdown).toMatchObject({ matched: 8, eligible: 1, duplicateEmail: 1, staffEmail: 1, invalidEmail: 1, missingEmail: 1, unsubscribed: 1, blocked: 1, recipientNotAllowed: 1 });
   });
 });

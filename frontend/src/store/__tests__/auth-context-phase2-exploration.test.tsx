@@ -46,7 +46,6 @@ async function loadAuthModule(mocks: {
       logout: () => logoutMock(),
     },
   }));
-  vi.doMock('next-auth/react', () => ({ signIn: vi.fn(), signOut: vi.fn() }));
   vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [] }));
 
   const mod = await import('../AuthContext');

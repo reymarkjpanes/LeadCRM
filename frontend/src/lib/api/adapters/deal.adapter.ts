@@ -76,9 +76,11 @@ export function toBackendCreateDeal(data: Partial<any>): any {
     billingFrequency: data.billingFrequency || undefined,
     priority: toBackendPriority(data.priority),
     expectedCloseDate: toISODatetime(data.expectedCloseDate),
-    description: data.description || undefined,
     leadSource: data.leadSource || undefined,
-    organizationId: data.companyId || data.organizationId || undefined,
+    accountId: data.accountId || data.companyId || data.organizationId || undefined,
+    productInterests: data.productInterests,
+    productInterestId: data.productInterestId,
+    productInterestIds: data.productInterestIds,
     assignedUserId: data.assignedUserId || undefined,
   };
 
@@ -106,13 +108,14 @@ export function toBackendUpdateDeal(data: Partial<any>): any {
   if (data.value !== undefined) updateData.value = data.value;
   if (data.priority !== undefined) updateData.priority = toBackendPriority(data.priority);
   if (data.expectedCloseDate !== undefined) updateData.expectedCloseDate = toISODatetime(data.expectedCloseDate);
-  if (data.description !== undefined) updateData.description = data.description;
   if (data.leadSource !== undefined) updateData.leadSource = data.leadSource;
   if (data.billingFrequency !== undefined) updateData.billingFrequency = data.billingFrequency;
 
   // Strip empty strings for optional UUID fields
-  const orgId = data.companyId || data.organizationId;
-  if (orgId) updateData.organizationId = orgId;
+  const orgId = data.accountId || data.companyId || data.organizationId;
+  if (orgId) updateData.accountId = orgId;
+  if (data.productInterestIds !== undefined) updateData.productInterestIds = data.productInterestIds;
+  if (data.productInterests !== undefined) updateData.productInterests = data.productInterests;
 
   if (data.assignedUserId) updateData.assignedUserId = data.assignedUserId;
 
@@ -200,6 +203,8 @@ export function toFrontendDeal(backendDeal: any): any {
 
   return {
     id: backendDeal.id || '',
+    productInterestId: backendDeal.productInterestId,
+    productInterestIds: backendDeal.productInterestIds?.length ? backendDeal.productInterestIds : backendDeal.productInterestId ? [backendDeal.productInterestId] : [],
     tenantId: backendDeal.tenantId || '',
     pipelineId: backendDeal.pipelineId || '',
     stageId: backendDeal.stageId || '',
@@ -212,11 +217,11 @@ export function toFrontendDeal(backendDeal: any): any {
     contactIds: contactIds,
     companyId: backendDeal.organizationId || backendDeal.organization?.id || undefined,
     companyName: companyName,
-    contactPerson: contactPerson,
+    contactPerson: contactPerson || (leadPerson ? [leadPerson.firstName, leadPerson.lastName].filter(Boolean).join(' ') : ''),
+    productInterests: Array.isArray(backendDeal.productInterests) ? backendDeal.productInterests : [],
     value: typeof backendDeal.value === 'number' ? backendDeal.value : 0,
     priority: toFrontendPriority(backendDeal.priority),
     expectedCloseDate: backendDeal.expectedCloseDate || '',
-    description: backendDeal.description || '',
     assignedUserId: backendDeal.assignedUserId || backendDeal.ownerId || '',
     billingFrequency: backendDeal.billingFrequency || undefined,
     lostReason: backendDeal.lostReason || undefined,

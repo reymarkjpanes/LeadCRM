@@ -33,9 +33,6 @@
       "@/features/tenant/*": [
         "./src/features/tenant/*"
       ],
-      "@/features/system-admin/*": [
-        "./src/features/system-admin/*"
-      ],
       "@/shared/*": [
         "./src/shared/*"
       ],

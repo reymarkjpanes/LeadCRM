@@ -33,6 +33,7 @@ export async function validateConditionReferences(draft: WorkflowDraft, tenantId
     if (field.type === 'user' && !await refs.findUser(String(rule.value), tenantId)) throw new ValidationError('Condition agent is unavailable.');
     if (field.type === 'stage' && !await refs.findStage(String(rule.value), tenantId)) throw new ValidationError('Condition stage is unavailable.');
     if (field.type === 'pipeline' && !await refs.findPipeline(String(rule.value), tenantId)) throw new ValidationError('Condition pipeline is unavailable.');
+    if (field.type === 'account' && !await refs.findAccount(String(rule.value), tenantId)) throw new ValidationError('Condition account is unavailable.');
   }
 }
 

@@ -2,28 +2,22 @@ import {
   Pencil, Archive, Building, Globe, MapPin,
   User, UserPlus, Trophy, Tag,
 } from 'lucide-react';
-import type { RecordDetailConfig, StatusConfig } from '@/shared/components/crm/record-detail.types';
+import type { RecordDetailConfig } from '@/shared/components/crm/record-detail.types';
 import type { FieldSection } from '@/shared/components/crm/record-overview-tab';
 import type { RelatedSectionConfig } from '@/shared/components/crm/record-related-tab';
 
-const ACCOUNT_STATUSES: StatusConfig[] = [
-  { value: 'Prospect', label: 'Prospect', variant: 'info' },
-  { value: 'Active Customer', label: 'Active Customer', variant: 'success' },
-  { value: 'Inactive Customer', label: 'Inactive', variant: 'neutral' },
-  { value: 'Former Customer', label: 'Former', variant: 'warning' },
-];
 
 export const accountDetailConfig: RecordDetailConfig = {
   module: 'accounts',
   permissionModule: 'accounts',
   editPermission: 'accounts.edit',
-  deletePermission: 'accounts.delete',
-  statuses: ACCOUNT_STATUSES,
+  deletePermission: 'accounts.archive',
+  statuses: [],
   activityFilterKey: 'organizationId',
 
   actionTemplates: [
     { id: 'edit', label: 'Edit', icon: Pencil, primary: true, permission: 'accounts.edit' },
-    { id: 'archive', label: 'Archive', icon: Archive, permission: 'accounts.delete' },
+    { id: 'archive', label: 'Archive', icon: Archive, permission: 'accounts.archive' },
   ],
 
   buildFieldSections: (record, onSave): FieldSection[] => [
@@ -35,7 +29,6 @@ export const accountDetailConfig: RecordDetailConfig = {
         { key: 'industry', label: 'Industry', value: record.industry, type: 'text', editable: true, onSave: (v) => onSave('industry', v) },
         { key: 'size', label: 'Company Size', value: record.size, type: 'select', editable: true, options: [{ value: '1-10', label: '1-10' }, { value: '11-50', label: '11-50' }, { value: '51-200', label: '51-200' }, { value: '200+', label: '200+' }], onSave: (v) => onSave('size', v) },
         { key: 'website', label: 'Website', value: record.website, type: 'url', editable: true, icon: Globe, onSave: (v) => onSave('website', v) },
-        { key: 'taxId', label: 'Tax ID', value: record.taxId, type: 'text', editable: true, onSave: (v) => onSave('taxId', v) },
       ],
     },
     {
@@ -52,8 +45,6 @@ export const accountDetailConfig: RecordDetailConfig = {
       id: 'account-details',
       title: 'Account Details',
       fields: [
-        { key: 'customerType', label: 'Customer Type', value: record.customerType, type: 'select', editable: true, options: ACCOUNT_STATUSES.map((s) => ({ value: s.value, label: s.label })), onSave: (v) => onSave('customerType', v) },
-        { key: 'customerSince', label: 'Customer Since', value: record.customerSince, type: 'date', editable: true, onSave: (v) => onSave('customerSince', v) },
         { key: 'productInterests', label: 'Interests', value: record.productInterests, type: 'tags', editable: true, icon: Tag, onSave: (v) => onSave('productInterests', v) },
         { key: 'notes', label: 'Notes', value: record.notes, type: 'textarea', editable: true, onSave: (v) => onSave('notes', v) },
       ],

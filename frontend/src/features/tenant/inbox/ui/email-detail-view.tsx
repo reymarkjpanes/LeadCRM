@@ -2,20 +2,9 @@
 
 import React, { useState } from 'react';
 import { ArrowLeft, Reply, Forward, Trash2, Archive, Loader2, Send } from 'lucide-react';
-import { sendGmailEmail } from '../services/gmail.service';
-import { sanitizeEmailHtml } from '@/src/lib/sanitize';
+import { sendGmailEmail, archiveGmailEmails, trashGmailEmails, type GmailEmail } from '../services/gmail.service';
+import { safeMailboxHtml as sanitizeEmailHtml } from '../services/email-html';
 
-interface GmailEmail {
-  id: string;
-  threadId: string;
-  from: string;
-  to: string[];
-  subject: string;
-  snippet: string;
-  body: string;
-  date: string;
-  isRead: boolean;
-}
 
 interface EmailDetailViewProps {
   email: GmailEmail;
@@ -56,7 +45,7 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
 
   const handleReply = (): void => {
     setReplyMode('reply');
-    setReplyTo(extractEmail(email.from));
+    setReplyTo(email.direction === 'outbound' ? extractEmail(email.to[0] ?? '') : extractEmail(email.from));
     setReplyBody('');
     setSendError(null);
   };
@@ -83,9 +72,10 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
 
     try {
       const subject = replyMode === 'reply'
-        ? `Re: ${email.subject}`
+        ? (/^re:/i.test(email.subject) ? email.subject : `Re: ${email.subject}`)
         : `Fwd: ${email.subject}`;
-      await sendGmailEmail(replyTo.trim(), subject, replyBody.trim());
+      const escapedBody = replyBody.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+      await sendGmailEmail(replyTo.trim(), subject, escapedBody + (replyMode === 'forward' ? sanitizeEmailHtml(email.body) : ''), replyMode === 'reply' ? email.id : undefined);
       setReplyMode('none');
       setReplyBody('');
       setReplyTo('');
@@ -107,7 +97,7 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
   return (
     <div className="flex flex-col h-full">
       {/* Header bar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 dark:border-white/5 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:px-6 border-b border-gray-100 dark:border-white/5 shrink-0">
         <button
           onClick={onBack}
           className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -135,12 +125,14 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
           <span>Forward</span>
         </button>
         <button
+          onClick={() => void archiveGmailEmails([email.id]).then(onEmailsChanged).catch(error => setSendError(error.message))}
           className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           aria-label="Archive"
         >
           <Archive className="w-4 h-4" />
         </button>
         <button
+          onClick={() => void trashGmailEmails([email.id]).then(onEmailsChanged).catch(error => setSendError(error.message))}
           className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           aria-label="Delete"
         >
@@ -149,7 +141,8 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
       </div>
 
       {/* Email content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="min-w-0 flex-1 overflow-auto break-words px-3 py-5 sm:px-6">
+        {sendError && replyMode === 'none' && <p role="alert" className="mb-3 text-sm text-red-600">{sendError}</p>}
         {/* Subject */}
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
           {email.subject || '(no subject)'}
@@ -165,7 +158,7 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 break-all">
               <span className="text-sm font-semibold text-slate-900 dark:text-white">
                 {extractName(email.from)}
               </span>
@@ -206,7 +199,7 @@ export default function EmailDetailView({ email, onBack, onEmailsChanged }: Emai
               onChange={(e) => setReplyTo(e.target.value)}
               readOnly={replyMode === 'reply'}
               placeholder="recipient@email.com"
-              className="flex-1 h-9 px-3 rounded-lg border border-gray-200 dark:border-white/8 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 read-only:bg-slate-100 dark:read-only:bg-slate-800"
+              className="min-w-0 flex-1 h-9 px-3 rounded-lg border border-gray-200 dark:border-white/8 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 read-only:bg-slate-100 dark:read-only:bg-slate-800"
             />
           </div>
 

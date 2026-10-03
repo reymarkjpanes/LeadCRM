@@ -17,7 +17,6 @@
 'use client';
 
 import React, { useMemo, useCallback } from 'react';
-import { StatusBadge } from '@/shared/components/crm';
 import {
   DataGrid,
   useDataGridColumns,
@@ -25,7 +24,6 @@ import {
   renderDate,
   renderLink,
   MODULE_ACCENT_COLORS,
-  ACCOUNT_TYPE_VARIANTS,
 } from '@/shared/components/data-grid';
 import type { SortState, RowActionItem } from '@/shared/components/data-grid';
 import type { CellRendererMap } from '@/shared/components/data-grid';
@@ -72,7 +70,6 @@ interface AccountsDataGridProps {
   highlightRowId?: string;
 }
 
-// ─── Account Type Variant (uses shared ACCOUNT_TYPE_VARIANTS) ────────────────
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -130,13 +127,6 @@ export function AccountsDataGrid({
       </p>
     ),
 
-    customerType: (_value: unknown, row: Account) => (
-      <StatusBadge
-        label={row.customerType ?? 'Prospect'}
-        variant={ACCOUNT_TYPE_VARIANTS[row.customerType ?? 'Prospect'] ?? 'neutral'}
-        dot={false}
-      />
-    ),
 
     size: (_value: unknown, row: Account) => (
       <p className="text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate">
@@ -180,14 +170,13 @@ export function AccountsDataGrid({
     effectiveColumns,
     cellRenderers,
     sortableColumns: [
-      'name', 'industry', 'customerType', 'size',
+      'name', 'industry', 'size',
       'city', 'country', 'createdAt',
     ],
     resizableColumns: 'all',
     defaultWidths: {
       name: 240,
       industry: 160,
-      customerType: 140,
       size: 140,
       city: 140,
       country: 140,

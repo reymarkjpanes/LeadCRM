@@ -3,6 +3,7 @@ import { ImportLeadRowSchema, CreateLeadImportDto } from './lead-imports.dto';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError } from '../../../shared/errors/http-error';
 import prisma from '../../../config/database.config';
+import { createAssignedLead, salesTransaction } from '../leads/lead-automation.service';
 import { paginate } from '../../../shared/helpers/pagination';
 
 /**
@@ -85,10 +86,9 @@ export async function processImport(
       continue;
     }
 
-    // Create the lead using direct Prisma (same as contacts.repository.createContact)
+    // Use the same transactional assignment flow as manual Lead creation.
     try {
-      const lead = await prisma.lead.create({
-        data: {
+      const lead = await salesTransaction(tx => createAssignedLead(tx, {
           tenantId,
           firstName: validation.data.firstName,
           lastName: validation.data.lastName,
@@ -96,14 +96,14 @@ export async function processImport(
           phone: validation.data.phone,
           companyName: validation.data.companyName,
           address: validation.data.address,
-          status: validation.data.status || 'Inquiry',
+          status: validation.data.status || 'Warm',
           website: validation.data.website || undefined,
           source: validation.data.source || undefined,
           description: validation.data.description || undefined,
           createdById: userId,
           updatedById: userId,
-        },
-      });
+          creationKey: `${importRecord.id}:${rowNumber}`,
+        }, userId));
 
       successCount++;
       results.push({

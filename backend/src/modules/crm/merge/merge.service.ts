@@ -1,4 +1,3 @@
-import { OptionalTaxIdSchema } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError } from '../../../shared/errors/http-error';
@@ -30,8 +29,8 @@ const CONTACT_MERGE_FIELDS = [
 ];
 
 const ACCOUNT_MERGE_FIELDS = [
-  'name', 'industry', 'size', 'website', 'taxId', 'notes', 'internalNotes',
-  'tags', 'productInterests', 'activeProducts', 'customerType', 'customerSince',
+  'name', 'industry', 'size', 'website', 'notes', 'internalNotes',
+  'tags', 'productInterests', 'activeProducts',
   'address', 'city', 'province', 'country', 'assignedUserId',
 ];
 
@@ -274,7 +273,6 @@ async function executeAccountMerge(
   if (!secondary) throw new NotFoundError('Secondary account');
 
   const mergedData = resolveFields(primary, secondary, fieldResolutions, ACCOUNT_MERGE_FIELDS);
-  if (mergedData.taxId != null) OptionalTaxIdSchema.parse(mergedData.taxId);
 
   const result = await prisma.$transaction(async (tx) => {
     const reassignedCounts = await repo.reassignAccountRelationships(tx, primaryId, secondaryId, tenantId);

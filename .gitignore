@@ -41,10 +41,16 @@ metadata.json
 # Vite leftover artifacts (project uses Next.js)
 vite.config.ts
 index.html
+!frontend/qa/roles/index.html
 src/main.tsx
-
 # Turborepo cache
 .turbo/
 
 # Reviewed onboarding repair is maintained source, not a scratch script.
 !backend/src/scripts/fix-null-onboarding.ts
+
+# Ignored env templates
+backend/.env.example
+
+# Local database inventories contain deployment-specific identifiers.
+data/outputs/retired-features-*.json

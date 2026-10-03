@@ -69,7 +69,7 @@ Important behavior to keep visible in the UI:
 - Existing message variables are `{{first_name}}`, `{{last_name}}`, `{{email}}`, and `{{company}}`. The example `{{lead.firstName}}` is unsupported; provide readable insertion choices for the existing variables.
 - Send email uses an actual connected Gmail sender and template or subject/message. Sandbox blocks external email. The options endpoint currently supplies users, not verified sender connection status; activation validation remains authoritative unless that existing options response is extended.
 - Send campaign sends the selected draft to its saved audience once. It is not a personalized per-trigger send. Preserve this explanation and campaign service protections.
-- Safe updates are Lead/Deal description or Client Profile notes. Protected status/identity fields remain unavailable.
+- Safe updates are Lead descriptions or Client Profile notes. Deal description and protected status/identity fields are unavailable.
 - Pipeline selection can narrow the existing named stage options; only `stageId` is serialized. Stage-specific entry requirements and lost reasons remain enforced by the governed Deal service.
 - Drafts can contain incomplete actions, but the backend still validates supplied values/references and condition rules. Do not silently strip incomplete rules to make Save succeed; point to the fields needing correction.
 

@@ -26,6 +26,12 @@ describe('canonical flat workflow context', () => {
     expect(evaluateCondition({ operator: 'AND', conditions }, context)).toBe(false);
     expect(evaluateCondition({ operator: 'OR', conditions }, context)).toBe(true);
   });
+  it('matches public relationship labels and preserved uppercase status conditions', () => {
+    for (const [actual, value] of [['WARM', 'Warm'], ['Warm', 'WARM'], ['Closed', 'CLOSED']]) {
+      expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'contact.status', operator: 'equals', value }] }, { 'contact.status': actual })).toBe(true);
+      expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'contact.status', operator: 'not_equals', value }] }, { 'contact.status': actual })).toBe(false);
+    }
+  });
   it('does not accidentally accept nested contexts', () => {
     expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'contact.status', operator: 'equals', value: 'HOT' }] },
       { contact: { status: 'HOT' } })).toBe(false);

@@ -1,3 +1,4 @@
+import { validateProductSnapshots, normalizeProductOther } from '../leads/product-snapshots';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
 import prisma from '../../../config/database.config';
 import { getPaginationParams } from '../../../shared/helpers/pagination';
@@ -38,8 +39,8 @@ export async function findAllCompanies(tenantId: string, query: Record<string, u
     ...(filterClauses.length > 0 ? { AND: filterClauses } : {}),
   };
 
-  const ids = await sortedPageIds(query.sort, ["name","industry","customerType","size","city","country","createdAt"], skip, limit,
-    () => prisma.account.findMany({ where, select: { id: true, name: true, industry: true, customerType: true, size: true, city: true, country: true, createdAt: true } }));
+  const ids = await sortedPageIds(query.sort, ["name","industry","size","city","country","createdAt"], skip, limit,
+    () => prisma.account.findMany({ where, select: { id: true, name: true, industry: true, size: true, city: true, country: true, createdAt: true } }));
   const [data, total] = await Promise.all([
     prisma.account.findMany({
       where: ids ? { ...where, id: { in: ids } } : where, skip: ids ? 0 : skip, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
@@ -63,10 +64,15 @@ export async function findCompanyById(id: string, tenantId: string) {
 }
 
 export async function createCompany(tenantId: string, dto: CreateCompanyDto) {
+  dto.productInterests = await validateProductSnapshots(tenantId, dto.productInterests);
+  normalizeProductOther(dto, (dto.productInterests as string[] | undefined) ?? []);
   return prisma.account.create({ data: { ...dto, tenantId } as never });
 }
 
 export async function updateCompany(id: string, tenantId: string, dto: UpdateCompanyDto) {
+  const previous = await prisma.account.findFirst({ where: { id, tenantId } });
+  dto.productInterests = await validateProductSnapshots(tenantId, dto.productInterests, previous?.productInterests);
+  normalizeProductOther(dto, (dto.productInterests as string[] | undefined) ?? previous?.productInterests ?? [], previous?.productInterestOther);
   try {
     return await prisma.account.update({ where: { id, tenantId }, data: dto as never });
   } catch {

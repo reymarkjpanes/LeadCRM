@@ -9,7 +9,6 @@ vi.mock('@/shared/services/auth.api', () => ({ authApi: mocks }));
 vi.mock('@/shared/services/roles.api', () => ({
   rolesApi: { getUserPermissions: mocks.permissions },
 }));
-vi.mock('next-auth/react', () => ({ signIn: vi.fn(), signOut: mocks.signOut }));
 vi.mock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [] }));
 import { AuthProvider, useAuth } from '../AuthContext';
 let auth: ReturnType<typeof useAuth>;

@@ -127,12 +127,12 @@ async function seedProductionTestData() {
           description: 'Full access to all tenant features',
           permissions: {
             create: [
-              { tenantId: TEST_TENANT_ID, module: 'contacts', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'campaigns', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'deals', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'workflows', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'users', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'settings', canView: true, canCreate: true, canEdit: true, canDelete: true },
+              { tenantId: TEST_TENANT_ID, module: 'contacts', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { tenantId: TEST_TENANT_ID, module: 'campaigns', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { tenantId: TEST_TENANT_ID, module: 'deals', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { tenantId: TEST_TENANT_ID, module: 'workflows', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { tenantId: TEST_TENANT_ID, module: 'users', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { tenantId: TEST_TENANT_ID, module: 'settings', canView: true, canCreate: false, canEdit: true, canDelete: false },
             ],
           },
         },

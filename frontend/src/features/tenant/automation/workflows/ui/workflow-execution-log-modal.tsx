@@ -1,23 +1,40 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { WorkflowExecutionRun } from '@leadcrm/shared';
+import { WORKFLOW_TRIGGERS } from '@leadcrm/shared';
+import { workflowActionLabel } from '../services/workflow-editor';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { Button } from '@/shared/components/ui/button';
-import { WorkflowDialog } from './workflow-dialog';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
+import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
+import { X } from 'lucide-react';
 interface WorkflowRunsProps {
   workflowId: string;
   name: string;
+  status?: string;
   onClose: () => void;
 }
 export function WorkflowExecutionLogModal({
   workflowId,
   name,
+  status,
   onClose,
 }: WorkflowRunsProps) {
   return (
-    <WorkflowDialog title={`Runs — ${name}`} onClose={onClose}>
-      <WorkflowRuns workflowId={workflowId} />
-    </WorkflowDialog>
+    <Sheet open onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent showClose={false} aria-label={`Runs — ${name}`} className="w-full max-w-full sm:max-w-[480px]">
+        <header className="flex shrink-0 items-start gap-3 border-b border-border bg-card p-4">
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Workflow runs{status ? ` · ${status}` : ''}</p>
+            <h2 className="text-lg font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]">{name}</h2>
+          </div>
+          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={onClose} aria-label="Close workflow runs"><X size={16} /></Button>
+        </header>
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4">
+          <WorkflowRuns key={workflowId} workflowId={workflowId} />
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 export function WorkflowRuns({ workflowId }: { workflowId: string }) {
@@ -49,7 +66,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
     };
   }, [workflowId, page, retry]);
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
       <p className="text-sm text-[var(--muted-foreground)]">
         Runs show the action order at execution time. Older runs may differ from
         the current canvas.
@@ -62,7 +79,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
         Refresh activity
       </Button>
       {loading ? (
-        <p role="status">Loading runs…</p>
+        <div role="status" aria-label="Loading workflow runs"><DataLoadingSkeleton rowCount={4} columnCount={2} /></div>
       ) : error ? (
         <p role="alert">{error}</p>
       ) : !runs.length ? (
@@ -71,7 +88,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
         </p>
       ) : (
         runs.map((run) => (
-          <details key={run.id} className="rounded-lg border border-[var(--border)] p-3">
+          <details key={run.id} className="min-w-0 rounded-xl border border-border bg-card p-3">
             <summary className="cursor-pointer">
               {run.status} · {new Date(run.startedAt).toLocaleString()} ·{' '}
               {run.entityType}
@@ -79,7 +96,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
             <p className="mt-2 text-sm text-[var(--muted-foreground)]">
               Record: {run.trigger.payload?.recordName || run.entityType}
               <br />
-              Trigger: {run.trigger.triggerType.replaceAll('_', ' ')}
+              Trigger: {WORKFLOW_TRIGGERS.find(trigger => trigger.type === run.trigger.triggerType)?.label ?? run.trigger.triggerType.replaceAll('_', ' ')}
               <br />
               Finished:{' '}
               {run.completedAt
@@ -90,7 +107,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
             <ol className="mt-3 space-y-2">
               {run.steps.map((step) => (
                 <li key={step.id} className="rounded border border-[var(--border)] p-2">
-                  {step.stepIndex + 1}. {step.actionType.replaceAll('_', ' ')} —{' '}
+                  {step.stepIndex + 1}. {workflowActionLabel(step.actionType)} —{' '}
                   {step.status}
                   {step.output?.reason === 'Action disabled' && (
                     <p className="text-sm text-[var(--muted-foreground)]">
@@ -109,7 +126,7 @@ export function WorkflowRuns({ workflowId }: { workflowId: string }) {
         ))
       )}
       {
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             disabled={loading || page === 1}

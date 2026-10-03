@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Users, Briefcase, LayoutDashboard, Workflow, Mail, Settings, ShieldAlert, Activity } from 'lucide-react';
+import { Search, Users, Briefcase, LayoutDashboard, Workflow, Mail, Settings } from 'lucide-react';
 import { useData } from '../../store/DataContext';
 import { useAuth } from '../../store/AuthContext';
 import { useDebounce } from '@/shared/hooks/use-debounce';
@@ -98,23 +98,17 @@ export default function CommandPalette({ navigate, isOpen, setIsOpen }: CommandP
 
   const navItems = [
     { name: 'Dashboard',       path: 'dashboard',  icon: LayoutDashboard, permissions: ['p1'] },
-    { name: 'Client Profiles', path: 'contacts',   icon: Users,           permissions: ['contacts.view', 'p2', 'p2_own'] },
-    { name: 'Leads',           path: 'leads',      icon: Users,           permissions: ['contacts.view', 'p2', 'p2_own'] },
-    { name: 'Accounts',        path: 'accounts',   icon: Users,           permissions: ['accounts.view', 'p2', 'p2_own'] },
-    { name: 'Deals',           path: 'deals',      icon: Briefcase,       permissions: ['deals.view', 'p7', 'p7_own'] },
-    { name: 'Workflows',       path: 'workflows',  icon: Workflow,        permissions: ['workflows.view', 'p12'] },
-    { name: 'Campaigns',       path: 'campaigns',  icon: Mail,            permissions: ['campaigns.view', 'p17'] },
-    { name: 'Users',           path: 'users',      icon: Users,           permissions: ['users.view', 'p22'] },
-    { name: 'Settings',        path: 'settings',   icon: Settings,        permissions: ['settings.view', 'p27'] },
-    { name: 'Audit Trail',     path: 'audit-log',  icon: Activity,        permissions: ['audit.view', 'p30'] },
-    { name: 'Admin Console',   path: 'admin',      icon: ShieldAlert,     roles: ['System Admin'] },
+    { name: 'Client Profiles', path: 'contacts',   icon: Users,           permissions: ['contacts.view'] },
+    { name: 'Leads',           path: 'leads',      icon: Users,           permissions: ['leads.view'] },
+    { name: 'Accounts',        path: 'accounts',   icon: Users,           permissions: ['accounts.view'] },
+    { name: 'Deals',           path: 'deals',      icon: Briefcase,       permissions: ['deals.view'] },
+    { name: 'Workflows',       path: 'workflows',  icon: Workflow,        permissions: ['workflows.view'] },
+    { name: 'Campaigns',       path: 'campaigns',  icon: Mail,            permissions: ['campaigns.view'] },
+    { name: 'Users',           path: 'users',      icon: Users,           permissions: ['users.view'] },
+    { name: 'Settings',        path: 'settings',   icon: Settings,        permissions: ['settings.view'] },
   ];
 
   const hasAccess = (item: { name: string; permissions?: string[]; roles?: string[]; enabled?: boolean }) => {
-    if (user?.role?.toLowerCase() === 'system admin') {
-      return ['Dashboard', 'Users', 'Settings', 'Admin Console', 'Audit Trail'].includes(item.name);
-    }
-    if (item.name === 'Admin Console') return false;
     if (user?.role?.toLowerCase() === 'client admin') return true;
 
     if (item.roles?.some((r) => r.toLowerCase() === user?.role?.toLowerCase())) return true;

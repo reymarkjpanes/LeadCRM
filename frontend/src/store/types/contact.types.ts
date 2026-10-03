@@ -71,7 +71,6 @@ export interface Contact extends SharedContact {
   orgOwner?: string;
   orgWebsite?: string;
   orgAddress?: string;
-  taxId?: string;
   country?: string;
   region?: string;
   province?: string;

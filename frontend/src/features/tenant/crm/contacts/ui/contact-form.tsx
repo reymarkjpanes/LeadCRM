@@ -1,4 +1,7 @@
 'use client';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { CRM_STATUSES, normalizeCrmStatus } from '@leadcrm/shared';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
@@ -27,44 +30,20 @@ import type { Contact } from '@/store/types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const PRODUCTS = [
-  'CCTV',
-  'Biometrics',
-  'Door Access',
-  'Door access/Biometrics',
-  'Network/Structured Cabling',
-  'FDAS',
-  'PABX',
-  'PC/Laptop/Server Assembly',
-  'Software/Web Development',
-  'Others',
-];
+
 
 const SOURCES = [
   'Google Ads',
   'Referral',
   'Email Campaign',
   'Website',
-  'LinkedIn Ads',
-  'Webinar',
   'Social Media Advertisement',
-  'Partner Referral',
   'Direct Mail',
-  'Cold Call',
   'Content Marketing',
-  'YouTube Ads',
-  'SEO / Organic Search',
   'Others',
 ];
 
-const STATUS_OPTIONS = [
-  { value: 'Inquiry', label: 'Inquiry' },
-  { value: 'Active', label: 'Active' },
-  { value: 'Inactive', label: 'Inactive' },
-  { value: 'Hot', label: 'Hot' },
-  { value: 'Warm', label: 'Warm' },
-  { value: 'Cold', label: 'Cold' },
-];
+const STATUS_OPTIONS = CRM_STATUSES.map(value => ({ value, label: value }));
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
@@ -84,6 +63,7 @@ interface ContactFormInnerProps {
 // ─── Form Component ────────────────────────────────────────────────────────
 
 export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormInnerProps): React.ReactElement {
+  const { products: productRecords, loading: productsLoading, error: productError } = useProductInterests();
   const { users } = useData();
   const isEdit = !!initialData;
 
@@ -94,7 +74,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     email: initialData?.email || '',
     phone: initialData?.phone || '',
     companyName: initialData?.companyName || '',
-    status: initialData?.status || 'Inquiry',
+    status: normalizeCrmStatus(initialData?.status),
     source: initialData?.leadSource || '',
     accountId: initialData?.organizationId || '',
     assignedUserId: initialData?.assignedUserId || '',
@@ -102,9 +82,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     address: initialData?.address || '',
   }), [initialData]);
 
-  // UpdateContactFormSchema makes firstName/lastName optional; the form still uses
-  // CreateContactFormValues shape for field registration. Cast is safe because both
-  // schemas share the same field keys — only required/optional differs.
+  // Create and edit both require trimmed names and a valid email.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const schema = isEdit ? UpdateContactFormSchema : CreateContactFormSchema;
 
@@ -150,7 +128,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
       email: data.email || undefined,
       phone: phoneLocal ? toE164(phoneLocal) : undefined,
       companyName: data.companyName || undefined,
-      status: data.status || 'Inquiry',
+      status: data.status || 'Warm',
       leadSource: data.source || undefined,
       assignedUserId: data.assignedUserId || undefined,
       productInterest: data.productInterest || [],
@@ -163,24 +141,6 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     }
 
     onSave(cleaned);
-  };
-
-  // Product interest management
-  const toggleProduct = (product: string): void => {
-    const current = selectedProducts;
-    if (current.includes(product)) {
-      setValue('productInterest', current.filter((p) => p !== product), { shouldValidate: true });
-    } else {
-      setValue('productInterest', [...current, product], { shouldValidate: true });
-    }
-  };
-
-  const removeProduct = (product: string): void => {
-    setValue(
-      'productInterest',
-      selectedProducts.filter((p) => p !== product),
-      { shouldValidate: true },
-    );
   };
 
   // Style classes
@@ -224,12 +184,12 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
 
           {/* Email & Phone */}
           <div className="grid grid-cols-2 gap-4">
-            <FieldWrap label="Email" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
+            <FieldWrap label="Email *" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="email"
-                  {...register('email')}
+                  {...register('email')} required aria-required="true" maxLength={254}
                   id={`${fieldId}-email`}
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? `${fieldId}-email-error` : undefined}
@@ -357,51 +317,9 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
 
           {/* Product Interest (multi-select chips) */}
           <FieldWrap label="Product Interest">
-            <div className="space-y-2">
-              {/* Selected chips */}
-              {selectedProducts.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedProducts.map((product) => (
-                    <span
-                      key={product}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-500/20"
-                    >
-                      {product}
-                      <button
-                        type="button"
-                        onClick={() => removeProduct(product)}
-                        className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 rounded-sm p-0.5 transition-colors"
-                        aria-label={`Remove ${product}`}
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Product dropdown */}
-              <div className="relative">
-                <select
-                  className={selectCls}
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      toggleProduct(e.target.value);
-                    }
-                  }}
-                >
-                  <option value="">Add a product interest...</option>
-                  {PRODUCTS.filter((p) => !selectedProducts.includes(p)).map((product) => (
-                    <option key={product} value={product}>
-                      {product}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
-            </div>
-          </FieldWrap>
+<ProductInterestSelect products={productRecords} valueMode="name" values={selectedProducts} onChange={values => setValue('productInterest', values, { shouldValidate: true })} disabled={productsLoading || !!productError} />
+{productError && <p role="alert" className="text-xs text-destructive">{productError}</p>}
+</FieldWrap>
 
           {/* Address */}
           <FieldWrap label="Address" htmlFor={`${fieldId}-address`} error={errors.address?.message}>

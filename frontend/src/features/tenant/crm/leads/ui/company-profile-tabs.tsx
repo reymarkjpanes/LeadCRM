@@ -1,4 +1,5 @@
 'use client';
+import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import { uuid } from '@/lib/utils';
 
 import React, { useState, useEffect } from 'react';
@@ -97,11 +98,6 @@ export const CompanyProfileTabs = ({
   const [smsText, setSmsText] = useState('');
   const [isSendingSms, setIsSendingSms] = useState(false);
 
-  // New task inline state
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDate, setNewTaskDate] = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
-
   // Custom logging inline states
   const [logType, setLogType] = useState<'Call' | 'Meeting' | 'Note'>('Call');
   const [logNotes, setLogNotes] = useState('');
@@ -110,7 +106,6 @@ export const CompanyProfileTabs = ({
   const [cascadeWeb, setCascadeWeb] = useState(selectedOrg.website !== 'N/A' ? selectedOrg.website : '');
   const [cascadeIndustry, setCascadeIndustry] = useState(selectedOrg.industry);
   const [cascadeSize, setCascadeSize] = useState<string | undefined>(selectedOrg.size);
-  const [cascadeTaxId, setCascadeTaxId] = useState(selectedOrg.taxId !== 'N/A' ? selectedOrg.taxId : '');
   const [cascadeAddress, setCascadeAddress] = useState(selectedOrg.address !== 'N/A' ? selectedOrg.address : '');
 
   // Predefined email templates
@@ -129,7 +124,6 @@ export const CompanyProfileTabs = ({
     setCascadeWeb(selectedOrg.website !== 'N/A' ? selectedOrg.website : '');
     setCascadeIndustry(selectedOrg.industry);
     setCascadeSize(selectedOrg.size);
-    setCascadeTaxId(selectedOrg.taxId !== 'N/A' ? selectedOrg.taxId : '');
     setCascadeAddress(selectedOrg.address !== 'N/A' ? selectedOrg.address : '');
 
   }, [selectedOrg]);
@@ -209,33 +203,12 @@ export const CompanyProfileTabs = ({
     }, 1000);
   };
 
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    addTask({
-      title: `${newTaskTitle} (Firm: ${selectedOrg.name})`,
-      assignedUserId: selectedOrg.repId || currentUser?.id || 'user_1',
-      dueDate: newTaskDate || new Date().toISOString().split('T')[0],
-      priority: newTaskPriority,
-      status: 'pending',
-      notes: `Rollup scheduled task for B2B Account: ${selectedOrg.name}.`
-    });
-
-    addActivityLog(`Scheduled corporate task milestone: "${newTaskTitle}"`, 'task');
-    setNewTaskTitle('');
-    setNewTaskDate('');
-    setNewTaskPriority('Medium');
-    toast.success('Task logged under Corporate Account on board!');
-  };
-
   const handlePerformCascadeWeb = (e: React.FormEvent) => {
     e.preventDefault();
     const fields: Partial<Lead> = {};
     if (cascadeWeb) { fields.orgWebsite = cascadeWeb; fields.website = cascadeWeb; }
     if (cascadeIndustry) { fields.businessType = cascadeIndustry; }
     if (cascadeSize) { fields.companySize = cascadeSize; }
-    if (cascadeTaxId) { fields.taxId = cascadeTaxId; }
     if (cascadeAddress) { fields.address = cascadeAddress; }
 
     handleSyncCompanyDetails(selectedOrg.name, fields);
@@ -279,8 +252,7 @@ export const CompanyProfileTabs = ({
     return pipeline.stages.find(s => s.id === stageId)?.name ?? stageId;
   };
 
-  // Connected Tasks
-  const connectedTasks = tasks.filter(t => t.title?.includes(selectedOrg.name));
+
 
   const assignedRep = users.find(u => u.id === selectedOrg.repId);
 
@@ -412,14 +384,6 @@ export const CompanyProfileTabs = ({
                     <div>
                       <span className="text-slate-400 text-[10px] block">Account Size Bracket</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedOrg.size}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Corporate Tax ID / TIN</span>
-                      <span className="font-mono font-semibold text-slate-800 dark:text-amber-400">{selectedOrg.taxId || 'N/A'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Customer Type</span>
-                      <span className="font-semibold text-slate-850 dark:text-blue-400">Corporate Organization</span>
                     </div>
                   </div>
                 </div>
@@ -580,92 +544,7 @@ export const CompanyProfileTabs = ({
           )}
 
           {/* TAB 7: OUTLINE CORPORATE TASKS */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-5 text-left animate-in fade-in duration-100" id="profile-tasks-integration-tab">
-              <form onSubmit={handleAddTask} className="bg-slate-50 dark:bg-white/1 border border-gray-200 dark:border-white/3 p-4 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Fast Schedule Account task milestone</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Task Title <span className="text-red-500">*</span></label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder={`e.g. Schedule onboarding for ${selectedOrg.name}`}
-                      value={newTaskTitle}
-                      onChange={e => setNewTaskTitle(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Target Due Date</label>
-                    <input 
-                      type="date" 
-                      value={newTaskDate}
-                      onChange={e => setNewTaskDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-between items-center pt-1">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-semibold text-slate-500">Priority:</span>
-                    {(['Low', 'Medium', 'High'] as const).map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setNewTaskPriority(p)}
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                          newTaskPriority === p ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/5 text-slate-600'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-                    <Plus size={12} /> Add Corporate Task
-                  </button>
-                </div>
-              </form>
-
-              <div className="space-y-2">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Enterprise task queue</h5>
-                {connectedTasks.map(t => (
-                  <div key={t.id} className="flex justify-between items-center p-3 border border-gray-150 dark:border-white/3 bg-white dark:bg-white/2 rounded-xl text-xs hover:border-gray-200 dark:hover:border-white/10 transition-all">
-                    <div className="flex items-start gap-2.5">
-                      <input 
-                        type="checkbox" 
-                        checked={t.status === 'completed'}
-                        onChange={() => {
-                          updateTask(t.id, { status: t.status === 'completed' ? 'pending' : 'completed' });
-                          toast.success('Task checklist status toggled successfully');
-                        }}
-                        className="rounded border-gray-300 text-blue-500 mt-0.5 cursor-pointer"
-                      />
-                      <div className="text-left">
-                        <span className={`font-bold block ${t.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>{t.title}</span>
-                        <div className="flex items-center gap-2 text-[9px] text-slate-400 mt-0.5 font-semibold">
-                          <span>Due: {t.dueDate}</span>
-                          <span>•</span>
-                          <span className={`px-1.5 py-0.2 rounded ${
-                            t.priority === 'High' ? 'bg-red-500/10 text-red-500' :
-                            t.priority === 'Medium' ? 'bg-amber-500/10 text-amber-500' :
-                            'bg-slate-500/10 text-slate-500'
-                          }`}>{t.priority}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {connectedTasks.length === 0 && (
-                  <div className="p-8 text-center text-slate-500 border border-dashed border-gray-200 dark:border-white/5 rounded-2xl">
-                    No active corporate milestones registered.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'tasks' && <RelatedTasks links={{ accountId: selectedOrg.id }} />}
 
           {/* TAB 8: ASSOCIATED DEALS PIPELINE — Enterprise Deals Table */}
           {activeTab === 'deals' && (
@@ -846,16 +725,6 @@ export const CompanyProfileTabs = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase select-none mb-1">Corporate Tax Identifier / TIN</label>
-                    <input 
-                      type="text" 
-                      value={cascadeTaxId}
-                      onChange={e => setCascadeTaxId(e.target.value)}
-                      placeholder="e.g. TIN-238-294-110"
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-3 py-2 text-xs focus:outline-none dark:text-white"
-                    />
-                  </div>
 
                   <div className="sm:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase select-none mb-1">HQ Corporate Address details</label>

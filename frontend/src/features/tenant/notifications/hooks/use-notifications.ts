@@ -10,37 +10,40 @@ import { toast } from 'sonner';
 export function useNotifications() {
   const { tenant, user } = useAuth();
   const tenantId = tenant?.id ?? user?.tenantId ?? '';
-  const params = { page: 1, limit: 20, userId: user?.id, role: user?.role, environment: user?.activeEnvironment };
+  const params = { page: 1, limit: 20, userId: user?.id, role: user?.role };
   const scope = buildCacheKey('notifications', tenantId, params);
   const enabled = !USE_MOCK_DATA && !!user?.id;
   const cached = enabled ? getPageCache<NotificationsResponse>('notifications', tenantId, params)?.data : undefined;
   const [state, setState] = useState(() => ({
-    scope, notifications: cached?.data ?? [], page: 1,
+    scope, notifications: cached?.data ?? [], unreadCount: cached?.unreadCount ?? 0, page: 1,
     hasMore: cached?.meta.hasMore ?? false, isLoading: enabled, hasError: false,
   }));
   const active = useRef({ scope, version: 0, mounted: false });
   active.current.scope = scope;
   const currentState = state.scope === scope ? state : {
-    scope, notifications: cached?.data ?? [], page: 1,
+    scope, notifications: cached?.data ?? [], unreadCount: cached?.unreadCount ?? 0, page: 1,
     hasMore: cached?.meta.hasMore ?? false, isLoading: enabled, hasError: false,
   };
 
-  const loadNotifications = useCallback(async (page: number, append = false) => {
+  const loadNotifications = useCallback(async (page: number, append = false, preservePages = false) => {
     if (!enabled || !active.current.mounted || active.current.scope !== scope) return;
     const version = ++active.current.version;
     const cacheValid = createPageCacheGuard('notifications');
     const current = () => active.current.mounted && active.current.scope === scope && active.current.version === version;
     setState((prev) => ({
-      ...(prev.scope === scope ? prev : { scope, notifications: cached?.data ?? [], page: 1, hasMore: cached?.meta.hasMore ?? false }),
+      ...(prev.scope === scope ? prev : { scope, notifications: cached?.data ?? [], unreadCount: cached?.unreadCount ?? 0, page: 1, hasMore: cached?.meta.hasMore ?? false }),
       isLoading: true, hasError: false,
     }));
     try {
       const response = await notificationsApi.list({ page, limit: 20 });
       if (!current() || !cacheValid()) return;
       setState((prev) => ({
-        scope, page, isLoading: false, hasError: false, hasMore: response.meta?.hasMore ?? false,
+        scope, page: preservePages ? prev.page : page, unreadCount: response.unreadCount ?? 0, isLoading: false, hasError: false,
+        hasMore: preservePages && prev.page > 1 ? prev.hasMore : response.meta?.hasMore ?? false,
         notifications: append
           ? Array.from(new Map([...prev.notifications, ...response.data].map((n) => [n.id, n])).values())
+          : preservePages && prev.page > 1
+          ? [...response.data, ...prev.notifications.filter(n => !response.data.some(fresh => fresh.id === n.id))]
           : response.data,
       }));
       if (page === 1) setPageCache('notifications', tenantId, params, response);
@@ -48,7 +51,7 @@ export function useNotifications() {
       if (!current() || !cacheValid()) return;
       const status = (error as { status?: number })?.status;
       if (status === 401 || status === 403) invalidatePageCache('notifications', tenantId);
-      setState((prev) => ({ ...prev, hasError: true, notifications: status === 401 || status === 403 ? [] : prev.notifications }));
+      setState((prev) => ({ ...prev, hasError: true, unreadCount: status === 401 || status === 403 ? 0 : prev.unreadCount, notifications: status === 401 || status === 403 ? [] : prev.notifications }));
       toast.error('Failed to load notifications');
     } finally {
       if (current()) setState((prev) => ({ ...prev, isLoading: false }));
@@ -60,7 +63,11 @@ export function useNotifications() {
   useEffect(() => {
     active.current.mounted = true;
     void loadNotifications(1);
-    return () => { active.current.mounted = false; active.current.version++; };
+    const refresh = () => { if (document.visibilityState !== 'hidden') void loadNotifications(1, false, true); };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener('notifications-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('notifications-changed', refresh); window.removeEventListener('focus', refresh); active.current.mounted = false; active.current.version++; };
   }, [loadNotifications]);
 
   const markAsRead = useCallback(async (id: string) => {
@@ -69,9 +76,10 @@ export function useNotifications() {
       if (!active.current.mounted || active.current.scope !== scope) return;
       active.current.version++;
       invalidatePageCache('notifications', tenantId);
-      setState((prev) => ({ ...prev, isLoading: false, notifications: prev.notifications.map((n) =>
+      setState((prev) => ({ ...prev, unreadCount: Math.max(0, prev.unreadCount - (prev.notifications.some(n => n.id === id && !n.isRead) ? 1 : 0)), isLoading: false, notifications: prev.notifications.map((n) =>
         n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n,
       ) }));
+      window.dispatchEvent(new Event('notifications-changed'));
     } catch { toast.error('Failed to update notification'); }
   }, [scope, tenantId]);
 
@@ -81,10 +89,11 @@ export function useNotifications() {
       if (!active.current.mounted || active.current.scope !== scope) return;
       active.current.version++;
       invalidatePageCache('notifications', tenantId);
-      setState((prev) => ({ ...prev, isLoading: false, notifications: prev.notifications.map((n) =>
+      setState((prev) => ({ ...prev, unreadCount: 0, isLoading: false, notifications: prev.notifications.map((n) =>
         ({ ...n, isRead: true, readAt: new Date().toISOString() }),
       ) }));
       toast.success('All notifications marked as read');
+      window.dispatchEvent(new Event('notifications-changed'));
     } catch { toast.error('Failed to update notifications'); }
   }, [scope, tenantId]);
 
@@ -95,7 +104,7 @@ export function useNotifications() {
   const notifications = enabled ? currentState.notifications : [];
   return {
     notifications,
-    unreadCount: notifications.filter((n: Notification) => !n.isRead).length,
+    unreadCount: enabled ? currentState.unreadCount : 0,
     isLoading: enabled && currentState.isLoading,
     hasError: currentState.hasError,
     page: currentState.page,

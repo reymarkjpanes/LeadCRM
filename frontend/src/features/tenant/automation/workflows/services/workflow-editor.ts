@@ -1,5 +1,7 @@
 import {
   workflowOperators,
+  getWorkflowUpdateFields,
+  getAvailableActions,
   type ActionDefinition,
   type TriggerDefinition,
   type WorkflowAction,
@@ -29,6 +31,35 @@ export type Placement =
 export interface EditorIssue {
   step: StepSelection;
   message: string;
+}
+
+export const retiredActionLabels: Record<string, string> = {
+  send_campaign: 'Send Campaign (retired)',
+  create_notification: 'Send Notification (retired)',
+};
+const actionLabels = new Map(getAvailableActions().map(action => [action.type as string, action.label]));
+export const workflowActionLabel = (type: string) => actionLabels.get(type) ?? retiredActionLabels[type] ?? type.replaceAll('_', ' ');
+export function workflowNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+export function workflowNameIssue(
+  name: string,
+  workflows: Array<{ id: string; name: string }>,
+  workflowId?: string,
+): string {
+  const key = workflowNameKey(name);
+  if (!key) return 'Workflow name is required.';
+  return workflows.some((workflow) => workflow.id !== workflowId && workflowNameKey(workflow.name) === key)
+    ? 'A workflow with this name already exists. Choose another name.'
+    : '';
+}
+export function duplicateWorkflowName(name: string, workflows: Array<{ name: string }>): string {
+  const names = new Set(workflows.map((workflow) => workflowNameKey(workflow.name)));
+  for (let number = 1; ; number++) {
+    const suffix = number === 1 ? ' (Copy)' : ` (Copy ${number})`;
+    const candidate = `${name.trim().slice(0, 255 - suffix.length)}${suffix}`;
+    if (!names.has(workflowNameKey(candidate))) return candidate;
+  }
 }
 
 export function toDraft(value: WorkflowDraft): WorkflowDraft {
@@ -142,6 +173,10 @@ export function references(
     );
   if (type === 'template') return options.templates;
   if (type === 'campaign') return options.campaigns;
+  if (type === 'products') return options.productInterests ?? [];
+  if (type === 'account') return options.accounts ?? [];
+  if (type === 'contacts') return options.contacts ?? [];
+  if (type === 'leads') return options.leads ?? [];
 }
 export function referenceName(
   type: string,
@@ -177,7 +212,7 @@ export function conditionSummary(
   options: WorkflowOptions,
 ) {
   const field = trigger?.fields.find((entry) => entry.field === rule.field);
-  const value = references(field?.type ?? '', options)
+  const value = field?.type === 'products' ? String(rule.value ?? '') : references(field?.type ?? '', options)
     ? referenceName(field!.type, rule.value, options)
     : String(rule.value ?? '');
   return `${field?.label ?? 'Choose a field'} ${operatorLabels[rule.operator]}${['is_empty', 'is_not_empty'].includes(rule.operator) ? '' : ` ${value || '…'}`}`;
@@ -191,14 +226,11 @@ export function actionSummary(
     case 'create_task':
       return [
         String(config.title || 'Add a task title'),
-        `Assigned to ${referenceName('user', config.assignedUserId, options, 'current record owner')}`,
+        `Assigned to ${referenceName('user', config.assignedUserId, options, 'current record agent')}`,
         `Due in ${config.dueDaysFromNow === '' || config.dueDaysFromNow == null ? 3 : config.dueDaysFromNow} day(s) · ${config.priority || 'Medium'} priority`,
       ];
     case 'create_notification':
-      return [
-        String(config.title || 'Add a notification title'),
-        `Notify ${referenceName('user', config.userId, options, 'current record owner')}`,
-      ];
+      return ['Notifications are automatic. Disable or remove this retired step before activating.'];
     case 'assign_owner':
       return [
         `Assign to ${referenceName('user', config.userId, options, 'an agent')}`,
@@ -210,25 +242,19 @@ export function actionSummary(
           : String(config.subject || 'Add an email template or message'),
         `Sender: ${referenceName('user', config.senderUserId, options, 'choose connected Gmail sender')}`,
       ];
+    case 'send_sms':
+      return [String(config.message || 'Add an SMS message'), `To: ${config.recipient === 'primary_contact' ? 'primary contact' : config.recipient === 'primary_lead' ? 'primary lead' : 'triggering record'}`];
     case 'move_deal_stage':
       return [
         `Move Deal → ${referenceName('stage', config.stageId, options, 'choose a stage')}`,
       ];
     case 'update_field':
       return [
-        `Update ${config.field === 'notes' ? 'notes' : 'description'}`,
-        String(config.value || 'Add a value'),
+        `${config.field === 'value' ? 'Custom Fields / ' : ''}${String(config.field || 'Choose a field')}`,
+        config.clear ? 'Clear this field' : Array.isArray(config.value) ? `${config.value.length} selected` : String(config.value ?? 'Add a value'),
       ];
     case 'send_campaign':
-      return [
-        referenceName(
-          'campaign',
-          config.campaignId,
-          options,
-          'Choose a draft campaign',
-        ),
-        'Sends once to the campaign’s saved audience',
-      ];
+      return ['Send Campaign is retired. Disable or remove this step before activating.'];
     default:
       return [
         'This older action is unsupported. Remove it and choose an available action.',
@@ -257,7 +283,7 @@ export function conditionIssues(
         message = 'Choose Yes or No.';
       else if (field.options && !field.options.includes(String(rule.value)))
         message = 'Choose an available value.';
-      else if (choices && !choices.some((entry) => entry.id === rule.value))
+      else if (choices && !choices.some((entry) => (field.type === 'products' ? entry.name : entry.id) === rule.value))
         message = 'Choose an available record.';
       else if (
         field.type === 'date' &&
@@ -280,9 +306,29 @@ export function actionIssues(
   incomplete = false,
 ): string[] {
   incomplete = incomplete || action.enabled === false;
+  if (retiredActionLabels[action.type]) return incomplete ? [] : ['This action is retired. Disable or remove it before activating.'];
   if (!definition || !entity || !definition.entities.includes(entity))
     return ['This action is unavailable for the trigger.'];
   const issues: string[] = [];
+  if (action.type === 'update_field') {
+    const field = getWorkflowUpdateFields(entity).find((entry) => entry.field === action.config.field);
+    if (!field) return incomplete && !action.config.field ? [] : ['Choose an available field.'];
+    if (action.config.clear) return !field.required ? [] : ['This field cannot be cleared.'];
+    const value = action.config.value;
+    if ((value == null || value === '' || (Array.isArray(value) && !value.length)) && !incomplete)
+      return ['Enter a new value or choose Clear this field.'];
+    if (value == null || value === '') return [];
+    if (field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) issues.push('Enter a valid number.');
+    if (field.type === 'boolean' && typeof value !== 'boolean') issues.push('Choose Yes or No.');
+    if (field.options && !field.options.includes(String(value))) issues.push('Choose an available value.');
+    const choices = references(field.type, options);
+    if (choices) {
+      const selected = Array.isArray(value) ? value : [value];
+      const useNames = field.type === 'products' && (entity === 'contact' || entity === 'account');
+      if (selected.some((selection) => !choices.some((choice) => (useNames ? choice.name : choice.id) === selection))) issues.push('Choose an available selection.');
+    }
+    return issues;
+  }
   for (const [key, field] of Object.entries(definition.configSchema)) {
     const value = action.config[key];
     if (
@@ -308,7 +354,7 @@ export function actionIssues(
     )
       issues.push(`${field.label}: enter a whole number from 0 to 365.`);
     if (
-      ['title', 'description', 'subject', 'body'].includes(key) &&
+      ['title', 'description', 'subject', 'body', 'message'].includes(key) &&
       typeof value === 'string' &&
       [...value.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].some(
         (match) =>
@@ -329,12 +375,8 @@ export function actionIssues(
     issues.push(
       'Choose a complete template or enter both subject and message.',
     );
-  if (
-    action.type === 'update_field' &&
-    action.config.field &&
-    action.config.field !== (entity === 'contact' ? 'notes' : 'description')
-  )
-    issues.push('Choose the safe field available for this record type.');
+  if (action.type === 'send_sms' && options.smsConfigured === false && !incomplete)
+    issues.push('SMS is not configured. Connect SMS before activating this workflow.');
   return issues;
 }
 export function editorIssues(

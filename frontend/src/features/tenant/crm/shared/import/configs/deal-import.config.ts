@@ -6,5 +6,5 @@ export const dealImportConfig: ImportModuleConfig = {
   templateFileName: 'deal-import-template.csv', permission: 'deals.create',
   requiredFields: [field('title', 'Deal Title', true), field('pipeline', 'Pipeline', true), field('stage', 'Stage', true)],
   optionalFields: [field('value', 'Value'), { ...field('priority', 'Priority'), type: 'select', options: ['LOW', 'MEDIUM', 'HIGH'] },
-    field('expectedCloseDate', 'Expected Close Date'), field('account', 'Account'), field('contact', 'Contact'), field('assignedUser', 'Assigned User'), field('description', 'Description')],
+    field('expectedCloseDate', 'Expected Close Date'), field('account', 'Account'), field('contact', 'Contact'), field('assignedUser', 'Assigned User')],
 };

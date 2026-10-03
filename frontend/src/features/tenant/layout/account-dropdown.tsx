@@ -30,8 +30,6 @@ interface AccountDropdownProps {
 // Passwords are the seeded values; OTP is always '000000' in DEMO_MODE.
 
 const SWITCH_ACCOUNTS: SwitchAccount[] = [
-  { email: 'admin@gmail.com',    password: 'admin123', label: 'System Admin',  role: 'System Admin', initials: 'SA' },
-  { email: 'super@leadcrm.com', password: 'admin123', label: 'System Admin',  role: 'System Admin', initials: 'SA' },
   { email: 'admin@camxian.com', password: 'admin123', label: 'Alice Admin',   role: 'Client Admin', initials: 'AA' },
   { email: 'bob@camxian.com',   password: 'admin123', label: 'Bob Sales',     role: 'User',         initials: 'BS' },
 ];

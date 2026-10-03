@@ -25,7 +25,6 @@
  * and re-run the inventory (inventory-account-organization.ts) against production first.
  */
 import { PrismaClient } from '@prisma/client';
-import { OptionalTaxIdSchema } from '@leadcrm/shared';
 
 const prisma = new PrismaClient({ log: ['error'] });
 
@@ -55,12 +54,11 @@ interface ReportRow {
 /** Fields Account and Organization share — used to carry data when creating a new Account. */
 function accountDataFromOrganization(org: {
   tenantId: string; assignedUserId: string | null; name: string; industry: string | null;
-  size: string | null; website: string | null; taxId: string | null; tags: string[];
+  size: string | null; website: string | null; tags: string[];
   address: string | null; city: string | null; province: string | null; country: string | null;
-  activeProducts: string[]; customerSince: Date | null; customerType: string;
+  activeProducts: string[];
   internalNotes: string | null; notes: string | null; productInterests: string[];
 }) {
-  if (org.taxId != null) OptionalTaxIdSchema.parse(org.taxId);
   return {
     tenantId:         org.tenantId,
     assignedUserId:   org.assignedUserId,
@@ -68,15 +66,12 @@ function accountDataFromOrganization(org: {
     industry:         org.industry,
     size:             org.size,
     website:          org.website,
-    taxId:            org.taxId,
     tags:             org.tags,
     address:          org.address,
     city:             org.city,
     province:         org.province,
     country:          org.country,
     activeProducts:   org.activeProducts,
-    customerSince:    org.customerSince,
-    customerType:     org.customerType,
     internalNotes:    org.internalNotes,
     notes:            org.notes,
     productInterests: org.productInterests,
@@ -84,15 +79,14 @@ function accountDataFromOrganization(org: {
 }
 
 function detectConflicts(
-  account: { industry: string | null; website: string | null; size: string | null; customerType: string },
-  org: { industry: string | null; website: string | null; size: string | null; customerType: string },
+  account: { industry: string | null; website: string | null; size: string | null },
+  org: { industry: string | null; website: string | null; size: string | null },
 ): ConflictField[] {
   const conflicts: ConflictField[] = [];
   const compare: Array<[string, unknown, unknown]> = [
     ['industry', account.industry, org.industry],
     ['website', account.website, org.website],
     ['size', account.size, org.size],
-    ['customerType', account.customerType, org.customerType],
   ];
   for (const [field, a, o] of compare) {
     if (o != null && a !== o) conflicts.push({ field, accountValue: a, organizationValue: o });
@@ -148,7 +142,7 @@ async function main(): Promise<void> {
     // Tenant-scoped exact normalized name match against Account.
     const candidates = await prisma.account.findMany({
       where: { tenantId: contact.tenantId },
-      select: { id: true, tenantId: true, name: true, industry: true, website: true, size: true, customerType: true },
+      select: { id: true, tenantId: true, name: true, industry: true, website: true, size: true },
     });
     const matches = candidates.filter((a) => norm(a.name) === norm(org.name));
 

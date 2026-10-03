@@ -1,0 +1,131 @@
+import React from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { defaultContactForm, withProductOptions } from '@leadcrm/shared';
+import { FormBuilderPage } from './form-builder-page';
+import PublicFormPage from './public-form-page';
+import FormsPage from './forms-page';
+import * as service from '../services/forms.service';
+vi.mock('../services/forms.service', () => ({ updateForm: vi.fn(), publishForm: vi.fn(), getFormsByTenant: vi.fn(), createForm: vi.fn(), deleteForm: vi.fn(), unpublishForm: vi.fn(), duplicateForm: vi.fn(), getShareLink: () => 'https://example.com/forms/public', getEmbedCode: () => '<iframe />' }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 'tenant' }, user: { }, userCan: () => true }) }));
+const products = [{ id: '0ff82f9c-48e9-4e1c-8c77-8a30755d704c', name: 'Smart Lock', dealValue: 5000, active: true, createdAt: '', updatedAt: '' }];
+vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [], loading: false, error: '' }) }));
+const form = { ...defaultContactForm(), fields: withProductOptions(defaultContactForm().fields, products), id: 'form', tenantId: 'tenant', publicId: 'public', revision: 0, publishedRevision: null, publishedVersion: 0, status: 'draft' as const, createdAt: '', updatedAt: '' };
+beforeEach(() => { vi.resetAllMocks(); vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} }); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+describe('Forms UI', () => {
+  it('distinguishes loading, error and empty lists and retries', async () => {
+    vi.mocked(service.getFormsByTenant).mockRejectedValueOnce(new Error('Network failed')).mockResolvedValue([]);
+    render(<FormsPage />); expect(screen.getByLabelText('Loading forms')).toBeTruthy(); expect(screen.queryByText('No forms yet')).toBeNull();
+    await screen.findByText('Network failed'); fireEvent.click(screen.getByText('Retry')); await screen.findByText('No forms yet');
+  });
+  it('uses the portal menu with exactly Edit, Duplicate, Delete', async () => {
+    vi.mocked(service.getFormsByTenant).mockResolvedValue([form]); render(<FormsPage />); await screen.findByText('Contact Us');
+    fireEvent.click(screen.getByLabelText('More actions')); const menu = screen.getByRole('menu'); expect(within(menu).getAllByRole('menuitem').map(e => e.textContent)).toEqual(['Edit','Duplicate','Delete']);
+    expect(menu.parentElement).toBe(document.body); fireEvent.keyDown(document, { key: 'Escape' }); expect(screen.queryByRole('menu')).toBeNull();
+  });
+  it('blocks published deletion with an explanation and allows deletion after unpublishing', async () => {
+    const published = { ...form, status: 'published' as const, publishedVersion: 2 };
+    vi.mocked(service.getFormsByTenant).mockResolvedValue([published]);
+    vi.mocked(service.unpublishForm).mockResolvedValue({ ...published, status: 'draft' });
+    render(<FormsPage />); await screen.findByText('Contact Us');
+    fireEvent.click(screen.getByLabelText('More actions'));
+    expect((screen.getByRole('menuitem', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Unpublish this form before deleting it.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(item => item.textContent?.split('Unpublish this')[0])).toEqual(['Edit', 'Duplicate', 'Unpublish', 'Delete']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpublish' })); await screen.findByText('Draft');
+    expect(service.unpublishForm).toHaveBeenCalledWith('form');
+    fireEvent.click(screen.getByLabelText('More actions'));
+    expect((screen.getByRole('menuitem', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('unpublishes from the builder menu, updates the list, and preserves unsaved edits', async () => {
+    const published = { ...form, status: 'published' as const, publishedVersion: 2 };
+    const updated = { ...published, status: 'draft' as const, revision: 3 };
+    vi.mocked(service.getFormsByTenant).mockResolvedValue([published]);
+    vi.mocked(service.unpublishForm).mockResolvedValue(updated);
+    render(<FormsPage />); await screen.findByText('Contact Us');
+    expect(screen.queryByText('Unpublish')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Edit Contact Us'));
+    fireEvent.change(screen.getByLabelText('Form name'), { target: { value: 'Unsaved title' } });
+    fireEvent.click(screen.getByLabelText('More actions'));
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Discard changes', 'Unpublish']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpublish' }));
+    await screen.findByText('Draft');
+    expect(service.unpublishForm).toHaveBeenCalledWith('form');
+    expect((screen.getByLabelText('Form name') as HTMLInputElement).value).toBe('Unsaved title');
+    fireEvent.click(screen.getByLabelText('More actions'));
+    expect(screen.queryByRole('menuitem', { name: 'Unpublish' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Discard changes' }));
+    fireEvent.click(screen.getByLabelText('Back to Forms'));
+    fireEvent.click(screen.getByLabelText('More actions'));
+    expect((screen.getByRole('menuitem', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('keeps a published builder published if the unpublish request fails', async () => {
+    vi.mocked(service.unpublishForm).mockRejectedValue(new Error('Unpublish failed'));
+    render(<FormBuilderPage form={{ ...form, status: 'published', publishedVersion: 1 }} onBack={() => {}} onFormUpdate={() => {}} />);
+    fireEvent.click(screen.getByLabelText('More actions'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpublish' }));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Published')).toBeTruthy();
+  });
+  it('requires confirmation, cancels without deleting, and prevents duplicate requests until success', async () => {
+    vi.mocked(service.getFormsByTenant).mockResolvedValue([form]);
+    let resolve!: () => void;
+    vi.mocked(service.deleteForm).mockReturnValue(new Promise(done => { resolve = done; }));
+    render(<FormsPage />); await screen.findByText('Contact Us');
+    const open = () => { fireEvent.click(screen.getByLabelText('More actions')); fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' })); };
+    open(); expect(service.deleteForm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(service.deleteForm).not.toHaveBeenCalled();
+    open(); const button = screen.getByRole('button', { name: 'Delete Form' });
+    fireEvent.click(button); fireEvent.click(button);
+    expect(service.deleteForm).toHaveBeenCalledTimes(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Contact Us')).toBeTruthy();
+    resolve(); await screen.findByText('No forms yet');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+  it('keeps the form and confirmation available after a server deletion failure', async () => {
+    vi.mocked(service.getFormsByTenant).mockResolvedValue([form]);
+    vi.mocked(service.deleteForm).mockRejectedValue(new Error('Published forms must be unpublished before they can be deleted.'));
+    render(<FormsPage />); await screen.findByText('Contact Us');
+    fireEvent.click(screen.getByLabelText('More actions')); fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Form' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Delete Form' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByText('Contact Us')).toBeTruthy(); expect(screen.getByRole('alertdialog')).toBeTruthy();
+  });
+  it('opens mobile tools, adds fields, closes with Escape and keeps edits', async () => {
+    render(<FormBuilderPage form={form} onBack={() => {}} onFormUpdate={() => {}} />);
+    fireEvent.click(screen.getByText('Add fields or change design'));
+    const dialog = await screen.findByRole('dialog'); expect(dialog.getAttribute('aria-label')).toBe('Form tools');
+    fireEvent.click(within(dialog).getByText('Single Line')); fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByLabelText('Move Short answer up')).toBeTruthy(); expect(screen.getByText('Unsaved changes')).toBeTruthy(); expect(service.updateForm).not.toHaveBeenCalled();
+  });
+  it('persists reordered fields before publishing and passes the saved revision', async () => {
+    vi.mocked(service.updateForm).mockImplementation(async (_id, dto) => ({ ...form, ...dto, revision: 1 }));
+    vi.mocked(service.publishForm).mockResolvedValue({ ...form, revision: 1, publishedRevision: 1, publishedVersion: 1, status: 'published' });
+    render(<FormBuilderPage form={form} onBack={() => {}} onFormUpdate={() => {}} />);
+    fireEvent.click(screen.getByLabelText('Move Last Name up')); fireEvent.click(screen.getByText('Publish'));
+    await waitFor(() => expect(service.publishForm).toHaveBeenCalledWith('form'));
+    expect(vi.mocked(service.updateForm).mock.calls[0][1].fields?.[0].id).toBe('lastName');
+    expect(service.updateForm).toHaveBeenCalledWith('form', expect.objectContaining({ revision: 0 }));
+    expect(vi.mocked(service.updateForm).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(service.publishForm).mock.invocationCallOrder[0]);
+  });
+  it('keeps failed edits and prevents publishing after a failed save', async () => {
+    vi.mocked(service.updateForm).mockRejectedValue(new Error('Save failed'));
+    render(<FormBuilderPage form={form} onBack={() => {}} onFormUpdate={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Form name'), { target: { value: 'New name' } }); fireEvent.click(screen.getByText('Publish'));
+    await screen.findByText('Save failed'); expect(service.publishForm).not.toHaveBeenCalled(); expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  });
+  it('shows one error per public field, limits phone digits, submits and thanks the visitor', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ data: { ...defaultContactForm(), fields: withProductOptions(defaultContactForm().fields, products), version: 1, trackUrlParams: true } }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) });
+    vi.stubGlobal('fetch', fetchMock); render(<PublicFormPage publicId="public" />); await screen.findByText('Contact Us');
+    fireEvent.click(screen.getByText('Submit')); expect(screen.getAllByText('First Name is required.')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText(/First Name/), { target: { value: 'Anne' } }); fireEvent.change(screen.getByLabelText(/Last Name/), { target: { value: "O'Connor" } });
+    fireEvent.change(screen.getByLabelText(/Email Address/), { target: { value: 'anne@example.com' } }); fireEvent.click(screen.getByRole('checkbox', { name: 'Smart Lock' }));
+    const phone = screen.getByLabelText('Contact Number') as HTMLInputElement; fireEvent.change(phone, { target: { value: '9123456789123' } }); expect(phone.value).toBe('9123456789');
+    fireEvent.click(screen.getByText('Submit')); await screen.findByText('Thank you!'); expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

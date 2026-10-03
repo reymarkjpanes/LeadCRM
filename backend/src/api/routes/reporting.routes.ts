@@ -10,11 +10,11 @@ router.use(authMiddleware);
 router.use(tenantMiddleware);
 router.use(workspaceReadyMiddleware);
 
-// All reporting endpoints require reports.view permission
-router.get('/pipeline-summary',  authorize('reports.view'), reportController.getPipelineSummary);
-router.get('/deal-velocity',     authorize('reports.view'), reportController.getDealVelocity);
-router.get('/contact-status',    authorize('reports.view'), reportController.getContactStatusBreakdown);
-router.get('/task-completion',   authorize('reports.view'), reportController.getTaskCompletion);
-router.get('/campaign-summary',  authorize('reports.view'), reportController.getCampaignSummary);
+// Dashboard aggregates and campaign reporting have separate permissions.
+router.get('/pipeline-summary',  authorize('dashboard.view'), reportController.getPipelineSummary);
+router.get('/deal-velocity',     authorize('dashboard.view'), reportController.getDealVelocity);
+router.get('/contact-status',    authorize('dashboard.view'), reportController.getContactStatusBreakdown);
+router.get('/task-completion',   authorize('dashboard.view'), reportController.getTaskCompletion);
+router.get('/campaign-summary',  authorize('campaigns.view_reports'), reportController.getCampaignSummary);
 
 export default router;

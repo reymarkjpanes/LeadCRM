@@ -9,7 +9,7 @@ const server = new PGLiteSocketServer({ db, host: '127.0.0.1', port: 0 });
 await server.start();
 const url = `postgresql://postgres:postgres@${server.getServerConn()}/postgres?connection_limit=1`;
 const child = spawn(process.execPath, [resolve(root, '../node_modules/prisma/build/index.js'), 'migrate', 'deploy', '--schema', resolve(root, 'prisma/schema.prisma')], {
-  cwd: root, env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url }, stdio: 'inherit',
+  cwd: root, env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url }, stdio: 'inherit', windowsHide: true,
 });
 const code = await new Promise(resolve => child.on('exit', resolve));
 await server.stop(); await db.close(); process.exit(code ?? 1);

@@ -1,4 +1,8 @@
 import { apiClient } from '@/lib/api/client';
+export type { MailboxEmail as GmailEmail } from '@leadcrm/shared';
+import type { MailboxEmail as GmailEmail, MailboxUnreadCount } from '@leadcrm/shared';
+
+export const fetchGmailUnreadCount = () => apiClient.get<MailboxUnreadCount>('/integrations/gmail/unread-count');
 
 export interface GmailConnectionStatus {
   isConnected: boolean;
@@ -7,18 +11,9 @@ export interface GmailConnectionStatus {
   lastSyncAt: string | null;
 }
 
-export interface GmailEmail {
-  id: string;
-  threadId: string;
-  from: string;
-  to: string[];
-  subject: string;
-  snippet: string;
-  body: string;
-  date: string;
-  isRead: boolean;
-  labels: string[];
-}
+export const syncGmail = () => apiClient.post<{ hasMore: boolean; processed?: number }>('/integrations/gmail/sync', {});
+export const fetchGmailThread = (threadId: string) => apiClient.get<EmailListResponse & { dealOptions: { id: string; title: string; stage: string }[]; canAssociateDeal: boolean }>(`/integrations/gmail/threads/${encodeURIComponent(threadId)}`);
+export const associateThreadDeal = (threadId: string, dealId: string) => apiClient.patch(`/integrations/gmail/threads/${encodeURIComponent(threadId)}/deal`, { dealId });
 
 interface EmailListResponse {
   emails: GmailEmail[];
@@ -70,8 +65,9 @@ export async function sendGmailEmail(
   to: string | string[],
   subject: string,
   body: string,
+  replyToMessageId?: string,
 ): Promise<SendEmailResponse> {
-  return apiClient.post<SendEmailResponse>('/integrations/gmail/send', { to, subject, body });
+  return apiClient.post<SendEmailResponse>('/integrations/gmail/send', { to, subject, body, replyToMessageId });
 }
 
 /**

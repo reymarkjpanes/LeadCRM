@@ -3,6 +3,8 @@ import { writeAuditLog, buildChangeset } from '../../../core/audit/audit.service
 import { NotFoundError } from '../../../shared/errors/http-error';
 import { CreateCompanyDto, UpdateCompanyDto, CreateCompanySchema, UpdateCompanySchema } from './companies.dto';
 import { paginate } from '../../../shared/helpers/pagination';
+import { fireAccountUpdated } from '../../automation/triggers/triggers.service';
+import { recordChanges } from '../record-updates';
 
 export async function getCompanies(tenantId: string, query: Record<string, unknown>) {
   const result = await repo.findAllCompanies(tenantId, query);
@@ -45,6 +47,8 @@ export async function updateCompany(
     action: 'account.updated', entityType: 'Account', entityId: id,
     before: cb, after: ca,
   });
+  const changes = recordChanges(before, company);
+  if (changes.changedFields.length) await fireAccountUpdated({ tenantId, actorId: userId, record: company, changedFields: changes.changedFields, changes });
   return company;
 }
 

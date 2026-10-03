@@ -32,7 +32,7 @@ export const AudiencePreviewSchema = z.object({ source: AudienceSourceSchema, co
 export const CreateAudienceSchema = AudiencePreviewSchema.extend({ name: MarketingNameSchema });
 export type AudienceInput = z.infer<typeof AudiencePreviewSchema>;
 export interface SavedAudience extends AudienceInput { id: string; name: string }
-export interface AudienceBreakdown { matched: number; eligible: number; missingEmail: number; invalidEmail: number; duplicateEmail: number; staffEmail: number; unsubscribed: number; blocked: number; inactive: number; sandboxBlocked: number }
+export interface AudienceBreakdown { matched: number; eligible: number; missingEmail: number; invalidEmail: number; duplicateEmail: number; staffEmail: number; unsubscribed: number; blocked: number; inactive: number; recipientNotAllowed: number }
 export const CampaignDraftSchema = z.object({
   name: MarketingNameSchema, type: z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
   subject: EmailSubjectSchema.optional(), body: z.string().max(50000).optional(),

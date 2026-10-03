@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
+import { FilterButton } from '@/shared/components/crm/filter-button';
+import { ModuleFilterRail } from '@/shared/components/crm/module-filter-rail';
 import { Search, Plus, X, Edit2, Trash2, MoreHorizontal, Users, ArrowLeft, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -25,13 +28,19 @@ function UserAvatar({ firstName, lastName, size = 8 }: { firstName: string; last
 
 interface GroupsSubTabProps {
   tenantUsers: User[];
+  renderHeader?: (action: React.ReactNode) => React.ReactNode;
 }
 
-export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactElement {
+export function GroupsSubTab({ tenantUsers, renderHeader }: GroupsSubTabProps): React.ReactElement {
   const { userCan } = useAuth();
-  const canManage = userCan('users', 'canEdit');
+  const canManage = userCan('groups', 'canEdit'), canCreate = userCan('groups', 'canCreate'), canDelete = userCan('groups', 'canDelete');
 
   const [groups, setGroups] = useState<TenantGroup[]>([]);
+  const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const loadingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   const [activeGroup, setActiveGroup] = useState<TenantGroup | null>(null);
 
@@ -58,13 +67,16 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
   }, []);
 
   const loadGroups = async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setIsLoading(true);
     try {
       const res = await groupsApi.getAll();
       setGroups(res.data ?? []);
     } catch {
-      // non-critical — stays empty
+      toast.error('Unable to load groups. Please refresh and try again.');
     } finally {
+      loadingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -159,6 +171,15 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
     [tenantUsers, newSelectedIds, newMemberSearch],
   );
 
+  const visibleGroups = groups.filter(group => group.name.toLowerCase().includes(search.toLowerCase()) &&
+    (!memberIds.length || group.members.some(member => memberIds.includes(member.userId))));
+  const memberOptions = [...new Map(groups.flatMap(group => group.members.map(member => [member.userId, member.user] as const))).entries()];
+  const createAction = canCreate && <button aria-label="New group" title="New group" onClick={() => { setActiveGroup(null); setIsNewGroupOpen(true); setNewGroupName(''); setNewSelectedIds([]); setNewMemberSearch(''); }}
+    className="flex shrink-0 h-11 w-11 sm:h-auto sm:w-auto items-center justify-center gap-1.5 sm:px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">
+    <Plus size={16} /><span className="hidden sm:inline">New Group</span>
+  </button>;
+  const header = renderHeader ? renderHeader(createAction) : <div className="flex justify-end">{createAction}</div>;
+
   // ── Detail view ────────────────────────────────────────────────────────────
   if (activeGroup) {
     const groupData = groups.find((g) => g.id === activeGroup.id) ?? activeGroup;
@@ -169,6 +190,7 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
 
     return (
       <div className="space-y-4">
+        {header}
         {/* Back + title */}
         <div className="flex items-center justify-between">
           <div>
@@ -177,9 +199,9 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
             </button>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white">{groupData.name}</h2>
           </div>
-          {canManage && (
+          {(canManage || canCreate || canDelete) && (
             <div className="flex items-center gap-2">
-              <button onClick={() => { setEditGroupName(groupData.name); setIsEditNameOpen(true); }} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"><Edit2 size={15} /></button>
+              <button disabled={!canManage} onClick={() => { setEditGroupName(groupData.name); setIsEditNameOpen(true); }} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"><Edit2 size={15} /></button>
               <div className="relative">
                 <button onClick={() => setIsMoreMenuOpen((v) => !v)} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"><MoreHorizontal size={15} /></button>
                 <AnimatePresence>
@@ -187,8 +209,8 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
                     <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
                       className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-lg z-20 py-1"
                       onMouseLeave={() => setIsMoreMenuOpen(false)}>
-                      <button onClick={() => { handleDuplicateGroup(groupData); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] cursor-pointer"><Copy size={12} /> Duplicate</button>
-                      <button onClick={() => { handleDeleteGroup(groupData.id); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"><Trash2 size={12} /> Delete</button>
+                      <button disabled={!canCreate} onClick={() => { handleDuplicateGroup(groupData); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] cursor-pointer"><Copy size={12} /> Duplicate</button>
+                      <button disabled={!canDelete} onClick={() => { handleDeleteGroup(groupData.id); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"><Trash2 size={12} /> Delete</button>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -320,14 +342,16 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
   // ── Groups list view ────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      {canManage && (
-        <div className="flex justify-end">
-          <button onClick={() => { setIsNewGroupOpen(true); setNewGroupName(''); setNewSelectedIds([]); setNewMemberSearch(''); }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer">
-            <Plus size={13} /> New Group
-          </button>
-        </div>
-      )}
+      {header}
+      <ModuleTableToolbar label="Groups" search={search} onSearch={setSearch} placeholder="Search groups..."
+        filter={<FilterButton title="groups" open={showFilters} active={!!memberIds.length} onClick={() => setShowFilters(value => !value)} />}
+        refreshing={isLoading} onRefresh={loadGroups} />
+      <div className="flex min-w-0 items-start gap-3">
+        <ModuleFilterRail showFilters={showFilters} onToggleFilters={() => setShowFilters(false)} filterSearchTerm={filterSearch} onFilterSearch={setFilterSearch}
+          totalRecords={visibleGroups.length} onClearFilters={() => setMemberIds([])}
+          filterGroups={[{ id: 'members', label: 'Members', items: memberOptions.map(([id, user]) => ({ id, label: `${user.firstName} ${user.lastName}`, isChecked: memberIds.includes(id) })) }]}
+          onFilterToggle={(_, id) => setMemberIds(previous => previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id])} />
+        <div className="min-w-0 flex-1">
 
       {isLoading ? (
         <div className="py-20 text-center text-xs text-slate-400">Loading groups…</div>
@@ -344,13 +368,13 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-white/[0.07] rounded-xl overflow-hidden">
-          {groups.map((g, idx) => (
+          {visibleGroups.map((g, idx) => (
             <div key={g.id} className={cn('flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer group', idx !== 0 && 'border-t border-gray-100 dark:border-white/[0.04]')}
               onClick={() => { setActiveGroup(g); setGroupMemberSearch(''); }}>
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center"><Users size={14} className="text-blue-500" /></div>
                 <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white">{g.name}</p>
+                  <p className="break-all text-xs font-semibold text-slate-900 dark:text-white">{g.name}</p>
                   <p className="text-[10px] text-slate-400">{g.members.length} member{g.members.length !== 1 ? 's' : ''}</p>
                 </div>
               </div>
@@ -362,6 +386,9 @@ export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactEle
         </div>
       )}
 
+        {!isLoading && groups.length > 0 && !visibleGroups.length && <p className="py-10 text-center text-sm text-slate-400">No groups match your search or filters.</p>}
+        </div>
+      </div>
       {/* New group modal */}
       <AnimatePresence>
         {isNewGroupOpen && (

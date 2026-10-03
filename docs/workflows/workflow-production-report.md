@@ -1,5 +1,7 @@
 # Workflow production implementation report
 
+Current polish behavior and migration notes: [2026-10-03 workflow polish](workflow-polish-2026-10-03.md). This older report retains the earlier implementation history.
+
 Date: 2026-09-25. Implementation and verification are local. No production migration, deployment or live provider delivery was performed.
 
 ## A. Workflow architecture
@@ -90,7 +92,7 @@ Backend checks fields/operators against shared metadata, finite numbers, bounded
 | Move deal stage | `crm/deals/deals.service.moveDealStage` and `validateDealStageMove`; required fields/lost reason and transition side effects retained |
 | Send email | `integrations/gmail/gmail.service.sendEmail`; selected active Gmail sender, saved template or inline subject/body, actual EmailDeliveryLog receipt |
 | Send notification | `notifications/notifications.service.createNotification`; selected/current owner |
-| Update safe field | Existing CRM update services; Contact notes or Lead/Deal description only; relationship status remains protected |
+| Update safe field | Existing CRM update services; Contact notes or Lead description only; relationship status remains protected. Deal description updates have since been retired. |
 | Send campaign | `marketing/campaigns/campaigns.service.sendCampaign` → existing audience, quota, atomic campaign claim, recipient logs and centralized Brevo `sendMail` |
 
 Campaign means sending the selected existing draft to its **saved audience once**. It does not silently replace the audience with the triggering record or repeatedly resend a consumed campaign. Partial/failed submission produces a failed workflow action. Provider acceptance does not mean inbox delivery. See [campaign email delivery](../campaign-email-delivery.md).

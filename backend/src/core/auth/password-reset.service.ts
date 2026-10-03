@@ -78,7 +78,6 @@ export async function resetPasswordWithToken(dto: ResetPasswordDto): Promise<voi
     }),
     // Invalidate all sessions so the old password can't be reused
     prisma.session.deleteMany({ where: { userId: user.id } }),
-    prisma.mfaChallenge.deleteMany({ where: { userId: user.id } }),
     // Clean up the used token
     prisma.passwordResetToken.delete({ where: { token: dto.token } }),
   ]);

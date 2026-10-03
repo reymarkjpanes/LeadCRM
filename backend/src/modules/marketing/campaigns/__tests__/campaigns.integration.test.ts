@@ -13,7 +13,7 @@ vi.hoisted(() => {
 vi.mock('../../../../shared/services/email.service', async importOriginal => ({ ...await importOriginal<object>(), sendMail: vi.fn() }));
 import { sendMail, EmailSubmissionError } from '../../../../shared/services/email.service';
 import prisma from '../../../../config/database.config';
-import { environmentContext } from '../../../../core/environment/environment-context';
+import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { issueAuthSession } from '../../../../core/auth/auth-session';
 import { createCampaign, getCampaignById, sendCampaign, updateCampaign } from '../campaigns.service';
 import { createAudience, getAudiences, resolveAudience } from '../audiences.service';
@@ -26,10 +26,10 @@ const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/lead
 describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticated HTTP', () => {
   let tenantId: string, otherTenantId: string, userId: string, audienceId: string;
   let server: Server, base: string, token: string, deniedToken: string;
-  const scoped = <T>(work: () => T, environment: 'PRODUCTION' | 'SANDBOX' = 'PRODUCTION', tenant = tenantId) => environmentContext.run({ tenantId: tenant, environment }, work);
+  const scoped = <T>(work: () => T, tenant = tenantId) => tenantContext.run({ tenantId: tenant }, work);
   const draft = () => scoped(() => createCampaign(tenantId, userId, { name: 'September Campaign', type: 'EMAIL', subject: 'Hello {{first_name}}', body: '<p>Hi {{first_name}}, welcome to Camxian Technologies.</p>', targetAudienceId: audienceId }));
-  async function request(path: string, method = 'GET', body?: unknown, auth = token, environment = 'PRODUCTION') {
-    const result = await fetch(base + path, { method, headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json', 'X-CRM-Environment': environment }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  async function request(path: string, method = 'GET', body?: unknown, auth = token) {
+    const result = await fetch(base + path, { method, headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: result.status, body: await result.json() };
   }
   beforeAll(async () => {
@@ -38,9 +38,9 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     const tenant = await prisma.tenant.create({ data: { name: 'Campaign tests', slug: `campaign-${randomUUID()}`, status: 'SANDBOX', onboardingStep: 3, onboardingCompletedAt: new Date() } });
     tenantId = tenant.id;
     otherTenantId = (await prisma.tenant.create({ data: { name: 'Other', slug: `other-${randomUUID()}` } })).id;
-    const user = await prisma.user.create({ data: { tenantId, email: `seeder-${tenantId}@camxian.com`, firstName: 'Seeder', lastName: 'Admin', role: 'Client Admin', activeEnvironment: 'PRODUCTION', mustChangePassword: false, emailVerified: new Date() } });
+    const user = await prisma.user.create({ data: { tenantId, email: `seeder-${tenantId}@camxian.com`, firstName: 'Seeder', lastName: 'Admin', role: 'Client Admin', mustChangePassword: false, emailVerified: new Date() } });
     userId = user.id; token = (await issueAuthSession(user)).token;
-    const denied = await prisma.user.create({ data: { tenantId, email: `denied-${tenantId}@camxian.com`, firstName: 'Denied', lastName: 'User', role: 'Sales', activeEnvironment: 'PRODUCTION', mustChangePassword: false, emailVerified: new Date() } });
+    const denied = await prisma.user.create({ data: { tenantId, email: `denied-${tenantId}@camxian.com`, firstName: 'Denied', lastName: 'User', role: 'Sales', mustChangePassword: false, emailVerified: new Date() } });
     deniedToken = (await issueAuthSession(denied)).token;
     await scoped(async () => {
       await prisma.lead.create({ data: { tenantId, firstName: 'Juan', lastName: 'Dela Cruz', email: 'juan.customer@example.com', productInterest: ['CRM'] } });
@@ -133,29 +133,16 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     expect((await scoped(() => getCampaignById(campaign.id, tenantId))).status).toBe('DRAFT');
     expect(sendMail).not.toHaveBeenCalled();
   });
-  it('blocks Sandbox on a production Node backend unless addresses are allowlisted', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    await scoped(async () => {
-      await prisma.lead.create({ data: { tenantId, firstName: 'Sandbox', lastName: 'Lead', email: 'sandbox@example.com', productInterest: [] } });
-      const campaign = await createCampaign(tenantId, userId, { name: 'Sandbox', type: 'EMAIL', subject: 'Hi', body: 'Hello', audienceSource: 'ALL' });
-      await expect(sendCampaign(campaign.id, tenantId, userId)).rejects.toMatchObject({ statusCode: 400 });
-      expect(sendMail).not.toHaveBeenCalled();
-      vi.stubEnv('BREVO_SANDBOX_EMAILS', 'sandbox@example.com');
-      expect((await sendCampaign(campaign.id, tenantId, userId)).submittedRecipients).toBe(1);
-    }, 'SANDBOX');
-    vi.stubEnv('NODE_ENV', 'test');
-  });
-  it('blocks tenant/environment IDOR and missing permissions at HTTP endpoints', async () => {
-    const foreign = await scoped(() => createCampaign(otherTenantId, userId, { name: 'Foreign', type: 'EMAIL' }), 'PRODUCTION', otherTenantId);
+  it('blocks tenant IDOR and missing permissions at HTTP endpoints', async () => {
+    const foreign = await scoped(() => createCampaign(otherTenantId, userId, { name: 'Foreign', type: 'EMAIL' }), otherTenantId);
     expect((await request(`/marketing/campaigns/${foreign.id}/send`, 'PATCH')).status).toBe(404);
     const own = await draft();
     expect((await request(`/marketing/campaigns/${own.id}/send`, 'PATCH', undefined, deniedToken)).status).toBe(403);
-    expect((await request(`/marketing/campaigns/${own.id}`, 'GET', undefined, token, 'SANDBOX')).status).toBe(409);
-    await prisma.user.update({ where: { id: userId }, data: { activeEnvironment: 'SANDBOX' } });
-    expect((await request(`/marketing/campaigns/${own.id}`, 'GET', undefined, token, 'SANDBOX')).status).toBe(404);
-    await prisma.user.update({ where: { id: userId }, data: { activeEnvironment: 'PRODUCTION' } });
-    expect((await request('/marketing/campaigns', 'POST', { name: 'Bad', type: 'EMAIL', tenantId: otherTenantId })).status).toBe(400);
-    const foreignAudience = await scoped(() => createAudience(otherTenantId, { name: 'Foreign', source: 'ALL', conditions: [] }), 'PRODUCTION', otherTenantId);
+    const invalid = await request('/marketing/campaigns', 'POST', { name: 'Bad', type: 'EMAIL', tenantId: otherTenantId });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toMatchObject({ success: false, error: expect.stringContaining('tenantId'), fieldErrors: {} });
+    expect(await prisma.campaign.count({ where: { tenantId, name: 'Bad' } })).toBe(0);
+    const foreignAudience = await scoped(() => createAudience(otherTenantId, { name: 'Foreign', source: 'ALL', conditions: [] }), otherTenantId);
     expect((await request('/marketing/campaigns', 'POST', { name: 'Bad', type: 'EMAIL', targetAudienceId: foreignAudience.id })).status).toBe(404);
   });
   it('records partial failures without treating acceptance as delivery or permitting resend', async () => {
@@ -300,7 +287,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect((await resolveAudience(tenantId, { source: 'ALL', conditions: [{ field: 'productInterest', operator: 'equals', value: 'CRM' }, { field: 'createdAt', operator: 'gte', value: '2020-01-01' }] })).breakdown.eligible).toBe(2);
       await expect(createAudience(tenantId, { name: 'Unsafe', source: 'ALL', conditions: [{ field: 'passwordHash', operator: 'contains', value: 'x' }] })).rejects.toThrow();
     });
-    const foreign = await scoped(() => createTemplate(otherTenantId, userId, { name: 'Foreign', type: 'Email', subject: 'Hi', content: 'Hello' }), 'PRODUCTION', otherTenantId);
+    const foreign = await scoped(() => createTemplate(otherTenantId, userId, { name: 'Foreign', type: 'Email', subject: 'Hi', content: 'Hello' }), otherTenantId);
     await expect(scoped(() => createCampaign(tenantId, userId, { name: 'Invalid', type: 'EMAIL', emailTemplateId: foreign.id }))).rejects.toMatchObject({ statusCode: 404 });
   });
   it('authenticates webhooks, deduplicates events and suppresses unsubscribed emails', async () => {

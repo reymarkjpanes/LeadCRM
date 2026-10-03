@@ -127,7 +127,7 @@ describe('C2 regression — convertContact Lead->Contact field mapping', () => {
     expect(data.convertedAt).toBeInstanceOf(Date);
   });
 
-  it('marks the lead as Converted with the resolved account and contact', async () => {
+  it('preserves the Lead status until a sale is confirmed and links the resolved account and contact', async () => {
     await convertContact('lead-1', 'tenant-1', 'user-1', {
       accountName: 'ABC Corporation',
       createContact: true,
@@ -137,7 +137,7 @@ describe('C2 regression — convertContact Lead->Contact field mapping', () => {
 
     expect(mockLeadUpdate).toHaveBeenCalledTimes(1);
     const updateArg = mockLeadUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(updateArg.data.status).toBe('Converted');
+    expect(updateArg.data.status).toBe(LEAD.status);
     expect(updateArg.data.accountId).toBe('acct-1');
     expect(updateArg.data.contactId).toBe('contact-1');
   });

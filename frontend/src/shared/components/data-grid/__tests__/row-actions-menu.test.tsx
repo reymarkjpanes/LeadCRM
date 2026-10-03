@@ -75,3 +75,13 @@ it.each(['leads', 'contacts', 'accounts'])('last %s row has Archive, no Delete o
 it('omits archive when permission is denied', () => {
   expect(buildDefaultRowActions({ onView: vi.fn(), onArchive: vi.fn(), canArchive: false }).map(item => item.id)).toEqual(['view']);
 });
+
+it.each([320, 375, 390, 768, 1440])('keeps bottom-row menus in the %spx viewport and toggles the same trigger closed', width => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+  trigger = { top: 550, bottom: 578, left: width - 30, right: width - 2 };
+  menu(); const dropdown = screen.getByRole('menu');
+  expect(parseFloat(dropdown.style.left)).toBeGreaterThanOrEqual(8);
+  expect(parseFloat(dropdown.style.left) + 180).toBeLessThanOrEqual(width - 8);
+  expect(parseFloat(dropdown.style.top) + 300).toBeLessThanOrEqual(592);
+  open(); expect(screen.queryByRole('menu')).toBeNull();
+});

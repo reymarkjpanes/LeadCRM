@@ -1,4 +1,6 @@
 'use client';
+import { ProductsPage } from './products-page';
+import { ProductInterestsSettings } from './product-interests-settings';
 
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -29,7 +31,6 @@ import {
   Check,
   Banknote,
   PhoneCall,
-  Activity,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
@@ -41,7 +42,6 @@ import { ProfileForm } from './profile-form';
 import { FormsTab } from './forms-tab';
 import { TeamManagement } from './team-management';
 import { RolesPermissions } from './roles-permissions';
-import AuditLogsPage from '@/features/tenant/administration/audit/ui/audit-logs-page';
 
 type SettingsTab =
   | 'profile'
@@ -49,11 +49,11 @@ type SettingsTab =
   | 'org-general'
   | 'users'
   | 'roles'
+  | 'products'
   | 'custom-fields'
   | 'archived'
   | 'account-details'
-  | 'forms'
-  | 'audit';
+  | 'forms';
 
 interface NavGroup {
   label: string;
@@ -82,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'CUSTOMIZATION',
     items: [
       { id: 'custom-fields', label: 'Custom Fields', icon: Zap },
+      { id: 'products', label: 'Products', icon: Zap },
       { id: 'archived', label: 'Archived Data', icon: Archive },
     ],
   },
@@ -97,12 +98,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'account-details', label: 'Account Details', icon: Shield },
     ],
   },
-  {
-    label: 'SYSTEM',
-    items: [
-      { id: 'audit', label: 'Audit Trail', icon: Activity },
-    ],
-  },
 
 ];
 
@@ -111,15 +106,9 @@ export default function SettingsPage(): React.ReactElement {
 
   const isClientAdmin = user?.role === "Client Admin";
 
-  // RBAC-filtered nav groups — hide Audit Trail from non-admin roles
-  const canViewAudit = isClientAdmin || user?.role === "Administrator" || user?.role === "Admin" || userCan('audit', 'canView');
-  const visibleNavGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if ((item as { id: string }).id === 'audit') return canViewAudit;
-      return true;
-    }),
-  })).filter((g) => g.items.length > 0) as typeof NAV_GROUPS;
+  const tabModules: Partial<Record<SettingsTab, string>> = { 'org-general': 'settings', users: 'users', roles: 'roles', products: 'products', 'custom-fields': 'custom_fields', archived: 'archived_data', forms: 'forms' };
+  const canAccessTab = (tab: SettingsTab) => tab === 'users' ? userCan('users', 'canView') || userCan('groups', 'canView') : !tabModules[tab] || userCan(tabModules[tab]!, 'canView');
+  const visibleNavGroups = NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => canAccessTab(item.id)) })).filter(group => group.items.length);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [isFormBuilderActive, setIsFormBuilderActive] = useState(false);
@@ -194,14 +183,14 @@ export default function SettingsPage(): React.ReactElement {
 
   // -- Profile Settings Tab --
   const renderProfileTab = (): React.ReactElement => (
-    <div className="space-y-6 max-w-2xl"><ProfileForm />
+    <div className="space-y-6 w-full max-w-6xl"><ProfileForm />
       <SecuritySettings />
     </div>
   );
 
   // -- Account Details Tab (Admin only) --
   const renderAccountDetailsTab = (): React.ReactElement => (
-    <div className="max-w-2xl space-y-4">
+    <div className="w-full max-w-6xl space-y-4">
       <div className="bg-white dark:bg-[#25313D] border border-gray-200 dark:border-white/[0.06] rounded-2xl p-5 space-y-4">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
           <Shield className="w-4 h-4 text-[#3B82F6]" /> Account Details
@@ -213,7 +202,7 @@ export default function SettingsPage(): React.ReactElement {
           </div>
           <div className="p-3 bg-slate-50 dark:bg-[#1B252F] rounded-xl border border-slate-100 dark:border-slate-700/60">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Account ID</p>
-            <p className="text-xs font-mono text-slate-700 dark:text-slate-300">{tenant?.id || 'N/A'}</p>
+            <p className="text-xs font-mono break-all text-slate-700 dark:text-slate-300">{tenant?.id || 'N/A'}</p>
           </div>
 
           <div className="p-3 bg-slate-50 dark:bg-[#1B252F] rounded-xl border border-slate-100 dark:border-slate-700/60">
@@ -236,7 +225,7 @@ export default function SettingsPage(): React.ReactElement {
 
   // -- Appearance Tab --
   const renderAppearanceTab = (): React.ReactElement => (
-    <div className="max-w-2xl space-y-6">
+    <div className="w-full max-w-6xl space-y-6">
       <div className="bg-white dark:bg-[#25313D] border border-gray-200 dark:border-white/[0.06] rounded-2xl p-6 space-y-6">
         <div>
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -399,31 +388,20 @@ export default function SettingsPage(): React.ReactElement {
   // â”€â”€ Archived Data Tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderArchivedTab = () => <ArchivedData />;
 
-  const renderCustomFieldsTab = (): React.ReactElement => (
-    <div className="max-w-2xl space-y-4">
-      <div className="bg-white dark:bg-[#25313D] border border-gray-200 dark:border-white/[0.06] rounded-2xl p-5">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-          <Zap className="w-4 h-4 text-[#3B82F6]" /> Custom Fields
-        </h3>
-        <div className="text-center py-8 border border-dashed border-gray-200 dark:border-slate-700 rounded-xl">
-          <Zap className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-          <p className="text-xs text-slate-400">Custom fields configuration coming soon.</p>
-        </div>
-      </div>
-    </div>
-  );
+  const renderCustomFieldsTab = () => <ProductInterestsSettings />;
 
-  const tabContentMap: Record<Exclude<SettingsTab, 'forms' | 'roles' | 'audit'>, () => React.ReactElement> = {
+  const tabContentMap: Record<Exclude<SettingsTab, 'forms' | 'roles'>, () => React.ReactElement> = {
     'profile': renderProfileTab,
     'appearance': renderAppearanceTab,
     'org-general': renderOrgGeneralTab,
     'users': renderUsersTab,
     'custom-fields': renderCustomFieldsTab,
+    'products': () => <ProductsPage key={tenant?.id} />,
     'archived': renderArchivedTab,
     'account-details': renderAccountDetailsTab,
   };
 
-  const VALID_TABS: SettingsTab[] = ['profile', 'appearance', 'org-general', 'users', 'roles', 'custom-fields', 'archived', 'account-details', 'forms', 'audit'];
+  const VALID_TABS: SettingsTab[] = ['profile', 'appearance', 'org-general', 'users', 'roles', 'custom-fields', 'products', 'archived', 'account-details', 'forms'];
   useEffect(() => {
     if (tabFromUrl && VALID_TABS.includes(tabFromUrl as SettingsTab)) {
       setActiveTab(tabFromUrl as SettingsTab);
@@ -523,11 +501,12 @@ export default function SettingsPage(): React.ReactElement {
           (activeTab === 'roles' && isRolesViewActive);
         // Tabs that render their own title/header internally â€” suppress the page header
         const hasOwnHeader =
+          activeTab === 'custom-fields' ||
+          activeTab === 'products' ||
           activeTab === 'org-general' ||
           activeTab === 'users' ||
           activeTab === 'roles' ||
-          activeTab === 'audit' ||
-          (activeTab === 'forms' && isFormBuilderActive);
+          activeTab === 'forms';
 
         return (
           <div className={`flex-1 min-w-0 overflow-y-auto custom-scrollbar ${isFullPane ? '' : 'px-4 sm:px-6 py-5'}`}>
@@ -536,13 +515,11 @@ export default function SettingsPage(): React.ReactElement {
                 <h1 className="text-xl font-bold text-slate-900 dark:text-white">{activeItem?.label ?? 'Settings'}</h1>
               </div>
             )}
-            {activeTab === 'forms'
+            {!canAccessTab(activeTab) ? <p role="alert">You do not have permission to access this settings section.</p> : activeTab === 'forms'
               ? <FormsTab onBuilderActiveChange={setIsFormBuilderActive} />
-              : activeTab === 'audit'
-              ? <AuditLogsPage />
               : activeTab === 'roles'
               ? <RolesPermissions onViewActiveChange={setIsRolesViewActive} />
-              : tabContentMap[activeTab as Exclude<SettingsTab, 'forms' | 'roles' | 'audit'>]()
+              : tabContentMap[activeTab as Exclude<SettingsTab, 'forms' | 'roles'>]()
             }
           </div>
         );

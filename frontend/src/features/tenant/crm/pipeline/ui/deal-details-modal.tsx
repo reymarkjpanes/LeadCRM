@@ -1,4 +1,6 @@
 'use client';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
+import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import { uuid } from '@/lib/utils';
 
 import React, { useState, useMemo } from 'react';
@@ -26,7 +28,6 @@ interface EditFields {
   value: number;
   priority: string;
   expectedCloseDate: string;
-  description: string;
   assignedUserId: string;
   stageId: string;
   leadSource: string;
@@ -63,13 +64,13 @@ export interface DealDetailsModalProps {
 
 const TASK_STATUS_STYLES: Record<TaskStatus, string> = {
   pending:      'bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400',
-  'in-progress':'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
+  'in_progress':'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
   blocked:      'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400',
   completed:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400',
   cancelled:    'bg-slate-100 text-slate-400 dark:bg-white/5 line-through',
 };
 
-const TASK_STATUS_OPTIONS: TaskStatus[] = ['pending', 'in-progress', 'blocked', 'completed', 'cancelled'];
+const TASK_STATUS_OPTIONS: TaskStatus[] = ['pending', 'in_progress', 'blocked', 'completed', 'cancelled'];
 
 function isOverdue(task: Task): boolean {
   if (task.status === 'completed' || task.status === 'cancelled') return false;
@@ -91,7 +92,6 @@ function buildEditFields(deal: Deal): EditFields {
     value: deal.value || 0,
     priority: deal.priority || 'Medium',
     expectedCloseDate: deal.expectedCloseDate || '',
-    description: deal.description || '',
     assignedUserId: deal.assignedUserId || '',
     stageId: deal.stageId || '',
     leadSource: deal.leadSource || '',
@@ -137,16 +137,6 @@ export function DealDetailsModal({
     userId: currentUserId,
   });
 
-  // Task form state
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [newTask, setNewTask] = useState({
-    title: '',
-    description: '',
-    dueDate: '',
-    assignedUserId: currentUserId,
-    priority: 'Medium' as 'Low' | 'Medium' | 'High',
-  });
-
   const currentStageIdx = pipeline.stages.findIndex(s => s.id === deal.stageId);
   const currentStageName = pipeline.stages[currentStageIdx]?.name ?? '—';
   const nextStage = pipeline.stages[currentStageIdx + 1];
@@ -155,13 +145,8 @@ export function DealDetailsModal({
 
   const isClosedLost = currentStageName === 'Closed Lost';
 
-  const dealTasks = useMemo(
-    () => tasks.filter(t => t.dealId === deal.id),
-    [tasks, deal.id],
-  );
-  const openTasks      = dealTasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
-  const completedTasks = dealTasks.filter(t => t.status === 'completed');
-  const overdueTasks   = openTasks.filter(isOverdue);
+  const taskData = useTasks({ dealId: deal.id, limit: 1 });
+  const taskCount = taskData.summary?.total ?? 0;
 
   function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -197,24 +182,6 @@ export function DealDetailsModal({
     });
     setNewActivity({ type: 'note', description: '', timestamp: new Date().toISOString().slice(0, 16), userId: currentUserId });
     toast.success('Activity logged');
-  }
-
-  function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTask.title.trim()) return;
-    onAddTask({
-      dealId: deal.id,
-      title: newTask.title,
-      description: newTask.description,
-      dueDate: newTask.dueDate,
-      assignedUserId: newTask.assignedUserId,
-      assignedBy: currentUserId,
-      priority: newTask.priority,
-      status: 'pending',
-    } as any);
-    setNewTask({ title: '', description: '', dueDate: '', assignedUserId: currentUserId, priority: 'Medium' });
-    setShowTaskForm(false);
-    toast.success('Task created');
   }
 
   const tabClass = (tab: DrawerTab) =>
@@ -266,9 +233,9 @@ export function DealDetailsModal({
           {(['overview', 'activities', 'tasks', 'history', 'automation'] as DrawerTab[]).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={tabClass(tab)}>
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'tasks' && dealTasks.length > 0 && (
+              {tab === 'tasks' && taskCount > 0 && (
                 <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400">
-                  {dealTasks.length}
+                  {taskCount}
                 </span>
               )}
               {activeTab === tab && (
@@ -444,11 +411,6 @@ export function DealDetailsModal({
                       className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Description</label>
-                    <textarea rows={3} value={editFields.description} onChange={e => setEditFields({ ...editFields, description: e.target.value })}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl p-3 text-slate-900 dark:text-white text-sm focus:outline-none resize-none" />
-                  </div>
 
                   <div className="flex gap-2 justify-end pt-1">
                     <button type="button" onClick={() => setIsEditing(false)}
@@ -503,12 +465,6 @@ export function DealDetailsModal({
                         </div>
                       </div>
                     )}
-                  </div>
-                  <div className="space-y-2 pt-1">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Description</h4>
-                    <div className="bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] p-4 rounded-2xl text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                      {deal.description || 'No description provided.'}
-                    </div>
                   </div>
                 </div>
               )}
@@ -662,128 +618,7 @@ export function DealDetailsModal({
           )}
 
           {/* ── TASKS TAB ────────────────────────────────────────────────── */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-5">
-              {/* Summary chips */}
-              <div className="flex gap-2 flex-wrap">
-                <span className="text-[11px] font-semibold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 px-2.5 py-1 rounded-full">
-                  {openTasks.length} Open
-                </span>
-                {overdueTasks.length > 0 && (
-                  <span className="text-[11px] font-semibold bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full flex items-center gap-1">
-                    <AlertTriangle size={11} /> {overdueTasks.length} Overdue
-                  </span>
-                )}
-                <span className="text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full">
-                  {completedTasks.length} Done
-                </span>
-              </div>
-
-              {/* Add task button / form toggle */}
-              {canEdit && !showTaskForm && (
-                <button type="button" onClick={() => setShowTaskForm(true)}
-                  className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 dark:border-white/[0.1] text-slate-500 hover:text-blue-400 hover:border-blue-400/50 rounded-xl py-2.5 text-xs font-semibold transition-all">
-                  <Plus size={14} /> Add Task
-                </button>
-              )}
-
-              {/* Inline task creation form */}
-              {showTaskForm && canEdit && (
-                <form onSubmit={handleAddTask} className="bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] rounded-2xl p-4 space-y-3">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">New Task</h4>
-                  <input required type="text" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })}
-                    placeholder="Task title..."
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
-                  <textarea rows={2} value={newTask.description} onChange={e => setNewTask({ ...newTask, description: e.target.value })}
-                    placeholder="Description (optional)..."
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none resize-none" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Due Date</label>
-                      <input type="date" value={newTask.dueDate} onChange={e => setNewTask({ ...newTask, dueDate: e.target.value })}
-                        className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Priority</label>
-                      <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value as any })}
-                        className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none">
-                        <option>Low</option><option>Medium</option><option>High</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Assign To</label>
-                    <select value={newTask.assignedUserId} onChange={e => setNewTask({ ...newTask, assignedUserId: e.target.value })}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none">
-                      <option value="">Unassigned</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <button type="button" onClick={() => setShowTaskForm(false)}
-                      className="px-3 py-1.5 border border-gray-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-400 text-xs font-bold rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-all">
-                      Cancel
-                    </button>
-                    <button type="submit"
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-500 transition-all">
-                      Create Task
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Task list */}
-              <div className="space-y-2">
-                {dealTasks.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic text-center py-6">No tasks linked to this deal yet.</p>
-                ) : (
-                  dealTasks.map(task => {
-                    const overdueTask = isOverdue(task);
-                    const assignee = users.find(u => u.id === task.assignedUserId);
-                    const assigner = users.find(u => u.id === task.assignedBy);
-                    return (
-                      <div key={task.id} className={`bg-white dark:bg-white/[0.02] border rounded-xl p-3 space-y-2 transition-all ${overdueTask ? 'border-red-300 dark:border-red-500/30' : 'border-gray-200 dark:border-white/[0.05]'}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1">
-                            <p className={`text-sm font-semibold ${task.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
-                              {task.title}
-                            </p>
-                            {task.description && <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{task.description}</p>}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {overdueTask && (
-                              <span className="text-[10px] font-bold bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-500/20 flex items-center gap-0.5">
-                                <Clock size={10} /> Overdue
-                              </span>
-                            )}
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded capitalize ${TASK_STATUS_STYLES[task.status] ?? TASK_STATUS_STYLES.pending}`}>
-                              {task.status}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-gray-100 dark:border-white/[0.03]">
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1"><User size={11} />{assignee ? `${assignee.firstName} ${assignee.lastName}` : 'Unassigned'}</span>
-                            {task.dueDate && <span className="flex items-center gap-1"><Calendar size={11} />{task.dueDate}</span>}
-                          </div>
-                          {canEdit && (
-                            <select value={task.status}
-                              onChange={e => { onUpdateTask(task.id, { status: e.target.value as TaskStatus }); toast.success('Task status updated'); }}
-                              className="text-[11px] bg-transparent border-none outline-none text-blue-400 cursor-pointer font-semibold">
-                              {TASK_STATUS_OPTIONS.map(s => <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">{s}</option>)}
-                            </select>
-                          )}
-                        </div>
-                        {assigner && task.assignedBy !== task.assignedUserId && (
-                          <p className="text-[10px] text-slate-400">Assigned by {assigner.firstName} {assigner.lastName}</p>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'tasks' && <RelatedTasks links={{ dealId: deal.id }} />}
 
           {/* ── HISTORY TAB ──────────────────────────────────────────────── */}
           {activeTab === 'history' && (
@@ -870,4 +705,3 @@ export function DealDetailsModal({
     </>
   );
 }
-

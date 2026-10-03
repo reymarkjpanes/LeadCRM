@@ -8,11 +8,10 @@
  * Uses DATABASE_URL from the environment — works for both local and Render/production.
  *
  * Seed order:
- *   1. Demo accounts (system admin + client tenant users) — always runs
+ *   1. Role repairs and optional Gmail sender configuration
  *   2. Realistic multi-tenant data (development only — skipped in production)
  */
 import { PrismaClient } from '@prisma/client';
-import { seedDemoAccounts } from '../src/database/seeders/demo.seed';
 import { generateTenants } from '../src/database/seeders/tenant-generator';
 import { runRepairs } from '../src/database/scripts/repair-role-permissions';
 import { encryptToken } from '../src/core/encryption/crypto.service';
@@ -93,13 +92,7 @@ async function main() {
   //     Safe to run on every deploy — uses upsert.
   await seedGmailSystemSender();
 
-  // 1. System Admin account — idempotent upsert, safe on every deploy.
-  //    Credentials controlled by SYSTEM_ADMIN_EMAIL + SYSTEM_ADMIN_PASSWORD env vars.
-  //    All other tenant/user accounts are created through the normal user workflow.
-  await seedDemoAccounts();
-
-
-  // 3. Realistic multi-tenant sample data — development/staging only.
+  // 1. Realistic multi-tenant sample data — development/staging only.
   //    Skip in production to avoid polluting real customer data.
   if (process.env.NODE_ENV !== 'production' && process.env.SKIP_DEMO_TENANTS !== 'true') {
     console.log('[Seed] Generating sample tenants (dev/staging only)...');

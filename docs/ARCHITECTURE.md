@@ -22,18 +22,9 @@ leadcrm/
 
 ---
 
-## Dual-Portal Design
+## Workspace access
 
-| Concern | CRM Portal | Admin Portal |
-|---|---|---|
-| Audience | Tenant users (Client Admin, Sales Rep, Viewer, Technician) | LeadCRM operator (System Admin) |
-| Purpose | Daily CRM work — contacts, pipeline, campaigns, automation | Platform control — tenant management and audit |
-| Physical path | `frontend/src/features/tenant/` | `frontend/src/features/system-admin/` |
-| App Router group | `app/(tenant)/` | `app/(system-admin)/` |
-
-The portals are **physically separated folders**, not just route groups. This prevents cross-portal imports at the file system level.
-
----
+The CRM uses tenant-scoped Client Admin and custom staff roles. Team Management and Roles & Permissions remain under Settings. There is no separate platform portal. See [authentication](authentication.md) and [retirement verification](retired-features-cleanup.md).
 
 ## Frontend Architecture
 
@@ -41,9 +32,7 @@ The portals are **physically separated folders**, not just route groups. This pr
 frontend/
 ├── app/                   ← Next.js App Router (routing shells ONLY — 3-line imports)
 │   ├── login/             ← Public auth routes
-│   ├── register/          ← Public registration
 │   ├── (tenant)/          ← CRM portal routes (no URL segment)
-│   ├── (system-admin)/    ← Admin portal routes (URLs: /admin/*)
 │   └── layout.tsx         ← Root layout — metadata, PWA manifest
 └── src/
     ├── features/
@@ -54,11 +43,10 @@ frontend/
     │   │   ├── automation/← workflows/, triggers/, actions/
     │   │   ├── operations/← service-orders/, tasks/, assets/, inventory/
     │   │   ├── reporting/
-    │   │   ├── administration/ ← users/, audit/
+    │   │   ├── administration/ ← users/
     │   │   ├── dashboard/
     │   │   ├── settings/
     │   │   └── layout/    ← CrmLayout, sidebar-nav, topbar, account-dropdown
-    │   └── system-admin/  ← Admin portal — dashboard/, tenants/, monitoring/, layout/
     ├── shared/            ← Reusable UI: ui/, charts/, components/, hooks/, providers/
     ├── store/             ← DataContext, AuthContext, types/, types.ts (shim), mockData/
     ├── lib/               ← utils.ts, constants.ts, countries.ts
@@ -205,7 +193,7 @@ Set `NEXT_PUBLIC_USE_MOCK_DATA=false` in `.env.local` to switch from localStorag
 Each module migrates independently — only `DataContext` internals change, all components remain untouched.
 This is the Dependency Inversion Principle applied to the data layer.
 
-The Prisma schema includes active CRM and account-security models. Retired billing and configurable team-domain structures are removed by forward migrations. See [security cleanup](security-cleanup-mfa.md) and [CRM environments](crm-environments.md).
+The Prisma schema includes active CRM and account-security models. Retired billing, configurable team-domain structures, and the Sandbox/Live feature are removed by forward migrations. CRM operations use a single dataset with tenant isolation. See [security cleanup](security-cleanup-mfa.md) and [single CRM workspace](crm-environments.md).
 
 ---
 

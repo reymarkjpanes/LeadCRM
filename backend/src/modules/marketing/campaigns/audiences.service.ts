@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AudiencePreviewSchema, CreateAudienceSchema, type AudienceInput, type AudienceBreakdown, type EmailVariables } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
-import { environmentContext } from '../../../core/environment/environment-context';
+import { tenantContext } from '../../../core/tenant/tenant-context';
 import { AppError } from '../../../shared/errors/app-error';
 
 export function campaignScope(tenantId: string) {
-  const context = environmentContext.getStore();
-  if (!context || context.tenantId !== tenantId) throw new AppError('CRM environment is required.', 403);
-  return { tenantId, environment: context.environment };
+  const context = tenantContext.getStore();
+  if (!context || context.tenantId !== tenantId) throw new AppError('CRM tenant context is required.', 403);
+  return { tenantId };
 }
 export async function getAudiences(tenantId: string) {
   return prisma.targetAudience.findMany({ where: { ...campaignScope(tenantId), isActive: true }, include: { conditions: { orderBy: { conditionOrder: 'asc' } } }, orderBy: { name: 'asc' } });
@@ -48,12 +48,12 @@ function conditionsFor(input: AudienceInput, lead: boolean): Prisma.LeadWhereInp
 }
 export interface ResolvedRecipient { leadId?: string; contactId?: string; email: string | null; personalization: EmailVariables; reason: string | null }
 export function classifyRecipients(records: ResolvedRecipient[], staff: Set<string>, suppressed: Map<string, string>, allowlist: Set<string> | null) {
-  const breakdown: AudienceBreakdown = { matched: records.length, eligible: 0, missingEmail: 0, invalidEmail: 0, duplicateEmail: 0, staffEmail: 0, unsubscribed: 0, blocked: 0, inactive: 0, sandboxBlocked: 0 };
+  const breakdown: AudienceBreakdown = { matched: records.length, eligible: 0, missingEmail: 0, invalidEmail: 0, duplicateEmail: 0, staffEmail: 0, unsubscribed: 0, blocked: 0, inactive: 0, recipientNotAllowed: 0 };
   const seen = new Set<string>();
-  const reasonCounts: Record<string, keyof AudienceBreakdown> = { MISSING_EMAIL: 'missingEmail', INVALID_EMAIL: 'invalidEmail', DUPLICATE_EMAIL: 'duplicateEmail', STAFF_EMAIL: 'staffEmail', UNSUBSCRIBED: 'unsubscribed', BLOCKED: 'blocked', INACTIVE: 'inactive', SANDBOX_BLOCKED: 'sandboxBlocked' };
+  const reasonCounts: Record<string, keyof AudienceBreakdown> = { MISSING_EMAIL: 'missingEmail', INVALID_EMAIL: 'invalidEmail', DUPLICATE_EMAIL: 'duplicateEmail', STAFF_EMAIL: 'staffEmail', UNSUBSCRIBED: 'unsubscribed', BLOCKED: 'blocked', INACTIVE: 'inactive', RECIPIENT_NOT_ALLOWED: 'recipientNotAllowed' };
   for (const row of records) {
     row.email = row.email?.trim().toLowerCase() || null;
-    row.reason = row.reason || (!row.email ? 'MISSING_EMAIL' : !z.string().email().safeParse(row.email).success ? 'INVALID_EMAIL' : staff.has(row.email) ? 'STAFF_EMAIL' : suppressed.get(row.email) || (seen.has(row.email) ? 'DUPLICATE_EMAIL' : allowlist && !allowlist.has(row.email) ? 'SANDBOX_BLOCKED' : null));
+    row.reason = row.reason || (!row.email ? 'MISSING_EMAIL' : !z.string().email().safeParse(row.email).success ? 'INVALID_EMAIL' : staff.has(row.email) ? 'STAFF_EMAIL' : suppressed.get(row.email) || (seen.has(row.email) ? 'DUPLICATE_EMAIL' : allowlist && !allowlist.has(row.email) ? 'RECIPIENT_NOT_ALLOWED' : null));
     if (row.reason) breakdown[reasonCounts[row.reason]!]++;
     else { seen.add(row.email!); breakdown.eligible++; }
   }
@@ -79,6 +79,6 @@ export async function resolveAudience(tenantId: string, input: unknown, db: Pris
     ...leads.map(l => ({ leadId: l.id, email: l.email, reason: ['Archived', 'Converted', 'CANCELLED'].includes(l.status) ? 'INACTIVE' : null, personalization: { first_name: l.firstName, last_name: l.lastName, company_name: l.companyName || '', contact_number: l.phone || '', status: l.status } })),
   ];
   const rawAllowlist = process.env.BREVO_SANDBOX_EMAILS?.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  const allowlist = scope.environment === 'SANDBOX' || (process.env.NODE_ENV !== 'production' && rawAllowlist?.length) ? new Set(rawAllowlist || []) : null;
+  const allowlist = process.env.NODE_ENV !== 'production' && rawAllowlist?.length ? new Set(rawAllowlist || []) : null;
   return classifyRecipients(records, staff, suppressed, allowlist);
 }

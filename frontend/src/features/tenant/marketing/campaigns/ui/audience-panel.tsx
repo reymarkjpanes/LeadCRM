@@ -9,7 +9,7 @@ export function FieldError({ message }: { message?: string }) {
 }
 export function AudienceCounts({ counts }: { counts: AudienceBreakdown | null }) {
   return <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 text-xs text-blue-700" aria-live="polite">
-    {counts ? <><strong>{counts.eligible} eligible recipients</strong><p className="mt-1">Matched: {counts.matched} · Missing email: {counts.missingEmail} · Invalid: {counts.invalidEmail} · Duplicates: {counts.duplicateEmail} · Staff: {counts.staffEmail} · Unsubscribed: {counts.unsubscribed} · Blocked: {counts.blocked} · Inactive: {counts.inactive} · Sandbox excluded: {counts.sandboxBlocked}</p></> : 'Audience estimate unavailable.'}
+    {counts ? <><strong>{counts.eligible} eligible recipients</strong><p className="mt-1">Matched: {counts.matched} · Missing email: {counts.missingEmail} · Invalid: {counts.invalidEmail} · Duplicates: {counts.duplicateEmail} · Staff: {counts.staffEmail} · Unsubscribed: {counts.unsubscribed} · Blocked: {counts.blocked} · Inactive: {counts.inactive} · Delivery restricted: {counts.recipientNotAllowed}</p></> : 'Audience estimate unavailable.'}
   </div>;
 }
 const labels = { status: 'Status', source: 'Lead Source', company: 'Company', productInterest: 'Product Interest', assignedUserId: 'Assigned Agent ID', createdAt: 'Created Date' };

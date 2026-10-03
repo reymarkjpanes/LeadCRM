@@ -1,3 +1,5 @@
+import { LeadStatusSchema } from '@leadcrm/shared';
+import { recordText, recordName } from '../record-validation';
 import { z } from 'zod';
 
 /**
@@ -5,8 +7,8 @@ import { z } from 'zod';
  * Validates the 6 required fields + optional fields.
  */
 export const ImportLeadRowSchema = z.object({
-  firstName:   z.string().min(1, 'First Name is required').max(100),
-  lastName:    z.string().min(1, 'Last Name is required').max(100),
+  firstName:   recordName(),
+  lastName:    recordName(),
   email:       z.string().min(1, 'Email is required').email('Invalid email address'),
   phone:       z.string().min(1, 'Phone Number is required'),
   companyName: z.string().min(1, 'Company Name is required').max(200),
@@ -15,7 +17,7 @@ export const ImportLeadRowSchema = z.object({
   website:     z.string().max(500).optional(),
   source:      z.string().max(100).optional(),
   description: z.string().max(2000).optional(),
-  status:      z.string().max(50).optional(),
+  status:      LeadStatusSchema.optional(),
 });
 
 export type ImportLeadRowDto = z.infer<typeof ImportLeadRowSchema>;
@@ -29,17 +31,17 @@ export const CreateLeadImportSchema = z.object({
     .array(
       z.object({
         rowNumber: z.number().int().min(2), // row 1 is header
-        firstName: z.string().optional().default(''),
-        lastName: z.string().optional().default(''),
+        firstName: recordName().optional().default(''),
+        lastName: recordName().optional().default(''),
         email: z.string().optional().default(''),
         phone: z.string().optional().default(''),
-        companyName: z.string().optional().default(''),
-        address: z.string().optional().default(''),
+        companyName: recordText(200).optional().default(''),
+        address: recordText(500).optional().default(''),
         // Optional fields (new — backward compatible)
-        website: z.string().optional().default(''),
-        source: z.string().optional().default(''),
-        description: z.string().optional().default(''),
-        status: z.string().optional().default(''),
+        website: recordText(500).optional().default(''),
+        source: recordText(100).optional().default(''),
+        description: recordText().optional().default(''),
+        status: LeadStatusSchema.optional().default('Warm'),
       }),
     )
     .min(1, 'At least one row is required')

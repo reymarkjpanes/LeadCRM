@@ -12,6 +12,7 @@ import {
   Wand2, Monitor, Smartphone, Zap, Tags, Loader2,
   EyeOff, Eye,
 } from 'lucide-react';
+import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { campaignsApi } from '@/shared/services/campaigns.api';
 
 type CampaignType = 'Email' | 'SMS' | 'Multi-Channel';
@@ -36,6 +37,9 @@ export function CampaignBuilder({
 
 }: CampaignBuilderProps) {
 
+  const maySend = useHasPermission('campaigns.send') && canSend;
+  const canCreate = useHasPermission('campaigns.create'), canEdit = useHasPermission('campaigns.edit');
+  const canWrite = initialCampaign ? canEdit && initialCampaign.status.toLowerCase() === 'draft' : canCreate;
   const [campaignName, setCampaignName] = useState(initialCampaign?.name || '');
   const [campaignType, setCampaignType] = useState<CampaignType>(
     (initialCampaign?.type === 'Sms' ? 'SMS' : initialCampaign?.type as CampaignType) || (initialType as CampaignType) || 'Email',
@@ -76,7 +80,7 @@ export function CampaignBuilder({
   const previewSubject = () => getPreviewText(emailSubject) || campaignName || 'Email preview';
   const previewBody = () => <iframe title="Email body preview" sandbox="" className="w-full h-full min-h-48 border-0" srcDoc={DOMPurify.sanitize(getPreviewText(messageContent).replace(/\n/g, '<br>'))} />;
   async function save(send: boolean) {
-    if (requestLock.current) return;
+    if (requestLock.current || (send ? !maySend : !canWrite)) return;
     const source = ['LEADS', 'CONTACTS', 'ALL'].includes(targetAudience) ? targetAudience : null;
     const input = { name: campaignName, type: toApiType(campaignType), subject: emailSubject, body: campaignType === 'Email' ? DOMPurify.sanitize(messageContent, { FORBID_TAGS: ['form', 'input', 'button', 'svg', 'iframe', 'object', 'embed'] }) : messageContent,
       audienceSource: source, targetAudienceId: source ? null : targetAudience || null };
@@ -89,7 +93,7 @@ export function CampaignBuilder({
     if (send && (campaignType !== 'Email')) { setErrors({ form: 'Send Now supports a single EMAIL message. Save other campaign types as drafts.' }); return; }
     requestLock.current = true; setIsSending(true); setErrors({});
     try {
-      const res = savedId ? await campaignsApi.update(savedId, parsed.data) : await campaignsApi.create(parsed.data);
+      const res = !canWrite && savedId ? { data: { id: savedId } } : savedId ? await campaignsApi.update(savedId, parsed.data) : await campaignsApi.create(parsed.data);
       setSavedId(res.data.id);
       if (send) {
         let result = (await campaignsApi.send(res.data.id)).data;
@@ -153,10 +157,10 @@ export function CampaignBuilder({
             {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
             <span className="hidden xs:inline">{showPreview ? 'Hide Preview' : 'Preview'}</span>
           </button>
-          <button onClick={handleSaveDraft} disabled={isSending} className="px-3 sm:px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg border border-gray-200 dark:border-white/10 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button onClick={handleSaveDraft} disabled={isSending || !canWrite} className="px-3 sm:px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg border border-gray-200 dark:border-white/10 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
             Save Draft
           </button>
-          <button onClick={handleSend} disabled={isSending || !canSend} className="flex items-center gap-2 px-4 sm:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button onClick={handleSend} disabled={isSending || !maySend || (!!initialCampaign && initialCampaign.status.toLowerCase() !== 'draft')} className="flex items-center gap-2 px-4 sm:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-50 disabled:cursor-not-allowed">
             {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             {isSending ? 'Sending...' : 'Send Now'}
           </button>
@@ -167,7 +171,7 @@ export function CampaignBuilder({
       {/* Split Layout */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-white/5">
+        <fieldset disabled={!canWrite || isSending} className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-white/5">
           <div className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Campaign Details</h3>
             <div>
@@ -253,7 +257,7 @@ export function CampaignBuilder({
                 </div>
               </div>
           </div>
-        </div>
+        </fieldset>
 
         {/* Right Side — Live Preview: always shown on lg+, toggleable on smaller screens */}
         {(showPreview) && (

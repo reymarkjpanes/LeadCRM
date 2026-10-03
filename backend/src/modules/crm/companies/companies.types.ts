@@ -9,7 +9,6 @@
 export type {
   Company,
   CompanySize,
-  CustomerType,
   CreateCompanyRequest,
   UpdateCompanyRequest,
 } from '@leadcrm/shared';

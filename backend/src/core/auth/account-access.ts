@@ -7,7 +7,6 @@ export function requireEmployeeAccount(user: { role: string; email: string }) {
   if (user.role.trim().toLowerCase() === 'guest') {
     throw new AppError('This account role has been retired. Contact your administrator.', 403, 'ROLE_RETIRED');
   }
-  if (user.role === 'System Admin') return;
   if (!EmployeeEmailSchema.safeParse(user.email).success) {
     throw new AppError('Use your Camxian employee account to access LeadCRM.', 403, 'EMPLOYEE_ACCOUNT_REQUIRED');
   }

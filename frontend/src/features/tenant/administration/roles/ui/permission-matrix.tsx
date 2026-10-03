@@ -3,7 +3,7 @@
 import React, { useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Check } from 'lucide-react';
-import { PERMISSION_MODULES } from '@leadcrm/shared';
+import { PERMISSION_MODULES, PERMISSION_ACTIONS, PERMISSION_ACTION_LABELS } from '@leadcrm/shared';
 import type { PermissionAction, PermissionFlags } from '@/store/types/roles.types';
 
 interface PermissionMatrixProps {
@@ -15,14 +15,9 @@ interface PermissionMatrixProps {
   onChange?: (module: string, action: PermissionAction, checked: boolean) => void;
 }
 
-const ACTION_LABELS: Record<PermissionAction, string> = {
-  canView:   'View',
-  canCreate: 'Create',
-  canEdit:   'Edit',
-  canDelete: 'Delete',
-};
+const ACTION_LABELS = PERMISSION_ACTION_LABELS;
 
-const ACTIONS: PermissionAction[] = ['canView', 'canCreate', 'canEdit', 'canDelete'];
+const ACTIONS = PERMISSION_ACTIONS;
 
 export function PermissionMatrix({ value, readOnly = false, onChange }: PermissionMatrixProps): React.ReactElement {
   const handleToggle = useCallback((module: string, action: PermissionAction, current: boolean) => {

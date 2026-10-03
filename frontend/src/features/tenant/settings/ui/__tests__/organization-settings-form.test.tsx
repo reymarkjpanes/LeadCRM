@@ -6,7 +6,7 @@ vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: mocks.te
 vi.mock('../../services/settings.service', () => ({ settingsApiService: { getOrganization: mocks.get, updateOrganization: mocks.save } }));
 vi.mock('sonner', () => ({ toast: { success: mocks.success, error: mocks.error } }));
 import { OrganizationSettingsForm } from '../organization-settings-form';
-const saved = { id: 'tenant', name: 'Original', industry: 'IT', email: 'info@example.com', phone: '123', domain: 'example.com', address: 'Manila' };
+const saved = { id: 'tenant', name: 'Original', industry: 'IT', email: 'info@example.com', phone: '+63281233488', domain: 'example.com', address: 'Manila' };
 beforeEach(() => { vi.resetAllMocks(); mocks.canEdit = true; mocks.tenant = 'tenant'; mocks.get.mockResolvedValue({ data: saved }); });
 afterEach(cleanup);
 const name = () => screen.getByLabelText('Organization Name') as HTMLInputElement;
@@ -75,4 +75,25 @@ it('shows a structural skeleton without editable controls until the real respons
   expect(document.querySelectorAll('.animate-pulse').length).toBeGreaterThan(6);
   resolve({ data: saved }); await screen.findByDisplayValue('Original');
   expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('uses the fixed prefix, rejects letters, validates inline, and submits a normalized telephone', async () => {
+  render(<OrganizationSettingsForm />); await screen.findByDisplayValue('Original');
+  fireEvent.click(screen.getByText('Edit'));
+  const phone = screen.getByLabelText('Phone') as HTMLInputElement;
+  expect(screen.getByText('+63')).toBeTruthy(); expect(phone.value).toBe('(28) 123-3488');
+  fireEvent.change(phone, { target: { value: 'fbdfbdgddfg' } });
+  expect(phone.value).toBe('(28) 123-3488'); expect(screen.getByText('Enter a valid Philippine telephone number.')).toBeTruthy();
+  fireEvent.change(phone, { target: { value: '123' } }); fireEvent.submit(phone.closest('form')!);
+  expect(mocks.save).not.toHaveBeenCalled(); expect(phone.getAttribute('aria-invalid')).toBe('true');
+  fireEvent.change(phone, { target: { value: '(28) 123-3488' } });
+  mocks.save.mockResolvedValue({ data: saved }); fireEvent.submit(phone.closest('form')!);
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ phone: '+63281233488' })));
+});
+
+it('shows backend field errors below the phone field without discarding edits', async () => {
+  render(<OrganizationSettingsForm />); await screen.findByDisplayValue('Original'); fireEvent.click(screen.getByText('Edit'));
+  mocks.save.mockRejectedValue(Object.assign(new Error('Telephone rejected'), { fieldErrors: { phone: ['Telephone rejected'] } }));
+  fireEvent.click(screen.getByText('Save Changes')); await screen.findByText('Telephone rejected');
+  expect((screen.getByLabelText('Phone') as HTMLInputElement).readOnly).toBe(false);
 });

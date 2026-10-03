@@ -1,4 +1,6 @@
 'use client';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
+import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import { uuid } from '@/lib/utils';
 
 import React, { useState, useEffect } from 'react';
@@ -84,11 +86,6 @@ export const ClientProfileTabs = ({
   const [smsText, setSmsText] = useState('');
   const [isSendingSms, setIsSendingSms] = useState(false);
 
-  // New task inline state
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDate, setNewTaskDate] = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
-
   // Custom logging inline states
   const [logType, setLogType] = useState<'Call' | 'Meeting' | 'Note'>('Call');
   const [logNotes, setLogNotes] = useState('');
@@ -103,9 +100,9 @@ export const ClientProfileTabs = ({
   // Load activities of this lead
   useEffect(() => {
     const defaultActivities = [
-      { id: 'e1', type: 'note', text: 'Lead / Organization CRM record registered in database.', time: lead.createdAt || '3 days ago', user: lead.createdBy || 'System Admin' },
-      { id: 'e2', type: 'note', text: `Lead established with status '${lead.status}' and value of $${lead.estimatedValue?.toLocaleString()}.`, time: '3 days ago', user: 'System Admin' },
-      { id: 'e3', type: 'note', text: lead.assignedUserId ? `Assigned to representative handler.` : 'Registered as unassigned account.', time: '3 days ago', user: 'System Admin' }
+      { id: 'e1', type: 'note', text: 'Lead / Organization CRM record registered in database.', time: lead.createdAt || '3 days ago', user: lead.createdBy || 'System' },
+      { id: 'e2', type: 'note', text: `Lead established with status '${lead.status}' and value of $${lead.estimatedValue?.toLocaleString()}.`, time: '3 days ago', user: 'System' },
+      { id: 'e3', type: 'note', text: lead.assignedUserId ? `Assigned to representative handler.` : 'Registered as unassigned account.', time: '3 days ago', user: 'System' }
     ];
 
     const savedActivities = localStorage.getItem(`crm_activities_${lead.id}`);
@@ -193,27 +190,6 @@ export const ClientProfileTabs = ({
     }, 1000);
   };
 
-  // Task creation
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    addTask({
-      title: `${newTaskTitle} (Linked: ${lead.leadPerson})`,
-      assignedUserId: lead.assignedUserId || currentUser?.id || 'user_1',
-      dueDate: newTaskDate || new Date().toISOString().split('T')[0],
-      priority: newTaskPriority,
-      status: 'pending',
-      notes: `Linked automatically to Lead & Organization folder of ${lead.leadPerson} at ${lead.companyName}.`
-    });
-
-    addActivityLog(`Assigned new task checklist item: "${newTaskTitle}"`, 'task');
-    setNewTaskTitle('');
-    setNewTaskDate('');
-    setNewTaskPriority('Medium');
-    toast.success('Task scheduled successfully on Taskboard!');
-  };
-
   // Dynamic tags parsed
   const parsedTags = lead.tags ? lead.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
 
@@ -244,6 +220,8 @@ export const ClientProfileTabs = ({
     winRate,
   };
 
+  const linkedTaskData = useTasks({ leadId: lead.id, limit: 1 });
+
   // Helper: get real stage name from pipeline data
   const getStageName = (pipelineId: string, stageId: string): string => {
     const pipeline = pipelines.find(p => p.id === pipelineId);
@@ -251,11 +229,7 @@ export const ClientProfileTabs = ({
     return pipeline.stages.find(s => s.id === stageId)?.name ?? stageId;
   };
 
-  // Associated Tasks — by dealId link OR lead name match for legacy tasks
-  const connectedTasks = tasks.filter(t =>
-    (t.dealId && connectedDeals.some(d => d.id === t.dealId)) ||
-    t.title?.includes(lead.leadPerson ?? '')
-  );
+
 
   return (
     <div className="flex flex-col md:flex-row gap-6 h-full text-slate-800 dark:text-slate-100" id="client-profile-container">
@@ -279,8 +253,8 @@ export const ClientProfileTabs = ({
           
           <div className="mt-4 flex flex-wrap justify-center gap-1">
             {(() => {
-              const isHealthy = (connectedDeals.some(d => d.stageId !== 'stage_lost') || (lead.status === 'Hot' || lead.status === 'Warm')) && !connectedTasks.some(t => t.status === 'pending' && new Date(t.dueDate).getTime() < Date.now());
-              const isAtRisk = connectedTasks.some(t => t.status === 'pending' && new Date(t.dueDate).getTime() < Date.now());
+              const isHealthy = (connectedDeals.some(d => d.stageId !== 'stage_lost') || (lead.status === 'Hot' || lead.status === 'Warm')) && !((linkedTaskData.summary?.overdue ?? 0) > 0);
+              const isAtRisk = ((linkedTaskData.summary?.overdue ?? 0) > 0);
               const healthText = isAtRisk ? '🟡 At Risk' : isHealthy ? '🟢 Healthy' : '🔴 Inactive';
               const healthCls = isAtRisk ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200' : isHealthy ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-200';
               return (
@@ -509,7 +483,6 @@ export const ClientProfileTabs = ({
               <CustomerJourneyTimeline
                 lead={lead}
                 deals={deals}
-                tasks={tasks}
                 onSelectDeal={(d) => setSelectedDealModal(d)}
               />
 
@@ -588,87 +561,7 @@ export const ClientProfileTabs = ({
           )}
 
           {/* TAB 6: TASKS INTEGRATION */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-5 text-left animate-in fade-in duration-100" id="profile-tasks-integration-tab">
-              {/* Inline layout forms */}
-              <form onSubmit={handleAddTask} className="bg-slate-50 dark:bg-white/1 border border-gray-200 dark:border-white/3 p-4 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Fast Schedule Active Task</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Task Title <span className="text-red-500">*</span></label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="e.g. Call to finalize quote details"
-                      value={newTaskTitle}
-                      onChange={e => setNewTaskTitle(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Target Due Date</label>
-                    <input 
-                      type="date" 
-                      value={newTaskDate}
-                      onChange={e => setNewTaskDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-between items-center pt-1">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-semibold text-slate-500">Priority:</span>
-                    {(['Low', 'Medium', 'High'] as const).map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setNewTaskPriority(p)}
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                          newTaskPriority === p ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/5 text-slate-600'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-                    <Plus size={12} /> Add Task
-                  </button>
-                </div>
-              </form>
-
-              {/* Connected tasks item renderer list */}
-              <div className="space-y-2">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active checklist queue</h5>
-                {connectedTasks.map(t => (
-                  <div key={t.id} className="flex justify-between items-center p-3 border border-gray-150 dark:border-white/3 bg-white dark:bg-white/2 rounded-xl text-xs hover:border-gray-200 dark:hover:border-white/10 transition-all">
-                    <div className="flex items-start gap-2.5">
-                      <input 
-                        type="checkbox" 
-                        checked={t.status === 'completed'} 
-                        onChange={() => {
-                          const nextStatus = t.status === 'completed' ? 'pending' : 'completed';
-                          updateTask(t.id, { status: nextStatus as any });
-                          toast.success(`Updated checklist state to ${nextStatus}!`);
-                        }}
-                        className="rounded border-gray-300 dark:border-white/10 text-blue-500 cursor-pointer mt-0.5" 
-                      />
-                      <div className="text-left">
-                        <span className={`font-semibold ${t.status === 'completed' ? 'line-through text-slate-500' : 'text-slate-800 dark:text-slate-200'}`}>{t.title}</span>
-                        <div className="text-[10px] text-slate-500 mt-0.5">Due: {t.dueDate} • Priority: {t.priority}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {connectedTasks.length === 0 && (
-                  <div className="text-left text-slate-500 italic py-3 text-xs">
-                    No active tasks are specifically scheduled on Taskboard for this lead.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'tasks' && <RelatedTasks links={{ leadId: lead.id }} />}
 
           {/* TAB 7: DEALS — Enterprise Deals Table with Value column & KPI bar */}
           {activeTab === 'deals' && (

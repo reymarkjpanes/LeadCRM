@@ -53,7 +53,7 @@ function resolveTheme(themeId: ThemeId): 'light' | 'dark' | 'classic' {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 /**
- * Appearance controls shared by the tenant and system-admin profile menus:
+ * Appearance controls for the profile menu:
  * theme mode, interface density and accent colour.
  *
  * Writes theme classes to `[data-theme-container]` and broadcasts a

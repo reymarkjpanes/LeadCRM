@@ -27,7 +27,6 @@ frontend/
 │   ├── layout.tsx
 │   ├── page.tsx                  ← Root — redirects to login or dashboard
 │   ├── login/page.tsx
-│   ├── register/page.tsx
 │   ├── (tenant)/                 ← CRM portal routes (no URL segment added)
 │   │   ├── layout.tsx
 │   │   ├── dashboard/page.tsx
@@ -52,13 +51,6 @@ frontend/
 │   │   ├── settings/page.tsx
 │   │   └── administration/
 │   │       ├── users/page.tsx
-│   │       └── audit/page.tsx
-│   └── (system-admin)/           ← System Admin routes (URLs: /admin/*)
-│       ├── layout.tsx
-│       └── admin/
-│           ├── dashboard/page.tsx
-│           ├── clients/page.tsx
-│           └── environments/page.tsx
 │
 ├── src/
 │   ├── features/                 ← ALL business feature code
@@ -100,18 +92,13 @@ frontend/
 │   │   │   ├── reporting/
 │   │   │   ├── administration/
 │   │   │   │   ├── users/
-│   │   │   │   └── audit/
 │   │   │   ├── dashboard/
 │   │   │   ├── settings/
 │   │   │   ├── pages/            ← LandingPage, login shell
 │   │   │   └── layout/           ← CrmLayout, sidebar-nav, topbar, account-dropdown, use-layout
 │   │   │
-│   │   └── system-admin/         ← LeadCRM operator console (cross-tenant)
-│   │       ├── dashboard/        ← AdminDashboard.tsx
-│   │       ├── tenants/          ← ClientManagement.tsx
-│   │       └── layout/           ← AdminLayout.tsx, AdminLayoutShell.tsx
 │   │
-│   ├── shared/                   ← Reusable UI (used by both portals)
+│   ├── shared/                   ← Reusable UI (used throughout the CRM)
 │   │   ├── components/
 │   │   │   ├── ui/               ← BackButton.tsx, ModalCloseButton.tsx, PageHeader.tsx, ShadCN primitives
 │   │   │   ├── charts/           ← ChartComponents.tsx (ONLY chart import source)
@@ -269,7 +256,7 @@ shared/
     │   └── index.ts              ← Re-exports all types
     │
     ├── constants/
-    │   ├── roles.ts              ← Role enum (System Admin, Client Admin, etc.)
+    │   ├── roles.ts              ← Workspace role constants
     │   ├── permissions.ts        ← Permission constants (contacts.create, etc.)
     │   └── index.ts
     │
@@ -317,7 +304,7 @@ infrastructure/
 - `tenantId` on every data record; `addAuditLog()` on every mutation; `addActivity()` on every observable event
 - RBAC guard before every create/edit/delete UI element
 - `deal.contactIds` is always `string[]` — never `deal.contactId` (singular) for new code
-- Path aliases: `@/features/tenant/*`, `@/features/system-admin/*`, `@/shared/*`, `@/store/*`, `@/lib/*`
+- Path aliases: `@/features/tenant/*`, `@/shared/*`, `@/store/*`, `@/lib/*`
 
 ### Backend
 

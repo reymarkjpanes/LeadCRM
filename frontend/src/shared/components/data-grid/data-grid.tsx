@@ -49,6 +49,7 @@ import { useColumnResize } from './use-column-resize';
 import { useDataGridSort } from './use-data-grid-sort';
 import { useBulkSelection } from './use-bulk-selection';
 import { ColumnHeaderMenu } from './column-header-menu';
+import { TableIconButton } from './table-icon-button';
 import { RowActionsMenu } from './row-actions-menu';
 import { TruncatedCellTooltip } from './truncated-cell-tooltip';
 import { useGridKeyboardNav } from './use-grid-keyboard-nav';
@@ -344,21 +345,9 @@ function DataGridRowInner<T>({
             {quickActions.map((action) => {
               if (action.visible && !action.visible(row)) return null;
               return (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={() => action.onClick(row)}
-                  className={cn(
-                    'p-1.5 rounded-md transition-colors',
-                    'text-slate-400 dark:text-slate-500',
-                    'hover:text-slate-700 dark:hover:text-slate-200',
-                    'hover:bg-slate-100 dark:hover:bg-slate-700',
-                  )}
-                  title={action.label}
-                  aria-label={action.label}
-                >
+                <TableIconButton key={action.id} label={action.label} onClick={() => action.onClick(row)}>
                   {action.icon}
-                </button>
+                </TableIconButton>
               );
             })}
           </div>

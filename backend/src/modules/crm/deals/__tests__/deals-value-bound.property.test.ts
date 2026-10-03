@@ -7,7 +7,7 @@ import { CreateDealSchema, UpdateDealSchema } from '../deals.dto';
  *
  * Property 11: Value Bound Validation
  * For any numeric value > 999,999,999,999, the CreateDealSchema and UpdateDealSchema
- * SHALL reject the input with a validation error. For any positive value ≤ 999,999,999,999,
+ * SHALL reject the input with a validation error. For any nonnegative value ≤ 999,999,999,999,
  * the schema SHALL accept it.
  *
  * **Validates: Requirements 14.1, 14.2, 14.3**
@@ -77,10 +77,14 @@ describe('Feature: deals-module-modernization, Property 11: Value Bound Validati
       );
     });
 
-    it('rejects zero and negative values', () => {
+    it('accepts zero-value deals', () => {
+      expect(CreateDealSchema.safeParse({ ...validCreateDealBase, value: 0 }).success).toBe(true);
+    });
+
+    it('rejects negative values', () => {
       fc.assert(
         fc.property(
-          fc.double({ min: -1_000_000, max: 0, noNaN: true }),
+          fc.double({ min: -1_000_000, max: -Number.MIN_VALUE, noNaN: true }),
           (value) => {
             const result = CreateDealSchema.safeParse({
               ...validCreateDealBase,
@@ -146,10 +150,14 @@ describe('Feature: deals-module-modernization, Property 11: Value Bound Validati
       );
     });
 
-    it('rejects zero and negative values', () => {
+    it('accepts zero-value deals', () => {
+      expect(UpdateDealSchema.safeParse({ value: 0 }).success).toBe(true);
+    });
+
+    it('rejects negative values', () => {
       fc.assert(
         fc.property(
-          fc.double({ min: -1_000_000, max: 0, noNaN: true }),
+          fc.double({ min: -1_000_000, max: -Number.MIN_VALUE, noNaN: true }),
           (value) => {
             const result = UpdateDealSchema.safeParse({ value });
 
@@ -170,7 +178,7 @@ describe('Feature: deals-module-modernization, Property 11: Value Bound Validati
       fc.assert(
         fc.property(
           fc.double({ min: 0.01, max: VALUE_UPPER_BOUND, noNaN: true }),
-          fc.string({ minLength: 1, maxLength: 50 }),
+          fc.array(fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'), { minLength: 1, maxLength: 50 }).map(chars => chars.join('')),
           (value, title) => {
             const result = UpdateDealSchema.safeParse({ value, title });
 

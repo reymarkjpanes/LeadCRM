@@ -16,7 +16,7 @@ export const dealDetailConfig: RecordDetailConfig = {
   module: 'deals',
   permissionModule: 'deals',
   editPermission: 'deals.edit',
-  deletePermission: 'deals.delete',
+  deletePermission: 'deals.archive',
   statuses: DEAL_STATUSES,
   activityFilterKey: 'dealId',
   headerExtra: 'pipeline-progress',
@@ -24,8 +24,8 @@ export const dealDetailConfig: RecordDetailConfig = {
   actionTemplates: [
     { id: 'edit', label: 'Edit', icon: Pencil, primary: true, permission: 'deals.edit' },
     { id: 'duplicate', label: 'Duplicate', icon: Copy, permission: 'deals.create' },
-    { id: 'archive', label: 'Archive', icon: Archive, permission: 'deals.delete' },
-    { id: 'delete', label: 'Delete', icon: Trash2, variant: 'destructive', permission: 'deals.delete' },
+    { id: 'archive', label: 'Archive', icon: Archive, permission: 'deals.archive' },
+    { id: 'delete', label: 'Delete', icon: Trash2, variant: 'destructive', permission: 'deals.archive' },
   ],
 
   buildFieldSections: (record, onSave): FieldSection[] => [
@@ -34,10 +34,9 @@ export const dealDetailConfig: RecordDetailConfig = {
       title: 'Deal Information',
       fields: [
         { key: 'title', label: 'Deal Title', value: record.title, type: 'text', editable: true, icon: Trophy, onSave: (v) => onSave('title', v) },
-        { key: 'value', label: 'Value', value: record.value, type: 'number', editable: true, prefix: '₱', onSave: (v) => onSave('value', v) },
+        { key: 'value', label: 'Value', value: record.value, type: 'number', editable: false, prefix: '₱' },
         { key: 'priority', label: 'Priority', value: record.priority, type: 'select', editable: true, options: [{ value: 'Low', label: 'Low' }, { value: 'Medium', label: 'Medium' }, { value: 'High', label: 'High' }], onSave: (v) => onSave('priority', v) },
         { key: 'expectedCloseDate', label: 'Close Date', value: record.expectedCloseDate, type: 'date', editable: true, onSave: (v) => onSave('expectedCloseDate', v) },
-        { key: 'description', label: 'Description', value: record.description, type: 'textarea', editable: true, onSave: (v) => onSave('description', v) },
       ],
     },
     {

@@ -28,7 +28,7 @@ export function AuthGuard({
       return;
     }
     if (!target) return;
-    if (user && ['/', '/login', '/register'].includes(pathname)) {
+    if (user && ['/', '/login'].includes(pathname)) {
       const saved = sessionStorage.getItem('leadcrm_redirect_after_login');
       const destination = getPostLoginDestination(user, saved);
       sessionStorage.removeItem('leadcrm_redirect_after_login');

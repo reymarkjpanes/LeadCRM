@@ -9,7 +9,7 @@ export const LoginSchema = z.object({
 });
 
 export const CreateUserSchema = RegisterSchema.innerType()
-  .omit({ acceptTerms: true, invitationToken: true })
+  .omit({ acceptTerms: true })
   .extend({ role: z.string().min(1, 'Role is required') });
 
 export type LoginInput = z.infer<typeof LoginSchema>;

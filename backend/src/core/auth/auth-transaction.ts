@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database.config';
 
-/** Retry serialization conflicts, including concurrent signup/provider linking. */
+/** Retry serialization conflicts between concurrent account updates. */
 export async function authTransaction<T>(
   work: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {

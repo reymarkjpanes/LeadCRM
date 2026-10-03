@@ -1,12 +1,15 @@
+import { normalizeCrmStatus } from '@leadcrm/shared';
+import {taskAssociationWhere} from "../../operations/tasks/tasks.repository";
 import prisma from '../../../config/database.config';
 import { NotFoundError } from '../../../shared/errors/http-error';
+import { withEmailContent } from '../activities/activities.repository';
 
 const DEFAULT_LIMIT = 10;
 
 /**
  * Get relationships for a Lead record.
  */
-export async function getLeadRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT) {
+export async function getLeadRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT, includeTasks = false) {
   const lead = await prisma.lead.findFirst({
     where: { id, tenantId },
     select: { id: true, contactId: true, accountId: true },
@@ -44,15 +47,15 @@ export async function getLeadRelationships(id: string, tenantId: string, limit =
       where: { leadId: id, tenantId },
       take: limit,
       orderBy: { createdAt: 'desc' },
-      select: { id: true, type: true, title: true, createdAt: true },
+        select: { id: true, type: true, title: true, createdAt: true, metadata: true, description: true, leadId: true, contactId: true },
     }),
     // Tasks
-    prisma.task.findMany({
-      where: { leadId: id, tenantId, isArchived: false },
+    includeTasks ? prisma.task.findMany({
+      where: { tenantId, isArchived: false, ...taskAssociationWhere("lead",id,tenantId) },
       take: limit,
       orderBy: { createdAt: 'desc' },
       select: { id: true, title: true, status: true, priority: true, dueDate: true },
-    }),
+    }) : Promise.resolve([]),
   ]);
 
   return {
@@ -67,7 +70,7 @@ export async function getLeadRelationships(id: string, tenantId: string, limit =
 /**
  * Get relationships for a Contact record.
  */
-export async function getContactRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT) {
+export async function getContactRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT, includeTasks = false) {
   const contact = await prisma.contact.findFirst({
     where: { id, tenantId },
     select: { id: true, accountId: true },
@@ -103,25 +106,29 @@ export async function getContactRelationships(id: string, tenantId: string, limi
     }),
     // Recent activities
     prisma.activity.findMany({
-      where: { contactId: id, tenantId },
+      where: { tenantId, OR: [{ contactId: id }, { lead: { tenantId, contactId: id, convertedAt: { not: null } } }] },
       take: limit,
       orderBy: { createdAt: 'desc' },
-      select: { id: true, type: true, title: true, createdAt: true },
+      select: { id: true, type: true, title: true, createdAt: true, metadata: true, description: true, leadId: true, contactId: true },
     }),
     // Tasks
-    prisma.task.findMany({
-      where: { contactId: id, tenantId, isArchived: false },
+    includeTasks ? prisma.task.findMany({
+      where: { tenantId, isArchived: false, ...taskAssociationWhere("contact",id,tenantId) },
       take: limit,
       orderBy: { createdAt: 'desc' },
       select: { id: true, title: true, status: true, priority: true, dueDate: true },
-    }),
+    }) : Promise.resolve([]),
   ]);
 
   return {
     sourceLead,
     account,
     deals: contactDeals.map((cd) => cd.deal),
-    activities,
+    activities: (await withEmailContent(tenantId, activities)).map(activity => {
+      // Normalize historical enum labels only in system-generated status events.
+      const match = activity.type === 'stage_change' && /^Status changed from (HOT|WARM|COLD|CLOSED|CANCELLED) to (HOT|WARM|COLD|CLOSED|CANCELLED)$/.exec(activity.title);
+      return match ? { ...activity, title: `Status changed from ${normalizeCrmStatus(match[1])} to ${normalizeCrmStatus(match[2])}` } : activity;
+    }),
     tasks,
   };
 }
@@ -170,7 +177,7 @@ export async function getAccountRelationships(id: string, tenantId: string, limi
 /**
  * Get relationships for a Deal record.
  */
-export async function getDealRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT) {
+export async function getDealRelationships(id: string, tenantId: string, limit = DEFAULT_LIMIT, includeTasks = false) {
   const deal = await prisma.deal.findFirst({
     where: { id, tenantId },
     select: { id: true, accountId: true },
@@ -213,12 +220,12 @@ export async function getDealRelationships(id: string, tenantId: string, limit =
       select: { id: true, type: true, title: true, createdAt: true },
     }),
     // Tasks
-    prisma.task.findMany({
-      where: { dealId: id, tenantId, isArchived: false },
+    includeTasks ? prisma.task.findMany({
+      where: { tenantId, isArchived: false, ...taskAssociationWhere("deal",id,tenantId) },
       take: limit,
       orderBy: { createdAt: 'desc' },
       select: { id: true, title: true, status: true, priority: true, dueDate: true },
-    }),
+    }) : Promise.resolve([]),
   ]);
 
   return {

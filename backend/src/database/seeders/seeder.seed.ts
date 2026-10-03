@@ -6,7 +6,7 @@ import { hashPassword } from '../../shared/helpers/crypto';
 import { Role } from '../../shared/constants/roles';
 import { seedSystemRoles } from './roles.seed';
 import { seedDefaultPipeline } from './pipeline.seed';
-import { environmentContext } from '../../core/environment/environment-context';
+import { tenantContext } from '../../core/tenant/tenant-context';
 
 /** Non-destructive bootstrap: repeat runs preserve passwords, roles and CRM records. */
 async function main() {
@@ -40,15 +40,12 @@ async function main() {
     const user = await tx.user.create({ data: {
       tenantId: tenant.id, email, firstName: 'Seeder', lastName: 'Admin',
       passwordHash, role: Role.CLIENT_ADMIN, status: 'ACTIVE',
-      emailVerified: new Date(), mustChangePassword: true, activeEnvironment: 'SANDBOX',
-    } });
+      emailVerified: new Date(), mustChangePassword: true, } });
     await tx.userRole.create({ data: { tenantId: tenant.id, userId: user.id, roleId: role.id } });
     await tx.tenant.update({ where: { id: tenant.id }, data: { ownerUserId: user.id } });
-    for (const environment of ['SANDBOX', 'PRODUCTION'] as const) {
-      await environmentContext.run({ tenantId: tenant.id, environment }, () => seedDefaultPipeline(tenant.id, tx));
-    }
+    await tenantContext.run({ tenantId: tenant.id }, () => seedDefaultPipeline(tenant.id, tx));
   }, { timeout: 30000 });
-  console.log(`Created ${email} (Client Admin, Sandbox). Change the temporary password on first login.`);
+  console.log(`Created ${email} (Client Admin). Change the temporary password on first login.`);
   if (!process.env.SEEDER_PASSWORD) console.log(`Temporary password: ${password}`);
 }
 

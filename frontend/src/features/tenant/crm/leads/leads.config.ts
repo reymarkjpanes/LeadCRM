@@ -4,6 +4,7 @@
  */
 
 import type { ModuleConfig } from '@leadcrm/shared';
+import { LEAD_STATUSES } from '@leadcrm/shared';
 import { LEADS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 
 export const LEADS_MODULE_CONFIG: ModuleConfig = {
@@ -22,13 +23,7 @@ export const LEADS_MODULE_CONFIG: ModuleConfig = {
     {
       id: 'status',
       label: 'Status',
-      items: [
-        { id: 'new', label: 'New' },
-        { id: 'contacted', label: 'Contacted' },
-        { id: 'qualified', label: 'Qualified' },
-        { id: 'unqualified', label: 'Unqualified' },
-        { id: 'converted', label: 'Converted' },
-      ],
+      items: LEAD_STATUSES.map(status => ({ id: status.toLowerCase(), label: status })),
     },
     {
       id: 'source',
@@ -38,7 +33,6 @@ export const LEADS_MODULE_CONFIG: ModuleConfig = {
         { id: 'referral', label: 'Referral' },
         { id: 'social', label: 'Social Media' },
         { id: 'email', label: 'Email Campaign' },
-        { id: 'cold-call', label: 'Cold Call' },
         { id: 'other', label: 'Other' },
       ],
     },

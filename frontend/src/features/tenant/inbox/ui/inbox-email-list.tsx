@@ -7,7 +7,8 @@ import { trashGmailEmails, archiveGmailEmails, GmailEmail } from '../services/gm
 
 interface InboxEmailListProps {
   emails: GmailEmail[];
-  onEmailsChanged: () => void;
+  onEmailsChanged: () => void | Promise<void>;
+  refreshDisabled?: boolean;
   totalCount: number;
   onEmailClick: (email: GmailEmail) => void;
   currentPage?: number;
@@ -39,11 +40,12 @@ function extractName(from: string): string {
   return match ? match[1].trim() : from.split('@')[0];
 }
 
-export default function InboxEmailList({ emails, onEmailsChanged, totalCount, onEmailClick, currentPage = 1, hasNextPage = false, onNextPage, onPrevPage }: InboxEmailListProps): React.ReactElement {
+export default function InboxEmailList({ emails, onEmailsChanged, refreshDisabled = false, totalCount, onEmailClick, currentPage = 1, hasNextPage = false, onNextPage, onPrevPage }: InboxEmailListProps): React.ReactElement {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
   const allSelected = emails.length > 0 && selectedIds.size === emails.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < emails.length;
@@ -76,8 +78,8 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
       await trashGmailEmails(Array.from(selectedIds));
       setSelectedIds(new Set());
       onEmailsChanged();
-    } catch {
-      // silent
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to move emails to trash.');
     } finally {
       setIsDeleting(false);
     }
@@ -90,8 +92,8 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
       await archiveGmailEmails(Array.from(selectedIds));
       setSelectedIds(new Set());
       onEmailsChanged();
-    } catch {
-      // silent
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to archive emails.');
     } finally {
       setIsArchiving(false);
     }
@@ -100,9 +102,9 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
   const handleRefresh = async (): Promise<void> => {
     setIsRefreshing(true);
     try {
-      onEmailsChanged();
+      await onEmailsChanged();
     } finally {
-      setTimeout(() => setIsRefreshing(false), 800);
+      setIsRefreshing(false);
     }
   };
 
@@ -120,6 +122,7 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
 
   return (
     <div className="flex flex-col h-full">
+      {error && <p role="alert" className="p-3 text-sm text-red-600">{error}</p>}
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-white/[0.05] bg-white dark:bg-transparent shrink-0">
         <div className="flex items-center gap-1">
@@ -144,6 +147,7 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
           {/* Refresh — always visible */}
           <button
             onClick={handleRefresh}
+            disabled={refreshDisabled || isRefreshing}
             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             aria-label="Refresh"
             title="Refresh"
@@ -190,7 +194,7 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
           </span>
           <button
             onClick={onPrevPage}
-            disabled={currentPage <= 1}
+            disabled={currentPage <= 1 || refreshDisabled}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Previous page"
           >
@@ -198,7 +202,7 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
           </button>
           <button
             onClick={onNextPage}
-            disabled={!hasNextPage}
+            disabled={!hasNextPage || refreshDisabled}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Next page"
           >
@@ -246,23 +250,23 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
               {/* Email content — clickable row */}
               <button
                 onClick={() => onEmailClick(email)}
-                className="flex-1 flex items-center gap-0 min-w-0 text-left cursor-pointer py-0.5"
+                className="flex-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-y-1 min-w-0 text-left cursor-pointer py-0.5 md:flex"
                 aria-label={`Open email from ${extractName(email.from)}: ${email.subject}`}
               >
                 {/* Sender */}
                 <span
                   className={cn(
-                    'w-[180px] shrink-0 truncate text-[13px] pr-4',
+                    'col-start-1 row-start-1 min-w-0 md:w-[180px] md:shrink-0 truncate text-[13px] pr-2 md:pr-4',
                     !email.isRead
                       ? 'font-bold text-slate-900 dark:text-white'
                       : 'font-normal text-slate-700 dark:text-slate-400',
                   )}
                 >
-                  {extractName(email.from)}
+                  {email.direction === 'outbound' ? `You → ${extractName(email.to[0] ?? '')}` : extractName(email.from)}
                 </span>
 
                 {/* Subject + Snippet */}
-                <div className="flex-1 flex items-center gap-1 min-w-0 truncate">
+                <div className="col-span-2 row-start-2 flex-1 flex items-center gap-1 min-w-0 truncate">
                   <span
                     className={cn(
                       'truncate text-[13px]',
@@ -281,7 +285,7 @@ export default function InboxEmailList({ emails, onEmailsChanged, totalCount, on
                 {/* Date */}
                 <span
                   className={cn(
-                    'shrink-0 text-xs pl-4',
+                    'col-start-2 row-start-1 shrink-0 text-xs pl-2 md:pl-4',
                     !email.isRead
                       ? 'font-bold text-slate-900 dark:text-white'
                       : 'text-slate-500 dark:text-slate-500',

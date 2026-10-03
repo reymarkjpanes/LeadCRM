@@ -13,6 +13,7 @@ function unique<T extends { id: string }>(records: T[], label: string): T {
 export async function resolveRow(tenantId: string, row: ImportDealRow) {
   const pipeline = unique(await repo.findPipelines(tenantId, row.pipeline), 'Pipeline');
   const stage = unique(await repo.findStages(tenantId, pipeline.id, row.stage), 'Stage');
+  if (stage.isWon) throw new ValidationError('Import into an open stage, then confirm Closed Won with the required business evidence.');
   const account = row.account ? unique(await repo.findAccounts(tenantId, row.account), 'Account') : null;
   const contact = row.contact ? unique(await repo.findContacts(tenantId, row.contact), 'Contact') : null;
   const assignee = row.assignedUser ? unique(await repo.findUsers(tenantId, row.assignedUser), 'Assigned user') : null;
@@ -20,7 +21,7 @@ export async function resolveRow(tenantId: string, row: ImportDealRow) {
     title: row.title, pipelineId: pipeline.id, stageId: stage.id,
     value: row.value ? Number(row.value) : undefined, priority: row.priority,
     expectedCloseDate: row.expectedCloseDate ? `${row.expectedCloseDate}T00:00:00.000Z` : undefined,
-    description: row.description || undefined, accountId: account?.id,
+    accountId: account?.id,
     contactIds: contact ? [contact.id] : undefined, assignedUserId: assignee?.id,
   });
 }

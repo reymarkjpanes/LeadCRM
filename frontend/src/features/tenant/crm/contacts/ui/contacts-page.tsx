@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
+import { Button } from '@/shared/components/ui/button';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useData } from '@/store/DataContext';
@@ -20,12 +21,12 @@ import { ContactFormSheet } from './contact-form';
 import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
-import { PageSizeSelect } from '@/shared/components/page-size-select';
+import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import { useRouter } from 'next/navigation';
 import { contactsV2Api } from '@/shared/services/contacts-v2.api';
-import { compareSortValues } from '@leadcrm/shared';
+import { CRM_STATUSES, normalizeCrmStatus, compareSortValues } from '@leadcrm/shared';
 import { useCachedPage } from '@/shared/hooks/use-cached-page';
 // ── Contacts Page ─────────────────────────────────────────────────────────────
 // Shows all contacts with activity flags, customer type, account links, deals
@@ -35,13 +36,14 @@ export default function ContactsPage(): React.ReactElement {
   const { user, tenant } = useAuth();
   const { dialogProps, confirm, close } = useConfirmDialog();
   const canCreate = useHasPermission('contacts.create');
+  const canImport = useHasPermission('contacts.import');
   const canEdit   = useHasPermission('contacts.edit');
-  const canDelete = useHasPermission('contacts.delete');
+  const canDelete = useHasPermission('contacts.archive');
   const { getParam, getArrayParam, updateParams } = useFilterUrlSync('contacts');
 
   const highlightId = getParam('highlight') || undefined;
 
-  const { data: contacts = [], refetch: fetchContacts, error: contactsError } = useCachedPage({
+  const { data: contacts = [], refetch: fetchContacts, error: contactsError, isInitialLoad, isRefreshing } = useCachedPage({
     module: 'contacts',
     revalidateOnInvalidation: true,
     params: { collection: 'all', recordId: highlightId },
@@ -102,8 +104,8 @@ export default function ContactsPage(): React.ReactElement {
   const [contactSelectedIds, setContactSelectedIds] = useState<Set<string>>(new Set());
 
   // Multi-select stacked criteria
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => getArrayParam('status').map(normalizeCrmStatus));
   const [selectedSystemFilters, setSelectedSystemFilters] = useState<string[]>(() => getArrayParam('system'));
-  const [selectedCustomerTypes, setSelectedCustomerTypes] = useState<string[]>(() => getArrayParam('types'));
   const [selectedOwners, setSelectedOwners] = useState<string[]>(() => getArrayParam('owners'));
   const [selectedRelated, setSelectedRelated] = useState<string[]>(() => getArrayParam('related'));
 
@@ -113,7 +115,7 @@ export default function ContactsPage(): React.ReactElement {
     if (!highlightId) return;
     setSearchTerm(''); setActiveTab('all'); setActiveView('table'); setCurrentPage(1);
     setSelectedSystemFilters([]);
-    setSelectedCustomerTypes([]);
+    setSelectedStatuses([]);
     setSelectedOwners([]);
     setSelectedRelated([]);
   }, [highlightId]);
@@ -125,21 +127,20 @@ export default function ContactsPage(): React.ReactElement {
       tab: activeTab !== 'all' ? activeTab : null,
       search: debouncedSearch || null,
       view: activeView !== 'list' ? activeView : null,
+      status: selectedStatuses,
       system: selectedSystemFilters,
-      types: selectedCustomerTypes,
+      types: null,
       owners: selectedOwners,
       related: selectedRelated,
     });
-  }, [activeTab, debouncedSearch, activeView, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, highlightId, updateParams]);
+  }, [activeTab, debouncedSearch, activeView, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, highlightId, updateParams]);
 
   // ── Persist filter selections (fire-and-forget) ────────────────────────
   useEffect(() => {
     const conditions: { field: string; operator: string; value: unknown }[] = [];
+    if (selectedStatuses.length) conditions.push({ field: 'status', operator: 'in', value: selectedStatuses });
     if (selectedSystemFilters.length > 0) {
       conditions.push({ field: 'system', operator: 'in', value: selectedSystemFilters });
-    }
-    if (selectedCustomerTypes.length > 0) {
-      conditions.push({ field: 'customerType', operator: 'in', value: selectedCustomerTypes });
     }
     if (selectedOwners.length > 0) {
       conditions.push({ field: 'assignedUserId', operator: 'in', value: selectedOwners });
@@ -148,7 +149,7 @@ export default function ContactsPage(): React.ReactElement {
       conditions.push({ field: 'related', operator: 'in', value: selectedRelated });
     }
     persistFilters(conditions);
-  }, [selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, persistFilters]);
+  }, [selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, persistFilters]);
 
   // ── Data ─────────────────────────────────────────────────────────────
   const activeContacts = useMemo(
@@ -183,17 +184,14 @@ export default function ContactsPage(): React.ReactElement {
       );
     }
 
+    if (selectedStatuses.length) result = result.filter(c => selectedStatuses.includes(normalizeCrmStatus(c.status)));
+
     // System Filters
     if (selectedSystemFilters.includes('touched')) {
       result = result.filter((c) => c.lastUpdated || c.updateStatus);
     }
     if (selectedSystemFilters.includes('untouched')) {
       result = result.filter((c) => !c.lastUpdated && !c.updateStatus);
-    }
-
-    // Customer Types
-    if (selectedCustomerTypes.length > 0) {
-      result = result.filter((c) => selectedCustomerTypes.includes(c.customerType ?? 'Prospect'));
     }
 
     // Owners
@@ -207,7 +205,7 @@ export default function ContactsPage(): React.ReactElement {
     }
 
     return result;
-  }, [activeContacts, activeTab, user?.id, debouncedSearch, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, deals, highlightId]);
+  }, [activeContacts, activeTab, user?.id, debouncedSearch, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, deals, highlightId]);
 
   const getAccountName = useCallback((contact: Contact): string => {
     const linked = organizations.find(org => org.id === (contact.accountId ?? contact.organizationId));
@@ -221,7 +219,7 @@ export default function ContactsPage(): React.ReactElement {
   // Reset page on filter/search/tab/pageSize/sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, activeTab, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, pageSize, sort]);
+  }, [debouncedSearch, activeTab, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, pageSize, sort]);
 
   const paginatedContacts = useMemo(() => {
     const start = highlightId ? 0 : (currentPage - 1) * pageSize;
@@ -265,11 +263,7 @@ export default function ContactsPage(): React.ReactElement {
     return 'neutral';
   };
 
-  const getStatusVariant = (status: string): 'success' | 'info' | 'danger' | 'neutral' => {
-    if (status === 'Active') return 'success';
-    if (status === 'Inactive') return 'danger';
-    return 'neutral';
-  };
+
 
   const getContactDeals = (contactId: string): number => {
     return deals.filter((d) =>
@@ -301,6 +295,10 @@ export default function ContactsPage(): React.ReactElement {
 
   const filterGroups = useMemo(() => [
     {
+      id: 'status', label: 'Status', isExpanded: true,
+      items: CRM_STATUSES.map(status => ({ id: status, label: status, count: activeContacts.filter(c => normalizeCrmStatus(c.status) === status).length, isChecked: selectedStatuses.includes(status) })),
+    },
+    {
       id: 'system',
       label: 'System Defined Filters',
       isExpanded: true,
@@ -314,12 +312,9 @@ export default function ContactsPage(): React.ReactElement {
       label: 'Filter By Fields',
       isExpanded: true,
       items: [
-        { id: 'type:Active Customer', label: 'Type: Active Customer', count: activeContacts.filter(c => c.customerType === 'Active Customer').length, isChecked: selectedCustomerTypes.includes('Active Customer') },
-        { id: 'type:Prospect', label: 'Type: Prospect', count: activeContacts.filter(c => c.customerType === 'Prospect').length, isChecked: selectedCustomerTypes.includes('Prospect') },
-        { id: 'type:Evaluator', label: 'Type: Evaluator', count: activeContacts.filter(c => c.customerType === 'Evaluator').length, isChecked: selectedCustomerTypes.includes('Evaluator') },
         ...users.slice(0, 5).map(u => ({
           id: `owner:${u.id}`,
-          label: `Owner: ${u.firstName} ${u.lastName}`,
+          label: `Assigned Agent: ${u.firstName} ${u.lastName}`,
           count: activeContacts.filter(c => c.assignedUserId === u.id).length,
           isChecked: selectedOwners.includes(u.id),
         })),
@@ -333,20 +328,17 @@ export default function ContactsPage(): React.ReactElement {
         { id: 'has_deals', label: 'Contacts with Deals', count: activeContacts.filter(c => deals.some(d => !d.isArchived && (d.contactId === c.id || (d.contactIds ?? []).includes(c.id)))).length, isChecked: selectedRelated.includes('has_deals') },
       ],
     },
-  ], [activeContacts, touchedCount, untouchedCount, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, users, deals]);
+  ], [activeContacts, touchedCount, untouchedCount, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, users, deals]);
 
   const handleFilterToggle = useCallback((groupId: string, itemId: string) => {
-    if (groupId === 'system') {
+    if (groupId === 'status') {
+      setSelectedStatuses(prev => prev.includes(itemId) ? prev.filter(value => value !== itemId) : [...prev, itemId]);
+    } else if (groupId === 'system') {
       setSelectedSystemFilters(prev =>
         prev.includes(itemId) ? prev.filter(x => x !== itemId) : [...prev, itemId]
       );
     } else if (groupId === 'fields') {
-      if (itemId.startsWith('type:')) {
-        const type = itemId.replace('type:', '');
-        setSelectedCustomerTypes(prev =>
-          prev.includes(type) ? prev.filter(x => x !== type) : [...prev, type]
-        );
-      } else if (itemId.startsWith('owner:')) {
+      if (itemId.startsWith('owner:')) {
         const ownerId = itemId.replace('owner:', '');
         setSelectedOwners(prev =>
           prev.includes(ownerId) ? prev.filter(x => x !== ownerId) : [...prev, ownerId]
@@ -367,6 +359,7 @@ export default function ContactsPage(): React.ReactElement {
       try {
         await Promise.all(ids.map((id) => contactsV2Api.archive(id)));
         await fetchContacts();
+        setContactSelectedIds(new Set());
         close();
         toast.success('Contact archived');
       } catch (error) {
@@ -379,12 +372,13 @@ export default function ContactsPage(): React.ReactElement {
     <>
     <ConfirmActionDialog {...dialogProps} />
       <ModuleWorkspace
+      bulkSelection={{ count: contactSelectedIds.size, onClear: () => setContactSelectedIds(new Set()), actions: canDelete && <Button variant="outline" onClick={() => confirmArchive([...contactSelectedIds], `${contactSelectedIds.size} contacts`)}>Archive</Button> }}
       moduleId="contacts"
       title="Contacts"
       moduleConfig={CONTACTS_MODULE_CONFIG}
       primaryActionLabel="Create Contact"
       onPrimaryAction={() => { setEditingContact(undefined); setIsFormOpen(true); }}
-      onImport={() => router.push('/crm/contacts/import')}
+      onImport={canImport ? () => router.push('/crm/contacts/import') : undefined}
       canCreate={canCreate}
       availableViews={['table']}
       activeView={'table' as ViewType}
@@ -410,7 +404,10 @@ export default function ContactsPage(): React.ReactElement {
       searchTerm={searchTerm}
       onSearch={setSearchTerm}
       searchPlaceholder="Search contacts..."
-      onRefresh={() => toast.success('Refreshed')}
+      onRefresh={fetchContacts}
+      refreshDisabled={isInitialLoad || isRefreshing}
+      loading={isInitialLoad || isRefreshing || isColumnsLoading}
+      loadingLabel={isInitialLoad || isRefreshing ? 'Loading contacts...' : 'Loading columns...'}
       onManageColumns={() => setIsManageColumnsOpen(true)}
     >
         {highlightId && <div className="mb-3 flex items-center justify-between gap-3 text-sm text-slate-500">
@@ -472,22 +469,7 @@ export default function ContactsPage(): React.ReactElement {
 
       {/* ── Bottom Pagination + Per Page ─────────────────────── */}
       {(activeView === 'list' || activeView === 'table') && filteredContacts.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500 dark:text-slate-400">Per page</label>
-            <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
-            <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">{filteredContacts.length} total records</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Page {currentPage} of {Math.ceil(filteredContacts.length / pageSize) || 1}</span>
-            <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage <= 1 ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Previous page">
-              <ChevronLeft size={14} />
-            </button>
-            <button onClick={() => setCurrentPage(Math.min(Math.ceil(filteredContacts.length / pageSize), currentPage + 1))} disabled={currentPage >= Math.ceil(filteredContacts.length / pageSize)} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage >= Math.ceil(filteredContacts.length / pageSize) ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Next page">
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        </div>
+        <LeadsPagination currentPage={currentPage} totalRecords={filteredContacts.length} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={size => { setPageSize(size); setCurrentPage(1); }} />
       )}
 
       {/* ── Tile View ─────────────────────────────────────────── */}

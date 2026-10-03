@@ -40,6 +40,11 @@ export function useViewTypePreference(
   useEffect(() => {
     let cancelled = false;
 
+    if (module === '__noop__') {
+      setIsLoading(false);
+      return;
+    }
+
     async function fetchViewType(): Promise<void> {
       setIsLoading(true);
       try {
@@ -67,6 +72,7 @@ export function useViewTypePreference(
   const setViewType = useCallback(
     (view: ViewType) => {
       setViewTypeState(view);
+      if (module === '__noop__') return;
       // Fire-and-forget: persist in background, toast on failure
       tablePreferencesApi.saveViewType(module, view).catch(() => {
         if (mountedRef.current) {

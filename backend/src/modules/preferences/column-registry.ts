@@ -1,3 +1,4 @@
+import { CAMPAIGNS_TABLE_COLUMNS, WORKFLOWS_TABLE_COLUMNS, USERS_TABLE_COLUMNS, TASK_COLUMN_DEFINITIONS } from '@leadcrm/shared';
 import type { ColumnConfig, ColumnConfigItem, ColumnDefinition } from '@leadcrm/shared';
 
 /**
@@ -103,7 +104,6 @@ export const LEADS_COLUMN_REGISTRY: ModuleRegistry = {
     { id: 'primaryOppCloseDate',     label: 'Primary opp. close date',       required: false, defaultVisible: false, defaultOrder: 61, group: 'Opportunities',  priority: 'low' },
     { id: 'primaryOppCreated',       label: 'Primary opp. created',          required: false, defaultVisible: false, defaultOrder: 62, group: 'Opportunities',  priority: 'low' },
     { id: 'primaryOppUpdated',       label: 'Primary opp. updated',          required: false, defaultVisible: false, defaultOrder: 63, group: 'Opportunities',  priority: 'low' },
-    { id: 'primaryOppConfidence',    label: 'Primary opp. confidence %',     required: false, defaultVisible: false, defaultOrder: 64, group: 'Opportunities',  priority: 'low' },
     { id: 'primaryOppValue',         label: 'Primary opp. value',            required: false, defaultVisible: false, defaultOrder: 65, group: 'Opportunities',  priority: 'low' },
     { id: 'primaryOppUser',          label: 'Primary opp. user',             required: false, defaultVisible: false, defaultOrder: 66, group: 'Opportunities',  priority: 'low' },
     { id: 'lastOppStatusChangeDate', label: 'Last opp. status change date',  required: false, defaultVisible: false, defaultOrder: 67, group: 'Opportunities',  priority: 'low' },
@@ -128,11 +128,10 @@ export const LEADS_COLUMN_REGISTRY: ModuleRegistry = {
 
 export const ACCOUNTS_COLUMN_REGISTRY: ModuleRegistry = {
   module: 'accounts',
-  sortableFields: ['name', 'industry', 'customerType', 'size', 'city', 'country', 'createdAt'],
+  sortableFields: ['name', 'industry', 'size', 'city', 'country', 'createdAt'],
   columns: [
     { id: 'name',            label: 'Account Name',      required: true,  defaultVisible: true,  defaultOrder: 0, group: 'Account Info',  priority: 'required' },
     { id: 'industry',        label: 'Industry',          required: false, defaultVisible: true,  defaultOrder: 1, group: 'Account Info',  priority: 'medium' },
-    { id: 'customerType',    label: 'Account Type',      required: false, defaultVisible: true,  defaultOrder: 2, group: 'Account Info',  priority: 'medium' },
     { id: 'size',            label: 'Company Size',      required: false, defaultVisible: true,  defaultOrder: 3, group: 'Account Info',  priority: 'medium' },
     { id: 'city',            label: 'City',              required: false, defaultVisible: true,  defaultOrder: 4, group: 'Location',      priority: 'low' },
     { id: 'country',         label: 'Country',           required: false, defaultVisible: false, defaultOrder: 5, group: 'Location',      priority: 'low' },
@@ -190,6 +189,10 @@ export const DEALS_COLUMN_REGISTRY: ModuleRegistry = {
 // ─────────────────────────────────────────────────────
 
 export const COLUMN_REGISTRIES: Record<string, ModuleRegistry> = {
+  campaigns: { module: 'campaigns', columns: CAMPAIGNS_TABLE_COLUMNS, sortableFields: ['name', 'createdAt'] },
+  workflows: { module: 'workflows', columns: WORKFLOWS_TABLE_COLUMNS, sortableFields: ['name', 'createdAt'] },
+  users: { module: 'users', columns: USERS_TABLE_COLUMNS, sortableFields: ['name', 'role', 'email', 'status', 'department', 'createdAt'] },
+  tasks: { module: 'tasks', columns: TASK_COLUMN_DEFINITIONS, sortableFields: ['title', 'dueDate', 'createdAt', 'updatedAt'] },
   leads: LEADS_COLUMN_REGISTRY,
   accounts: ACCOUNTS_COLUMN_REGISTRY,
   contacts: CONTACTS_COLUMN_REGISTRY,

@@ -5,8 +5,6 @@ import { useAuth } from '@/store/AuthContext';
 import { ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { MfaRequiredError } from '@/shared/services/auth.api';
-import { MfaLogin } from '../auth/ui/mfa-login';
 import { StrongPasswordSchema } from '@leadcrm/shared';
 import { CamxianBrandPanel } from './camxian-brand-panel';
 
@@ -57,13 +55,12 @@ function ResendPasswordButton({ forgotEmail, requestPasswordReset }: ResendPassw
 
 interface ModernLoginPageProps {
   onNavigate: (path: string) => void;
-  oauthError?: string;
+  loginError?: string;
 }
 
-export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginPageProps): React.ReactElement {
+export default function ModernLoginPage({ onNavigate, loginError }: ModernLoginPageProps): React.ReactElement {
   const { user, login, requestPasswordReset, confirmPasswordReset } = useAuth();
 
-  const [mfaRequired, setMfaRequired] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -125,7 +122,6 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
       }
       // On success, AuthGuard's useEffect handles role-based navigation.
     } catch (err: unknown) {
-      if (err instanceof MfaRequiredError) { setMfaRequired(true); setPassword(''); setIsSigningIn(false); return; }
       // login() throws with the real server message — display it directly so
       // the user knows what actually went wrong instead of a generic fallback.
       // Examples: "Invalid email or password", "Account is inactive",
@@ -450,7 +446,6 @@ export default function ModernLoginPage({ onNavigate, oauthError }: ModernLoginP
   }
 
   // Main login view with split-screen layout
-  if (mfaRequired) return <MfaLogin onCancel={() => { setMfaRequired(false); setError(''); }} />;
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       <CamxianBrandPanel onNavigate={onNavigate} />

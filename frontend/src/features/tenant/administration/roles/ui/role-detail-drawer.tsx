@@ -15,7 +15,7 @@ interface RoleDetailDrawerProps {
 function buildPermissionsMap(role: RoleDetail): Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> {
   const map: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
   for (const p of role.permissions) {
-    map[p.module] = { canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete };
+    map[p.module] = { ...p };
   }
   return map;
 }

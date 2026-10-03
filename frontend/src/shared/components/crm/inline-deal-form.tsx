@@ -4,7 +4,9 @@ import React, { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronDown, DollarSign, Loader2 } from 'lucide-react';
+import { ProductInterestSelect } from './product-interest-select';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/shared/components/ui/button';
 import { useData } from '@/store/DataContext';
@@ -22,12 +24,11 @@ function getDatePlusDays(days: number): string {
 
 const InlineDealSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
-  value: z.number().positive().max(999_999_999_999, 'Value exceeds maximum').optional(),
+  productInterestIds: z.array(z.string().uuid()).min(1, 'Select at least one Product Interest.'),
   pipelineId: z.string().min(1, 'Pipeline is required'),
   stageId: z.string().min(1, 'Stage is required'),
   expectedCloseDate: z.string().optional(),
-  confidence: z.number().min(0).max(100),
-  description: z.string().optional(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']),
 });
 
 type InlineDealFormData = z.infer<typeof InlineDealSchema>;
@@ -42,17 +43,18 @@ interface InlineDealFormProps {
   };
   onSubmit: (data: {
     title: string;
-    value?: number;
+    productInterestIds: string[];
     pipelineId: string;
     stageId: string;
+    priority: 'LOW' | 'MEDIUM' | 'HIGH';
     expectedCloseDate?: string;
-    description?: string;
     leadId?: string;
     contactId?: string;
     organizationId?: string;
   }) => Promise<void>;
   onCancel?: () => void;
   isLoading?: boolean;
+  onError?: (error: unknown) => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -62,34 +64,45 @@ export function InlineDealForm({
   onSubmit,
   onCancel,
   isLoading = false,
+  onError,
 }: InlineDealFormProps): React.ReactElement {
-  const { pipelines } = useData();
+  const { products, loading, error } = useProductInterests();
+  const { pipelines: allPipelines } = useData();
+  const pipelines = useMemo(() => allPipelines.filter(p => p.name.trim().toLowerCase() === 'sales pipeline'), [allPipelines]);
 
-  // Auto-select first pipeline and first stage as defaults
+  // Keep the configured starting stage even when display order changes.
   const defaultPipeline = pipelines[0];
-  const defaultStage = defaultPipeline?.stages?.[0];
+  const defaultStage = defaultPipeline?.stages?.find(stage => stage.isDefault) ?? defaultPipeline?.stages?.[0];
 
   const {
     register,
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors, isValid, isSubmitting },
   } = useForm<InlineDealFormData>({
     resolver: zodResolver(InlineDealSchema),
     defaultValues: {
       title: '',
-      value: undefined,
+      productInterestIds: [],
       pipelineId: defaultPipeline?.id || '',
       stageId: defaultStage?.id || '',
       expectedCloseDate: getDatePlusDays(30),
-      confidence: 50,
-      description: '',
+      priority: 'MEDIUM',
     },
     mode: 'onChange',
   });
 
+  React.useEffect(() => {
+    if (defaultPipeline) setValue('pipelineId', defaultPipeline.id, { shouldValidate: true });
+    if (defaultStage) setValue('stageId', defaultStage.id, { shouldValidate: true });
+  }, [defaultPipeline?.id, defaultStage?.id, setValue]);
+
   const selectedPipelineId = watch('pipelineId');
+  const selectedProductIds = watch('productInterestIds');
+  const productValue = products.filter(p => selectedProductIds.includes(p.id)).reduce((sum, p) => sum + Math.round(p.dealValue * 100), 0) / 100;
+  const productFieldId = React.useId();
 
   const stagesForPipeline = useMemo(() => {
     if (!selectedPipelineId) return [];
@@ -100,11 +113,11 @@ export function InlineDealForm({
   const onFormSubmit = async (formData: InlineDealFormData): Promise<void> => {
     const payload: Parameters<typeof onSubmit>[0] = {
       title: formData.title,
-      value: formData.value,
+      productInterestIds: formData.productInterestIds,
       pipelineId: formData.pipelineId,
       stageId: formData.stageId,
+      priority: formData.priority,
       expectedCloseDate: formData.expectedCloseDate || undefined,
-      description: formData.description || undefined,
     };
 
     // Auto-link from relatedRecord
@@ -119,7 +132,13 @@ export function InlineDealForm({
       }
     }
 
-    await onSubmit(payload);
+    try {
+      await onSubmit(payload);
+    } catch (error) {
+      if (!onError) throw error;
+      onError(error);
+      return;
+    }
     reset();
     onCancel?.();
     toast.success('Deal created successfully');
@@ -133,7 +152,7 @@ export function InlineDealForm({
   const errorCls = '!border-destructive focus:!ring-destructive/20';
   const labelCls = 'block text-xs font-medium text-muted-foreground mb-1';
 
-  const isSubmitDisabled = !isValid || isSubmitting || isLoading;
+  const isSubmitDisabled = !isValid || loading || !!error || !selectedProductIds.length || isSubmitting || isLoading;
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-3" noValidate>
@@ -150,101 +169,38 @@ export function InlineDealForm({
         )}
       </div>
 
-      {/* Value */}
       <div>
-        <label className={labelCls}>Value</label>
-        <div className="relative">
-          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            {...register('value', { valueAsNumber: true })}
-            className={cn(inputCls, 'pl-8', errors.value && errorCls)}
-            placeholder="0.00"
-          />
-        </div>
-        {errors.value && (
-          <p className="text-xs text-destructive mt-0.5">{errors.value.message}</p>
-        )}
+        <label htmlFor={productFieldId} className={labelCls}>Product Interest</label>
+        <ProductInterestSelect id={productFieldId} products={products} values={selectedProductIds} onChange={values => setValue('productInterestIds', values, { shouldValidate: true })} disabled={loading || !!error} />
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       </div>
-
-      {/* Pipeline & Stage */}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>Pipeline <span className="text-red-500">*</span></label>
-          <div className="relative">
-            <select
-              {...register('pipelineId')}
-              className={cn(selectCls, errors.pipelineId && errorCls)}
-            >
-              <option value="">Select pipeline</option>
-              {pipelines.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground" />
-          </div>
-          {errors.pipelineId && (
-            <p className="text-xs text-destructive mt-0.5">{errors.pipelineId.message}</p>
-          )}
-        </div>
-        <div>
-          <label className={labelCls}>Stage <span className="text-red-500">*</span></label>
-          <div className="relative">
-            <select
-              {...register('stageId')}
-              className={cn(selectCls, errors.stageId && errorCls)}
-              disabled={!selectedPipelineId}
-            >
-              <option value="">{selectedPipelineId ? 'Select stage' : 'Select pipeline first'}</option>
-              {stagesForPipeline.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground" />
-          </div>
-          {errors.stageId && (
-            <p className="text-xs text-destructive mt-0.5">{errors.stageId.message}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Expected Close Date & Confidence */}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>Expected Close</label>
-          <input
-            type="date"
-            {...register('expectedCloseDate')}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className={labelCls}>Confidence (%)</label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            {...register('confidence', { valueAsNumber: true })}
-            className={cn(inputCls, errors.confidence && errorCls)}
-            placeholder="50"
-          />
-          {errors.confidence && (
-            <p className="text-xs text-destructive mt-0.5">{errors.confidence.message}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
       <div>
-        <label className={labelCls}>Description</label>
-        <textarea
-          {...register('description')}
-          className={cn(inputCls, 'resize-none h-16')}
-          placeholder="Brief description..."
-        />
+        <label htmlFor={`${productFieldId}-value`} className={labelCls}>Value</label>
+        <input id={`${productFieldId}-value`} readOnly className={inputCls} value={new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(productValue)} />
       </div>
+
+      <input type="hidden" {...register('pipelineId')} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor={`${productFieldId}-priority`} className={labelCls}>Priority</label>
+          <select id={`${productFieldId}-priority`} {...register('priority')} className={selectCls}>
+            <option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor={`${productFieldId}-stage`} className={labelCls}>Stage <span className="text-red-500">*</span></label>
+          <select id={`${productFieldId}-stage`} {...register('stageId')} className={cn(selectCls, errors.stageId && errorCls)} disabled={!selectedPipelineId}>
+            <option value="">Select stage</option>
+            {stagesForPipeline.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          {errors.stageId && <p className="text-xs text-destructive">{errors.stageId.message}</p>}
+        </div>
+      </div>
+      <div>
+        <label htmlFor={`${productFieldId}-close`} className={labelCls}>Expected Close Date</label>
+        <input id={`${productFieldId}-close`} type="date" {...register('expectedCloseDate')} className={cn(inputCls, 'min-w-0')} />
+      </div>
+      {!defaultPipeline && <p role="alert" className="text-xs text-destructive">Sales Pipeline is unavailable.</p>}
 
       {/* Actions */}
       <div className="flex items-center gap-2 pt-1">

@@ -8,8 +8,7 @@ import { cn } from '@/lib/utils';
 interface DropdownMenuContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
-  triggerRect: DOMRect | null;
-  setTriggerRect: (rect: DOMRect | null) => void;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 const DropdownMenuContext = React.createContext<DropdownMenuContextValue | null>(null);
@@ -22,12 +21,21 @@ export function useDropdownMenu() {
   return context;
 }
 
-export function DropdownMenu({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
-  const [triggerRect, setTriggerRect] = React.useState<DOMRect | null>(null);
+export function DropdownMenu({ children, open: controlledOpen, onOpenChange }: {
+  children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = React.useCallback((value: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(value);
+    onOpenChange?.(value);
+  }, [controlledOpen, onOpenChange]);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   return (
-    <DropdownMenuContext.Provider value={{ open, setOpen, triggerRect, setTriggerRect }}>
+    <DropdownMenuContext.Provider value={{ open, setOpen, triggerRef }}>
       <div className="relative inline-block text-left">{children}</div>
     </DropdownMenuContext.Provider>
   );
@@ -38,26 +46,26 @@ export function DropdownMenuTrigger({
   children,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) {
-  const { open, setOpen, setTriggerRect } = useDropdownMenu();
-  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const { open, setOpen, triggerRef } = useDropdownMenu();
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     props.onClick?.(e);
-    if (triggerRef.current) {
-      setTriggerRect(triggerRef.current.getBoundingClientRect());
-    }
-    setOpen(!open);
+    if (!e.defaultPrevented) setOpen(!open);
   };
 
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children as React.ReactElement<any>, {
-      ref: triggerRef,
+      ref: (node: HTMLButtonElement | null) => {
+        triggerRef.current = node;
+        const childRef = (children as React.ReactElement<{ ref?: React.Ref<HTMLButtonElement> }>).props.ref;
+        if (typeof childRef === 'function') childRef(node);
+        else if (childRef) childRef.current = node;
+      },
+      'aria-expanded': open,
+      'aria-haspopup': 'menu',
       onClick: (e: any) => {
         (children as any).props.onClick?.(e);
-        if (triggerRef.current) {
-          setTriggerRect(triggerRef.current.getBoundingClientRect());
-        }
-        setOpen(!open);
+        handleClick(e);
       },
     });
   }
@@ -68,8 +76,8 @@ export function DropdownMenuTrigger({
       type="button"
       aria-expanded={open}
       aria-haspopup="true"
-      onClick={handleClick}
       {...props}
+      onClick={handleClick}
     >
       {children}
     </button>
@@ -88,9 +96,10 @@ export function DropdownMenuContent({
   children,
   ...props
 }: DropdownMenuContentProps) {
-  const { open, setOpen, triggerRect } = useDropdownMenu();
+  const { open, setOpen, triggerRef } = useDropdownMenu();
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = React.useState(false);
+  const [position, setPosition] = React.useState({ top: 0, left: 8 });
 
   React.useEffect(() => {
     setMounted(true);
@@ -100,12 +109,12 @@ export function DropdownMenuContent({
   React.useEffect(() => {
     if (!open) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (contentRef.current && !contentRef.current.contains(e.target as Node)) {
+      if (contentRef.current && !contentRef.current.contains(e.target as Node) && !triggerRef.current?.contains(e.target as Node)) {
         setOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') { setOpen(false); triggerRef.current?.focus(); }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -114,21 +123,34 @@ export function DropdownMenuContent({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, setOpen]);
+  }, [open, setOpen, triggerRef]);
 
-  if (!mounted || !open || !triggerRect) return null;
+  React.useLayoutEffect(() => {
+    if (!mounted || !open) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      const menu = contentRef.current;
+      if (!rect || !menu) return;
+      const width = menu.offsetWidth;
+      const height = menu.offsetHeight;
+      const left = align === 'end' ? rect.right - width : align === 'center' ? rect.left + (rect.width - width) / 2 : rect.left;
+      const below = rect.bottom + sideOffset;
+      const top = below + height <= window.innerHeight - 8 ? below : rect.top - sideOffset - height;
+      setPosition({ left: Math.max(8, Math.min(left, window.innerWidth - width - 8)), top: Math.max(8, Math.min(top, window.innerHeight - height - 8)) });
+    };
+    updatePosition();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePosition) : null;
+    if (contentRef.current) observer?.observe(contentRef.current);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [mounted, open, align, sideOffset, triggerRef]);
 
-  // Calculate position relative to viewport
-  const top = triggerRect.bottom + sideOffset;
-  let left = triggerRect.left;
-  if (align === 'end') {
-    left = triggerRect.right - (contentRef.current?.offsetWidth || 200);
-  } else if (align === 'center') {
-    left = triggerRect.left + (triggerRect.width / 2) - ((contentRef.current?.offsetWidth || 200) / 2);
-  }
-
-  // Ensure menu stays within window bounds
-  const adjustedLeft = Math.max(8, Math.min(left, window.innerWidth - 220));
+  if (!mounted || !open) return null;
 
   const content = (
     <AnimatePresence>
@@ -140,9 +162,9 @@ export function DropdownMenuContent({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: -4 }}
           transition={{ duration: 0.12 }}
-          style={{ top: `${top}px`, left: `${adjustedLeft}px` }}
+          style={{ ...position, maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100dvh - 16px)' }}
           className={cn(
-            'pointer-events-auto absolute z-[300] min-w-[12rem] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg',
+            'pointer-events-auto absolute z-[300] min-w-[12rem] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg',
             className
           )}
           {...(props as any)}

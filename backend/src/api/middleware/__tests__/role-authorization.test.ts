@@ -13,18 +13,8 @@ it.each(['Guest', 'GUEST', ' guest '])('denies retired %s identities', async rol
 });
 it('permits Client Admin to manage custom roles without requiring permission rows', async () => {
   const next = vi.fn();
-  await authorize('roles.manage')(request('Client Admin') as never, {} as never, next);
+  await authorize('roles.edit')(request('Client Admin') as never, {} as never, next);
   expect(next).toHaveBeenCalledWith();
-});
-it('keeps System Admin out of tenant operations', async () => {
-  const next = vi.fn();
-  await authorize('contacts.view')(request('System Admin') as never, {} as never, next);
-  expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
-});
-it.each(['Sales', 'Client Admin'])('denies platform permissions to %s', async role => {
-  const next = vi.fn();
-  await authorize('admin.access')(request(role) as never, {} as never, next);
-  expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
 });
 it('resolves scoped custom grants and denies missing or removed grants', async () => {
   const next = vi.fn();

@@ -14,7 +14,6 @@ import ts from 'typescript';
  * DO NOT fix the test or the code when it fails — the failure confirms the bug.
  *
  * Test scope:
- *   - RC-05 (seed side): Assert demo.seed.ts and seeder.seed.ts `create` blocks
  *     include `emailVerified` in every user upsert.
  *   - RC-10: The login page component uses onNavigate('dashboard') in a useEffect
  *     that fires when `user && isSigningIn` — this is an indirect navigation call
@@ -56,30 +55,6 @@ describe('Feature: auth-login-blank-screen-fix, RC-05 — Seed files include ema
     return blocks;
   }
 
-  it('demo.seed.ts includes emailVerified in every user upsert create block', () => {
-    // EXPECTED (post-fix): every `create:` block inside a prisma.user.upsert() contains
-    // `emailVerified`. This ensures newly-seeded databases have the field set from the start.
-    //
-    // EXPECTED: PASSES — demo.seed.ts already has emailVerified: new Date() in all upserts
-    // (This is confirmed as already fixed in the current codebase)
-    const source = readSeedFile('demo.seed.ts');
-    const upsertBlocks = extractUserUpsertBlocks(source);
-
-    expect(upsertBlocks.length).toBeGreaterThan(0);
-
-    for (const block of upsertBlocks) {
-      // Extract only the `create:` section of each upsert block
-      const createMatch = /create:\s*\{([\s\S]*?)(?:,\s*update:|}\s*\))/g.exec(block);
-      if (createMatch) {
-        const createBlock = createMatch[1];
-        expect(
-          createBlock,
-          `Expected emailVerified field in demo.seed.ts user upsert create block:\n${createBlock}`,
-        ).toMatch(/emailVerified/);
-      }
-    }
-  });
-
   it('seeder.seed.ts verifies the initial account without overwriting existing identities', () => {
     const source = readSeedFile('seeder.seed.ts');
     const file = ts.createSourceFile('seeder.seed.ts', source, ts.ScriptTarget.Latest, true);
@@ -101,27 +76,6 @@ describe('Feature: auth-login-blank-screen-fix, RC-05 — Seed files include ema
       expect(verified && ts.isPropertyAssignment(verified) ? verified.initializer.getText(file) : '').toBe('new Date()');
     }
     expect(source).not.toMatch(/(?:prisma|tx)\.user\.(?:upsert|update)\(/);
-  });
-  it('demo.seed.ts includes emailVerified in every user upsert update block', () => {
-    // EXPECTED (post-fix): the update block also sets emailVerified so existing seeded
-    // databases are patched on re-seed without requiring a full re-seed from scratch.
-    //
-    // EXPECTED: PASSES — demo.seed.ts has emailVerified in update blocks
-    const source = readSeedFile('demo.seed.ts');
-    const upsertBlocks = extractUserUpsertBlocks(source);
-
-    expect(upsertBlocks.length).toBeGreaterThan(0);
-
-    for (const block of upsertBlocks) {
-      const updateMatch = /update:\s*\{([\s\S]*?)(?:,\s*create:|}\s*\))/g.exec(block);
-      if (updateMatch) {
-        const updateBlock = updateMatch[1];
-        expect(
-          updateBlock,
-          `Expected emailVerified field in demo.seed.ts user upsert update block:\n${updateBlock}`,
-        ).toMatch(/emailVerified/);
-      }
-    }
   });
 });
 

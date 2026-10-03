@@ -25,6 +25,7 @@ const mockContactDealCreateMany = vi.fn();
 vi.mock('../../../../config/database.config', () => {
   return {
     default: {
+      stage: { findFirst: async () => ({ id: "initial-lead-stage" }) },
       deal: {
         create: (...args: unknown[]) => mockDealCreate(...args),
       },
@@ -109,7 +110,6 @@ const sourceDealArb = fc.record({
   ownerId: uuidArb,
   expectedCloseDate: fc.oneof(fc.constant(null), dateArb),
   probability: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 100 })),
-  description: fc.oneof(fc.constant(null), fc.string({ minLength: 0, maxLength: 200 })),
   source: fc.oneof(fc.constant(null), fc.constantFrom('Inbound', 'Outbound', 'Referral')),
   productInterests: fc.oneof(fc.constant(null), fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 5 })),
   currency: fc.oneof(fc.constant(null), fc.constantFrom('PHP', 'USD', 'EUR', 'GBP')),
@@ -226,7 +226,7 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
       );
     });
 
-    it('preserved fields (stageId, pipelineId, value, priority, etc.) match source deal', async () => {
+    it('preserves Deal fields and resets the stage to Lead', async () => {
       await fc.assert(
         fc.asyncProperty(sourceDealArb, async (sourceDeal) => {
           setupMocks();
@@ -237,8 +237,8 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
           expect(mockDealCreate).toHaveBeenCalledTimes(1);
           const createCallData = mockDealCreate.mock.calls[0][0].data;
 
-          // Pipeline and stage are preserved (same pipeline/stage as source)
-          expect(createCallData.stageId).toBe(sourceDeal.stageId);
+          // Duplicates start at Lead in the same pipeline.
+          expect(createCallData.stageId).toBe("initial-lead-stage");
           expect(createCallData.pipelineId).toBe(sourceDeal.pipelineId);
 
           // Value and priority preserved
@@ -250,7 +250,6 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
           expect(createCallData.accountId).toBe(sourceDeal.accountId);
           expect(createCallData.expectedCloseDate).toEqual(sourceDeal.expectedCloseDate);
           expect(createCallData.probability).toBe(sourceDeal.probability);
-          expect(createCallData.description).toBe(sourceDeal.description);
           expect(createCallData.source).toBe(sourceDeal.source);
           expect(createCallData.currency).toBe(sourceDeal.currency);
         }),

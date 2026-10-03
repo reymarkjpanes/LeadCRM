@@ -1,9 +1,11 @@
-﻿import * as repo from './pipeline.repository';
+import { salesPipeline, salesTransaction } from '../leads/lead-automation.service';
+import * as repo from './pipeline.repository';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError } from '../../../shared/errors/http-error';
 import { CreatePipelineDto, UpdatePipelineDto, CreateStageDto, UpdateStageDto, ReorderStagesDto, ReorderDealsDto } from './pipeline.dto';
 
 export async function getPipelines(tenantId: string) {
+  await salesTransaction(tx => salesPipeline(tx, tenantId));
   return repo.findAllPipelines(tenantId);
 }
 

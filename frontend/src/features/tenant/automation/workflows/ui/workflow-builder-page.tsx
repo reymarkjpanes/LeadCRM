@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { toast } from 'sonner';
 import type {
   WorkflowDraft,
   WorkflowOptions,
@@ -17,7 +16,7 @@ import {
 } from '@/shared/services/workflows.api';
 import { Button } from '@/shared/components/ui/button';
 import WorkflowBuilder from './visual-workflow-builder';
-import { WORKFLOW_RECIPES } from '../services/workflow-recipes';
+import { WORKFLOW_RECIPES, prepareWorkflowRecipe } from '../services/workflow-recipes';
 export default function WorkflowBuilderPage() {
   const router = useRouter(),
     params = useParams<{ id?: string }>(),
@@ -47,7 +46,7 @@ export default function WorkflowBuilderPage() {
     createdId.current = undefined;
     Promise.all([
       getWorkflowMetadata(
-        `${tenant.id}:${user?.id}:${user?.activeEnvironment}`,
+        `${tenant.id}:${user?.id}`,
       ),
       workflowsApi.options(),
       id ? workflowsApi.get(id) : Promise.resolve(null),
@@ -55,6 +54,9 @@ export default function WorkflowBuilderPage() {
       .then(([metadata, options, response]) => {
         if (cancelled) return;
         const saved = response?.data;
+        if (!saved && recipe !== null && (!/^(0|[1-9]\d*)$/.test(recipe) || !WORKFLOW_RECIPES[Number(recipe)])) {
+          throw new Error('This workflow template is unavailable. Return to workflows and choose another template.');
+        }
         const selected =
           recipe === null ? undefined : WORKFLOW_RECIPES[Number(recipe)];
         const initial: WorkflowDraft = saved
@@ -67,7 +69,7 @@ export default function WorkflowBuilderPage() {
               isActive: saved.isActive,
             }
           : selected
-            ? structuredClone(selected)
+            ? prepareWorkflowRecipe(selected, options.data)
             : {
                 name: '',
                 description: '',
@@ -96,7 +98,6 @@ export default function WorkflowBuilderPage() {
   }, [
     tenant?.id,
     user?.id,
-    user?.activeEnvironment,
     id,
     recipe,
     canView,
@@ -112,6 +113,7 @@ export default function WorkflowBuilderPage() {
       <div role="alert" className="p-6 space-y-3">
         <p>{error}</p>
         <Button onClick={() => setRetry(retry + 1)}>Retry</Button>
+        <Button variant="outline" onClick={() => router.push('/automation/workflows')}>Back to workflows</Button>
       </div>
     );
   if (!loaded)
@@ -122,11 +124,12 @@ export default function WorkflowBuilderPage() {
     );
   return (
     <WorkflowBuilder
-      key={`${tenant?.id}:${user?.activeEnvironment}:${id ?? 'new'}:${retry}`}
+      key={`${tenant?.id}:${id ?? 'new'}:${retry}`}
       {...loaded}
       workflowId={id}
-      canActivate={canEdit}
-      readOnly={!!id && !canEdit}
+      onCheckName={async (name, excludeId) => (await workflowsApi.nameAvailability(name, excludeId)).data.available}
+      canActivate={userCan('workflows', 'canActivate')}
+      readOnly={!!id && (!canEdit || query.get('view') === 'true')}
       onClose={() => router.push('/automation/workflows')}
       onPause={id ? () => updateWorkflow(id, { isActive: false }) : undefined}
       onSave={async (draft) => {
@@ -135,9 +138,6 @@ export default function WorkflowBuilderPage() {
           ? await updateWorkflow(targetId, draft)
           : await addWorkflow(draft);
         createdId.current = saved.id;
-        toast.success(
-          draft.isActive ? 'Workflow saved and activated.' : 'Draft saved.',
-        );
         if (!id) router.replace(`/automation/workflows/${saved.id}/edit`);
         return saved;
       }}

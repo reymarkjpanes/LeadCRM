@@ -1,12 +1,5 @@
 import rateLimit from 'express-rate-limit';
 
-// Account-scoped throttling supplements the IP limit on authenticated MFA operations.
-export const mfaRateLimiter = rateLimit({
-  windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false,
-  keyGenerator: req => req.user!.userId,
-  message: { success: false, error: 'Too many security attempts. Try again in 15 minutes.' },
-});
-
 // In development, use very high limits to avoid blocking local testing
 const isDev = process.env.NODE_ENV !== 'production';
 

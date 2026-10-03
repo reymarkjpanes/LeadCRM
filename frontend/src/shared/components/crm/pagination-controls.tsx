@@ -30,7 +30,6 @@ export interface PaginationControlsProps {
  * PaginationControls — consistent footer pagination across all CRM modules.
  *
  * Displays:
- * - Total record count label
  * - Current page range ("1 to 25" or "26 to 30")
  * - Previous/Next navigation buttons
  * - Page indicator ("1 / 4")
@@ -86,21 +85,15 @@ export function PaginationControls({
   return (
     <div
       className={cn(
-        'flex items-center justify-between px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800/60 rounded-b-xl',
+        'flex min-w-0 flex-wrap items-center justify-between gap-1 px-2 py-2 sm:px-4 sm:py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800/60 rounded-b-xl',
         className,
       )}
       role="navigation"
       aria-label="Pagination"
     >
       {/* Left: Total records + page range */}
-      <div className="flex items-center gap-3">
-        <span className="text-[12px] text-[#5A6B85] dark:text-slate-400">
-          <span className="font-semibold text-[#0F172A] dark:text-slate-200 tabular-nums">
-            {totalRecords}
-          </span>{' '}
-          records
-        </span>
-        <span className="text-[12px] text-[#5A6B85] dark:text-slate-400">
+      <div className="hidden sm:flex items-center gap-3">
+        <span className="text-[10px] sm:text-[12px] text-[#5A6B85] dark:text-slate-400">
           <span className="tabular-nums">
             {rangeStart} to {rangeEnd}
           </span>
@@ -108,10 +101,10 @@ export function PaginationControls({
       </div>
 
       {/* Center: Page size selector */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         <label
           htmlFor="page-size-select"
-          className="text-[11.5px] text-[#5A6B85] dark:text-slate-400"
+          className="whitespace-nowrap text-[10px] sm:text-[11.5px] text-[#5A6B85] dark:text-slate-400"
         >
           Per page
         </label>
@@ -119,7 +112,7 @@ export function PaginationControls({
           id="page-size-select"
           value={pageSize}
           onChange={handlePageSizeChange}
-          className="h-7 px-2 text-[12px] font-medium rounded-md border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 cursor-pointer"
+          className="h-7 px-2 text-[10px] sm:text-[12px] font-medium rounded-md border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 cursor-pointer"
           aria-label="Records per page"
         >
           {PAGE_SIZE_OPTIONS.map((size) => (
@@ -131,11 +124,11 @@ export function PaginationControls({
       </div>
 
       {/* Right: Navigation */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         {hasRecords && (
           <>
-            <span className="text-[12px] text-[#5A6B85] dark:text-slate-400 tabular-nums">
-              {currentPage} / {totalPages}
+            <span className="text-[10px] sm:text-[12px] text-[#5A6B85] dark:text-slate-400 tabular-nums">
+              Page {currentPage} of {totalPages}
             </span>
             <button
               onClick={handlePrev}

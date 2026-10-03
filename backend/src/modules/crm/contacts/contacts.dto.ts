@@ -1,41 +1,46 @@
+import { CrmEmailSchema } from '@leadcrm/shared';
 import { z } from 'zod';
+import { LeadStatusSchema, ProductInterestIdSchema } from '@leadcrm/shared';
+import { recordText, recordName } from '../record-validation';
 
 const id = () => z.string().min(1);
 
 // Lead model fields (schema ground truth):
-// firstName, lastName, email, phone, source, status (String, default "Inquiry"),
+// firstName, lastName, email, phone, source, status (validated Lead status, default "Warm"),
 // accountId, assignedUserId, productInterest[], address, companyName, createdAt
 
 export const CreateContactSchema = z.object({
-  firstName:      z.string().min(1, 'First name is required').max(100),
-  lastName:       z.string().min(1, 'Last name is required').max(100),
-  email:          z.string().email('Invalid email address').optional().or(z.literal('')),
-  phone:          z.string().optional(),
-  companyName:    z.string().optional(),
-  status:         z.string().default('Inquiry'),
-  source:         z.string().optional(),
+  requestId: z.string().uuid().optional(),
+  firstName:      recordName(),
+  lastName:       recordName(),
+  email: CrmEmailSchema,
+  phone:          recordText().optional(),
+  companyName:    recordText().optional(),
+  status:         LeadStatusSchema.default('Warm'),
+  source:         recordText().optional(),
   accountId:      id().optional(),
   assignedUserId: id().optional(),
-  productInterest: z.array(z.string()).optional(),
-  address:        z.string().optional(),
-  description:    z.string().optional(),
-  website:        z.string().optional(),
+  productInterest: z.array(ProductInterestIdSchema).max(100).optional(),
+  address:        recordText().optional(),
+  description:    recordText().optional(),
+  website:        recordText().optional(),
 });
 
 export const UpdateContactSchema = z.object({
-  firstName:      z.string().min(1).max(100).optional(),
-  lastName:       z.string().min(1).max(100).optional(),
-  email:          z.string().email().optional().or(z.literal('')),
-  phone:          z.string().optional(),
-  companyName:    z.string().optional(),
-  status:         z.string().optional(),
-  source:         z.string().optional(),
-  accountId:      id().optional(),
-  assignedUserId: id().optional(),
-  productInterest: z.array(z.string()).optional(),
-  address:        z.string().optional(),
-  description:    z.string().optional(),
-  website:        z.string().optional(),
+  productInterestOther: recordText(1000).nullable().optional(),
+  firstName:      recordName().optional(),
+  lastName:       recordName().optional(),
+  email: CrmEmailSchema.optional(),
+  phone:          recordText().optional(),
+  companyName:    recordText().optional(),
+  status:         LeadStatusSchema.optional(),
+  source:         recordText().optional(),
+  accountId:      id().nullable().optional(),
+  assignedUserId: id().nullable().optional(),
+  productInterest: z.array(ProductInterestIdSchema).max(100).optional(),
+  address:        recordText().optional(),
+  description:    recordText().optional(),
+  website:        recordText().optional(),
 });
 
 export type CreateContactDto = z.infer<typeof CreateContactSchema>;
@@ -56,9 +61,6 @@ export const ConvertContactSchema = z.object({
   dealPipelineId:  z.string().min(1).optional(),
   dealPriority:    z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
   dealId:          z.string().min(1).optional(), // link to existing deal instead of creating
-}).refine(
-  (data) => data.accountId || data.accountName,
-  { message: 'Either accountId or accountName is required', path: ['accountId'] },
-);
+});
 
 export type ConvertContactDto = z.infer<typeof ConvertContactSchema>;

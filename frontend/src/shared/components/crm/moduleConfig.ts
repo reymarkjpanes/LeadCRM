@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import React from 'react';
+import { LEAD_STATUSES } from '@leadcrm/shared';
 
 export type RecordModule = 'lead' | 'contact' | 'account' | 'deal';
 
@@ -68,28 +69,17 @@ export interface CustomFieldItem {
 
 // ── Default Status Configurations ─────────────────────────────────────────────
 
-export const DEFAULT_LEAD_STATUSES: StatusOption[] = [
-  { label: 'Inquiry', tone: 'info', description: 'Initial contact / inquiry made' },
-  { label: 'Hot', tone: 'warning', description: 'High purchase intent, urgent' },
-  { label: 'Warm', tone: 'warning', description: 'Engaged, evaluating solutions' },
-  { label: 'Cold', tone: 'muted', description: 'Unresponsive or low priority' },
-  { label: 'Closed', tone: 'success', description: 'Converted or deal finalized' },
-  { label: 'Cancelled', tone: 'muted', description: 'Disqualified or canceled' },
-];
+const LEAD_STATUS_DETAILS: Record<typeof LEAD_STATUSES[number], Omit<StatusOption, 'label'>> = {
+  Hot: { tone: 'warning', description: 'High purchase intent, urgent' },
+  Warm: { tone: 'warning', description: 'Engaged, evaluating solutions' },
+  Cold: { tone: 'muted', description: 'Unresponsive or low priority' },
+  Closed: { tone: 'success', description: 'Converted or deal finalized' },
+  Cancelled: { tone: 'muted', description: 'Disqualified or canceled' },
+};
+export const DEFAULT_LEAD_STATUSES: StatusOption[] = LEAD_STATUSES.map(label => ({ label, ...LEAD_STATUS_DETAILS[label] }));
 
-export const DEFAULT_CONTACT_STATUSES: StatusOption[] = [
-  { label: 'Inquiry', tone: 'info', description: 'Contact inquiry pending review' },
-  { label: 'Qualified', tone: 'info', description: 'Verified buyer persona' },
-  { label: 'Converted', tone: 'success', description: 'Active client contact' },
-  { label: 'Archived', tone: 'muted', description: 'Historical record' },
-];
+export const DEFAULT_CONTACT_STATUSES = DEFAULT_LEAD_STATUSES;
 
-export const DEFAULT_ACCOUNT_STATUSES: StatusOption[] = [
-  { label: 'Prospect', tone: 'info', description: 'Prospective company account' },
-  { label: 'Active Customer', tone: 'success', description: 'Ongoing contract or active services' },
-  { label: 'Inactive Customer', tone: 'muted', description: 'Dormant account' },
-  { label: 'Former Customer', tone: 'muted', description: 'Terminated or past customer' },
-];
 
 export const DEFAULT_PIPELINE = {
   name: 'Sales Pipeline',

@@ -47,6 +47,8 @@ export interface RowActionItem {
   destructive?: boolean;
   /** Whether this action is disabled */
   disabled?: boolean;
+  /** Explanation displayed below an unavailable action. */
+  disabledReason?: string;
   /** Whether to show a sub-menu indicator (chevron) */
   hasSubmenu?: boolean;
   /** Separator before this item */
@@ -58,6 +60,7 @@ export interface RowActionsMenuProps {
   actions: RowActionItem[];
   /** Position: 'left' shows menu to the right, 'right' shows to the left */
   position?: 'left' | 'right';
+  label?: string;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -65,6 +68,7 @@ export interface RowActionsMenuProps {
 export function RowActionsMenu({
   actions,
   position = 'left',
+  label = 'Row actions',
 }: RowActionsMenuProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -148,7 +152,7 @@ export function RowActionsMenu({
           'hover:bg-slate-100 dark:hover:bg-slate-700',
           isOpen && 'text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700',
         )}
-        aria-label="Row actions"
+        aria-label={label}
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
@@ -189,6 +193,7 @@ export function RowActionsMenu({
                   }
                 }}
                 disabled={action.disabled}
+                aria-describedby={action.disabledReason ? `action-${action.id}-reason` : undefined}
                 className={cn(
                   'flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-left transition-colors rounded-md',
                   action.disabled && 'opacity-40 cursor-not-allowed',
@@ -205,6 +210,7 @@ export function RowActionsMenu({
                 <span className="flex-1">{action.label}</span>
                 {action.hasSubmenu && <ChevronRight size={12} className="text-slate-400" />}
               </button>
+              {action.disabledReason && <p id={`action-${action.id}-reason`} className="px-3 pb-2 text-xs text-slate-500 dark:text-slate-400">{action.disabledReason}</p>}
             </React.Fragment>
           ))}
         </div>,

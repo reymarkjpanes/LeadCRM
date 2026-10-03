@@ -10,7 +10,7 @@ export async function findNotifications(tenantId: string, userId: string, query:
   const where = {
     tenantId,
     userId,
-    ...(query.unreadOnly === 'true' ? { isRead: false } : {}),
+    ...(query.unreadOnly === 'true' || query.isRead === 'false' ? { isRead: false } : query.isRead === 'true' ? { isRead: true } : {}),
   };
 
   const [data, total, unreadCount] = await Promise.all([
@@ -18,13 +18,13 @@ export async function findNotifications(tenantId: string, userId: string, query:
       where,
       skip,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     }),
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { tenantId, userId, isRead: false } }),
   ]);
 
-  return { data, total, page, limit, unreadCount };
+  return { data, meta: { total, page, limit, hasMore: page * limit < total }, unreadCount };
 }
 
 export async function markNotificationRead(id: string, tenantId: string, userId: string): Promise<void> {

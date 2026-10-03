@@ -1,4 +1,7 @@
 import prisma from '../../../config/database.config';
+export function findAccount(id: string, tenantId: string) {
+  return prisma.account.findFirst({ where: { id, tenantId, isArchived: false } });
+}
 export function findUser(id: string, tenantId: string) {
   return prisma.user.findFirst({ where: { id, tenantId, status: 'ACTIVE' }, select: { id: true, role: true } });
 }

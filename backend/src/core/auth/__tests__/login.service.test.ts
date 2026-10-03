@@ -36,9 +36,9 @@ it('login and session restore return the same Sales onboarding state', async () 
   });
   expect(createSession).toHaveBeenCalledOnce();
 });
-it.each(['missing', 'oauth-only', 'wrong-password'])('rejects %s without issuing a session', async mode => {
+it.each(['missing', 'passwordless', 'wrong-password'])('rejects %s without issuing a session', async mode => {
   if (mode === 'missing') db.user.findMany.mockResolvedValue([]);
-  if (mode === 'oauth-only') db.user.findMany.mockResolvedValue([{ ...user, passwordHash: null }]);
+  if (mode === 'passwordless') db.user.findMany.mockResolvedValue([{ ...user, passwordHash: null }]);
   if (mode === 'wrong-password') vi.mocked(comparePassword).mockResolvedValue(false);
   await expect(loginUser({ email: user.email, password: 'incorrect' }))
     .rejects.toMatchObject({ statusCode: 401 });
@@ -73,8 +73,4 @@ it('accepts an unverified internally provisioned employee without OTP and return
   const result = await loginUser({ email: 'EMPLOYEE@CAMXIAN.COM', password: 'secret' });
   expect(result.user.mustChangePassword).toBe(true);
   expect(createSession).toHaveBeenCalledOnce();
-});
-it('allows the separately provisioned System Admin without employee-domain or OTP onboarding', async () => {
-  user.role = 'System Admin'; user.email = 'operator@example.com'; user.emailVerified = null as never;
-  await expect(loginUser({ email: user.email, password: 'secret' })).resolves.toHaveProperty('user.role', 'System Admin');
 });

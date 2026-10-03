@@ -16,7 +16,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           expand={true}
           closeButton
           duration={4000}
-          gap={10}
+          gap={4}
         />
       </DataProvider>
     </AuthProvider>

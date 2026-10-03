@@ -20,7 +20,7 @@ LeadCRM is the internally managed CRM for Camxian Technologies. Start at `/login
 
 **LeadCRM** is an end-to-end multi-tenant Customer Relationship Management (CRM) and automated operational platform. Unlike traditional simple contact logs, LeadCRM unites sales pipeline management, automated trigger-condition-action workflow execution, multi-channel marketing campaigns, service order technician dispatch, asset tracking into a single, cohesive software system.
 
-Built upon a modern **Turborepo monorepo** architecture powered by Next.js 15 (App Router), Express.js, TypeScript, PostgreSQL, and Prisma ORM, LeadCRM provides dual-portal security isolation: a dedicated **Tenant CRM Portal** for organization teams and a **System Admin Console** for platform operators.
+Built upon a Turborepo monorepo with Next.js, Express, TypeScript, PostgreSQL and Prisma, LeadCRM provides a tenant-scoped CRM for Client Admin and staff users.
 
 ---
 
@@ -44,7 +44,7 @@ Design, develop, and deploy a secure, high-performance multi-tenant CRM and work
 
 1. **Automated Pipeline Management**: Implement Kanban, table, and list pipeline views with automated stage progression, aging metrics, and revenue forecasting.
 2. **Event-Driven Workflow Automation**: Engineer a visual Trigger → Condition → Action workflow builder capable of automated deal assignments, task dispatch, email notifications, and SLA escalations.
-3. **Dual-Portal Isolation**: Enforce physical and logical architectural separation between client tenant operations and platform operator administration.
+3. **Workspace Isolation**: Enforce tenant-scoped CRM data and role permissions.
 4. **Granular Role-Based Access Control (RBAC)**: Enforce module-level permission guards (`canView`, `canCreate`, `canEdit`, `canDelete`) across custom roles and multi-tenant scopes.
 5. **Operational Synergy**: Integrate sales pipeline data directly with technician service orders, asset tracking, inventory allocation.
 
@@ -101,11 +101,10 @@ LeadCRM solves these challenges by providing a single, unified platform:
 
 - **Executive Dashboards**: Real-time KPI summary widgets, revenue trends, pipeline distribution charts, lead attribution breakdowns, and sales rep leaderboards powered by Chart.js.
 
-### 6. 🛡️ System Administration (`(system-admin)`)
+### 6. Team Administration
 
-- **System Admin Console**: Operator-level multi-tenant management (`/admin/dashboard`, `/admin/clients`, `/admin/audit`).
-- **Tenant Management**: Provisioning employee Client Admin accounts and managing tenant access.
-- **RBAC & Security Audit**: Configurable module permissions (`contacts`, `deals`, `workflows`, `marketing`, etc.) and system-wide immutable audit logging.
+- Client Admin manages team members and custom roles through Settings.
+- Record Activity tabs and Team Management history retain event logging.
 
 ---
 
@@ -158,10 +157,9 @@ LeadCRM enforces strict visual standards and reusable navigation primitives acro
                                     |     Next.js 15 App Router         |
                                     |      (@leadcrm/frontend)          |
                                     +-----------------------------------+
-                                      /                               \
-                         (Tenant Portal)                            (Admin Console)
-                         /(tenant)/ routes                          /(system-admin)/ routes
-                                \                               /
+                                                |
+                                         (CRM Portal)
+                                                |
                                  +-----------------------------+
                                  |  DataContext & AuthContext  |
                                  | (State Layer & Data Router) |
@@ -200,14 +198,11 @@ leadcrm/                                 ← Monorepo Root (Turborepo)
 ├── frontend/                            ← Next.js 15 App Router Frontend (@leadcrm/frontend)
 │   ├── app/                             ← Routing Shells ONLY (Clean 3-line imports)
 │   │   ├── (tenant)/                    ← Tenant CRM Portal routes (/dashboard, /crm/*, /operations/*)
-│   │   ├── (system-admin)/              ← System Admin routes (/admin/dashboard, /admin/clients, ...)
 │   │   ├── login/                       ← Public authentication routes
-│   │   ├── register/                    ← Public account registration
 │   │   └── layout.tsx                   ← Root layout, metadata & PWA settings
 │   └── src/
 │       ├── features/                    ← Domain Feature Modules
 │       │   ├── tenant/                  ← CRM Portal features (contacts, deals, pipeline, workflows)
-│       │   └── system-admin/            ← System Admin features (tenants, monitoring)
 │       ├── shared/                      ← Shared UI Library
 │       │   ├── components/
 │       │   │   ├── ui/                  ← BackButton, ModalCloseButton, PageHeader, ShadCN
@@ -292,8 +287,6 @@ JWT_SECRET="leadcrm_super_secret_jwt_key_min_32_characters_long"
 NODE_ENV="development"
 PORT=4000
 ALLOWED_ORIGINS="http://localhost:3000"
-SYSTEM_ADMIN_EMAIL="admin@leadcrm.io"
-SYSTEM_ADMIN_PASSWORD="admin123_secure_password"
 ```
 
 **Frontend (`frontend/.env.local`):**
@@ -315,12 +308,11 @@ cd backend
 # Generate Prisma Client (builds the ORM based on your schema)
 npx prisma generate
 
-# Sync the database schema (creates all required tables in PostgreSQL)
-npx prisma db push
+# Apply the committed forward migrations
+npm run db:deploy
 
 # Seed the database with real demo data!
 # This command automatically populates the database with:
-# - A System Admin account
 # - A default Tenant (LeadCRM Demo)
 # - Mock Users (Client Admin, Sales Rep, Viewer)
 # - Realistic CRM data: Organizations, Contacts, Pipelines, Deals, and Tasks
@@ -343,7 +335,6 @@ npm run dev
 | Component                | URL / Endpoint                 | Target Audience / Credentials                              |
 | ------------------------ | ------------------------------ | ---------------------------------------------------------- |
 | **Tenant CRM Portal**    | `http://localhost:3000`        | Client Admins, Sales Reps, Viewers, Technicians            |
-| **System Admin Console** | `http://localhost:3000/admin`  | System Admin Operators (`admin@leadcrm.io`)                |
 | **Backend REST API**     | `http://localhost:4000/api/v1` | Developer API Endpoints                                    |
 | **Prisma Studio**        | `http://localhost:5555`        | Database Inspection UI (`npx prisma studio` in `backend/`) |
 
@@ -351,7 +342,6 @@ npm run dev
 
 | Role             | Email                | Password   | Access Scope                                  |
 | ---------------- | -------------------- | ---------- | --------------------------------------------- |
-| **System Admin** | `admin@leadcrm.io`   | `admin123` | Cross-tenant platform management (`/admin/*`) |
 | **Client Admin** | `client@example.com` | `password` | Full organization administration & CRM access |
 | **Sales Rep**    | `rep@example.com`    | `password` | Sales pipeline, contacts, deals, tasks        |
 | **Viewer**       | `viewer@example.com` | `password` | Read-only CRM & reporting inspection          |
@@ -375,15 +365,15 @@ LeadCRM is fully optimized as a **Progressive Web App (PWA)**:
 
 LeadCRM implements module-level permission guards (`module.action`) evaluated against the authenticated user's role:
 
-| Module                      | Action                        | Client Admin |  Sales Rep   |    Viewer    |     Technician     |    System Admin     |
-| --------------------------- | ----------------------------- | :----------: | :----------: | :----------: | :----------------: | :-----------------: |
-| **Contacts & Companies**    | View / Create / Edit / Delete |      ✅      |      ✅      | 👁️ View Only |         ❌         |   ✅ Cross-Tenant   |
-| **Deals & Pipelines**       | Manage / Move Stages          |      ✅      |      ✅      | 👁️ View Only |         ❌         |   ✅ Cross-Tenant   |
-| **Tasks & Activities**      | Create / Assign / Complete    |      ✅      |      ✅      | 👁️ View Only |  ✅ Assigned Only  |   ✅ Cross-Tenant   |
-| **Workflows & Automation**  | Create / Edit / Trigger       |      ✅      |      ❌      | 👁️ View Only |         ❌         |   ✅ Cross-Tenant   |
-| **Marketing Campaigns**     | Build / Dispatch / View       |      ✅      | 👁️ View Only | 👁️ View Only |         ❌         |   ✅ Cross-Tenant   |
-| **Service Orders & Assets** | Create / Dispatch / Complete  |      ✅      |      ❌      | 👁️ View Only | ✅ Full Operations |   ✅ Cross-Tenant   |
-| **User Administration**     | Invite Users / Assign Roles   |      ✅      |      ❌      |      ❌      |         ❌         | ✅ Platform Tenants |
+| Module                      | Action                        | Client Admin |  Sales Rep   |    Viewer    |     Technician     |
+| --------------------------- | ----------------------------- | :----------: | :----------: | :----------: | :----------------: |
+| **Contacts & Companies**    | View / Create / Edit / Delete |      ✅      |      ✅      | 👁️ View Only |         ❌         |
+| **Deals & Pipelines**       | Manage / Move Stages          |      ✅      |      ✅      | 👁️ View Only |         ❌         |
+| **Tasks & Activities**      | Create / Assign / Complete    |      ✅      |      ✅      | 👁️ View Only |  ✅ Assigned Only  |
+| **Workflows & Automation**  | Create / Edit / Trigger       |      ✅      |      ❌      | 👁️ View Only |         ❌         |
+| **Marketing Campaigns**     | Build / Dispatch / View       |      ✅      | 👁️ View Only | 👁️ View Only |         ❌         |
+| **Service Orders & Assets** | Create / Dispatch / Complete  |      ✅      |      ❌      | 👁️ View Only | ✅ Full Operations |
+| **User Administration**     | Invite Users / Assign Roles   |      ✅      |      ❌      |      ❌      |         ❌         |
 
 ---
 
@@ -405,9 +395,9 @@ For detailed architectural specifications and guidelines, consult the files in [
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)                               | In-depth technical architecture, state model, chart rules, and state guards |
 | [`docs/STRUCTURE.md`](./docs/STRUCTURE.md)                                     | Exhaustive folder map, module anatomy, and file directory standards         |
-| [`docs/PORTAL-SEPARATION.md`](./docs/PORTAL-SEPARATION.md)                     | Deep dive into physical dual-portal separation philosophy                   |
+| [`docs/PORTAL-SEPARATION.md`](./docs/PORTAL-SEPARATION.md)                     | Tenant workspace boundaries and access                   |
 | [`docs/API.md`](./docs/API.md)                                                 | Full REST API specification (85+ endpoints)                                 |
-| [`docs/authentication.md`](./docs/authentication.md)                           | Authentication Architecture & NextAuth integration                          |
+| [`docs/authentication.md`](./docs/authentication.md)                           | Password authentication and account security                          |
 | [`docs/user-roles.md`](./docs/user-roles.md)                                   | Role-Based Access Control (RBAC) overview                                   |
 | [`docs/registration-flow.md`](./docs/registration-flow.md)                     | Historical registration flows (superseded)                                         |
 | [`docs/demo-accounts.md`](./docs/demo-accounts.md)                             | Database seeder & demo credentials                                          |

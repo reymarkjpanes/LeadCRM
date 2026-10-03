@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Menu, Bell, Mail, Search } from 'lucide-react';
 import { useNotifications } from '@/features/tenant/notifications/hooks/use-notifications';
-import { getGmailStatus, fetchGmailEmails } from '@/features/tenant/inbox/services/gmail.service';
+import { getGmailStatus, fetchGmailUnreadCount } from '@/features/tenant/inbox/services/gmail.service';
 import { useLayout, NAV_ITEMS } from './use-layout';
 import { useAuth } from '@/store/AuthContext';
 import { usePathname } from 'next/navigation';
@@ -12,7 +12,6 @@ import { GlobalOmnibox } from '@/shared/components/global-omnibox';
 import { MobileSearchOverlay } from '@/shared/components/mobile-search-overlay';
 import { UserProfileDropdown } from './user-profile-dropdown';
 import { cn } from '@/lib/utils';
-import { EnvironmentSwitcher } from './environment-switcher';
 
 // -- Types ---------------------------------------------------------------------
 
@@ -42,13 +41,13 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
     getGmailStatus()
       .then((status) => {
         if (status.isConnected) {
-          return fetchGmailEmails({ maxResults: 30, query: 'in:inbox is:unread' });
+          return fetchGmailUnreadCount();
         }
         return null;
       })
       .then((result) => {
         if (isMounted && result) {
-          setInboxCount(result.emails.length);
+          setInboxCount(result.unreadCount);
         }
       })
       .catch(() => { /* silently ignore � Gmail may not be connected */ });
@@ -137,12 +136,11 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
 
       {/* Center: Global Search Omnibox */}
       <div className="hidden md:flex flex-1 max-w-[460px] mx-4 justify-center">
-        <GlobalOmnibox key={user?.activeEnvironment} />
+        <GlobalOmnibox />
       </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-0.5 sm:gap-1.5 flex-none md:flex-1 justify-end">
-        {user?.role !== 'System Admin' && <EnvironmentSwitcher />}
         {/* Inbox (Gmail) */}
         <button
           onClick={onOpenInbox}
@@ -173,12 +171,12 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
               ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
               : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]',
           )}
-          aria-label="Notifications"
+          aria-label={`Notifications, ${notificationCount} unread`}
           aria-expanded={isNotificationsOpen}
         >
           <Bell size={16} />
           {notificationCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#3B82F6]" />
+            <span className="absolute -top-1 -right-1 min-w-4 rounded-full bg-blue-600 px-1 text-center text-[9px] font-bold leading-4 text-white">{notificationCount > 99 ? '99+' : notificationCount}</span>
           )}
         </button>
 

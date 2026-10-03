@@ -14,5 +14,5 @@ services:
       - key: SKIP_DEMO_TENANTS
         value: "true"
     # Configure DATABASE_URL, DIRECT_URL, JWT_SECRET, APP_URL, ALLOWED_ORIGINS,
-    # GOOGLE_CLIENT_ID, BREVO_API_KEY, BREVO_FROM_EMAIL and system-admin credentials
+    # GMAIL_CLIENT_ID, BREVO_API_KEY and BREVO_FROM_EMAIL
     # in Render's dashboard. See docs/setup/deployment.md.

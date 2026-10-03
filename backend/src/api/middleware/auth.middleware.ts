@@ -7,7 +7,7 @@ import { readAuthUser } from '../../core/auth/auth-user';
 import { appConfig } from '../../config/app.config';
 import { AppError } from '../../shared/errors/app-error';
 import { validateSession } from '../../core/auth/session.service';
-import { environmentContext } from '../../core/environment/environment-context';
+import { tenantContext } from '../../core/tenant/tenant-context';
 
 export interface AuthenticatedUser {
   userId:   string;
@@ -53,27 +53,19 @@ export async function authMiddleware(req: Request, _res: Response, next: NextFun
     requireEmployeeAccount(user);
     const authPath = req.baseUrl?.endsWith('/auth') ? req.path : '';
     const recovery = ['/me', '/change-password', '/logout'].includes(authPath);
-    if (user.role !== 'System Admin') {
-      if (['SUSPENDED', 'REJECTED'].includes(user.tenantStatus ?? '')) {
-        throw new AppError('Workspace access is suspended.', 403);
-      }
-      if (user.mustChangePassword && !recovery) {
-        throw new AppError('Change your temporary password first.', 403, 'PASSWORD_CHANGE_REQUIRED');
-      }
-      if (user.role === 'Client Admin' && !isOnboardingComplete(user) && !recovery &&
-          !['/onboarding/status', '/onboarding/complete'].includes(authPath)) {
-        throw new AppError('Complete the LeadCRM introduction first.', 403, 'ONBOARDING_REQUIRED');
-      }
+    if (['SUSPENDED', 'REJECTED'].includes(user.tenantStatus ?? '')) {
+      throw new AppError('Workspace access is suspended.', 403);
+    }
+    if (user.mustChangePassword && !recovery) {
+      throw new AppError('Change your temporary password first.', 403, 'PASSWORD_CHANGE_REQUIRED');
+    }
+    if (user.role === 'Client Admin' && !isOnboardingComplete(user) && !recovery &&
+        !['/onboarding/status', '/onboarding/complete'].includes(authPath)) {
+      throw new AppError('Complete the LeadCRM introduction first.', 403, 'ONBOARDING_REQUIRED');
     }
     req.authUser = user;
     req.user = { ...payload, role: user.role, email: user.email };
-    if (user.role === 'System Admin') return next();
-    const environment = user.activeEnvironment ?? 'SANDBOX';
-    const expected = req.headers['x-crm-environment'];
-    if (expected && expected !== environment && !authPath) {
-      throw new AppError('Your environment changed. Refresh your workspace before continuing.', 409, 'ENVIRONMENT_CHANGED');
-    }
-    environmentContext.run({ tenantId: user.tenantId, environment }, next);
+    tenantContext.run({ tenantId: user.tenantId }, next);
   } catch (err) {
     if (err instanceof jwt.JsonWebTokenError || err instanceof jwt.NotBeforeError) {
       return next(new AppError('Invalid or expired token', 401));

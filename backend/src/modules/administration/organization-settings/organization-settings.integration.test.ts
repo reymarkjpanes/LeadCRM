@@ -6,7 +6,7 @@ import { issueAuthSession } from '../../../core/auth/auth-session';
 import app from '../../../app';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
-const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_environment_test_\d+$/.test(url.pathname);
+const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_account_test_\d+$/.test(url.pathname);
 describe.skipIf(!disposable)('organization and account settings over authenticated HTTP', () => {
   let server: Server, base: string, tenantId: string, otherTenantId: string, token: string, readerToken: string;
   async function call(path: string, method = 'GET', body?: unknown, bearer = token) {
@@ -34,10 +34,10 @@ describe.skipIf(!disposable)('organization and account settings over authenticat
   afterAll(async () => { if (server) await new Promise<void>(resolve => server.close(() => resolve())); await prisma.$disconnect(); });
 
   it('persists all six fields, reloads them, audits changes, and leaves another tenant unchanged', async () => {
-    const values = { name: ' Saved ', industry: 'IT', email: 'info@example.com', phone: '123', domain: 'example.com', address: 'Manila' };
+    const values = { name: ' Saved ', industry: 'IT', email: 'info@example.com', phone: '+63 (28) 123-3488', domain: 'example.com', address: 'Manila' };
     const saved = await call('/administration/organization-settings', 'PATCH', values);
     expect(saved.status).toBe(200);
-    expect(saved.body.data).toMatchObject({ ...values, name: 'Saved', id: tenantId });
+    expect(saved.body.data).toMatchObject({ ...values, name: 'Saved', phone: '+63281233488', id: tenantId });
     expect((await call('/administration/organization-settings')).body.data).toEqual(saved.body.data);
     expect(await prisma.tenant.findUnique({ where: { id: tenantId } })).toMatchObject({ domain: 'example.com', address: 'Manila' });
     expect((await prisma.tenant.findUniqueOrThrow({ where: { id: otherTenantId } })).name).toBe('Other tenant');
@@ -55,6 +55,19 @@ describe.skipIf(!disposable)('organization and account settings over authenticat
     }
   });
 
+  it('rejects malformed telephones before persistence and normalizes supported landline formats', async () => {
+    for (const phone of ['fbdfbdgddfg', '123', '+639123456789', '+1 281233488', '(28 123-3488', '28/123/3488', '<script>281233488</script>', 281233488]) {
+      const before = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+      const result = await call('/administration/organization-settings', 'PATCH', { phone });
+      expect(result.status).toBe(400); expect(result.body.fieldErrors.phone.length).toBeGreaterThan(0);
+      expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })).phone).toBe(before.phone);
+    }
+    for (const phone of ['+63 (28) 123-3488', '(28) 123-3488', '02 8123 3488']) {
+      expect((await call('/administration/organization-settings', 'PATCH', { phone })).body.data.phone).toBe('+63281233488');
+    }
+    expect((await call('/administration/organization-settings', 'PATCH', { phone: '(32) 123-4567' })).body.data.phone).toBe('+63321234567');
+  });
+
   it('removes timezone from database/auth and rejects obsolete profile payloads', async () => {
     const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns WHERE table_name = 'User' AND column_name = 'timeZone'`;
     expect(columns).toEqual([]);
@@ -62,18 +75,16 @@ describe.skipIf(!disposable)('organization and account settings over authenticat
     expect((await call('/auth/profile', 'PATCH', { firstName: 'Valid', timeZone: 'Asia/Manila' })).status).toBe(400);
   });
 
-  it('rejects invalid Tax IDs on create and update without storing them; preserves leading zeros and clearing', async () => {
-    const created = await call('/crm/accounts', 'POST', { name: 'Tax account', taxId: '012345678' });
+  it('creates and updates Accounts without retired fields or response properties', async () => {
+    const created = await call('/crm/accounts', 'POST', { name: 'Account', country: 'Philippines' });
     expect(created.status).toBe(201);
     const accountId = created.body.data.id;
-    for (const taxId of ['12345678', '1234567890', '12ABC6789', '123-456-789', '123 456789', 123456789]) {
-      expect((await call('/crm/accounts', 'POST', { name: 'Invalid account', taxId })).status).toBe(400);
-      expect((await call(`/crm/accounts/${accountId}`, 'PUT', { taxId })).status).toBe(400);
+    const updated = await call(`/crm/accounts/${accountId}`, 'PUT', { name: 'Saved account', industry: 'IT' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data).toMatchObject({ name: 'Saved account', industry: 'IT', country: 'Philippines' });
+    const saved = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+    for (const value of [created.body.data, updated.body.data, saved]) {
+      for (const field of ['taxId', 'customerType', 'customerSince']) expect(value).not.toHaveProperty(field);
     }
-    expect((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).taxId).toBe('012345678');
-    expect(await prisma.account.count({ where: { tenantId, name: 'Invalid account' } })).toBe(0);
-    expect((await call(`/crm/accounts/${accountId}`, 'PUT', { taxId: '' })).status).toBe(200);
-    expect((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).taxId).toBe('');
-    expect((await call('/crm/accounts', 'POST', { name: 'No tax ID' })).status).toBe(201);
   });
 });

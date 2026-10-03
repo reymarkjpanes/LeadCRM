@@ -10,7 +10,7 @@
  * every minute to ensure reliable delivery.
  */
 
-import { environmentContext } from '../environment/environment-context';
+import { tenantContext } from '../tenant/tenant-context';
 import prisma from '../../config/database.config';
 import { writeAuditLog } from '../audit/audit.service';
 
@@ -110,7 +110,7 @@ async function processDueCampaigns(): Promise<void> {
 
     for (const campaign of dueCampaigns) {
       try {
-        await environmentContext.run({ tenantId: campaign.tenantId, environment: campaign.environment }, () => processSingleCampaign(campaign as any));
+        await tenantContext.run({ tenantId: campaign.tenantId }, () => processSingleCampaign(campaign as any));
       } catch (error) {
         console.error(`[scheduler] Error processing campaign ${campaign.id}:`, error);
         
@@ -143,7 +143,7 @@ async function processDueCampaigns(): Promise<void> {
  */
 async function processSingleCampaign(campaign: ScheduledCampaign & { targetAudience?: any }): Promise<void> {
   // Email campaigns require the validated, explicit Send Now flow. Legacy scheduled
-  // email jobs must never bypass recipient exclusions or the CRM Sandbox safeguard.
+  // email jobs must never bypass recipient exclusions.
   if (campaign.type === 'EMAIL' || campaign.type === 'MULTI_CHANNEL') {
     await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'PAUSED' } });
     return;

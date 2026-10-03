@@ -1,4 +1,5 @@
-import { ForbiddenError, NotFoundError } from '../../../shared/errors/http-error';
+import { PERMISSION_MODULES, EMPTY_PERMISSION_FLAGS, type PermissionFlags, type ResolvedPermissions } from '@leadcrm/shared';
+import { ForbiddenError, NotFoundError, ConflictError } from '../../../shared/errors/http-error';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import { requireEmployeeAccount } from '../../../core/auth/account-access';
@@ -12,7 +13,7 @@ export async function findAllRoles(tenantId: string) {
     include: {
       _count: { select: { userRoles: true } },
       permissions: {
-        select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true },
+        select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true, canArchive: true, canImport: true, canManageStages: true, canComplete: true, canAssign: true, canSend: true, canDuplicate: true, canViewReports: true, canActivate: true, canViewRuns: true, canPublish: true, canViewSubmissions: true, canViewClosedWon: true, canDisable: true, canRestore: true },
       },
     },
   });
@@ -25,7 +26,7 @@ export async function findRoleById(id: string, tenantId: string) {
     include: {
       _count: { select: { userRoles: true } },
       permissions: {
-        select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true },
+        select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true, canArchive: true, canImport: true, canManageStages: true, canComplete: true, canAssign: true, canSend: true, canDuplicate: true, canViewReports: true, canActivate: true, canViewRuns: true, canPublish: true, canViewSubmissions: true, canViewClosedWon: true, canDisable: true, canRestore: true },
       },
       userRoles: {
         where: { tenantId },
@@ -51,9 +52,13 @@ export async function findRoleByName(name: string, tenantId: string) {
 export async function createRole(
   tenantId: string,
   data: { name: string; description?: string },
-  permissions: Array<{ module: string; canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>,
+  permissions: Array<PermissionFlags & { module: string }>,
 ) {
-  return prisma.$transaction(async (tx) => {
+  return roleNameTransaction(async (tx) => {
+    // Serialize tenant role-name writes so case-insensitive uniqueness survives races.
+    if (await tx.roleDefinition.findFirst({ where: { tenantId, name: { equals: data.name, mode: 'insensitive' } } })) {
+      throw new ConflictError('A role with this name already exists.');
+    }
     const role = await tx.roleDefinition.create({
       data: { tenantId, name: data.name, description: data.description, isSystemRole: false },
     });
@@ -62,17 +67,13 @@ export async function createRole(
         data: permissions.map((p) => ({
           tenantId,
           roleId: role.id,
-          module:    p.module,
-          canView:   p.canView,
-          canCreate: p.canCreate,
-          canEdit:   p.canEdit,
-          canDelete: p.canDelete,
+          ...EMPTY_PERMISSION_FLAGS, ...p,
         })),
       });
     }
     return tx.roleDefinition.findUniqueOrThrow({
       where: { id: role.id },
-      include: { permissions: { select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true } }, _count: { select: { userRoles: true } } },
+      include: { permissions: { select: { id: true, roleId: true, module: true, canView: true, canCreate: true, canEdit: true, canDelete: true, canArchive: true, canImport: true, canManageStages: true, canComplete: true, canAssign: true, canSend: true, canDuplicate: true, canViewReports: true, canActivate: true, canViewRuns: true, canPublish: true, canViewSubmissions: true, canViewClosedWon: true, canDisable: true, canRestore: true } }, _count: { select: { userRoles: true } } },
     });
   });
 }
@@ -85,7 +86,10 @@ export async function updateRoleMeta(
   const existing = await prisma.roleDefinition.findFirst({ where: { id, tenantId } });
   if (!existing) return null;
   if (existing.isSystemRole) return null;
-  return prisma.$transaction(async tx => {
+  return roleNameTransaction(async tx => {
+    if (data.name && await tx.roleDefinition.findFirst({ where: { tenantId, id: { not: id }, name: { equals: data.name, mode: 'insensitive' } } })) {
+      throw new ConflictError('A role with this name already exists.');
+    }
     const role = await tx.roleDefinition.update({ where: { id }, data });
     if (data.name && data.name !== existing.name) {
       await tx.user.updateMany({ where: { tenantId, role: existing.name }, data: { role: data.name } });
@@ -101,22 +105,22 @@ export async function updateRoleMeta(
 export async function upsertPermissions(
   roleId: string,
   tenantId: string,
-  permissions: Array<{ module: string; canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>,
+  permissions: Array<PermissionFlags & { module: string }>,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const incomingModules = permissions.map((p) => p.module);
 
     // Delete rows for modules not in the new set
     await tx.rolePermission.deleteMany({
-      where: { roleId, module: { notIn: incomingModules } },
+      where: { roleId, tenantId, module: { notIn: incomingModules } },
     });
 
     // Upsert each provided module row
     for (const p of permissions) {
       await tx.rolePermission.upsert({
         where: { roleId_module: { roleId, module: p.module } },
-        create: { tenantId, roleId, module: p.module, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete },
-        update: {                                        canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete },
+        create: { tenantId, roleId, ...EMPTY_PERMISSION_FLAGS, ...p },
+        update: { ...EMPTY_PERMISSION_FLAGS, ...p },
       });
     }
   });
@@ -145,7 +149,7 @@ export async function removeRoleFromUser(userId: string, roleId: string, tenantI
     const user = await tx.user.findFirst({ where: { id: userId, tenantId } });
     const role = await tx.roleDefinition.findFirst({ where: { id: roleId, tenantId } });
     if (!user || !role) throw new NotFoundError('User or role');
-    if (user.role === 'System Admin' || user.role === 'Client Admin' || user.role === role.name) {
+    if (user.role === 'Client Admin' || user.role === role.name) {
       throw new ForbiddenError('Assign a replacement custom role before removing the primary role');
     }
     return tx.userRole.deleteMany({ where: { userId, roleId, tenantId } });
@@ -165,23 +169,19 @@ export async function countActiveUserRoles(roleId: string, tenantId: string): Pr
 export async function findUserEffectivePermissions(
   userId: string,
   tenantId: string,
-): Promise<Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>> {
+): Promise<ResolvedPermissions> {
   const userRoles = await prisma.userRole.findMany({
     where: { userId, tenantId, user: { tenantId }, role: { tenantId, isArchived: false, NOT: { name: { equals: 'Guest', mode: 'insensitive' } } } },
     include: { role: { include: { permissions: { where: { tenantId } } } } },
   });
 
-  const resolved: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
-
+  const resolved: ResolvedPermissions = {};
   for (const ur of userRoles) {
     for (const perm of ur.role.permissions) {
-      if (!resolved[perm.module]) {
-        resolved[perm.module] = { canView: false, canCreate: false, canEdit: false, canDelete: false };
-      }
-      resolved[perm.module].canView   = resolved[perm.module].canView   || perm.canView;
-      resolved[perm.module].canCreate = resolved[perm.module].canCreate || perm.canCreate;
-      resolved[perm.module].canEdit   = resolved[perm.module].canEdit   || perm.canEdit;
-      resolved[perm.module].canDelete = resolved[perm.module].canDelete || perm.canDelete;
+      const module = PERMISSION_MODULES.find(m => m.key === perm.module);
+      if (!module) continue;
+      const flags = resolved[module.key] ??= { ...EMPTY_PERMISSION_FLAGS };
+      for (const action of module.actions) flags[action] = flags[action] || perm[action];
     }
   }
 
@@ -200,12 +200,21 @@ export async function replaceUserRole(
     tx.roleDefinition.findFirst({ where: { tenantId, name: roleName, isArchived: false } }),
   ]);
   if (!user || !role) throw new NotFoundError('User or role');
-  if (['System Admin', 'Client Admin'].includes(user.role) || role.isSystemRole ||
-      ['guest', 'systemadmin', 'clientadmin'].includes(role.name.toLowerCase().replace(/[\s_-]/g, ''))) {
+  if (['Client Admin'].includes(user.role) || role.isSystemRole ||
+      ['guest', 'clientadmin'].includes(role.name.toLowerCase().replace(/[\s_-]/g, ''))) {
     throw new ForbiddenError('Select an active custom role for a non-administrator user');
   }
   requireEmployeeAccount({ role: role.name, email: user.email });
   await tx.user.update({ where: { id: user.id }, data: { role: role.name } });
   await tx.userRole.deleteMany({ where: { userId, tenantId } });
   await tx.userRole.create({ data: { userId, tenantId, roleId: role.id } });
+}
+
+async function roleNameTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
+    catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034' || attempt >= 2) throw error;
+    }
+  }
 }

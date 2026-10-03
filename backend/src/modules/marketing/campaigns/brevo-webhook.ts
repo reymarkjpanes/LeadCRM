@@ -3,7 +3,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import prisma from '../../../config/database.config';
-import { environmentContext } from '../../../core/environment/environment-context';
+import { tenantContext } from '../../../core/tenant/tenant-context';
 import { AppError } from '../../../shared/errors/app-error';
 
 export const BrevoEventSchema = z.object({
@@ -25,8 +25,8 @@ export async function processBrevoEvent(input: unknown) {
   const log = await prisma.emailDeliveryLog.findFirst({ where: { brevoMessageId: { in: [rawId, bareId, `<${bareId}>`] }, toEmail: event.email.toLowerCase(), campaignId: { not: null } } });
   // A provider callback can race the send response. A retryable status avoids losing it.
   if (!log) throw new AppError('Delivery record is not available.', 503);
-  return environmentContext.run({ tenantId: log.tenantId, environment: log.environment }, async () => {
-    const scope = { tenantId: log.tenantId, environment: log.environment };
+  return tenantContext.run({ tenantId: log.tenantId }, async () => {
+    const scope = { tenantId: log.tenantId };
     const type = event.event === 'unique_opened' ? 'opened' : event.event === 'unsubscribed' ? 'unsubscribe' : event.event;
     await prisma.$transaction(async tx => {
       // Serialize events for this campaign so aggregate counters cannot overwrite newer values.

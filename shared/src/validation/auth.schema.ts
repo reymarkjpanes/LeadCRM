@@ -15,9 +15,8 @@ export const RegisterSchema = z.object({
   email: EmployeeEmailSchema,
   password: StrongPasswordSchema,
   acceptTerms: z.boolean().optional(),
-  invitationToken: z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
-  if (!data.invitationToken && data.acceptTerms !== true) {
+  if (data.acceptTerms !== true) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['acceptTerms'],

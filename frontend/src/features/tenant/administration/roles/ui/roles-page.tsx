@@ -15,7 +15,7 @@ import type { RoleListItem } from '@/store/types/roles.types';
 type Tab = 'roles' | 'permissions';
 
 export default function RolesPage(): React.ReactElement {
-  const canManage = useHasPermission('roles.manage');
+  const canManage = useHasPermission('roles.edit'), canCreate = useHasPermission('roles.create'), canArchive = useHasPermission('roles.archive');
   const [activeTab, setActiveTab] = useState<Tab>('roles');
 
   const {
@@ -68,7 +68,7 @@ export default function RolesPage(): React.ReactElement {
           >
             <RefreshCw size={14} />
           </button>
-          {canManage && (
+          {canCreate && (
             <button
               type="button"
               onClick={() => openBuilder()}
@@ -138,7 +138,7 @@ export default function RolesPage(): React.ReactElement {
               <p className="text-[13px]">
                 {searchQuery ? `No roles match "${searchQuery}"` : 'No roles created yet.'}
               </p>
-              {canManage && !searchQuery && (
+              {canCreate && !searchQuery && (
                 <button type="button" onClick={() => openBuilder()} className="mt-3 text-[12px] text-blue-600 dark:text-blue-400 underline">
                   Create your first role
                 </button>
@@ -154,6 +154,7 @@ export default function RolesPage(): React.ReactElement {
                   key={role.id}
                   role={role}
                   canEdit={canManage}
+                  canArchive={canArchive}
                   onEdit={r => openBuilder(r)}
                   onArchive={onArchive}
                   onViewDetail={openDetail}

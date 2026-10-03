@@ -31,7 +31,7 @@ export function useDashboard({
     const closedLeads = activeContacts.filter((c) => c.status === 'Closed').length;
 
     const pendingTasks = tasks.filter((t) => t.status === 'pending').length;
-    const inProgressTasks = tasks.filter((t) => t.status === 'in-progress').length;
+    const inProgressTasks = tasks.filter((t) => t.status === 'in_progress').length;
     const completedTasks = tasks.filter((t) => t.status === 'completed').length;
 
     const activeCampaigns = campaigns.filter(

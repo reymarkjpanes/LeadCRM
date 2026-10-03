@@ -562,7 +562,6 @@ select option {
   transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1) !important;
   border-width: 1.5px !important;
   border-style: solid !important;
-  position: relative !important;
 }
 
 /* Light mode backgrounds — soft tinted cards */

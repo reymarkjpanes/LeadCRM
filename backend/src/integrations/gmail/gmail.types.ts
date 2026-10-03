@@ -1,3 +1,4 @@
+import type { MailboxEmail } from '@leadcrm/shared';
 export interface GmailMessage {
   to: string | string[];
   subject: string;
@@ -11,17 +12,11 @@ export interface GmailTokens {
   expiry_date?: number;
 }
 
-export interface GmailEmail {
-  id: string;
-  threadId: string;
-  from: string;
-  to: string[];
-  subject: string;
-  snippet: string;
-  body: string;
-  date: string;
-  isRead: boolean;
-  labels: string[];
+export interface GmailEmail extends MailboxEmail {
+  cc?: string[];
+  plainText?: string;
+  rfcMessageId?: string;
+  automated?: boolean;
 }
 
 export interface GmailThread {

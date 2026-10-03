@@ -54,7 +54,7 @@ export function DealCardMenu({
 
   const canEdit = useHasPermission('deals.edit');
   const canCreate = useHasPermission('deals.create');
-  const canDelete = useHasPermission('deals.delete');
+  const canDelete = useHasPermission('deals.archive');
 
   const handleViewDetails = useCallback((): void => {
     router.push(`/crm/deals/${dealId}`);

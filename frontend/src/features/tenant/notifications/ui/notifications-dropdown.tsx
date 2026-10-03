@@ -13,6 +13,7 @@ import {
   X,
   ArrowRight
 } from 'lucide-react';
+import { notificationDestination } from '../notification-destination';
 import { useNotifications } from '../hooks/use-notifications';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -62,19 +63,24 @@ interface NotificationItemProps {
   id: string;
   type: string;
   title: string;
-  body?: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
   isRead: boolean;
   createdAt: string;
   onMarkRead: (id: string) => void;
+  onOpen?: () => void;
 }
 
-function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead }: NotificationItemProps) {
+function NotificationItem({ id, type, title, body, entityType, entityId, isRead, createdAt, onMarkRead, onOpen }: NotificationItemProps) {
+  const router = useRouter();
+  const open = () => { if (!isRead) onMarkRead(id); const destination = notificationDestination({ entityType, entityId }); if (destination) { onOpen?.(); router.push(destination); } };
   const { icon, bg } = getNotificationIcon(type);
   const timeAgo = formatDistanceToNow(new Date(createdAt), { addSuffix: true });
 
   return (
     <button
-      onClick={() => !isRead && onMarkRead(id)}
+      onClick={open}
       className={cn(
         'w-full flex items-start gap-3 p-3 rounded-lg transition-colors text-left',
         isRead
@@ -91,13 +97,13 @@ function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead
       {/* Content */}
       <div className="flex-1 min-w-0">
         <h3 className={cn(
-          'text-xs font-medium text-slate-900 dark:text-white mb-0.5 line-clamp-1',
+          'text-xs font-medium text-slate-900 dark:text-white mb-0.5 [overflow-wrap:anywhere]',
           !isRead && 'font-semibold'
         )}>
           {title}
         </h3>
         {body && (
-          <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mb-1">
+          <p className="text-xs text-slate-600 dark:text-slate-400 [overflow-wrap:anywhere] mb-1">
             {body}
           </p>
         )}
@@ -115,7 +121,7 @@ function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead
 }
 
 export default function NotificationsDropdown({ isOpen, onClose, triggerRef }: NotificationsDropdownProps) {
-  const { notifications, unreadCount, isLoading, markAsRead } = useNotifications();
+  const { notifications, unreadCount, isLoading, hasError, refresh, markAsRead } = useNotifications();
   const shouldReduce = useReducedMotion();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -206,7 +212,7 @@ export default function NotificationsDropdown({ isOpen, onClose, triggerRef }: N
                     Notifications
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    You have {unreadCount} notification{unreadCount !== 1 ? 's' : ''} today
+                    {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
                   </p>
                 </div>
                 <TooltipProvider>
@@ -240,7 +246,7 @@ export default function NotificationsDropdown({ isOpen, onClose, triggerRef }: N
                       </div>
                     ))}
                   </div>
-                ) : recentNotifications.length === 0 ? (
+                ) : hasError ? (<div role="alert" className="p-4 text-sm">Unable to load notifications. <button className="underline" onClick={() => void refresh()}>Retry</button></div>) : recentNotifications.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 px-4">
                     <Mail className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
                     <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">
@@ -252,108 +258,14 @@ export default function NotificationsDropdown({ isOpen, onClose, triggerRef }: N
                   </div>
                 ) : (
                   <div className="p-2">
-                    {/* Today Section */}
-                    {recentNotifications.some(n => {
-                      const today = new Date();
-                      const notifDate = new Date(n.createdAt);
-                      return notifDate.toDateString() === today.toDateString();
-                    }) && (
-                      <div className="mb-2">
-                        <h3 className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          Today
-                        </h3>
-                        <div className="space-y-1">
-                          {recentNotifications
-                            .filter(n => {
-                              const today = new Date();
-                              const notifDate = new Date(n.createdAt);
-                              return notifDate.toDateString() === today.toDateString();
-                            })
-                            .map(notification => (
-                              <NotificationItem
-                                key={notification.id}
-                                {...notification}
-                                onMarkRead={markAsRead}
-                              />
-                            ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Yesterday Section */}
-                    {recentNotifications.some(n => {
-                      const today = new Date();
-                      const yesterday = new Date(today);
-                      yesterday.setDate(yesterday.getDate() - 1);
-                      const notifDate = new Date(n.createdAt);
-                      return notifDate.toDateString() === yesterday.toDateString();
-                    }) && (
-                      <div className="mb-2">
-                        <h3 className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          Yesterday
-                        </h3>
-                        <div className="space-y-1">
-                          {recentNotifications
-                            .filter(n => {
-                              const today = new Date();
-                              const yesterday = new Date(today);
-                              yesterday.setDate(yesterday.getDate() - 1);
-                              const notifDate = new Date(n.createdAt);
-                              return notifDate.toDateString() === yesterday.toDateString();
-                            })
-                            .map(notification => (
-                              <NotificationItem
-                                key={notification.id}
-                                {...notification}
-                                onMarkRead={markAsRead}
-                              />
-                            ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Older notifications */}
-                    {recentNotifications.some(n => {
-                      const today = new Date();
-                      const yesterday = new Date(today);
-                      yesterday.setDate(yesterday.getDate() - 1);
-                      const notifDate = new Date(n.createdAt);
-                      return notifDate < yesterday;
-                    }) && (
-                      <div>
-                        <div className="space-y-1">
-                          {recentNotifications
-                            .filter(n => {
-                              const today = new Date();
-                              const yesterday = new Date(today);
-                              yesterday.setDate(yesterday.getDate() - 1);
-                              const notifDate = new Date(n.createdAt);
-                              return notifDate < yesterday;
-                            })
-                            .slice(0, 2)
-                            .map(notification => (
-                              <NotificationItem
-                                key={notification.id}
-                                {...notification}
-                                onMarkRead={markAsRead}
-                              />
-                            ))}
-                        </div>
-                      </div>
-                    )}
+                    {recentNotifications.map(notification => <NotificationItem key={notification.id} {...notification} onMarkRead={markAsRead} onOpen={onClose} />)}
                   </div>
                 )}
               </div>
-
-              {/* Footer - View All Button */}
               {recentNotifications.length > 0 && (
                 <div className="px-4 py-3 border-t border-gray-200 dark:border-white/[0.05]">
-                  <button
-                    onClick={handleViewAll}
-                    className="w-full h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
-                  >
-                    View All Notifications
-                    <ArrowRight className="w-4 h-4" />
+                  <button onClick={handleViewAll} className="w-full h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer">
+                    View All Notifications <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               )}

@@ -8,7 +8,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(repo.findRoleById).mockResolvedValue({ id: 'r', name: 'Sales', isSystemRole: false } as never);
 });
-it.each(['Guest', 'GUEST', 'guest', 'System Admin', 'SYSTEM_ADMIN', 'Client Admin', 'client-admin'])('blocks creation and rename to reserved identity %s', async name => {
+it.each(['Guest', 'GUEST', 'guest', 'Client Admin', 'client-admin'])('blocks creation and rename to reserved identity %s', async name => {
   await expect(createRole('t', 'u', { name, permissions: [] })).rejects.toThrow();
   await expect(updateRole('r', 't', 'u', { name })).rejects.toThrow();
   expect(repo.createRole).not.toHaveBeenCalled();

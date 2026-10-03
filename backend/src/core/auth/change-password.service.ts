@@ -21,7 +21,6 @@ export async function changePassword(actor: { userId: string; tenantId: string }
       passwordHash: await hashPassword(input.password), mustChangePassword: false, passwordChangedAt: new Date(),
     } });
     await tx.session.deleteMany({ where: { userId: user.id, ...(currentToken ? { tokenHash: { not: hashToken(currentToken) } } : {}) } });
-    await tx.mfaChallenge.deleteMany({ where: { userId: user.id } });
     await tx.passwordResetToken.deleteMany({ where: { userId: user.id } });
     await tx.auditLog.create({ data: {
       tenantId: user.tenantId, userId: user.id, action: 'PASSWORD_CHANGED', entityType: 'User', entityId: user.id,

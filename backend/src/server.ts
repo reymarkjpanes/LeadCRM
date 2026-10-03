@@ -1,8 +1,9 @@
 ﻿import 'dotenv/config';
 import app from './app';
+import { startNotificationScheduler } from './modules/notifications/notification-events.service';
+import { startMailboxScheduler } from './integrations/gmail/mailbox-sync.service';
 import { startCampaignScheduler } from './core/scheduler/campaign-scheduler.service';
 import { purgeExpiredSessions } from './core/auth/session.service';
-import { seedDemoAccounts } from './database/seeders/demo.seed';
 
 // Guard against missing required env vars at startup
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
@@ -13,7 +14,7 @@ for (const key of REQUIRED_ENV) {
 }
 
 // Email service — fail fast in production if Brevo is not configured.
-// Discovering a missing API key on the first registration attempt is worse
+// Discovering a missing API key on the first password recovery request is worse
 // than a clean startup failure with a clear diagnostic message.
 if (process.env.NODE_ENV === 'production') {
   const brevoKey = process.env.BREVO_API_KEY;
@@ -64,27 +65,10 @@ app.listen(PORT, () => {
   console.log(`[server] LeadCRM API running on http://localhost:${PORT}`);
   console.log(`[server] Environment: ${process.env.NODE_ENV ?? 'development'}`);
 
-  // ── Startup seed: repair system admin account ─────────────────────────
-  // Runs the idempotent demo account seeder on every boot so the system
-  // admin password hash in the DB always matches SYSTEM_ADMIN_PASSWORD from
-  // the current environment variables. This is the only reliable mechanism
-  // on Render's free plan (no shell access, no post-deploy hooks).
-  //
-  // Safety: all operations are upserts — never destructive. The seeder skips
-  // faker tenant generation when SKIP_DEMO_TENANTS=true. Takes ~200ms and
-  // runs non-blocking so it does not delay the server accepting connections.
-  seedDemoAccounts()
-    .then((seededEmail) => {
-      console.log(`[server] ✓ System admin seed completed: ${seededEmail}`);
-    })
-    .catch((err: unknown) => {
-      // Non-fatal — the server continues running. Log clearly so Render logs
-      // show exactly what went wrong (e.g. wrong SYSTEM_ADMIN_PASSWORD format).
-      console.error('[server] ⚠ System admin seed failed (non-fatal):', err instanceof Error ? err.message : err);
-    });
-
   // Start background services
   startCampaignScheduler();
+  startMailboxScheduler();
+  startNotificationScheduler();
   startSessionPurgeScheduler();
 
 

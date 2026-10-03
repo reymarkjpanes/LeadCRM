@@ -1,5 +1,6 @@
 'use client';
 
+import type { PermissionFlags } from '@leadcrm/shared';
 import { apiClient } from '@/lib/api/client';
 import type {
   RoleListItem,
@@ -11,25 +12,13 @@ import type {
 export interface CreateRolePayload {
   name:        string;
   description?: string;
-  permissions: Array<{
-    module:    string;
-    canView:   boolean;
-    canCreate: boolean;
-    canEdit:   boolean;
-    canDelete: boolean;
-  }>;
+  permissions: Array<PermissionFlags & { module: string }>;
 }
 
 export interface UpdateRolePayload {
   name?:        string;
   description?: string;
-  permissions?: Array<{
-    module:    string;
-    canView:   boolean;
-    canCreate: boolean;
-    canEdit:   boolean;
-    canDelete: boolean;
-  }>;
+  permissions?: Array<PermissionFlags & { module: string }>;
 }
 
 export const rolesApi = {

@@ -11,14 +11,11 @@ export interface Account {
   city?: string;
   province?: string;
   country?: string;
-  taxId?: string;
   assignedUserId?: string;
   tags?: string[];
   notes?: string;
   internalNotes?: string;
   productInterests?: string[];
-  customerType?: string;
-  customerSince?: string;
   activeProducts?: string[];
   createdAt: string;
   isArchived?: boolean;

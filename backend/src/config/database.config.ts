@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { installEnvironmentScoping } from '../core/environment/environment-prisma';
+import { installTenantScoping } from '../core/tenant/tenant-prisma';
 
 // ── Singleton raw Prisma client ───────────────────────
 // This is the default export used by all repositories and services.
@@ -7,7 +7,7 @@ import { installEnvironmentScoping } from '../core/environment/environment-prism
 const prisma = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
 });
-installEnvironmentScoping(prisma);
+installTenantScoping(prisma);
 
 export default prisma;
 

@@ -72,7 +72,7 @@ export function useRecordDetail({ module, id }: UseRecordDetailParams): UseRecor
   const [apiRecord, setApiRecord] = useState<Record<string, unknown> | null>(null);
   const [relationships, setRelationships] = useState<RelationshipData | null>(null);
   const { user } = useAuth();
-  const identity = [user?.id, user?.tenantId, user?.activeEnvironment, module, id].join(':');
+  const identity = [user?.id, user?.tenantId, module, id].join(':');
   const [loadedIdentity, setLoadedIdentity] = useState(identity);
   const sameIdentity = identity === loadedIdentity;
   const timeline = useRecordActivities(module, id, true, module === 'contacts' ? (sameIdentity ? relationships?.activities : []) ?? [] : undefined);

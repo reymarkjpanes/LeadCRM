@@ -12,6 +12,7 @@ export interface CreateNotificationParams {
   body?:       string;
   entityType?: string;
   entityId?:   string;
+  eventKey?:   string;
 }
 
 // ─── Write ────────────────────────────────────────────────────────────────────
@@ -27,17 +28,18 @@ export interface CreateNotificationParams {
  *   because userId is resolved inside the CRM service from real record data).
  */
 export async function createNotification(params: CreateNotificationParams): Promise<void> {
-  await prisma.notification.create({
-    data: {
-      tenantId:    params.tenantId,
-      userId:      params.userId,
-      type:        params.type,
-      title:       params.title,
-      body:        params.body,
-      entityType:  params.entityType,
-      entityId:    params.entityId,
-    },
+  try { await deliverNotification(params); }
+  catch { console.warn('[Notifications] Delivery failed', { tenantId: params.tenantId, type: params.type }); }
+}
+
+/** Worker uses the throwing variant so a failed delivery is retried without advancing its cursor. */
+export async function deliverNotification(params: CreateNotificationParams): Promise<void> {
+  if (!await prisma.user.findFirst({ where: { tenantId: params.tenantId, id: params.userId, status: 'ACTIVE' }, select: { id: true } })) return;
+  if (params.eventKey) await prisma.notification.upsert({
+    where: { tenantId_userId_eventKey: { tenantId: params.tenantId, userId: params.userId, eventKey: params.eventKey } },
+    create: params, update: {},
   });
+  else await prisma.notification.create({ data: params });
 }
 
 // ─── Read / Mark ──────────────────────────────────────────────────────────────

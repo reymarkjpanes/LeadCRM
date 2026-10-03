@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ leads: vi.fn(), contacts: vi.fn(), accounts: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 't' }, user: { id: 'u', activeEnvironment: 'PRODUCTION' } }) }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 't' }, user: { id: 'u', } }) }));
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ deals: [{ id: 'deal-id', title: 'Johnny deal', companyName: 'Jact' }] }) }));
 vi.mock('@/features/tenant/crm/leads/services/leads.service', () => ({ leadsService: { getAll: mocks.leads } }));
 vi.mock('@/features/tenant/crm/accounts/services/accounts.service', () => ({ accountsService: { getAll: mocks.accounts } }));

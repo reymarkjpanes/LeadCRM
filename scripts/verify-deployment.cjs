@@ -14,11 +14,9 @@ if (!origin || !/^[a-f0-9]{40}$/i.test(expectedCommit ?? '')) {
     throw new Error(`Backend deployment mismatch: expected ${expectedCommit}, received ${health.commit ?? 'unknown'}. Check API_URL and deploy the matching backend before releasing the frontend.`);
   }
   console.log(`PASS: frontend proxy reaches backend commit ${health.commit}`);
-  const environment = await fetch(new URL('/api/proxy/auth/environment', origin), {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ environment: 'SANDBOX' }), signal: AbortSignal.timeout(30000),
+  const session = await fetch(new URL('/api/proxy/auth/me', origin), {
+    cache: 'no-store', signal: AbortSignal.timeout(30000),
   });
-  // No session is sent: a registered, protected route must reject authentication.
-  if (environment.status !== 401) throw new Error(`Environment route check failed: expected HTTP 401 without a session, received ${environment.status}. Check the backend revision and proxy API_URL.`);
-  console.log('PASS: the environment route is deployed and requires authentication');
+  if (session.status !== 401) throw new Error(`Session route check failed: expected HTTP 401 without a session, received ${session.status}.`);
+  console.log('PASS: the session route requires authentication');
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

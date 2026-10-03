@@ -2,22 +2,9 @@
 
 import { apiClient } from '@/lib/api/client';
 
-export interface Notification {
-  id: string; tenantId: string; userId: string;
-  type: string; title: string; body?: string;
-  entityType?: string; entityId?: string;
-  isRead: boolean; readAt?: string; createdAt: string;
-}
+import type { NotificationsResponse } from '@leadcrm/shared';
+export type { NotificationRecord as Notification, NotificationsResponse } from '@leadcrm/shared';
 
-export interface NotificationsResponse {
-  success: boolean;
-  data: Notification[];
-  meta: { total: number; page: number; limit: number; hasMore: boolean };
-}
-
-// NOTE: Notifications are served from the backend Notification table.
-// Currently requires a dedicated notification route — add to administration
-// routes when the notification bell UI is wired up.
 export const notificationsApi = {
   list: (query: { page?: number; limit?: number; isRead?: boolean } = {}) => {
     const q = new URLSearchParams();

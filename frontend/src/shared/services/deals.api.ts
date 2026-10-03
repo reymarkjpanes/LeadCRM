@@ -2,6 +2,7 @@
 
 import { apiClient } from '@/lib/api/client';
 import type { Deal } from '@/store/types';
+import type { ClosedWonConfirmation } from '@leadcrm/shared';
 
 export interface DealsResponse {
   success: boolean;
@@ -22,6 +23,7 @@ export interface DealResponse {
 }
 
 export interface MoveDealStagePayload {
+  confirmation?: ClosedWonConfirmation;
   stageId: string;
   note?: string;
   lostReason?: string;

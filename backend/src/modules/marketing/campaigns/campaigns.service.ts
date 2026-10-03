@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
 import { Prisma, CampaignStatus, CampaignType } from '@prisma/client';
 import { z } from 'zod';
 import { CampaignDraftSchema, CampaignSendSchema, type CampaignSendResult } from '@leadcrm/shared';
@@ -13,14 +14,16 @@ import { sanitizeCampaignHtml, renderCampaignMessage } from './campaign-content'
 export async function getCampaigns(tenantId: string, query: Record<string, unknown>) {
   const { page, limit } = getPaginationParams(query);
   const where: Prisma.CampaignWhereInput = { ...campaignScope(tenantId), isArchived: query.archived === 'true',
-    ...(query.status ? { status: z.nativeEnum(CampaignStatus).parse(query.status) } : {}),
-    ...(query.type ? { type: z.nativeEnum(CampaignType).parse(query.type) } : {}),
-    ...(query.search ? { name: { contains: String(query.search).slice(0, 150), mode: 'insensitive' } } : {}) };
+    ...(query.status ? { status: { in: z.array(z.nativeEnum(CampaignStatus)).parse(String(query.status).split(',')) } } : {}),
+    ...(query.type ? { type: { in: z.array(z.nativeEnum(CampaignType)).parse(String(query.type).split(',')) } } : {}),
+    ...(query.search ? { OR: ['name', 'subject'].map(field => ({ [field]: { contains: String(query.search).slice(0, 150), mode: 'insensitive' as const } })) } : {}) };
+  const ids = await sortedPageIds(query.sort === 'createdAt:desc' ? undefined : query.sort, ['name', 'type', 'status', 'createdAt'], (page - 1) * limit, limit,
+    () => prisma.campaign.findMany({ where, select: { id: true, name: true, type: true, status: true, createdAt: true } }));
   const [data, total] = await Promise.all([
-    prisma.campaign.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: { targetAudience: { select: { name: true } } } }),
+    prisma.campaign.findMany({ where: ids ? { ...where, id: { in: ids } } : where, skip: ids ? 0 : (page - 1) * limit, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], include: { targetAudience: { select: { name: true } } } }),
     prisma.campaign.count({ where }),
   ]);
-  return paginate(data, total, { page, limit });
+  return paginate(orderPage(data, ids), total, { page, limit });
 }
 export async function getCampaignById(id: string, tenantId: string) {
   const c = await prisma.campaign.findFirst({ where: { id, ...campaignScope(tenantId) } });
@@ -83,7 +86,7 @@ async function prepareCampaign(id: string, tenantId: string) {
     const definition = await audienceDefinition(tenantId, campaign.targetAudienceId, campaign.audienceSource, tx);
     const resolved = await resolveAudience(tenantId, definition, tx);
     const eligible = resolved.records.filter(r => !r.reason);
-    if (!eligible.length) throw new AppError('No eligible recipients. Check audience exclusions and the Sandbox email allowlist.', 400);
+    if (!eligible.length) throw new AppError('No eligible recipients. Check audience exclusions.', 400);
     const limit = Number(process.env.BREVO_DAILY_EMAIL_LIMIT || 300);
     if (!Number.isSafeInteger(limit) || limit < 1) throw new AppError('Campaign daily limit is not configured correctly.', 503);
     const day = new Date().toISOString().slice(0, 10);
@@ -182,4 +185,9 @@ export async function archiveCampaign(id: string, tenantId: string, userId: stri
   const result = await prisma.campaign.updateMany({ where: { id, ...campaignScope(tenantId), status: { not: 'SENDING' } }, data: { isArchived: true } });
   if (!result.count) throw new AppError('A sending campaign cannot be archived.', 409);
   await writeAuditLog({ tenantId, userId, action: 'campaign.archived', entityType: 'Campaign', entityId: id });
+}
+
+export async function duplicateCampaign(id: string, tenantId: string, userId: string) {
+  const original = await getCampaignById(id, tenantId);
+  return createCampaign(tenantId, userId, { name: original.name.slice(0, 140) + ' (Copy)', type: original.type, subject: original.subject ?? '', body: original.body ?? '', targetAudienceId: original.targetAudienceId, audienceSource: original.audienceSource, emailTemplateId: original.emailTemplateId, smsTemplateId: original.smsTemplateId });
 }

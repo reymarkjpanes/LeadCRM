@@ -1,4 +1,7 @@
 'use client';
+import dynamic from 'next/dynamic';
+const ClosingRecordPanel = dynamic(() => import('@/shared/components/crm/crm-record-view').then(module => module.CrmRecordPanel), { ssr: false });
+import {taskAssociationIds, taskAssociationPatch} from "@leadcrm/shared";
 
 import { isOnboardingComplete, WorkflowDraftSchema, type WorkflowDraft } from "@leadcrm/shared";
 import React, {
@@ -21,7 +24,6 @@ import {
   Workflow,
   Campaign,
   User,
-  Tenant,
   Template,
   RoleDefinition,
   Permission,
@@ -52,6 +54,8 @@ import { leadsService as contactsService } from "@/features/tenant/crm/leads/ser
 import { accountsService as organizationsService } from "@/features/tenant/crm/accounts/services/accounts.service";
 import { pipelineService } from "@/features/tenant/crm/pipeline/services/pipeline.service";
 import { activitiesService } from "@/features/tenant/crm/activities/services/activities.service";
+import { CreateTaskSchema, UpdateTaskSchema, TaskBulkSchema, TaskStatusSchema, type CreateTaskInput, type TaskBulkInput, type TaskBulkResult, type TaskListQuery, type TaskPage, type TaskSummary } from '@leadcrm/shared';
+import { useTaskQueries, taskDueInstant } from '@/features/tenant/operations/tasks/task-data';
 import { tasksApi } from "@/shared/services/tasks.api";
 import { workflowsApi } from "@/shared/services/workflows.api";
 import { campaignsApi } from "@/shared/services/campaigns.api";
@@ -95,8 +99,12 @@ interface DataContextType {
   rolesError: string;
   refreshRoles: () => Promise<void>;
   users: User[];
-  tenants: Tenant[];
   tasks: Task[];
+  tasksRevision: number;
+  queryTasks: (query?: TaskListQuery) => Promise<TaskPage>;
+  queryTaskSummary: (query?: TaskListQuery) => Promise<TaskSummary>;
+  refreshTasks: () => void;
+  bulkTasks: (input: TaskBulkInput) => Promise<TaskBulkResult>;
   activities: Activity[];
   addActivity: (activity: Omit<Activity, 'id' | 'tenantId'>) => void;
   auditLogs: AuditLog[];
@@ -106,6 +114,7 @@ interface DataContextType {
   refreshContacts: () => Promise<void>;
   refreshOrganizations: () => Promise<void>;
   refreshDeals: () => Promise<void>;
+  refreshPipelines: () => Promise<void>;
   updateContact: (id: string, updates: Partial<Contact>) => Promise<void>;
   addOrganization: (
     org: Omit<Organization, "id" | "tenantId" | "createdAt">,
@@ -118,7 +127,7 @@ interface DataContextType {
   addPipeline: (pipeline: Omit<Pipeline, "id" | "tenantId">) => Promise<void>;
   updatePipeline: (id: string, updates: Partial<Pipeline>) => Promise<void>;
   deletePipeline: (id: string) => Promise<void>;
-  addTask: (task: Omit<Task, "id" | "tenantId" | "createdAt">) => Promise<void>;
+  addTask: (task: CreateTaskInput) => Promise<void>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   addWorkflow: (
@@ -167,9 +176,6 @@ interface DataContextType {
     id: string,
   ) => void;
   resetDemoData: () => void;
-  approveTenant: (id: string) => void;
-  rejectTenant: (id: string) => void;
-  suspendTenant: (id: string) => void;
   addAuditLog: (action: string, details: string) => void;
 
   // Column Preferences
@@ -179,87 +185,7 @@ interface DataContextType {
   resetColumnPreference: (module: string) => Promise<void>;
 }
 
-const MOCK_AUDIT_LO·S: AuditLog[] = [
-  {
-    id: "log_seed_1",
-    userId: "user_client_admin",
-    userEmail: "admin@democorp.com",
-    action: "Auth Login",
-    details:
-      "User authenticated successfully via active MFA token from Chrome browser agent.",
-    timestamp: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-    ipAddress: "192.168.1.15",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_2",
-    userId: "user_sales_1",
-    userEmail: "bob@democorp.com",
-    action: "Contact Created",
-    details:
-      "Added a new contact profile for company 'Starlight Ventures' (Contact name: Chloe Starlight) with status 'New'.",
-    timestamp: new Date(Date.now() - 10 * 3600 * 1000).toISOString(),
-    ipAddress: "192.168.1.27",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_3",
-    userId: "user_sales_1",
-    userEmail: "bob@democorp.com",
-    action: "Deal Updated",
-    details:
-      "Updated pipeline stage from 'Prospecting' to 'Proposal Sent' for active commercial deal 'Enterprise SaaS Expansion'.",
-    timestamp: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-    ipAddress: "192.168.1.27",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_4",
-    userId: "user_client_admin",
-    userEmail: "admin@democorp.com",
-    action: "Role Updated",
-    details:
-      "Updated access definitions and user authorization parameters for role: 'User'.",
-    timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    ipAddress: "192.168.1.15",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_5",
-    userId: "system",
-    userEmail: "system@leadcrm.com",
-    action: "Workflow Automation",
-    details:
-      "Triggered business workflow automation rule 'New Contact Auto-responder' for context 'Starlight Ventures'.",
-    timestamp: new Date(Date.now() - 36 * 3600 * 1000).toISOString(),
-    ipAddress: "127.0.0.1",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_6",
-    userId: "user_client_admin",
-    userEmail: "admin@democorp.com",
-    action: "Auth MFA Update",
-    details:
-      "Enabled mandatory Multi-Factor Authentication (MFA) challenge for administrative workspace safety verification.",
-    timestamp: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
-    ipAddress: "192.168.1.15",
-    tenantId: "tenant_demo",
-  },
-  {
-    id: "log_seed_7",
-    userId: "user_super",
-    userEmail: "super@leadcrm.com",
-    action: "System Health Check",
-    details:
-      "Tenant directory automated resource allocation quota & memory utilization status verified successfully.",
-    timestamp: new Date(Date.now() - 60 * 3600 * 1000).toISOString(),
-    ipAddress: "10.0.0.2",
-    tenantId: "system",
-  },
-];
-
-// ── Column Preferences: System Default (fallback when API unavailable) ────────
+// Column defaults remain available when preferences cannot be loaded.
 const LEADS_SYSTEM_DEFAULT: ColumnConfigItem[] = [
   { id: 'firstName', visible: true, order: 0 },
   { id: 'lastName', visible: true, order: 1 },
@@ -278,12 +204,12 @@ const LEADS_SYSTEM_DEFAULT: ColumnConfigItem[] = [
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { user, tenant, userCan } = useAuth();
-  const workspaceReady = Boolean(user && (user.role === "System Admin" ||
-    (user.status?.toUpperCase() === "ACTIVE" && !user.mustChangePassword &&
-      (user.role !== "Client Admin" || isOnboardingComplete(user)))));
+  const [closingDealId, setClosingDealId] = useState<string>();
+  const { user, tenant, userCan, isLoading: authLoading, authError } = useAuth();
+  const workspaceReady = Boolean(!authLoading && !authError && user && (user.status?.toUpperCase() === "ACTIVE" && !user.mustChangePassword &&
+      (user.role !== "Client Admin" || isOnboardingComplete(user))));
 
-  const dataIdentity = `${user?.id ?? ''}:${tenant?.id ?? ''}:${workspaceReady}:${user?.activeEnvironment ?? ''}`;
+  const dataIdentity = `${user?.id ?? ''}:${tenant?.id ?? ''}:${workspaceReady}`;
   const dataIdentityRef = useRef(dataIdentity);
   dataIdentityRef.current = dataIdentity;
 
@@ -315,9 +241,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const roleIdentity = `${user?.id ?? ''}:${tenant?.id ?? ''}:${workspaceReady}`;
   const roleIdentityRef = useRef(roleIdentity);
   roleIdentityRef.current = roleIdentity;
+  const canReadRoles = userCan('roles', 'canView');
   const refreshRoles = useCallback(async () => {
     const identity = roleIdentityRef.current;
-    if (!workspaceReady || !tenant?.id) { setRolesLoading(false); return; }
+    if (!workspaceReady || !tenant?.id || !canReadRoles) { setRoles([]); setPermissions([]); setRolesLoading(false); return; }
     setRolesLoading(true); setRolesError('');
     try {
       const [rows, registry] = await Promise.all([rolesService.getAll(), rolesApi.getPermissionModules()]);
@@ -328,7 +255,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       if (identity === roleIdentityRef.current) setRolesLoading(false);
     }
-  }, [workspaceReady, tenant?.id, user?.id]);
+  }, [workspaceReady, tenant?.id, user?.id, canReadRoles]);
   useLayoutEffect(() => {
     setRoles([]); setPermissions([]);
     // Discard obsolete browser-only security data; the API is authoritative in every mode.
@@ -336,8 +263,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     void refreshRoles();
   }, [refreshRoles]);
   const [users, setUsers] = useState<User[]>([]);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const taskRows = useMemo(() => USE_MOCK_DATA ? tasks.map(task => ({
+    ...task,
+    leads: taskAssociationIds(task,"lead").flatMap(id=>contacts.find(record=>record.id===id) ?? task.leads?.find(record=>record.id===id) ?? []),
+    deals: taskAssociationIds(task,"deal").flatMap(id=>deals.find(record=>record.id===id) ?? task.deals?.find(record=>record.id===id) ?? []),
+    accounts: taskAssociationIds(task,"account").flatMap(id=>organizations.find(record=>record.id===id) ?? task.accounts?.find(record=>record.id===id) ?? []),
+    assignedUser: users.find(person => person.id === task.assignedUserId) ?? task.assignedUser,
+    lead: contacts.find(record => record.id === task.leadId) ?? task.lead,
+    deal: deals.find(record => record.id === task.dealId) ?? task.deal,
+    account: organizations.find(record => record.id === task.accountId) ?? task.account,
+  })) : tasks, [tasks, users, contacts, deals, organizations]);
+  const taskQueries = useTaskQueries(dataIdentity, taskRows, USE_MOCK_DATA);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
@@ -440,28 +377,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       //   ✅ auditLogs  → TimelineDrawer fetches on-demand
       //   ✅ campaigns  → useCampaignsData hook (campaigns-page.tsx)
       //   ✅ templates  → useCampaignsData hook (same)
-      // Batch 2 REMAINING (cross-module consumers — tasks: dashboard, RecordPanels,
-      //   deals-page, leads-table; workflows: workflows-page, campaign-builder):
-      setTimeout(async () => {
-        if (!isCurrent()) return;
-        // Use allSettled so a single permission-restricted module (e.g. workflows without view permission)
-        // does not abort loading the other.
-        const [tasksRes, workflowsRes] = await Promise.allSettled([
-          tasksApi.list({ limit: 100 }),
-          refreshWorkflows(),
-        ]);
-
-        if (!isCurrent()) return;
-        // Fulfilled → set state; rejected (e.g. permission-restricted 403) → default to empty.
-        setTasks(tasksRes.status === 'fulfilled' ? ((tasksRes.value?.data ?? []) as Task[]) : []);
-
-        // A permission-restricted 403 for a restricted role is expected — keep it quiet.
-        const rejected = [tasksRes, workflowsRes]
-          .filter((settledResult): settledResult is PromiseRejectedResult => settledResult.status === 'rejected');
-        if (rejected.length > 0) {
-          console.debug('[DataContext] Some secondary modules unavailable (likely permission-restricted):', rejected.map((r) => r.reason?.message ?? r.reason));
-        }
-      }, 0);
+      // Tasks are queried on demand by their existing DataProvider owner.
+      void refreshWorkflows();
 
       return; // Exit — mock path below is skipped in real mode
 
@@ -521,7 +438,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
               industry: lead.businessType || lead.industry || "",
               size: lead.companySize || "",
               website: lead.orgWebsite || "",
-              taxId: lead.taxId || "",
               assignedUserId: lead.assignedUserId || "",
               createdAt: lead.createdAt || new Date().toISOString(),
             });
@@ -560,34 +476,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const c: Campaign[] = []; // Campaign business data is fetched through backend APIs.
     const tpl: Template[] = [];
     const u = safeParse("leadcrm_users", MOCK_USERS);
-    const t = safeParse("leadcrm_tenants", MOCK_TENANTS).map((tenant: Tenant) => {
-      if (tenant.environment !== "none" && !tenant.healthMetrics) {
-        const cpuUsage = Math.floor(Math.random() * 90) + 5;
-        const memoryUsage = Math.floor(Math.random() * 90) + 10;
-        const storageUsage = Math.floor(Math.random() * 80) + 20;
-        let status: "healthy" | "warning" | "critical" = "healthy";
-
-        if (cpuUsage > 90 || memoryUsage > 90 || storageUsage > 90) {
-          status = "critical";
-        } else if (cpuUsage > 70 || memoryUsage > 70 || storageUsage > 70) {
-          status = "warning";
-        }
-
-        return {
-          ...tenant,
-          healthMetrics: {
-            cpuUsage,
-            memoryUsage,
-            storageUsage,
-            uptime: (99 + Math.random()).toFixed(1) + "%",
-            status,
-            lastCheck: new Date().toISOString(),
-          },
-        };
-      }
-      return tenant;
-    });
-    const tsk = safeParse("leadcrm_tasks", MOCK_TASKS ?? []);
+    const tsk = safeParse<Task[]>("leadcrm_tasks", MOCK_TASKS ?? []).map(task => ({ ...task, status: TaskStatusSchema.parse(task.status) }));
     const logs = safeParse("leadcrm_audit_logs", [] as AuditLog[]);
     if (!localStorage.getItem("leadcrm_audit_logs")) {
       localStorage.setItem("leadcrm_audit_logs", JSON.stringify([]));
@@ -598,24 +487,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Column preferences: use system default in mock mode
     setColumnPreferences(prev => ({ ...prev, leads: LEADS_SYSTEM_DEFAULT }));
 
-    if (user?.role?.toLowerCase() === "system admin") {
-      setContacts(l);
-      setDeals(d);
-      setPipelines(p);
-      setCampaigns(c);
-      setTemplates(tpl);
-      setUsers(u);
-      setTenants(t);
-      setTasks(tsk);
-      
-      setActivities(activityData);
-      
-      
-    } else if (tenant) {
+    if (tenant) {
       setAuditLogs(
         logs.filter((log: any) => !log.tenantId || log.tenantId === tenant.id),
       );
-      const canViewAllLeads = userCan('contacts', 'canView');
+      const canViewAllLeads = userCan('leads', 'canView');
       const canViewAllDeals = userCan('deals', 'canView');
 
       let filteredLeads = l.filter((x: any) => x.tenantId === tenant.id);
@@ -640,7 +516,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setCampaigns(c.filter((x: any) => x.tenantId === tenant.id));
       setTemplates(tpl.filter((x: any) => x.tenantId === tenant.id));
       setUsers(u.filter((x: any) => x.tenantId === tenant.id));
-      setTenants(t.filter((x: any) => x.id === tenant.id));
       setTasks(tsk.filter((x: any) => x.tenantId === tenant.id));
       
       
@@ -656,7 +531,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setWorkflows([]); setCampaigns([]); setTemplates([]); setTasks([]);
       setWorkflowsError(''); setWorkflowsLoading(workspaceReady);
       if (loadedSharedIdentity.current !== sharedIdentity) {
-        setUsers([]); setTenants([]);
+        setUsers([]);
       }
         
       setActivities([]);   setAuditLogs([]);
@@ -666,7 +541,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!USE_MOCK_DATA && !workspaceReady) return;
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, tenant?.id, workspaceReady, user?.activeEnvironment]);
+  }, [user?.id, tenant?.id, workspaceReady]);
 
   const saveAndSet = (key: string, data: any[], setter: any) => {
     const allData = JSON.parse(localStorage.getItem(key) || "[]");
@@ -769,6 +644,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /** Refresh shared pipeline selectors after a database-backed restore. */
+  const refreshPipelines = async (): Promise<void> => {
+    if (USE_MOCK_DATA || !user) return;
+    const identity = dataIdentityRef.current;
+    const result = await pipelineService.getPipelines();
+    if (identity === dataIdentityRef.current) {
+      setPipelines((result.data ?? []).map(toFrontendPipeline).filter(pipeline => !pipeline.isArchived));
+    }
+  };
+
   /** Re-fetch deals from the API and update state */
   const refreshDeals = async (): Promise<void> => {
     if (USE_MOCK_DATA || !user) return;
@@ -793,6 +678,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Invalidate leads + contacts page cache so next navigation shows fresh data
         const cTenantId = tenant?.id || user?.tenantId || '';
         invalidatePageCache('leads',    cTenantId);
+        invalidatePageCache('deals', cTenantId);
         invalidatePageCache('contacts', cTenantId);
         addAuditLog(
           "Contact Created",
@@ -1086,6 +972,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const moveDealStage = async (id: string, stageId: string, note?: string, lostReason?: string, handoff?: any): Promise<void> => {
+    const targetStage = pipelines.flatMap(pipeline => pipeline.stages).find(stage => stage.id === stageId);
     if (!USE_MOCK_DATA) {
       try {
         const res = await pipelineService.moveDealStage(id, { stageId, note, lostReason, handoff });
@@ -1094,20 +981,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
         const deal = toFrontendDeal(rawDeal) as Deal;
         setDeals((prev) => prev.map((d) => (d.id === id ? deal : d)));
 
-        const pLine = pipelines.find((p) => p.id === deal.pipelineId);
-        const newName = pLine?.stages.find((s) => s.id === stageId)?.name || stageId;
-        addAuditLog("Deal Stage Changed", `Moved deal '${deal.title}' to stage '${newName}'.`, id);
-        addActivity({
-          type: 'stage_change',
-          relatedToType: 'deal',
-          relatedToId: deal.id,
-          title: `Deal moved to new stage`,
-          createdBy: user?.id || 'system',
-          createdAt: new Date().toISOString(),
-          metadata: { newStageId: stageId },
-        });
+        // The stage API commits activity and history in the same transaction.
+        for (const module of ['deals', 'activities', 'leads', 'contacts', 'accounts']) {
+          invalidatePageCache(module, tenant?.id || user?.tenantId || '');
+        }
       } catch (err) {
         console.error("Failed to move deal stage", err);
+        if (targetStage?.isWon && (err as { status?: number }).status === 400) {
+          const event = new CustomEvent('deal-closing-required', { detail: id, cancelable: true });
+          window.dispatchEvent(event);
+          if (!event.defaultPrevented) setClosingDealId(id);
+        }
         throw err;
       }
     } else {
@@ -1354,108 +1238,75 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addTask = async (taskData: any) => {
-    if (!tenant) return;
+  const addTask = async (taskData: CreateTaskInput): Promise<void> => {
+    if (!tenant || !user) throw new Error('Sign in to a workspace first.');
+    const identity = dataIdentityRef.current;
+    const dto = CreateTaskSchema.parse({ ...taskData, dueDate: taskDueInstant(taskData.dueDate) });
     const now = new Date().toISOString();
-
-    if (!USE_MOCK_DATA) {
-      try {
-        const dto = {
-          title:          taskData.title,
-          description:    taskData.description || undefined,
-          status:         (taskData.status || 'pending') as 'pending' | 'in_progress' | 'blocked' | 'completed' | 'cancelled',
-          priority:       (taskData.priority || 'Medium') as 'Low' | 'Medium' | 'High',
-          dueDate:        taskData.dueDate ? (taskData.dueDate.includes('T') ? taskData.dueDate : `${taskData.dueDate}T00:00:00.000Z`) : new Date(Date.now() + 7 * 86400000).toISOString(),
-          assignedUserId: taskData.assignedUserId,
-          dealId:         taskData.dealId || undefined,
-          leadId:         taskData.leadId || undefined,
-          accountId:      taskData.accountId || undefined,
-          contactId:      taskData.contactId || undefined,
-          organizationId: taskData.organizationId || undefined,
-        };
-        const res = await tasksApi.create(dto as any);
-        const created = res?.data ?? res;
-        setTasks((prev) => [created as Task, ...prev]);
-        addAuditLog("Task Created", `Created task '${dto.title}'.`);
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : "Failed to create task");
-      }
-      return;
-    }
-
-    const newTask: Task = {
-      ...taskData,
-      id: uuid(),
-      tenantId: tenant.id,
-      createdAt: now,
-      assignedBy: taskData.assignedBy || user?.id || 'system',
-      assignmentHistory: [
-        {
-          assignedTo: taskData.assignedUserId || 'system',
-          assignedBy: taskData.assignedBy || user?.id || 'system',
-          assignedAt: now,
-          reason: taskData.assignReason,
-        },
-      ],
-    };
-    const newTasks = [...tasks, newTask];
-    saveAndSet("leadcrm_tasks", newTasks, setTasks);
-    addAuditLog("Task Created", `Created task '${newTask.title}'.`);
-  };
-
-  const updateTask = async (id: string, updates: Partial<Task>) => {
-    if (!USE_MOCK_DATA) {
-      try {
-        const dto: Record<string, unknown> = { ...updates };
-        if (dto.dueDate && typeof dto.dueDate === 'string' && !dto.dueDate.includes('T')) {
-          dto.dueDate = `${dto.dueDate}T00:00:00.000Z`;
-        }
-        const res = await tasksApi.update(id, dto as any);
-        const updated = res?.data ?? res;
-        setTasks((prev) => prev.map((t) => (t.id === id ? (updated as Task) : t)));
-        addAuditLog("Task Updated", `Updated task '${(updated as any).title || id}'.`);
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : "Failed to update task");
-      }
-      return;
-    }
-
-    const original = tasks.find((t) => t.id === id);
-    const newTasks = tasks.map((t) => {
-      if (t.id !== id) return t;
-      const updated = { ...t, ...updates };
-      if (updates.assignedUserId && updates.assignedUserId !== t.assignedUserId) {
-        const record: import('./types').TaskAssignmentRecord = {
-          assignedTo: updates.assignedUserId,
-          assignedBy: user?.id || 'system',
-          assignedAt: new Date().toISOString(),
-          previousAssignee: t.assignedUserId || undefined,
-          reason: (updates as any).reassignReason,
-        };
-        updated.assignmentHistory = [...(t.assignmentHistory || []), record];
-        updated.assignedBy = user?.id || 'system';
-      }
-      return updated;
+    const created: Task = USE_MOCK_DATA ? {
+      ...dto, ...taskAssociationPatch(dto), description: dto.description ?? '', id: uuid(), tenantId: tenant.id, createdAt: now,
+      assignedById: user.id, completedAt: dto.status === 'completed' ? now : null,
+      completedById: dto.status === 'completed' ? user.id : null,
+    } : (await tasksApi.create(dto)).data;
+    if (identity !== dataIdentityRef.current) return;
+    setTasks(previous => {
+      const next = [created, ...previous];
+      if (USE_MOCK_DATA) localStorage.setItem('leadcrm_tasks', JSON.stringify(next));
+      return next;
     });
-    saveAndSet("leadcrm_tasks", newTasks, setTasks);
-    if (original) addAuditLog("Task Updated", `Modified task '${original.title}'.`);
+    taskQueries.refreshTasks();
   };
 
-  const deleteTask = async (id: string) => {
-    const original = tasks.find((t) => t.id === id);
+  const updateTask = async (id: string, updates: Partial<Task>): Promise<void> => {
+    const identity = dataIdentityRef.current;
+    const dto = UpdateTaskSchema.parse({ ...updates, ...(updates.dueDate ? { dueDate: taskDueInstant(updates.dueDate) } : {}) });
+    const updated = USE_MOCK_DATA ? null : (await tasksApi.update(id, dto)).data;
+    if (identity !== dataIdentityRef.current) return;
+    setTasks(previous => {
+      const next = previous.map(task => {
+        if (task.id !== id) return task;
+        if (updated) return updated;
+        const completed = dto.status === 'completed';
+        return { ...task, ...dto, ...taskAssociationPatch(dto), description: dto.description === undefined ? task.description : dto.description ?? '',
+          ...(dto.status === undefined ? {} : { completedAt: completed ? task.completedAt ?? new Date().toISOString() : null, completedById: completed ? task.completedById ?? user?.id : null }),
+          ...(dto.assignedUserId && dto.assignedUserId !== task.assignedUserId ? { assignedById: user?.id } : {}) };
+      });
+      if (USE_MOCK_DATA) localStorage.setItem('leadcrm_tasks', JSON.stringify(next));
+      return next;
+    });
+    taskQueries.refreshTasks();
+  };
+
+  const deleteTask = async (id: string): Promise<void> => {
+    const identity = dataIdentityRef.current;
+    if (!USE_MOCK_DATA) await tasksApi.archive(id);
+    if (identity !== dataIdentityRef.current) return;
+    setTasks(previous => {
+      const next = previous.map(task => task.id === id ? { ...task, isArchived: true } : task);
+      if (USE_MOCK_DATA) localStorage.setItem('leadcrm_tasks', JSON.stringify(next));
+      return next;
+    });
+    taskQueries.refreshTasks();
+  };
+
+  const bulkTasks = async (input: TaskBulkInput): Promise<TaskBulkResult> => {
+    const dto = TaskBulkSchema.parse(input);
+    const identity = dataIdentityRef.current;
     if (!USE_MOCK_DATA) {
-      try {
-        await tasksApi.archive(id);
-        setTasks((prev) => prev.filter((t) => t.id !== id));
-        addAuditLog("Task Deleted", `Deleted task '${original?.title || id}'.`);
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : "Failed to delete task");
-      }
-      return;
+      const result = (await tasksApi.bulk(dto)).data;
+      if (identity === dataIdentityRef.current) taskQueries.refreshTasks();
+      return result;
     }
-    const newTasks = tasks.filter((t) => t.id !== id);
-    saveAndSet("leadcrm_tasks", newTasks, setTasks);
-    addAuditLog("Task Deleted", `Deleted task '${original?.title || id}'.`);
+    const result: TaskBulkResult = { succeeded: [], failed: [] };
+    for (const id of dto.ids) {
+      try {
+        if (!tasks.some(task => task.id === id && !task.isArchived)) throw new Error('Task not found.');
+        if (dto.operation === 'archive') await deleteTask(id);
+        else await updateTask(id, dto.operation === 'complete' ? { status: 'completed' } : dto.operation === 'assign' ? { assignedUserId: dto.assignedUserId } : { dueDate: dto.dueDate });
+        result.succeeded.push(id);
+      } catch (error) { result.failed.push({ id, error: error instanceof Error ? error.message : 'Task update failed.' }); }
+    }
+    return result;
   };
 
   const addWorkflow = async (workflowData: WorkflowDraft) => {
@@ -1804,9 +1655,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const updatedLogs = [newLog, ...allLogs].slice(0, 500); // Keep last 500 logs
     localStorage.setItem("leadcrm_audit_logs", JSON.stringify(updatedLogs));
 
-    if (user?.role?.toLowerCase() === "system admin") {
-      setAuditLogs(updatedLogs);
-    } else if (tenant) {
+    if (tenant) {
       setAuditLogs(
         updatedLogs.filter(
           (log: any) => !log.tenantId || log.tenantId === tenant.id,
@@ -1836,7 +1685,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     const newActivity: Activity = {
       ...activityData,
-      environment: user?.activeEnvironment ?? 'SANDBOX',
       id: uuid(),
       tenantId: currentTenantId,
       createdAt: new Date().toISOString(),
@@ -1850,93 +1698,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setActivities(updated.filter((a: Activity) => a.tenantId === currentTenantId));
   };
 
-  const approveTenant = (id: string) => {
-    const allTenants = JSON.parse(
-      localStorage.getItem("leadcrm_tenants") || "[]",
-    );
-    const tenantToApprove = allTenants.find((t: Tenant) => t.id === id);
-    if (!tenantToApprove) return;
-
-    const newTenants = allTenants.map((t: Tenant) => {
-      if (t.id === id) {
-        if (t.approvalStep === "basic") {
-          addAuditLog(
-            "Approve Tenant Step 1",
-            `Approved basic details for ${t.name}. Sandbox environment provisioned.`,
-          );
-          return {
-            ...t,
-            approvalStep: "requirements",
-            environment: "sandbox",
-            status: "pending",
-          };
-        } else if (t.approvalStep === "requirements") {
-          addAuditLog(
-            "Approve Tenant Final",
-            `Approved business requirements for ${t.name}. Production environment provisioned.`,
-          );
-          return {
-            ...t,
-            approvalStep: "completed",
-            environment: "production",
-            status: "active",
-          };
-        }
-        return {
-          ...t,
-          status: "active",
-          approvalStep: "completed",
-          environment: "production",
-        };
-      }
-      return t;
-    });
-    localStorage.setItem("leadcrm_tenants", JSON.stringify(newTenants));
-    loadData();
-  };
-
-  const rejectTenant = (id: string) => {
-    const allTenants = JSON.parse(
-      localStorage.getItem("leadcrm_tenants") || "[]",
-    );
-    const tenant = allTenants.find((t: Tenant) => t.id === id);
-    if (tenant)
-      addAuditLog("Reject Tenant", `Rejected application for ${tenant.name}.`);
-
-    const newTenants = allTenants.map((t: Tenant) =>
-      t.id === id ? { ...t, status: "rejected" } : t,
-    );
-    localStorage.setItem("leadcrm_tenants", JSON.stringify(newTenants));
-    loadData();
-  };
-
-  const suspendTenant = (id: string) => {
-    const allTenants = JSON.parse(
-      localStorage.getItem("leadcrm_tenants") || "[]",
-    );
-    const tenant = allTenants.find((t: Tenant) => t.id === id);
-    if (tenant)
-      addAuditLog("Suspend Tenant", `Suspended access for ${tenant.name}.`);
-
-    const newTenants = allTenants.map((t: Tenant) =>
-      t.id === id ? { ...t, status: "suspended" } : t,
-    );
-    localStorage.setItem("leadcrm_tenants", JSON.stringify(newTenants));
-    loadData();
-  };
-
   const resetDemoData = () => {
     localStorage.setItem("leadcrm_leads", JSON.stringify(MOCK_LEADS));
     localStorage.setItem("leadcrm_deals", JSON.stringify(MOCK_DEALS));
     localStorage.setItem("leadcrm_pipelines", JSON.stringify(MOCK_PIPELINES));
-
     localStorage.setItem("leadcrm_users", JSON.stringify(MOCK_USERS));
     localStorage.setItem("leadcrm_tenants", JSON.stringify(MOCK_TENANTS));
     localStorage.setItem("leadcrm_tasks", JSON.stringify(MOCK_TASKS));
     loadData();
   };
 
-  // ── Column Preferences: Save & Reset ───────────────────────────────────────
   const saveColumnPreference = useCallback(async (module: string, columns: ColumnConfigItem[]): Promise<void> => {
     const previous = columnPreferencesRef.current[module];
     // Optimistic update
@@ -1980,8 +1751,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     roles,
     permissions, rolesLoading, rolesError, refreshRoles,
     users,
-    tenants,
     tasks,
+    ...taskQueries,
+    bulkTasks,
     activities,
     addActivity,
     auditLogs,
@@ -1991,6 +1763,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     refreshContacts,
     refreshOrganizations,
     refreshDeals,
+    refreshPipelines,
     updateContact,
     addDeal,
     updateDeal,
@@ -2003,9 +1776,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     updateRole,
     deleteRole,
     resetDemoData,
-    approveTenant,
-    rejectTenant,
-    suspendTenant,
     addAuditLog,
     addTask,
     updateTask,
@@ -2032,13 +1802,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     organizations, contacts, deals, pipelines, workflows, workflowsLoading, workflowsError, refreshWorkflows, campaigns,
-    templates, roles, permissions, rolesLoading, rolesError, refreshRoles, users, tenants, tasks,
+    templates, roles, permissions, rolesLoading, rolesError, refreshRoles, users, tasks, taskQueries, dataIdentity,
     activities, auditLogs,
     columnPreferences, columnPreferencesLoading,
   ]);
 
   return (
     <DataContext.Provider value={visibleIdentity === dataIdentity ? contextValue : { ...contextValue, organizations: [], contacts: [], deals: [], pipelines: [], workflows: [], campaigns: [], templates: [], tasks: [], activities: [], auditLogs: [] }}>
+      {closingDealId && <ClosingRecordPanel module="deals" id={closingDealId} open focusClosing onOpenChange={open => { if (!open) setClosingDealId(undefined); }} />}
       {children}
     </DataContext.Provider>
   );
@@ -2070,5 +1841,4 @@ export const useData = (options?: { includeArchived?: boolean }) => {
     };
   }, [context, includeArchived]);
 };
-
 

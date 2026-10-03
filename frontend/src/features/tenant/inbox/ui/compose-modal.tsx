@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useReducedMotion } from 'motion/react';
 import { sendGmailEmail, saveGmailDraft } from '../services/gmail.service';
 import EmojiPicker from './emoji-picker';
+import { safeMailboxHtml } from '../services/email-html';
 
 interface ComposeModalProps {
   isOpen: boolean;
@@ -54,18 +55,17 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
     }
   }, [isOpen, isMinimized]);
 
-  // Load initial draft data when opened with a draft
+  // Every new compose starts with its explicit draft or an empty recipient.
   useEffect(() => {
-    if (isOpen && initialDraft) {
-      setTo(initialDraft.to);
-      setSubject(initialDraft.subject);
-      setCurrentDraftId(initialDraft.draftId);
+    if (isOpen) {
+      setTo(initialDraft?.to ?? '');
+      setSubject(initialDraft?.subject ?? '');
+      setCurrentDraftId(initialDraft?.draftId);
       // Set body content in the editor after a short delay to ensure ref is mounted
-      setTimeout(() => {
-        if (editorRef.current && initialDraft.body) {
-          editorRef.current.innerHTML = initialDraft.body;
-        }
+      const timer = setTimeout(() => {
+        if (editorRef.current) editorRef.current.innerHTML = safeMailboxHtml(initialDraft?.body ?? '');
       }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, initialDraft]);
 
@@ -180,8 +180,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       setDraftSaved(true);
       // Reset saved indicator after 3 seconds
       setTimeout(() => setDraftSaved(false), 3000);
-    } catch {
-      // Silent — draft save failure is non-blocking
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Draft was not saved.');
     } finally {
       setIsSavingDraft(false);
     }
@@ -219,6 +219,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   // Insert link
   const insertLink = (): void => {
     if (linkUrl.trim()) {
+      if (!/^https?:\/\//i.test(linkUrl.trim())) { setError('Use an http or https link.'); return; }
       editorRef.current?.focus();
       const selection = window.getSelection();
       const hasSelection = selection && selection.toString().length > 0;
@@ -226,7 +227,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       if (hasSelection) {
         document.execCommand('createLink', false, linkUrl.trim());
       } else {
-        document.execCommand('insertHTML', false, `<a href="${linkUrl.trim()}">${linkUrl.trim()}</a>`);
+        const link = document.createElement('a'); link.href = linkUrl.trim(); link.textContent = linkUrl.trim();
+        document.execCommand('insertHTML', false, link.outerHTML);
       }
 
       setLinkUrl('');
@@ -248,7 +250,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   if (isMinimized) {
     return (
       <div className="fixed bottom-0 right-6 z-50">
-        <div className="flex items-center justify-between px-4 py-2.5 rounded-t-lg bg-slate-800 dark:bg-slate-800 text-white shadow-xl min-w-[320px]">
+        <div className="flex items-center justify-between px-4 py-2.5 rounded-t-lg bg-slate-800 dark:bg-slate-800 text-white shadow-xl w-[min(320px,calc(100vw-3rem))]">
           <button
             onClick={() => setIsMinimized(false)}
             className="flex items-center gap-2 flex-1 cursor-pointer"
@@ -287,6 +289,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={springTransition}
       className={`${containerClasses} flex flex-col border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 shadow-2xl`}
+      role="dialog"
+      aria-label="Compose email"
     >
       {/* Title Bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-800 dark:bg-slate-800 rounded-t-xl shrink-0">
@@ -414,8 +418,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-t border-gray-100 dark:border-white/[0.05] shrink-0">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 border-t border-gray-100 dark:border-white/[0.05] shrink-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           {/* Send button with schedule dropdown */}
           <div className="relative flex items-center" ref={scheduleRef}>
             <button
@@ -432,8 +436,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
               <span>{isSending ? 'Sending...' : 'Send'}</span>
             </button>
             <button
-              onClick={() => setShowScheduleMenu((prev) => !prev)}
-              disabled={isSending}
+              disabled
+              title="Schedule sending in Gmail"
               className="h-9 px-2 rounded-r-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 border-l border-blue-500 text-white cursor-pointer transition-colors"
               aria-label="Schedule send options"
             >
@@ -543,7 +547,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           </div>
 
           {/* Formatting toolbar */}
-          <div className="flex items-center ml-2 gap-0.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-0.5 sm:ml-2">
             <button
               onClick={() => execFormat('bold')}
               className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('bold') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
@@ -582,10 +586,10 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
 
             {/* Attach file */}
             <button
-              onClick={() => { if (fileInputRef.current) { fileInputRef.current.accept = ''; fileInputRef.current.click(); } }}
+              disabled
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               aria-label="Attach file"
-              title="Attach file"
+              title="Send attachments from Gmail"
             >
               <Paperclip className="w-4 h-4" />
             </button>
@@ -599,7 +603,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             />
 
             {/* Insert link */}
-            <div className="relative" ref={linkRef}>
+            <div className="static sm:relative" ref={linkRef}>
               <button
                 onClick={() => { setShowLinkInput((prev) => !prev); setShowEmojiPicker(false); setShowMoreMenu(false); }}
                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -615,7 +619,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full left-0 mb-2 p-2 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg w-64 z-10"
+                    className="absolute bottom-24 left-3 right-3 sm:bottom-full sm:left-auto sm:right-0 sm:w-64 mb-2 p-2 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                   >
                     <div className="flex items-center gap-2">
                       <input
@@ -623,7 +627,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                         value={linkUrl}
                         onChange={(e) => setLinkUrl(e.target.value)}
                         placeholder="https://..."
-                        className="flex-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                        className="min-w-0 flex-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                         onKeyDown={(e) => { if (e.key === 'Enter') insertLink(); }}
                         autoFocus
                       />
@@ -640,7 +644,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             </div>
 
             {/* Emoji picker */}
-            <div className="relative" ref={emojiRef}>
+            <div className="static sm:relative" ref={emojiRef}>
               <button
                 onClick={() => { setShowEmojiPicker((prev) => !prev); setShowLinkInput(false); setShowMoreMenu(false); }}
                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -656,7 +660,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full right-0 mb-2 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
+                    className="absolute bottom-24 left-3 right-3 overflow-x-auto sm:bottom-full sm:left-auto sm:right-0 mb-2 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                   >
                     <EmojiPicker onSelect={insertEmoji} />
                   </motion.div>
@@ -666,10 +670,10 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
 
             {/* Insert image */}
             <button
-              onClick={() => { if (fileInputRef.current) { fileInputRef.current.accept = 'image/*'; fileInputRef.current.click(); } }}
+              disabled
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               aria-label="Insert image"
-              title="Insert image"
+              title="Send images from Gmail"
             >
               <Image className="w-4 h-4" />
             </button>
@@ -705,7 +709,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           </button>
 
           {/* More options */}
-          <div className="relative" ref={moreRef}>
+          <div className="static sm:relative" ref={moreRef}>
             <button
               onClick={() => { setShowMoreMenu((prev) => !prev); setShowEmojiPicker(false); setShowLinkInput(false); }}
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -721,7 +725,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute bottom-full right-0 mb-2 py-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg w-48 z-10"
+                  className="absolute bottom-16 left-3 right-3 sm:bottom-full sm:left-auto sm:right-0 sm:w-48 mb-2 py-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                 >
                   <button
                     onClick={() => { if (editorRef.current) editorRef.current.innerHTML = ''; setShowMoreMenu(false); }}

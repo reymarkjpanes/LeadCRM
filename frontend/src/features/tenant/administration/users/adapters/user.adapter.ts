@@ -15,7 +15,7 @@ export interface UserDTO {
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  invitationSent?: boolean;
+  setupEmailSent?: boolean;
 }
 
 export interface CreateUserDTO {
@@ -41,6 +41,7 @@ export interface UpdateUserDTO {
 export const userAdapter = {
   toModel: (dto: UserDTO): User => ({
     id: dto.id,
+    createdAt: dto.createdAt,
     isArchived: dto.status === 'INACTIVE',
     firstName: dto.firstName,
     lastName: dto.lastName,

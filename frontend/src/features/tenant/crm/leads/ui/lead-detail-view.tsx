@@ -89,7 +89,6 @@ export const UnifiedDetailView = ({
       industry: (selectedItem as any).industry || 'Technology & B2B Solutions',
       size: (selectedItem as any).size || '250+ Employees',
       website: (selectedItem as any).website || 'N/A',
-      taxId: (selectedItem as any).taxId || 'N/A',
       createdAt: (selectedItem as any).createdAt || new Date().toISOString(),
       leads: orgLeads.length > 0 ? orgLeads : (isLeadObj ? [itemAsLead] : []),
       address: (selectedItem as any).address || [ (selectedItem as any).streetAddress, (selectedItem as any).city, (selectedItem as any).province ].filter(Boolean).join(', ') || 'Metropolitan Manila',

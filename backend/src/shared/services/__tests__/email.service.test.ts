@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sendMail, buildVerificationEmail, buildRegistrationOtpEmail, buildPasswordResetEmail, buildWelcomeEmail, buildInvitationEmail } from '../email.service';
+import { sendMail, buildPasswordResetEmail, buildWelcomeEmail } from '../email.service';
 import { sanitizeCampaignHtml } from '../../../modules/marketing/campaigns/campaign-content';
 import { verifyWebhookAuthorization, BrevoEventSchema } from '../../../modules/marketing/campaigns/brevo-webhook';
 
@@ -46,11 +46,8 @@ describe('existing Brevo transport', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it.each([
-    ['registration verification', () => buildVerificationEmail('https://example.com/verify', '123456')],
-    ['registration OTP', () => buildRegistrationOtpEmail('123456')],
     ['password reset', () => buildPasswordResetEmail('https://example.com/reset')],
     ['welcome', () => buildWelcomeEmail('Juan', 'Workspace')],
-    ['team invitation', () => buildInvitationEmail('Admin', 'Workspace', 'https://example.com/invite', 'Sales')],
     ['administrative reset', () => buildPasswordResetEmail('https://example.com/reset?token=admin')],
   ])('preserves the %s builder and transport contract', async (_name, build) => {
     const html = build();

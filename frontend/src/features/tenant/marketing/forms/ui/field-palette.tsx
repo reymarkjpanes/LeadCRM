@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useId } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { FormFieldType, FormDesign } from '../types/form.types';
 import { cn } from '@/lib/utils';
@@ -57,6 +57,7 @@ interface DraggableItemProps {
 
 function DraggableItem({ field, onAddField }: DraggableItemProps): React.ReactElement {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    disabled: field.type === 'file',
     id: `${PALETTE_DRAG_PREFIX}${field.type}`,
     data: { type: field.type, fromPalette: true },
   });
@@ -64,14 +65,14 @@ function DraggableItem({ field, onAddField }: DraggableItemProps): React.ReactEl
   const isLayout = field.section === 'layout';
 
   return (
-    <div
+    <button type="button" disabled={field.type === 'file'}
       ref={setNodeRef}
       {...listeners}
       {...attributes}
       onClick={() => onAddField(field.type)}
-      title={`Add ${field.label} — or drag onto canvas`}
+      title={field.type === 'file' ? 'File Upload is not supported yet' : `Add ${field.label} — or drag onto canvas`}
       className={cn(
-        'flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing select-none group',
+        'flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing select-none group disabled:opacity-40 disabled:cursor-not-allowed',
         'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-white/[0.07]',
         'hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10',
         isDragging && 'opacity-40 scale-95',
@@ -89,7 +90,7 @@ function DraggableItem({ field, onAddField }: DraggableItemProps): React.ReactEl
       <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 text-center leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
         {field.label}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -146,13 +147,14 @@ export function FieldPalette({ onAddField, design, onDesignChange, mode = 'field
 interface DesignPanelProps { design: FormDesign; onChange: (d: FormDesign) => void; }
 
 function ColorInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }): React.ReactElement {
+  const id = useId();
   return (
     <div className="space-y-1">
-      <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</label>
+      <label htmlFor={id} className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</label>
       <div className="relative">
-        <input type="color" value={value || '#ffffff'} onChange={(e) => onChange(e.target.value)}
+        <input type="color" aria-label={`${label} color picker`} value={/^#[\da-f]{6}$/i.test(value) ? value : '#ffffff'} onChange={(e) => onChange(e.target.value)}
           className="absolute left-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded cursor-pointer border-0 bg-transparent" />
-        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. #3B82F6"
+        <input id={id} type="text" value={value} maxLength={9} onChange={(e) => onChange(e.target.value)} placeholder="e.g. #3B82F6"
           className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-[11px] focus:outline-none focus:border-blue-500 transition-colors" />
       </div>
     </div>
@@ -185,14 +187,14 @@ function DesignPanel({ design, onChange }: DesignPanelProps): React.ReactElement
           <ColorInput label="Text" value={design.fieldText} onChange={(v) => update({ fieldText: v })} />
           <div className="space-y-1">
             <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Radius</label>
-            <select value={design.fieldRadius} onChange={(e) => update({ fieldRadius: e.target.value as FormDesign['fieldRadius'] })}
+            <select aria-label="Field radius" value={design.fieldRadius} onChange={(e) => update({ fieldRadius: e.target.value as FormDesign['fieldRadius'] })}
               className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500">
               {(['none','sm','md','lg','full'] as const).map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
             </select>
           </div>
           <div className="space-y-1">
             <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Size</label>
-            <select value={design.fieldSize} onChange={(e) => update({ fieldSize: e.target.value as FormDesign['fieldSize'] })}
+            <select aria-label="Field size" value={design.fieldSize} onChange={(e) => update({ fieldSize: e.target.value as FormDesign['fieldSize'] })}
               className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500">
               {(['sm','regular','lg'] as const).map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
             </select>

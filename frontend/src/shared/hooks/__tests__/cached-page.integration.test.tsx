@@ -6,7 +6,7 @@ import { useModuleCounts } from '../use-module-counts';
 import { clearPageCache, getPageCacheSize, invalidatePageCache } from '@/shared/cache/page-cache';
 
 const mocks = vi.hoisted(() => ({
-  auth: { tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } },
+  auth: { isLoading: false, authError: null as string | null, tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } },
   get: vi.fn(),
 }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => mocks.auth }));
@@ -27,7 +27,7 @@ const response = (page: number) => ({
 beforeEach(() => {
   clearPageCache();
   mocks.get.mockReset();
-  mocks.auth = { tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } };
+  mocks.auth = { isLoading: false, authError: null, tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } };
 });
 afterEach(() => { cleanup(); clearPageCache(); });
 
@@ -160,4 +160,20 @@ it.each(['leads', 'accounts', 'deals'])('loads a selected %s by ID independently
   await waitFor(() => expect(hook.result.current.data[0]?.id).toBe('selected'));
   expect(mocks.get).toHaveBeenCalledWith(`/crm/${moduleId}/selected`, { signal: expect.any(AbortSignal) });
   expect(hook.result.current.meta).toMatchObject({ page: 1, total: 1 });
+});
+
+
+it('waits for auth initialization even when a previous user remains in context', async () => {
+  mocks.auth.isLoading = true;
+  mocks.get.mockResolvedValue(response(1));
+  const hook = renderHook(() => useModuleData({ moduleId: 'leads', page: 1, pageSize: 25 }));
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(mocks.get).not.toHaveBeenCalled();
+  mocks.auth.isLoading = false;
+  mocks.auth.authError = 'Session restore unavailable';
+  hook.rerender();
+  expect(mocks.get).not.toHaveBeenCalled();
+  mocks.auth.authError = null;
+  hook.rerender();
+  await waitFor(() => expect(mocks.get).toHaveBeenCalledOnce());
 });

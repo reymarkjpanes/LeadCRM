@@ -14,7 +14,7 @@ export const contactImportConfig: ImportModuleConfig = {
   importApiPath: '/crm/contacts/imports',
   detailsRoute: (importId: string) => `/crm/contacts/imports/${importId}`,
   templateFileName: 'contact-import-template.csv',
-  permission: 'contacts.create',
+  permission: 'contacts.import',
   duplicateCheckField: 'email',
 
   requiredFields: [

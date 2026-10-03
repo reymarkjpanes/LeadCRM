@@ -1,3 +1,4 @@
+import { LEAD_STATUSES } from '@leadcrm/shared';
 import type { ImportModuleConfig } from '../types/import.types';
 
 /**
@@ -14,7 +15,7 @@ export const leadImportConfig: ImportModuleConfig = {
   importApiPath: '/crm/leads/imports',
   detailsRoute: (importId: string) => `/crm/leads/imports/${importId}`,
   templateFileName: 'lead-import-template.csv',
-  permission: 'contacts.create',
+  permission: 'leads.import',
   duplicateCheckField: 'email',
 
   requiredFields: [
@@ -92,7 +93,7 @@ export const leadImportConfig: ImportModuleConfig = {
       label: 'Status',
       required: false,
       type: 'select',
-      options: ['Inquiry', 'Hot', 'Warm', 'Cold', 'Closed', 'Cancelled'],
+      options: Array.from(LEAD_STATUSES),
       autoMapPatterns: ['status', 'lead status', 'lead_status', 'stage'],
     },
   ],

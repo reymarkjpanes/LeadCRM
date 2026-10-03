@@ -1,4 +1,5 @@
 'use client';
+import { useRouter } from 'next/navigation';
 
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
@@ -13,6 +14,7 @@ import {
   CheckCheck, 
   X 
 } from 'lucide-react';
+import { notificationDestination } from '../notification-destination';
 import { useNotifications } from '../hooks/use-notifications';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -21,7 +23,9 @@ interface NotificationItemProps {
   id: string;
   type: string;
   title: string;
-  body?: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
   isRead: boolean;
   createdAt: string;
   onMarkRead: (id: string) => void;
@@ -55,8 +59,10 @@ function getNotificationIcon(type: string) {
   }
 }
 
-function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead }: NotificationItemProps) {
+function NotificationItem({ id, type, title, body, entityType, entityId, isRead, createdAt, onMarkRead }: NotificationItemProps) {
   const shouldReduce = useReducedMotion();
+  const router = useRouter();
+  const open = () => { if (!isRead) onMarkRead(id); const destination = notificationDestination({ entityType, entityId }); if (destination) router.push(destination); };
   const { icon, bg } = getNotificationIcon(type);
   const timeAgo = formatDistanceToNow(new Date(createdAt), { addSuffix: true });
 
@@ -75,7 +81,7 @@ function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead
           : 'bg-blue-50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/20',
         'hover:bg-slate-50 dark:hover:bg-white/[0.03]'
       )}
-      onClick={() => !isRead && onMarkRead(id)}
+      onClick={open}
     >
       {/* Icon */}
       <div className={cn('shrink-0 w-10 h-10 rounded-full flex items-center justify-center', bg)}>
@@ -91,7 +97,7 @@ function NotificationItem({ id, type, title, body, isRead, createdAt, onMarkRead
           {title}
         </h3>
         {body && (
-          <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
+          <p className="text-sm text-slate-600 dark:text-slate-400 [overflow-wrap:anywhere]">
             {body}
           </p>
         )}
@@ -114,7 +120,9 @@ interface NotificationGroupProps {
     id: string;
     type: string;
     title: string;
-    body?: string;
+    body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
     isRead: boolean;
     createdAt: string;
   }>;

@@ -53,6 +53,7 @@ export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
   lastUpdated?: string;
   tags?: string;
   productInterests?: string[];
+  productInterestIds?: string[];
 
   // ── Address breakdown fields ────────────────────────────────────────────
   streetAddress?: string;
@@ -68,7 +69,6 @@ export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
 
   // ── Extended org fields ────────────────────────────────────────────────
   size?: string;
-  taxId?: string;
   orgWebsite?: string;
   companySize?: string;
   businessType?: string;
@@ -95,6 +95,7 @@ export interface CreateLeadRequest extends CreateContactRequest {
   notes?: string;
   organizationId?: string;
   productInterests?: string[];
+  productInterestIds?: string[];
 }
 
 /**

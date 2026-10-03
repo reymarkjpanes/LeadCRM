@@ -41,10 +41,12 @@ interface UseTablePreferencesReturn {
  *   const { pageSize, viewMode, displayMode, sort, setPageSize, setViewMode, setDisplayMode, setSort } = useTablePreferences('leads');
  */
 export function useTablePreferences(module: string): UseTablePreferencesReturn {
+  const defaultSort = (): SortPreference | null => ['leads', 'contacts', 'accounts', 'campaigns', 'workflows', 'users'].includes(module) ? { field: 'createdAt', direction: 'desc' } : null;
   const [pageSize, setPageSizeState] = useState<number>(25);
   const [viewMode, setViewModeState] = useState<ViewMode>('wrap');
   const [displayMode, setDisplayModeState] = useState<DisplayMode>('wrap');
-  const [sort, setSortState] = useState<SortPreference | null>(null);
+  const [sort, setSortState] = useState<SortPreference | null>(defaultSort);
+  const sortChanged = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const mountedRef = useRef(true);
@@ -69,7 +71,7 @@ export function useTablePreferences(module: string): UseTablePreferencesReturn {
           setViewModeState(response.data.viewMode);
           // Display mode comes from viewMode on the server (same underlying preference)
           setDisplayModeState(response.data.viewMode);
-          setSortState(response.data.sort);
+          if (!sortChanged.current) setSortState(response.data.sort ?? defaultSort());
         }
       } catch {
         // On failure, keep defaults (pageSize: 25, viewMode: 'wrap', displayMode: 'wrap', sort: null)
@@ -120,6 +122,7 @@ export function useTablePreferences(module: string): UseTablePreferencesReturn {
   }, [module]);
 
   const setSort = useCallback((newSort: SortPreference | null) => {
+    sortChanged.current = true;
     setSortState(newSort);
     // Always persist — including null (clears server sort)
     tablePreferencesApi.saveSort(module, newSort).catch(() => {

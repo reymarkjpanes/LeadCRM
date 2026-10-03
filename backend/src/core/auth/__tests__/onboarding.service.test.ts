@@ -15,7 +15,7 @@ it('does not require an owner or OTP for an internally provisioned admin', async
   tenant.ownerUserId = 'another-admin'; user.emailVerified = null as never;
   await expect(completeOnboarding(actor)).resolves.toHaveProperty('onboardingStep', 3);
 });
-it.each(['System Admin', 'User', 'Custom Role'])('rejects completion for %s', async role => {
+it.each(['User', 'Custom Role'])('rejects completion for %s', async role => {
   user.role = role;
   await expect(completeOnboarding(actor)).rejects.toHaveProperty('statusCode', 403);
   expect(db.tenant.updateMany).not.toHaveBeenCalled();

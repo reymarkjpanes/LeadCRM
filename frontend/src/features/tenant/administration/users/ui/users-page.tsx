@@ -50,8 +50,6 @@ import { useAuth } from "@/store/AuthContext";
 import { RoleDefinition } from "@/store/types";
 import { usePagination } from '@/shared/hooks/use-pagination';
 import { Pagination } from '@/shared/components/ui/pagination';
-import { invitationsApi } from '@/shared/services/invitations.api';
-import type { PendingInvitation } from '@/store/types/invitation.types';
 import { USE_MOCK_DATA } from '@/lib/config';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 
@@ -215,14 +213,6 @@ export default function UsersPage() {
   // ── Confirm dialog (handles role delete + user delete) ────────────────────
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
-  // ── Invitation state ──────────────────────────────────────────────────────
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteEmails, setInviteEmails] = useState('');
-  const [inviteRoleId, setInviteRoleId] = useState('');
-  const [isInviteLoading, setIsInviteLoading] = useState(false);
-  const [isInvitationsLoading, setIsInvitationsLoading] = useState(false);
-
   // Form states for creating/editing users
   const [formFirstName, setFormFirstName] = useState("");
   const [formLastName, setFormLastName] = useState("");
@@ -232,57 +222,6 @@ export default function UsersPage() {
   const [formJobTitle, setFormJobTitle] = useState("");
   const [formDepartment, setFormDepartment] = useState("");
   const [formStatus, setFormStatus] = useState("Active");
-
-  // ── Load pending invitations on mount (real API mode only) ─────────────
-  useEffect(() => {
-    if (USE_MOCK_DATA) return;
-    loadInvitations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadInvitations = async (): Promise<void> => {
-    setIsInvitationsLoading(true);
-    try {
-      const res = await invitationsApi.list();
-      setPendingInvitations(res?.data ?? []);
-    } catch {
-      // Non-critical — invitations section stays empty
-    } finally {
-      setIsInvitationsLoading(false);
-    }
-  };
-
-  const handleSendInvitation = async (): Promise<void> => {
-    const emailList = inviteEmails.split(',').map(e => e.trim()).filter(Boolean);
-    if (emailList.length === 0) { toast.error('Enter at least one email address.'); return; }
-    if (!inviteRoleId) { toast.error('Select a role for the invitation.'); return; }
-
-    setIsInviteLoading(true);
-    try {
-      const res = await invitationsApi.create(emailList, inviteRoleId);
-      const { sent, skipped } = res.data;
-      if (sent.length > 0) toast.success(`Invitation sent to ${sent.join(', ')}`);
-      if (skipped.length > 0) toast.info(`Skipped: ${skipped.map(s => `${s.email} (${s.reason})`).join(', ')}`);
-      setInviteEmails('');
-      setInviteRoleId('');
-      setIsInviteModalOpen(false);
-      await loadInvitations();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send invitation.');
-    } finally {
-      setIsInviteLoading(false);
-    }
-  };
-
-  const handleRevokeInvitation = async (id: string, email: string): Promise<void> => {
-    try {
-      await invitationsApi.revoke(id);
-      toast.success(`Invitation revoked for ${email}`);
-      setPendingInvitations(prev => prev.filter(inv => inv.id !== id));
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to revoke invitation.');
-    }
-  };
 
   // Timeline local filtering states
   const [timelineFilter, setTimelineFilter] = useState<
@@ -326,12 +265,6 @@ export default function UsersPage() {
         ).toISOString()
       : new Date(Date.now() - 12 * 24 * 3600 * 1000).toISOString();
 
-    const baselineMfaDate = selectedUser.lastLogin
-      ? new Date(
-          new Date(selectedUser.lastLogin).getTime() - 8 * 24 * 3600 * 1000,
-        ).toISOString()
-      : new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
-
     const baselineFirstLoginDate = selectedUser.lastLogin
       ? new Date(
           new Date(selectedUser.lastLogin).getTime() - 4 * 24 * 3600 * 1000,
@@ -353,23 +286,6 @@ export default function UsersPage() {
         details: `Workspace tenant resource allocation completed. Registered new user profile '${selectedUser.name}' assigned to access authorization level: '${selectedUser.role}'.`,
         timestamp: baselineCreationDate,
         ipAddress: "127.0.0.1",
-      });
-    }
-
-    // Baseline biometric/MFA config marker if absent
-    if (
-      !finalLogs.some(
-        (l) => l.action.includes("MFA") || l.action.includes("Security"),
-      )
-    ) {
-      finalLogs.push({
-        id: `sys_gen_mfa_${selectedUser.id}`,
-        userId: selectedUser.id,
-        userEmail: selectedUser.email,
-        action: "Auth MFA Update",
-        details: `Configured security access keys. Device biometric and multi-factor authentication (MFA) parameters verified successfully.`,
-        timestamp: baselineMfaDate,
-        ipAddress: "192.168.1.18",
       });
     }
 
@@ -1781,33 +1697,6 @@ export default function UsersPage() {
     }, 1200);
   };
 
-  const handleResendInvitation = async (email: string, name: string): Promise<void> => {
-    if (USE_MOCK_DATA) {
-      toast.info(`Resending invitation to ${name}...`);
-      return;
-    }
-    // Find the role for this user to re-send an invitation
-    const foundUser = dbUsers.find(u => u.email === email);
-    const roleMatch = roles.find(r => r.name === foundUser?.role);
-    if (!roleMatch) {
-      toast.error('Cannot determine role for re-invitation. Use the Invite User button instead.');
-      return;
-    }
-    try {
-      const res = await invitationsApi.create([email], roleMatch.id);
-      const skipped = res.data?.skipped ?? [];
-      if (skipped.length > 0) {
-        toast.info(`Note: ${skipped[0].reason}`);
-      } else {
-        toast.success(`Invitation sent to ${email}`);
-        addAuditLog('Invite Resent', `Re-sent workspace invitation to ${name} (${email}).`);
-        await loadInvitations();
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send invitation.');
-    }
-  };
-
   // Filtering users
   const filteredUsers = users.filter((user) => {
     if (user.isArchived) return false;
@@ -1845,79 +1734,6 @@ export default function UsersPage() {
   return (
     <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-8 font-sans">
       {renderRoleModal()}
-
-      {/* ── Invite User Modal ──────────────────────────────────────────────── */}
-      <AnimatePresence>
-        {isInviteModalOpen && (
-          <motion.div
-            key="invite-modal-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={() => setIsInviteModalOpen(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl w-full max-w-md p-6"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">Invite User</h3>
-                <button type="button" onClick={() => setIsInviteModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer">
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                    Email Address(es) <span className="text-slate-400 font-normal">(comma-separated for multiple)</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="alice@company.com, bob@company.com"
-                    value={inviteEmails}
-                    onChange={e => setInviteEmails(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                    Assign Role
-                  </label>
-                  <select
-                    value={inviteRoleId}
-                    onChange={e => setInviteRoleId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
-                  >
-                    <option value="">Select a role…</option>
-                    {roles.filter(r => !r.isArchived && !r.isSystemRole).map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-6">
-                <button type="button" onClick={() => setIsInviteModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { void handleSendInvitation(); }}
-                  disabled={isInviteLoading}
-                  className="px-5 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5"
-                >
-                  {isInviteLoading ? <RefreshCw size={13} className="animate-spin" /> : <Mail size={13} />}
-                  {isInviteLoading ? 'Sending…' : 'Send Invitation'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* 1. Header Section - Compact Enterprise Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
@@ -2080,27 +1896,6 @@ export default function UsersPage() {
                     </Tooltip>
                   </TooltipProvider>
                 </div>
-                {/* Invite User button — real API — only visible when user can manage users */}
-                {(userCan('users', 'canCreate') || isClientAdmin) && !USE_MOCK_DATA && (
-                  <div className="shrink-0">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => setIsInviteModalOpen(true)}
-                            aria-label="Invite User"
-                            className="h-9 px-3 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-[0_4px_20px_rgba(16,185,129,0.25)] border border-emerald-500/10 transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 text-xs font-semibold"
-                          >
-                            <Mail size={13} />
-                            <span>Invite</span>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Invite User via Email</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -2362,73 +2157,6 @@ export default function UsersPage() {
               </div>
             )}
 
-            {/* ── Pending Invitations (real API mode only) ────────────────────── */}
-            {!USE_MOCK_DATA && (userCan('users', 'canCreate') || isClientAdmin) && (
-              <div className="bg-white dark:bg-white/[0.015] border border-gray-200 dark:border-white/[0.04] rounded-2xl shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/[0.04]">
-                  <div className="flex items-center gap-2">
-                    <Mail size={15} className="text-emerald-600 dark:text-emerald-400" />
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Pending Invitations</h3>
-                    {pendingInvitations.length > 0 && (
-                      <span className="text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full">
-                        {pendingInvitations.length}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { void loadInvitations(); }}
-                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer"
-                    aria-label="Refresh invitations"
-                  >
-                    <RefreshCw size={13} className={isInvitationsLoading ? 'animate-spin' : ''} />
-                  </button>
-                </div>
-                {pendingInvitations.length === 0 ? (
-                  <div className="px-6 py-8 text-center">
-                    <Mail size={22} className="text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                    <p className="text-xs text-slate-500 dark:text-slate-400">No pending invitations</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 dark:bg-white/[0.02]">
-                        <tr>
-                          <th className="px-6 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email</th>
-                          <th className="px-6 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Role</th>
-                          <th className="px-6 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Invited By</th>
-                          <th className="px-6 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Expires</th>
-                          <th className="px-6 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-white/[0.04]">
-                        {pendingInvitations.map(inv => (
-                          <tr key={inv.id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.015] transition-colors">
-                            <td className="px-6 py-3 text-sm text-slate-800 dark:text-slate-200 font-medium">{inv.email}</td>
-                            <td className="px-6 py-3">
-                              <span className="text-xs font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">{inv.roleName}</span>
-                            </td>
-                            <td className="px-6 py-3 text-xs text-slate-500 dark:text-slate-400">{inv.invitedBy}</td>
-                            <td className="px-6 py-3 text-xs text-slate-500 dark:text-slate-400">
-                              {new Date(inv.expiresAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-6 py-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => { void handleRevokeInvitation(inv.id, inv.email); }}
-                                className="text-xs font-semibold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors cursor-pointer px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
-                              >
-                                Revoke
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
           </motion.div>
         ) : (
           <motion.div
@@ -2986,16 +2714,6 @@ export default function UsersPage() {
                           >
                             <KeyRound size={13} className="text-slate-400" />
                             <span>Reset Credentials</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleResendInvitation(formEmail, `${formFirstName} ${formLastName}`)
-                            }
-                            className="flex items-center justify-center gap-1.5 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/[0.05] text-slate-700 dark:text-slate-300 py-2 px-3 rounded-xl text-xs font-bold select-none transition-all cursor-pointer"
-                          >
-                            <RefreshCw size={13} className="text-slate-400" />
-                            <span>Resend Onboarding</span>
                           </button>
                         </div>
                       </div>

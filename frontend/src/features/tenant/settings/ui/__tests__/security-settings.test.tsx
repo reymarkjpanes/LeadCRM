@@ -1,12 +1,12 @@
 import React from 'react';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-const api = vi.hoisted(() => ({ mfaStatus: vi.fn(), changePassword: vi.fn(), setupMfa: vi.fn(), enableMfa: vi.fn(), disableMfa: vi.fn(), regenerateMfaRecoveryCodes: vi.fn() }));
+const api = vi.hoisted(() => ({ changePassword: vi.fn() }));
 vi.mock('@/shared/services/auth.api', () => ({ authApi: api }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'me' }, applyAuthUser: vi.fn() }) }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'me', passwordChangedAt: '2026-09-30T00:00:00Z' }, applyAuthUser: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn() } }));
 import { SecuritySettings } from '../security-settings';
-beforeEach(() => { vi.resetAllMocks(); api.mfaStatus.mockResolvedValue({ data: { enabled: false, passwordChangedAt: null, recoveryCodesRemaining: 0 } }); });
+beforeEach(() => { vi.resetAllMocks(); });
 afterEach(cleanup);
 it('opens a password dialog without sending a change request and clears fields on cancel', async () => {
   render(<SecuritySettings />);
@@ -32,22 +32,11 @@ it('shows one field error under the input and never sends mismatched confirmatio
   expect(screen.getByLabelText('Confirm new password *').getAttribute('aria-describedby')).toBe('confirm-error');
   expect(api.changePassword).not.toHaveBeenCalled();
 });
-it('does not enable on setup and displays recovery codes only after confirmed enable', async () => {
-  api.setupMfa.mockResolvedValue({ data: { secret: 'TESTSECRET', qrCode: 'data:image/png;base64,AA', expiresAt: '2026-10-01' } });
-  api.enableMfa.mockResolvedValue({ data: { recoveryCodes: ['1234abcd-5678ef90'] } });
+it('renders only password settings and uses the canonical password-change date', () => {
   render(<SecuritySettings />);
-  await waitFor(() => expect((screen.getByText('Enable Two-Factor Authentication') as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(screen.getByText('Enable Two-Factor Authentication'));
-  fireEvent.change(await screen.findByLabelText('Current Password *'), { target: { value: 'Current1!' } });
-  fireEvent.click(screen.getByText('Continue'));
-  expect(await screen.findByText('TESTSECRET')).toBeTruthy();
-  expect(api.enableMfa).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText('Authenticator Code *'), { target: { value: '123456' } });
-  fireEvent.click(screen.getByText('Verify & Enable'));
-  expect(await screen.findByText('1234abcd-5678ef90')).toBeTruthy();
-  expect(screen.queryByText('TESTSECRET')).toBeNull();
-  fireEvent.click(screen.getByText('I saved my recovery codes'));
-  await waitFor(() => expect(screen.queryByText('1234abcd-5678ef90')).toBeNull());
+  expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Change Password']);
+  expect(screen.getByText(/^Last changed:/)).toBeTruthy();
+  expect(Object.values(api).every(mock => mock.mock.calls.length === 0)).toBe(true);
 });
 
 it('requires all rules and confirmation, preserves password characters and blocks duplicate submission', async () => {
@@ -79,6 +68,6 @@ it('requires all rules and confirmation, preserves password characters and block
   fireEvent.submit(submit.closest('form')!);
   expect(api.changePassword).toHaveBeenCalledTimes(1);
   expect(api.changePassword).toHaveBeenCalledWith({ password: value });
-  resolve({ data: { user: { id: 'me' } } });
+  resolve({ data: { user: { id: 'me', passwordChangedAt: '2026-09-30T00:00:00Z' } } });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });

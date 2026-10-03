@@ -85,9 +85,11 @@ it('rejects an external employee account even with an existing signed session', 
   await authMiddleware(request() as never, {} as never, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMPLOYEE_ACCOUNT_REQUIRED' }));
 });
-it('allows System Admin API access with incomplete tenant onboarding', async () => {
-  vi.mocked(readAuthUser).mockResolvedValue({ role: 'System Admin', status: 'ACTIVE', email: 'operator@example.com', mustChangePassword: true, onboardingCompletedAt: null } as never);
+
+
+it('returns Authentication required for a genuinely signed-out request', async () => {
   const next = vi.fn();
-  await authMiddleware({ ...request(), baseUrl: '/api/v1/admin', path: '/tenants' } as never, {} as never, next);
-  expect(next).toHaveBeenCalledWith();
+  await authMiddleware({ cookies: {}, headers: {} } as never, {} as never, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 401, message: 'Authentication required' }));
+  expect(validateSession).not.toHaveBeenCalled();
 });

@@ -2,6 +2,7 @@
 import * as service from './deals.service';
 import * as forecastService from './forecast.service';
 import { DealsQuerySchema } from './deals.dto';
+import { z } from 'zod';
 
 export async function getDeals(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -79,7 +80,7 @@ export async function getForecast(req: Request, res: Response, next: NextFunctio
 
 export async function restoreDeal(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const deal = await service.restoreDeal(String(req.params.id), req.user!.tenantId, req.user!.userId);
+    const deal = await service.restoreDeal(z.string().uuid().parse(req.params.id), req.user!.tenantId, req.user!.userId);
     res.json({ success: true, data: deal });
   } catch (err) { next(err); }
 }

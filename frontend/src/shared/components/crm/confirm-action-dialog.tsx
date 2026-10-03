@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Info, RefreshCw, X } from 'lucide-react';
 
@@ -47,6 +47,32 @@ export function ConfirmActionDialog({
 }: ConfirmActionDialogProps): React.ReactElement | null {
   const [internalLoading, setInternalLoading] = useState(false);
   const loading = isLoading || internalLoading;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const latest = useRef({ loading, onOpenChange });
+  latest.current = { loading, onOpenChange };
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!latest.current.loading) latest.current.onOpenChange(false);
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (!first) { event.preventDefault(); dialog.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
+  }, [open]);
 
   if (!open) return null;
 
@@ -78,6 +104,8 @@ export function ConfirmActionDialog({
       <div
         className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-md animate-in fade-in-0 zoom-in-95"
         role="alertdialog"
+        ref={dialogRef}
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"

@@ -1,4 +1,6 @@
 'use client';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
 import React, { useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -18,7 +20,6 @@ import {
   CreateAccountSchema,
   UpdateAccountSchema,
   COMPANY_SIZE_OPTIONS,
-  CUSTOMER_TYPE_OPTIONS,
   type AccountFormValues,
 } from '../schemas/account.schema';
 import { COMPANY_INDUSTRIES } from '../constants/account.constants';
@@ -26,18 +27,7 @@ import type { Account } from '../types/account.types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const PRODUCTS = [
-  'CCTV',
-  'Biometrics',
-  'Door Access',
-  'Door access/Biometrics',
-  'Network/Structured Cabling',
-  'FDAS',
-  'PABX',
-  'PC/Laptop/Server Assembly',
-  'Software/Web Development',
-  'Others',
-];
+
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
@@ -57,6 +47,8 @@ interface AccountFormInnerProps {
 // ─── Form Component ────────────────────────────────────────────────────────
 
 export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormInnerProps): React.ReactElement {
+  const { products: productRecords, loading: productsLoading, error: productError } = useProductInterests();
+  const PRODUCTS = productRecords.map(p => p.name);
   const { users } = useData();
   const isEdit = !!initialData;
 
@@ -66,7 +58,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     industry: initialData?.industry || '',
     size: (initialData?.size as AccountFormValues['size']) || '',
     website: initialData?.website || '',
-    taxId: initialData?.taxId || '',
     tags: initialData?.tags || [],
     address: initialData?.address || '',
     city: initialData?.city || '',
@@ -76,8 +67,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     notes: initialData?.notes || '',
     internalNotes: initialData?.internalNotes || '',
     productInterests: initialData?.productInterests || [],
-    customerType: (initialData?.customerType as AccountFormValues['customerType']) || '',
-    customerSince: initialData?.customerSince || '',
     activeProducts: initialData?.activeProducts || [],
   }), [initialData]);
 
@@ -101,10 +90,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
   const formRef = useRef<HTMLFormElement>(null);
   useScrollToError({ errors, formRef, setFocus });
 
-  const taxId = watch('taxId') ?? '';
-  const setTaxId = (value: string): void => {
-    setValue('taxId', value.replace(/[^0-9]/g, '').slice(0, 9), { shouldDirty: true, shouldTouch: true, shouldValidate: true });
-  };
 
   const selectedProducts = watch('productInterests') || [];
   const selectedActiveProducts = watch('activeProducts') || [];
@@ -116,7 +101,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
       industry: data.industry || undefined,
       size: data.size || undefined,
       website: data.website || undefined,
-      taxId: data.taxId ?? '',
       tags: data.tags && data.tags.length > 0 ? data.tags : undefined,
       address: data.address || undefined,
       city: data.city || undefined,
@@ -125,31 +109,11 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
       assignedUserId: data.assignedUserId || undefined,
       notes: data.notes || undefined,
       internalNotes: data.internalNotes || undefined,
-      productInterests: data.productInterests && data.productInterests.length > 0 ? data.productInterests : undefined,
-      customerType: data.customerType || undefined,
-      customerSince: data.customerSince || undefined,
+      productInterests: data.productInterests ?? [],
       activeProducts: data.activeProducts && data.activeProducts.length > 0 ? data.activeProducts : undefined,
     };
 
     onSave(payload);
-  };
-
-  // Product interest management
-  const toggleProductInterest = (product: string): void => {
-    const current = selectedProducts;
-    if (current.includes(product)) {
-      setValue('productInterests', current.filter((p) => p !== product), { shouldValidate: true });
-    } else {
-      setValue('productInterests', [...current, product], { shouldValidate: true });
-    }
-  };
-
-  const removeProductInterest = (product: string): void => {
-    setValue(
-      'productInterests',
-      selectedProducts.filter((p) => p !== product),
-      { shouldValidate: true },
-    );
   };
 
   // Active products management
@@ -201,7 +165,7 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
           </FieldWrap>
 
           {/* Industry & Size */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap label="Industry" htmlFor={`${fieldId}-industry`} error={errors.industry?.message}>
               <div className="relative">
                 <select
@@ -238,8 +202,8 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
             </FieldWrap>
           </div>
 
-          {/* Website & Tax ID */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Website */}
+          <div>
             <FieldWrap label="Website" htmlFor={`${fieldId}-website`} error={errors.website?.message}>
               <div className="relative">
                 <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
@@ -254,69 +218,12 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
                 />
               </div>
             </FieldWrap>
-            <FieldWrap label="Tax ID" htmlFor={`${fieldId}-taxId`} error={errors.taxId?.message}>
-              <input
-                {...register('taxId')}
-                type="text" inputMode="numeric" maxLength={9}
-                value={taxId}
-                onChange={(event) => setTaxId(event.target.value)}
-                onPaste={(event) => {
-                  event.preventDefault();
-                  const input = event.currentTarget;
-                  const pasted = event.clipboardData.getData('text').replace(/[^0-9]/g, '');
-                  const start = input.selectionStart ?? taxId.length;
-                  const end = input.selectionEnd ?? start;
-                  const insertion = pasted.slice(0, 9 - (taxId.length - (end - start)));
-                  setTaxId(taxId.slice(0, start) + insertion + taxId.slice(end));
-                }}
-                id={`${fieldId}-taxId`}
-                aria-invalid={!!errors.taxId}
-                aria-describedby={errors.taxId ? `${fieldId}-taxId-error` : undefined}
-                className={`${inputCls} ${errors.taxId ? inputErrorCls : ''}`}
-                placeholder="123456789"
-              />
-            </FieldWrap>
           </div>
         </div>
 
-        {/* Section 2: Customer Classification */}
+        {/* Section 2: Address */}
         <div className="space-y-4">
-          <SectionHeader num={2} title="Customer Classification" />
-
-          <div className="grid grid-cols-2 gap-4">
-            <FieldWrap label="Customer Type" htmlFor={`${fieldId}-customerType`} error={errors.customerType?.message}>
-              <div className="relative">
-                <select
-                  {...register('customerType')}
-                  id={`${fieldId}-customerType`}
-                  aria-invalid={!!errors.customerType}
-                  aria-describedby={errors.customerType ? `${fieldId}-customerType-error` : undefined}
-                  className={`${selectCls} ${errors.customerType ? inputErrorCls : ''}`}
-                >
-                  <option value="">Select type</option>
-                  {CUSTOMER_TYPE_OPTIONS.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
-            </FieldWrap>
-            <FieldWrap label="Customer Since" htmlFor={`${fieldId}-customerSince`} error={errors.customerSince?.message}>
-              <input
-                type="date"
-                {...register('customerSince')}
-                id={`${fieldId}-customerSince`}
-                aria-invalid={!!errors.customerSince}
-                aria-describedby={errors.customerSince ? `${fieldId}-customerSince-error` : undefined}
-                className={`${inputCls} ${errors.customerSince ? inputErrorCls : ''}`}
-              />
-            </FieldWrap>
-          </div>
-        </div>
-
-        {/* Section 3: Address */}
-        <div className="space-y-4">
-          <SectionHeader num={3} title="Address" />
+          <SectionHeader num={2} title="Address" />
 
           <FieldWrap label="Street Address" htmlFor={`${fieldId}-address`} error={errors.address?.message}>
             <div className="relative">
@@ -333,7 +240,7 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
             </div>
           </FieldWrap>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FieldWrap label="City" htmlFor={`${fieldId}-city`} error={errors.city?.message}>
               <input
                 {...register('city')}
@@ -367,9 +274,9 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
           </div>
         </div>
 
-        {/* Section 4: Relationships */}
+        {/* Section 3: Relationships */}
         <div className="space-y-4">
-          <SectionHeader num={4} title="Relationships" />
+          <SectionHeader num={3} title="Relationships" />
 
           {/* Assigned User */}
           <FieldWrap label="Assigned Agent" htmlFor={`${fieldId}-assignedUserId`} error={errors.assignedUserId?.message}>
@@ -393,57 +300,15 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
           </FieldWrap>
         </div>
 
-        {/* Section 5: Products & Interests */}
+        {/* Section 4: Products & Interests */}
         <div className="space-y-4">
-          <SectionHeader num={5} title="Products & Interests" />
+          <SectionHeader num={4} title="Products & Interests" />
 
           {/* Product Interests (multi-select chips) */}
-          <FieldWrap label="Product Interests">
-            <div className="space-y-2">
-              {/* Selected chips */}
-              {selectedProducts.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedProducts.map((product) => (
-                    <span
-                      key={product}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-md border border-amber-200 dark:border-amber-500/20"
-                    >
-                      {product}
-                      <button
-                        type="button"
-                        onClick={() => removeProductInterest(product)}
-                        className="ml-0.5 text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 rounded-sm p-0.5 transition-colors"
-                        aria-label={`Remove ${product}`}
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Product dropdown */}
-              <div className="relative">
-                <select
-                  className={selectCls}
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      toggleProductInterest(e.target.value);
-                    }
-                  }}
-                >
-                  <option value="">Add a product interest...</option>
-                  {PRODUCTS.filter((p) => !selectedProducts.includes(p)).map((product) => (
-                    <option key={product} value={product}>
-                      {product}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
-            </div>
-          </FieldWrap>
+          <FieldWrap label="Product Interest">
+<ProductInterestSelect products={productRecords} valueMode="name" values={selectedProducts} onChange={values => setValue('productInterests', values, { shouldValidate: true })} disabled={productsLoading || !!productError} />
+{productError && <p role="alert" className="text-xs text-destructive">{productError}</p>}
+</FieldWrap>
 
           {/* Active Products (multi-select chips) */}
           <FieldWrap label="Active Products">
@@ -494,9 +359,9 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
           </FieldWrap>
         </div>
 
-        {/* Section 6: Notes */}
+        {/* Section 5: Notes */}
         <div className="space-y-4">
-          <SectionHeader num={6} title="Notes" />
+          <SectionHeader num={5} title="Notes" />
 
           <FieldWrap label="Notes" htmlFor={`${fieldId}-notes`} error={errors.notes?.message}>
             <textarea

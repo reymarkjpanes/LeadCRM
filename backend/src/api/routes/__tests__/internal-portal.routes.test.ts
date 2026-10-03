@@ -1,6 +1,5 @@
 import { expect, it } from 'vitest';
 import authRoutes from '../auth.routes';
-import adminRoutes from '../admin.routes';
 import administrationRoutes from '../administration.routes';
 import { UpdateUsersSchema } from '../../../modules/administration/users/users.dto';
 function paths(router: typeof authRoutes): string[] {
@@ -13,10 +12,6 @@ it('does not register public signup, OTP, Google, or company-setup endpoints', (
   }
   expect(enabled).toContain('/change-password');
   expect(enabled).toContain('/onboarding/complete');
-});
-it('does not register System Admin billing, plan, or production activation APIs', () => {
-  expect(paths(adminRoutes).filter(path => /billing|plans|activate-subscription|stripe/.test(path))).toEqual([]);
-  expect(paths(adminRoutes)).toContain('/tenants');
 });
 it('does not register billing or team domain APIs', () => {
   expect(paths(administrationRoutes).some(path => /domains|domain-settings/.test(path))).toBe(false);

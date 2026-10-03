@@ -4,10 +4,12 @@ import type { TriggerDefinition, WorkflowTestResult } from '@leadcrm/shared';
 import { contactsApi } from '@/shared/services/contacts.api';
 import { contactsV2Api } from '@/shared/services/contacts-v2.api';
 import { dealsApi } from '@/shared/services/deals.api';
+import { companiesApi } from '@/shared/services/companies.api';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { workflowControl } from './workflow-fields';
+import { workflowActionLabel } from '../services/workflow-editor';
 
 export function WorkflowTestPanel({
   workflowId,
@@ -40,6 +42,8 @@ export function WorkflowTestPanel({
         const response =
           trigger.entity === 'deal'
             ? await dealsApi.list(query)
+            : trigger.entity === 'account'
+              ? await companiesApi.list(query)
             : trigger.entity === 'contact'
               ? await contactsV2Api.list(query)
               : await contactsApi.list(query);
@@ -48,7 +52,7 @@ export function WorkflowTestPanel({
           response.data.map((record) => ({
             id: record.id,
             name:
-              'title' in record
+              'name' in record ? String(record.name) : 'title' in record
                 ? String(record.title)
                 : `${record.firstName ?? ''} ${record.lastName ?? ''}`.trim() ||
                   'Unnamed record',
@@ -89,7 +93,7 @@ export function WorkflowTestPanel({
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted-foreground)]">
         Check the saved workflow against a real{' '}
-        {trigger.entity === 'contact' ? 'Client Profile' : trigger.entity}. No
+        {trigger.entity}. No
         actions are executed and no messages are sent. This does not simulate a
         new CRM event.
       </p>
@@ -185,10 +189,11 @@ export function WorkflowTestPanel({
               : 'Conditions do not match — actions would be skipped.'}{' '}
             ({result.conditions.passed}/{result.conditions.total} rules match)
           </p>
+          {result.trigger.requiresEvent && <p className="text-sm">This check uses current record values. The workflow runs only after a matching update or stage transition.</p>}
           <ol className="space-y-2 text-sm">
             {result.actions.map((action, index) => (
               <li key={index}>
-                {index + 1}. {action.type.replaceAll('_', ' ')}:{' '}
+                {index + 1}. {workflowActionLabel(action.type)}:{' '}
                 {action.message}
               </li>
             ))}

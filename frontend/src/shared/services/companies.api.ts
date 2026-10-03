@@ -9,7 +9,6 @@ export interface Company {
   industry?: string;
   size?: string;
   website?: string;
-  taxId?: string;
   tags: string[];
   address?: string;
   city?: string;

@@ -19,12 +19,16 @@ import { Prisma } from '@prisma/client';
 
 // Mock prisma before importing the repository
 vi.mock('../../../../config/database.config', () => {
-  return {
-    default: {
-      deal: {
-        update: vi.fn(),
-      },
+  const client = {
+    deal: {
+      findFirst: vi.fn(),
+      update: vi.fn(),
     },
+    $transaction: vi.fn(),
+  };
+  client.$transaction.mockImplementation(work => work(client));
+  return {
+    default: client,
   };
 });
 
@@ -105,6 +109,9 @@ function createPrismaError(code: string): Prisma.PrismaClientKnownRequestError {
 describe('Feature: deals-module-modernization, Property 1: Repository Error Classification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({
+      productInterestIds: [], productInterestId: null, productInterests: [],
+    } as Awaited<ReturnType<typeof prisma.deal.findFirst>>);
   });
 
   describe('updateDeal — P2025 returns null', () => {

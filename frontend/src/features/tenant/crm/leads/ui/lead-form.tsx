@@ -1,4 +1,9 @@
 'use client';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { CrmEmailSchema } from '@leadcrm/shared';
+
+import { LeadStatusSchema, LEAD_STATUSES, normalizeCrmStatus } from '@leadcrm/shared';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
@@ -30,12 +35,12 @@ import {
 // sends populated values (pre-filled from initialData), so using the Create schema
 // for validation is correct for both modes.
 const LeadFormSchema = z.object({
-  firstName: z.string().min(1, 'First name is required').max(100, 'Max 100 characters'),
-  lastName: z.string().min(1, 'Last name is required').max(100, 'Max 100 characters'),
-  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  firstName: z.string().trim().min(1, 'First name is required').max(100, 'Max 100 characters'),
+  lastName: z.string().trim().min(1, 'Last name is required').max(100, 'Max 100 characters'),
+  email: CrmEmailSchema,
   phone: z.string().optional(),
   companyName: z.string().optional(),
-  status: z.string().min(1),
+  status: LeadStatusSchema,
   source: z.string().optional(),
   accountId: z.string().optional(),
   assignedUserId: z.string().optional(),
@@ -45,42 +50,18 @@ const LeadFormSchema = z.object({
 
 type LeadFormData = z.infer<typeof LeadFormSchema>;
 
-const PRODUCTS = [
-  'CCTV',
-  'Biometrics',
-  'Door Access',
-  'Door access/Biometrics',
-  'Network/Structured Cabling',
-  'FDAS',
-  'PABX',
-  'PC/Laptop/Server Assembly',
-  'Software/Web Development',
-  'Others',
-];
 
-const STATUS_OPTIONS = [
-  { value: 'Inquiry', label: 'Inquiry' },
-  { value: 'Hot', label: 'Hot' },
-  { value: 'Warm', label: 'Warm' },
-  { value: 'Cold', label: 'Cold' },
-  { value: 'Closed', label: 'Closed' },
-  { value: 'Cancelled', label: 'Cancelled' },
-];
+
+const STATUS_OPTIONS = LEAD_STATUSES.map(value => ({ value, label: value }));
 
 const SOURCE_OPTIONS = [
   'Google Ads',
   'Referral',
   'Email Campaign',
   'Website',
-  'LinkedIn Ads',
-  'Webinar',
   'Social Media Advertisement',
-  'Partner Referral',
   'Direct Mail',
-  'Cold Call',
   'Content Marketing',
-  'YouTube Ads',
-  'SEO / Organic Search',
   'Others',
 ];
 
@@ -100,6 +81,8 @@ interface AddLeadFormProps {
 export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps) {
   const { users } = useData();
   const isEdit = !!initialData;
+  const requestId = useRef<string | undefined>(undefined);
+  const { products: productRecords, error: productError, loading: productsLoading } = useProductInterests();
 
   const {
     register,
@@ -118,7 +101,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
       email: '',
       phone: '',
       companyName: '',
-      status: 'Inquiry',
+      status: 'Warm',
       source: '',
       accountId: '',
       assignedUserId: '',
@@ -128,9 +111,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
   });
 
   // Product interest state (for custom dropdown UX)
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [customProduct, setCustomProduct] = useState<string>('');
-  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
 
   // Philippine phone — local 10-digit number, no country code
   const [phoneLocal, setPhoneLocal] = useState('');
@@ -160,26 +141,14 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
       const phone = initialData.phone || '';
       setPhoneLocal(normalizePhInput(phone));
 
-      // Determine product interest from existing data
-      const prod = initialData.productInterests?.[0] || initialData.productInterest?.[0] || '';
-      if (prod) {
-        const matched = PRODUCTS.find((p) => p.toLowerCase() === prod.toLowerCase());
-        if (matched) {
-          setSelectedProduct(matched);
-          setCustomProduct('');
-        } else {
-          setSelectedProduct('Others');
-          setCustomProduct(prod);
-        }
-      }
-
+      setSelectedProducts(initialData.productInterestIds ?? []);
       reset({
         firstName: initialData.firstName || '',
         lastName: initialData.lastName || '',
         email: initialData.email || '',
         phone: phone,
         companyName: initialData.companyName || '',
-        status: initialData.status || 'Inquiry',
+        status: normalizeCrmStatus(initialData.status),
         source: initialData.leadSource || initialData.source || '',
         accountId: initialData.accountId || initialData.organizationId || '',
         assignedUserId: initialData.assignedUserId || '',
@@ -187,8 +156,8 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         address: initialData.address || '',
       });
     } else {
-      setSelectedProduct('');
-      setCustomProduct('');
+      setSelectedProducts([]);
+
       setPhoneLocal('');
       setPhoneTouched(false);
       reset({
@@ -197,7 +166,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         email: '',
         phone: '',
         companyName: '',
-        status: 'Inquiry',
+        status: 'Warm',
         source: '',
         accountId: '',
         assignedUserId: '',
@@ -211,19 +180,19 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
     // Build phone in E.164 format from local 10-digit number
     const fullPhone = phoneLocal ? toE164(phoneLocal) : '';
 
-    // Build productInterest array
-    const finalProduct = selectedProduct === 'Others' ? customProduct : selectedProduct;
-    const productInterest = finalProduct ? [finalProduct] : [];
-
+    const productInterest = selectedProducts;
+    if (productsLoading || productError) return;
+    if (!isEdit) requestId.current ??= crypto.randomUUID();
     // Build payload matching backend CreateContactSchema field names exactly.
     // No phantom fields — adapter handles any remaining mapping.
     const payload: Partial<Lead> = {
+      ...(!isEdit ? { requestId: requestId.current } : {}),
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email || undefined,
       phone: fullPhone || undefined,
       companyName: data.companyName || undefined,
-      status: data.status || 'Inquiry',
+      status: data.status || 'Warm',
       source: data.source || undefined,
       accountId: data.accountId || undefined,
       assignedUserId: data.assignedUserId || undefined,
@@ -247,7 +216,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         {/* Section 1: Basic Information */}
         <div className="space-y-4">
           <SectionHeader num={1} title="Basic Information" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap label="First Name *" htmlFor={`${fieldId}-firstName`} error={errors.firstName?.message}>
               <input
                 {...register('firstName')}
@@ -269,13 +238,13 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               />
             </FieldWrap>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <FieldWrap label="Email" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FieldWrap label="Email *" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="email"
-                  {...register('email')}
+                  {...register('email')} required aria-required="true" maxLength={254}
                   id={`${fieldId}-email`}
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? `${fieldId}-email-error` : undefined}
@@ -316,7 +285,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         {/* Section 2: Status & Interest */}
         <div className="space-y-4">
           <SectionHeader num={2} title="Status & Interest" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap htmlFor={`${fieldId}-status`} error={errors.status?.message} label="Status">
               <div className="relative">
                 <select
@@ -334,51 +303,9 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               </div>
             </FieldWrap>
             <FieldWrap label="Product Interest">
-              <div className="space-y-2">
-                <div className="relative">
-                  <div
-                    className={`${inputCls} flex items-center justify-between cursor-pointer select-none`}
-                    onClick={() => setIsProductDropdownOpen(!isProductDropdownOpen)}
-                  >
-                    <span className={selectedProduct ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-                      {selectedProduct || 'Select product...'}
-                    </span>
-                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${isProductDropdownOpen ? 'rotate-180' : ''}`} />
-                  </div>
-                  {isProductDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsProductDropdownOpen(false)} />
-                      <div className="absolute z-50 w-full mt-1.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-xl shadow-blue-900/5 dark:shadow-black/40 py-1 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 max-h-60 overflow-y-auto">
-                        {PRODUCTS.map((p) => (
-                          <div
-                            key={p}
-                            className={`px-3.5 py-2.5 text-sm cursor-pointer transition-colors ${selectedProduct === p ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}
-                            onClick={() => {
-                              setSelectedProduct(p);
-                              setIsProductDropdownOpen(false);
-                            }}
-                          >
-                            {p}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {selectedProduct === 'Others' && (
-                  <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                    <input
-                      type="text"
-                      autoFocus
-                      className="w-full bg-white dark:bg-white/[0.04] border border-blue-400 dark:border-blue-500/60 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm shadow-blue-500/10"
-                      placeholder="Specify product or service"
-                      value={customProduct}
-                      onChange={(e) => setCustomProduct(e.target.value)}
-                    />
-                  </div>
-                )}
-              </div>
-            </FieldWrap>
+<ProductInterestSelect products={productRecords} values={selectedProducts} onChange={setSelectedProducts} disabled={productsLoading || !!productError} labels={Object.fromEntries((initialData?.productInterestIds ?? []).map((id: string, i: number) => [id, initialData?.productInterests?.[i] ?? "Unavailable product"]))} />
+{productError && <p role="alert" className="text-xs text-destructive">{productError}</p>}
+</FieldWrap>
           </div>
         </div>
 
@@ -405,7 +332,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         {/* Section 4: Additional Information */}
         <div className="space-y-4">
           <SectionHeader num={4} title="Additional Information" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap htmlFor={`${fieldId}-source`} error={errors.source?.message} label="Lead Source">
               <div className="relative">
                 <select
@@ -432,7 +359,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
                   aria-describedby={errors.assignedUserId ? `${fieldId}-assignedUserId-error` : undefined}
                   className={selectCls}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">{isEdit ? 'Unassigned' : 'Assign automatically'}</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
                   ))}
@@ -475,6 +402,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         </button>
         <button
           type="submit"
+          disabled={productsLoading || !!productError}
           className="px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl transition-all shadow-lg shadow-blue-500/25"
         >
           {isEdit ? 'Save Changes' : 'Create Lead'}

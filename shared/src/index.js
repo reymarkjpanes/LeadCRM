@@ -22,7 +22,6 @@ __exportStar(require("./constants"), exports);
 __exportStar(require("./contracts"), exports);
 __exportStar(require("./validation"), exports);
 __exportStar(require("./contracts/auth.contract"), exports);
-__exportStar(require("./contracts/environment.contract"), exports);
 __exportStar(require("./constants/onboarding"), exports);
 __exportStar(require("./validation/auth.schema"), exports);
 __exportStar(require("./contracts/profile.contract"), exports);

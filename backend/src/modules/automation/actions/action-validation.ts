@@ -1,6 +1,10 @@
 import { z } from 'zod';
-import { EmailSubjectSchema, CampaignSendSchema, type WorkflowAction, type WorkflowEntity } from '@leadcrm/shared';
-import { audienceDefinition } from '../../marketing/campaigns/audiences.service';
+import { EmailSubjectSchema, type WorkflowAction, type WorkflowEntity } from '@leadcrm/shared';
+import { fieldUpdatePatch } from './action-fields';
+import { smsRecipient, validateSmsRecipientMode } from './action-sms';
+import { isSmsConfigured } from '../../../shared/services/sms.service';
+import { validateSalesOwner } from '../../crm/leads/lead-automation.service';
+import prisma from '../../../config/database.config';
 import { ValidationError, NotFoundError } from '../../../shared/errors/http-error';
 import { getAvailableActions } from './actions.service';
 import * as repo from './actions.repository';
@@ -8,7 +12,7 @@ import { validateDealStageMove } from '../../crm/deals/deals.service';
 import { sanitizeCampaignHtml } from '../../marketing/campaigns/campaign-content';
 
 export function actionEntity(context: Record<string, unknown>): WorkflowEntity {
-  const matches = (['lead', 'contact', 'deal'] as const).filter(entity => typeof context[`${entity}.id`] === 'string');
+  const matches = (['lead', 'contact', 'deal', 'account'] as const).filter(entity => typeof context[`${entity}.id`] === 'string');
   if (matches.length !== 1) throw new ValidationError('Choose one triggering CRM record.');
   return matches[0];
 }
@@ -16,8 +20,16 @@ export function actionUser(config: Record<string, unknown>, key: string, entity:
   return String(config[key] || context?.[`${entity}.assignedUserId`] || '');
 }
 export async function validateAction(action: WorkflowAction, entity: WorkflowEntity, tenantId: string, context?: Record<string, unknown>, incomplete = false): Promise<void> {
+  if (['send_campaign', 'create_notification'].includes(action.type)) {
+    if (incomplete || action.enabled === false) return;
+    throw new ValidationError('This action is retired. Disable or remove it before activating.');
+  }
   const definition = getAvailableActions().find(entry => entry.type === action.type);
   if (!definition || !definition.entities.includes(entity)) throw new ValidationError(`Action ${action.type} is not supported for ${entity}.`);
+  if (action.type === 'update_field') {
+    await fieldUpdatePatch(action, entity, tenantId, incomplete || action.enabled === false);
+    return;
+  }
   for (const key of Object.keys(action.config)) {
     if (!definition.configSchema[key]) throw new ValidationError(`Remove unsupported action setting: ${key}.`);
   }
@@ -32,15 +44,12 @@ export async function validateAction(action: WorkflowAction, entity: WorkflowEnt
     if (key === 'title' && (String(value).length > 255 || /[\r\n\t]/.test(String(value)))) throw new ValidationError('Title must be at most 255 characters without control characters.');
     if (['user', 'stage', 'template', 'campaign'].includes(field.type) && !z.string().uuid().safeParse(value).success) throw new ValidationError(`Choose a valid ${field.label}.`);
     if (key === 'subject' && !EmailSubjectSchema.safeParse(value).success) throw new ValidationError('Email subject must not contain line breaks or control characters.');
-    if (['title', 'description', 'body'].includes(key)) validateVariables(String(value));
+    if (['title', 'description', 'body', 'message'].includes(key)) validateVariables(String(value));
     if (field.options && !field.options.includes(String(value))) throw new ValidationError(`Choose a supported ${field.label.toLowerCase()}.`);
     if (field.type === 'user' && !await repo.findUser(String(value), tenantId)) throw new NotFoundError('Active workspace user');
     if (field.type === 'stage' && !await repo.findStage(String(value), tenantId)) throw new NotFoundError('Stage');
     if (field.type === 'template' && !await repo.findTemplate(String(value), tenantId)) throw new NotFoundError('Email template');
     if (field.type === 'campaign' && !await repo.findCampaign(String(value), tenantId)) throw new NotFoundError('Campaign');
-  }
-  if (action.type === 'update_field' && ((!incomplete && action.enabled !== false) || action.config.field) && action.config.field !== (entity === 'contact' ? 'notes' : 'description')) {
-    throw new ValidationError('Relationship Status and other protected fields cannot be automated. Choose notes for Client Profiles or description for Leads/Deals.');
   }
   // Disabled steps retain safe configuration and scoped references, but need no delivery readiness.
   if (action.enabled === false) return;
@@ -49,7 +58,7 @@ export async function validateAction(action: WorkflowAction, entity: WorkflowEnt
   if (context && ['create_task', 'create_notification'].includes(action.type)) {
     const key = action.type === 'create_task' ? 'assignedUserId' : 'userId';
     const userId = actionUser(action.config, key, entity, context);
-    if (!userId) throw new ValidationError('Choose a user or assign an owner to the triggering record.');
+    if (!userId) throw new ValidationError('Choose an agent or assign an agent to the triggering record.');
     if (!await repo.findUser(userId, tenantId)) throw new NotFoundError('Active workspace user');
   }
   if (action.type === 'move_deal_stage') {
@@ -61,13 +70,12 @@ export async function validateAction(action: WorkflowAction, entity: WorkflowEnt
     }
   }
   if (action.type === 'send_email') await validateEmail(action, entity, tenantId, context);
-  if (action.type === 'send_campaign') {
-    const campaign = await repo.findCampaign(String(action.config.campaignId), tenantId);
-    if (!campaign) throw new NotFoundError('Campaign');
-    if (campaign.status !== 'DRAFT' || campaign.type !== 'EMAIL') throw new ValidationError('Choose an unsent draft email campaign.');
-    if (!CampaignSendSchema.safeParse({ name: campaign.name, type: campaign.type, subject: campaign.subject ?? '', body: campaign.body ?? '', targetAudienceId: campaign.targetAudienceId, audienceSource: campaign.audienceSource }).success) throw new ValidationError('Complete the campaign subject, message and audience first.');
-    await audienceDefinition(tenantId, campaign.targetAudienceId, campaign.audienceSource);
-    if (campaign.emailTemplateId && !await repo.findTemplate(campaign.emailTemplateId, tenantId)) throw new NotFoundError('Campaign template');
+  if (action.type === 'assign_owner') await validateSalesOwner(prisma, tenantId, String(action.config.userId));
+  if (action.type === 'send_sms') {
+    validateSmsRecipientMode(action.config.recipient, entity);
+    if (String(action.config.message ?? '').length > 1600) throw new ValidationError('SMS message must be at most 1600 characters.');
+    if (!incomplete && !isSmsConfigured()) throw new ValidationError('Configure the SMS sender and API key before activating SMS workflows.');
+    if (context) await smsRecipient(action, entity, tenantId, context);
   }
 }
 export async function validateEmail(action: WorkflowAction, entity: WorkflowEntity, tenantId: string, context?: Record<string, unknown>): Promise<void> {
@@ -81,7 +89,7 @@ export async function validateEmail(action: WorkflowAction, entity: WorkflowEnti
   if (!await repo.findSender(String(action.config.senderUserId), tenantId)) throw new ValidationError('Connect the selected sender to Gmail before activating.');
   if (context) {
     if (!z.string().email().safeParse(context[`${entity}.email`]).success) throw new ValidationError('No valid email address found for the triggering record.');
-    if (context[`${entity}.doNotContact`] === true) throw new ValidationError('This Client Profile is marked Do not contact.');
+    if (context[`${entity}.doNotContact`] === true) throw new ValidationError('This Contact is marked Do not contact.');
   }
 }
 

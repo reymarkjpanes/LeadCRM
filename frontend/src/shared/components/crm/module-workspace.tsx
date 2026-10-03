@@ -1,9 +1,11 @@
 'use client';
+import { SelectedRowsBar } from '@/shared/components/crm/selected-rows-bar';
+
 
 import React, { useState, useCallback, useRef, useEffect, useMemo, ReactNode } from 'react';
 import {
   List, LayoutGrid, Table2, Columns3, Grid3X3,
-  TrendingUp, Filter, RefreshCw, Search,
+  TrendingUp,
   Settings2, ChevronDown, ChevronLeft, ChevronRight, X, Upload,
   ListOrdered, Eye, Check, FileUp, UserPlus, Plus,
 } from 'lucide-react';
@@ -14,6 +16,12 @@ import type { ModuleConfig, ViewType as SharedViewType, ColumnConfigItem } from 
 import { useViewTypePreference } from '@/shared/hooks/use-view-type-preference';
 import { VIEW_OPTIONS as VIEW_RENDERERS } from './view-registry';
 import { validateModuleConfig } from './validate-module-config';
+import { ModuleFilterRail, type FilterGroup } from './module-filter-rail';
+import { ManageColumnsButton } from './manage-columns-button';
+import { ModuleSearchInput } from './module-search-input';
+import { FilterButton } from './filter-button';
+import { RefreshButton } from './refresh-button';
+import { TableLoadingState } from './table-loading-state';
 import { PaginationControls } from './pagination-controls';
 import {
   Tooltip,
@@ -41,20 +49,6 @@ interface SavedViewTab {
   id: string;
   label: string;
   isActive?: boolean;
-}
-
-interface FilterGroup {
-  id: string;
-  label: string;
-  isExpanded?: boolean;
-  items: FilterItem[];
-}
-
-interface FilterItem {
-  id: string;
-  label: string;
-  count?: number;
-  isChecked?: boolean;
 }
 
 interface KpiCard {
@@ -102,6 +96,13 @@ export interface ModuleWorkspaceProps {
   selectedIds?: Set<string>;
   /** Whether data is loading */
   isDataLoading?: boolean;
+  /** Show the shared table loading card in place of the content. */
+  loading?: boolean;
+  loadingLabel?: string;
+  refreshDisabled?: boolean;
+  refreshLabel?: string;
+  directManageColumns?: boolean;
+  onClearFilters?: () => void;
   /** Saved view tabs */
   savedTabs?: SavedViewTab[];
   /** Active tab id */
@@ -109,6 +110,7 @@ export interface ModuleWorkspaceProps {
   /** Tab change handler */
   onTabChange?: (tabId: string) => void;
   /** Filter rail groups */
+  filterContent?: ReactNode;
   filterGroups?: FilterGroup[];
   /** Filter toggle handler */
   onFilterToggle?: (groupId: string, itemId: string) => void;
@@ -201,6 +203,13 @@ export function ModuleWorkspace({
   onRowSelect,
   selectedIds,
   isDataLoading,
+  loading = false,
+  loadingLabel = 'Loading records...',
+  refreshDisabled = false,
+  refreshLabel,
+  directManageColumns = false,
+  onClearFilters,
+  filterContent,
   savedTabs,
   activeTab,
   onTabChange,
@@ -307,6 +316,9 @@ export function ModuleWorkspace({
               onImport={onImport}
             />
           )}
+          {!canCreate && onImport && (
+            <button onClick={onImport} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Import File</button>
+          )}
         </div>
       </div>
 
@@ -330,9 +342,6 @@ export function ModuleWorkspace({
               )}
             </button>
           ))}
-          <button className="px-2 py-2 text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white transition-colors">
-            <span className="text-lg leading-none">···</span>
-          </button>
         </div>
       )}
 
@@ -341,43 +350,14 @@ export function ModuleWorkspace({
       {/* Mobile: search on row 1 (full width), all secondary controls on row 2 via flex-col */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 mb-3" role="toolbar" aria-label="Module controls">
         {/* 1. Search field — full width on mobile, fixed width on sm+ */}
-        <div className="relative w-full sm:flex-none sm:w-auto">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearch?.(e.target.value)}
-            placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
-            className="h-8 w-full sm:w-48 lg:w-56 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
-          />
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-        </div>
+        <ModuleSearchInput value={searchTerm} onChange={value => onSearch?.(value)} placeholder={searchPlaceholder} />
 
         {/* Row 2 on mobile / inline on sm+: all secondary controls */}
         {/* sm:contents dissolves this wrapper on sm+ so children participate directly in the parent flex */}
         <div className="flex flex-wrap items-center gap-2 sm:contents">
 
           {/* 2. Filter toggle */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onToggleFilters}
-                  aria-label={`Filter ${title}`}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-semibold rounded-lg border transition-colors',
-                    showFilters
-                      ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                      : 'bg-white dark:bg-slate-800 text-[#5A6B85] dark:text-slate-300 border-[#E4E9F0] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700',
-                  )}
-                >
-                  <Filter size={13} aria-hidden="true" />
-                  Filter
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Filter {title}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <FilterButton title={title} open={showFilters} onClick={onToggleFilters} />
 
           {/* 3. Page-size selector */}
           {onPageSizeChange && (
@@ -528,34 +508,23 @@ export function ModuleWorkspace({
 
           {/* Refresh */}
           {onRefresh && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onRefresh}
-                    className="p-1.5 text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                    aria-label="Refresh"
-                  >
-                    <RefreshCw size={15} aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Refresh</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <RefreshButton onClick={() => onRefresh()} disabled={refreshDisabled || loading} refreshing={loading} label={refreshLabel} />
           )}
 
           {/* Extra toolbar (pipeline selector, etc.) */}
           {toolbarExtra}
 
           {/* Table Settings Menu (Manage Columns, Reset Columns, View Mode) */}
-          <TableSettingsMenuInline
+          {directManageColumns ? (
+            <ManageColumnsButton onClick={onManageColumns} />
+          ) : <TableSettingsMenuInline
             pageSize={pageSize}
             onPageSizeChange={onPageSizeChange}
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
             onManageColumns={onManageColumns}
             onResetColumns={onResetColumns}
-          />
+          />}
 
         </div>{/* end secondary controls row */}
       </div>
@@ -586,138 +555,23 @@ export function ModuleWorkspace({
 
       {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 gap-0">
-        {/* Filter Rail — backdrop for mobile */}
-        {showFilters && filterGroups && (
-          <div
-            className="fixed inset-0 z-30 bg-black/30 sm:hidden"
-            onClick={onToggleFilters}
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Filter Rail — mobile: fixed overlay slide-in from left (hidden on sm+) */}
-        <AnimatePresence>
-          {showFilters && filterGroups && (
-            <motion.aside
-              initial={{ x: -260, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -260, opacity: 0 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 z-40 w-[260px] sm:hidden shadow-2xl"
-            >
-              <div className="w-full h-full flex flex-col bg-white dark:bg-slate-800 border-r border-[#E4E9F0] dark:border-slate-700 overflow-hidden">
-                {/* Filter header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
-                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
-                    Filter by
-                  </span>
-                  <button
-                    onClick={onToggleFilters}
-                    className="p-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
-                    aria-label="Close filters"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-                {/* Filter search */}
-                <div className="px-3 py-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={filterSearchTerm}
-                      onChange={(e) => onFilterSearch?.(e.target.value)}
-                      placeholder="Search filters"
-                      aria-label="Search filters"
-                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
-                    />
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-                  </div>
-                </div>
-                {/* Filter groups */}
-                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
-                  {filterGroups.map((group) => (
-                    <FilterGroupSection
-                      key={group.id}
-                      group={group}
-                      filterSearchTerm={filterSearchTerm}
-                      onToggle={onFilterToggle}
-                    />
-                  ))}
-                </div>
-                {/* Footer */}
-                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
-                  {totalRecords} records in this module
-                </div>
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
-
-        {/* Filter Rail — desktop: inline side panel animates width (hidden on mobile) */}
-        <AnimatePresence>
-          {showFilters && filterGroups && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 260, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="hidden sm:block shrink-0 overflow-hidden"
-            >
-              <div className="w-[260px] h-full flex flex-col bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl mr-3 overflow-hidden">
-                {/* Filter header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
-                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
-                    Filter by
-                  </span>
-                  <button
-                    onClick={onToggleFilters}
-                    className="p-1 text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
-                    aria-label="Close filters"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* Filter search */}
-                <div className="px-3 py-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={filterSearchTerm}
-                      onChange={(e) => onFilterSearch?.(e.target.value)}
-                      placeholder="Search filters"
-                      aria-label="Search filters"
-                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
-                    />
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-                  </div>
-                </div>
-
-                {/* Filter groups */}
-                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
-                  {filterGroups.map((group) => (
-                    <FilterGroupSection
-                      key={group.id}
-                      group={group}
-                      filterSearchTerm={filterSearchTerm}
-                      onToggle={onFilterToggle}
-                    />
-                  ))}
-                </div>
-
-                {/* Footer */}
-                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
-                  {totalRecords} records in this module
-                </div>
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
+        <ModuleFilterRail filterContent={filterContent}
+          onClearFilters={onClearFilters}
+          showFilters={showFilters}
+          filterGroups={filterGroups}
+          onToggleFilters={onToggleFilters}
+          filterSearchTerm={filterSearchTerm}
+          onFilterSearch={onFilterSearch}
+          onFilterToggle={onFilterToggle}
+          totalRecords={totalRecords}
+        />
 
         {/* Content area */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Render active view from VIEW_OPTIONS registry when moduleConfig is provided */}
-          {moduleConfig && ActiveViewRenderer && viewData && viewColumns ? (
+          {loading ? (
+            <TableLoadingState label={loadingLabel} />
+          ) : moduleConfig && ActiveViewRenderer && viewData && viewColumns ? (
             <ActiveViewRenderer
               data={viewData}
               columns={viewColumns}
@@ -745,27 +599,7 @@ export function ModuleWorkspace({
         </div>
       </div>
 
-      {/* ── Bulk Selection Bar ───────────────────────────────────────── */}
-      <AnimatePresence>
-        {bulkSelection && bulkSelection.count > 0 && (
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-[#0F172A] dark:bg-slate-700 text-white rounded-xl px-4 py-2.5 shadow-xl flex items-center gap-3 text-[13px]"
-          >
-            <span className="font-semibold">{bulkSelection.count} selected</span>
-            <button
-              onClick={bulkSelection.onClear}
-              className="text-slate-300 hover:text-white text-[12px] underline transition-colors"
-            >
-              Clear
-            </button>
-            <div className="h-4 w-px bg-slate-600" />
-            {bulkSelection.actions}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {bulkSelection && <SelectedRowsBar count={bulkSelection.count} onClear={bulkSelection.onClear}>{bulkSelection.actions}</SelectedRowsBar>}
     </div>
   );
 }
@@ -820,6 +654,7 @@ function TableSettingsMenuInline({
 
   return (
     <div className="relative" ref={menuRef}>
+      <TooltipProvider><Tooltip><TooltipTrigger asChild>
       <button
         onClick={() => { setIsOpen((prev) => !prev); setActiveSubmenu(null); }}
         className="inline-flex items-center gap-1.5 h-8 px-2.5 text-[12px] font-medium text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
@@ -827,8 +662,9 @@ function TableSettingsMenuInline({
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
-        <Settings2 size={14} />
+        <Settings2 size={14} aria-hidden="true" />
       </button>
+      </TooltipTrigger><TooltipContent>Table settings</TooltipContent></Tooltip></TooltipProvider>
 
       {isOpen && (
         <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5 overflow-visible">
@@ -1046,83 +882,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
 
 // ── Filter Group Sub-component ─────────────────────────────────────────────────
 
-interface FilterGroupSectionProps {
-  group: FilterGroup;
-  filterSearchTerm?: string;
-  onToggle?: (groupId: string, itemId: string) => void;
-}
-
-export function FilterGroupSection({ group, filterSearchTerm = '', onToggle }: FilterGroupSectionProps): React.ReactElement | null {
-  const [isExpanded, setIsExpanded] = useState(group.isExpanded ?? true);
-
-  const visibleItems = React.useMemo(() => {
-    if (!filterSearchTerm.trim()) return group.items;
-    const term = filterSearchTerm.toLowerCase().trim();
-    return group.items.filter((item) => item.label.toLowerCase().includes(term));
-  }, [group.items, filterSearchTerm]);
-
-  if (visibleItems.length === 0 && filterSearchTerm.trim()) {
-    return null;
-  }
-
-  return (
-    <div className="mb-3">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-1 w-full text-left py-1.5"
-      >
-        <ChevronDown
-          size={12}
-          className={cn(
-            'text-[#5A6B85] transition-transform',
-            !isExpanded && '-rotate-90',
-          )}
-        />
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-[#5A6B85] dark:text-slate-400">
-          {group.label}
-        </span>
-      </button>
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-col gap-0.5 pl-1">
-              {visibleItems.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer group"
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.isChecked ?? false}
-                    onChange={() => onToggle?.(group.id, item.id)}
-                    className="w-3.5 h-3.5 rounded border-[#E4E9F0] dark:border-slate-600 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
-                    aria-label={`Filter by ${item.label}`}
-                  />
-                  <span className="flex-1 text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate min-w-0">
-                    {item.label}
-                  </span>
-                  {item.count !== undefined && (
-                    <span className="text-[11px] text-[#5A6B85] dark:text-slate-500 tabular-nums shrink-0">
-                      {item.count}
-                    </span>
-                  )}
-                </label>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ── Create Action Dropdown ─────────────────────────────────────────────────────
+export { FilterGroupSection } from './module-filter-rail';
 
 interface CreateActionDropdownProps {
   primaryActionLabel: string;

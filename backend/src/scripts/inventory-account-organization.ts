@@ -110,19 +110,17 @@ async function main(): Promise<void> {
       o_ind: string | null; a_ind: string | null;
       o_web: string | null; a_web: string | null;
       o_size: string | null; a_size: string | null;
-      o_ct: string | null; a_ct: string | null;
     }>
   >(`
     SELECT o.id AS org_id, a.id AS acct_id, o."tenantId", o.name,
            o.industry AS o_ind, a.industry AS a_ind,
            o.website  AS o_web, a.website  AS a_web,
-           o.size     AS o_size, a.size    AS a_size,
-           o."customerType" AS o_ct, a."customerType" AS a_ct
+           o.size     AS o_size, a.size    AS a_size
     FROM "Organization" o JOIN "Account" a
       ON a."tenantId" = o."tenantId" AND lower(trim(a.name)) = lower(trim(o.name))
   `);
   const conflicting = fieldDiffs.filter(
-    (r) => r.o_ind !== r.a_ind || r.o_web !== r.a_web || r.o_size !== r.a_size || r.o_ct !== r.a_ct,
+    (r) => r.o_ind !== r.a_ind || r.o_web !== r.a_web || r.o_size !== r.a_size,
   );
   console.log(`Name-matched pairs: ${fieldDiffs.length}`);
   console.log(`  → with field conflicts (keep Account value, report Org value): ${conflicting.length}`);
@@ -131,8 +129,7 @@ async function main(): Promise<void> {
       `    "${r.name}" (tenant=${r.tenantId})` +
         ` ind[o=${r.o_ind ?? '-'}|a=${r.a_ind ?? '-'}]` +
         ` web[o=${r.o_web ?? '-'}|a=${r.a_web ?? '-'}]` +
-        ` size[o=${r.o_size ?? '-'}|a=${r.a_size ?? '-'}]` +
-        ` type[o=${r.o_ct ?? '-'}|a=${r.a_ct ?? '-'}]`,
+        ` size[o=${r.o_size ?? '-'}|a=${r.a_size ?? '-'}]`,
     ),
   );
   if (conflicting.length > 25) console.log(`    ...and ${conflicting.length - 25} more`);

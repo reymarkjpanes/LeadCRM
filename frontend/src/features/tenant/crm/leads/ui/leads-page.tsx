@@ -1,13 +1,16 @@
-﻿'use client';
+'use client';
 
+import { LeadCreatedFilter, createdFilterCondition, emptyCreatedFilter, type CreatedFilterDraft } from './lead-created-filter';
+import { isCurrentLeadSource } from '@/lib/constants';
 import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
+import { Button } from '@/shared/components/ui/button';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import { leadsService } from '../services/leads.service';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '@/store/DataContext';
 import { useAuth } from '@/store/AuthContext';
 import { useLeadsData } from '../hooks/use-leads-data';
-import { DataLoadingSkeleton, DataErrorState } from '@/shared/components/crm/data-view-states';
+import { DataErrorState } from '@/shared/components/crm/data-view-states';
 import type { Lead, Organization } from '@/store/types';
 import { ModuleWorkspace, ViewType, LeadPanel, StatusBadge } from '@/shared/components/crm';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -31,9 +34,8 @@ import { useRouter } from 'next/navigation';
 import { LEADS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 import { LEADS_MODULE_CONFIG } from '../leads.config';
 import { toast } from 'sonner';
-import { Edit, Phone, Mail, ListTodo, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { PageSizeSelect } from '@/shared/components/page-size-select';
+import { Edit, Phone, Mail, ListTodo, MoreHorizontal } from 'lucide-react';
+import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 
 // ── Leads Page ────────────────────────────────────────────────────────────────
 
@@ -48,9 +50,10 @@ export default function LeadsPage(): React.ReactElement {
   } = useData();
   const { user } = useAuth();
   const { dialogProps, confirm, close } = useConfirmDialog();
-  const canCreate = useHasPermission('contacts.create');
-  const canEdit = useHasPermission('contacts.edit');
-  const canDelete = useHasPermission('contacts.delete');
+  const canCreate = useHasPermission('leads.create');
+  const canImport = useHasPermission('leads.import');
+  const canEdit = useHasPermission('leads.edit');
+  const canDelete = useHasPermission('leads.archive');
   const { getParam, getArrayParam, updateParams } = useFilterUrlSync('leads');
 
   // ── Column Preferences ────────────────────────────────────────────────
@@ -115,9 +118,15 @@ export default function LeadsPage(): React.ReactElement {
   // Multi-criteria filter state
   const [selectedSystemFilters, setSelectedSystemFilters] = useState<string[]>(() => getArrayParam('system'));
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => getArrayParam('statuses'));
-  const [selectedSources, setSelectedSources] = useState<string[]>(() => getArrayParam('sources'));
+  const [selectedSources, setSelectedSources] = useState<string[]>(() => getArrayParam('sources').filter(isCurrentLeadSource));
   const [selectedOwners, setSelectedOwners] = useState<string[]>(() => getArrayParam('owners'));
   const [selectedRelated, setSelectedRelated] = useState<string[]>(() => getArrayParam('related'));
+
+  const [createdFilter, setCreatedFilter] = useState<CreatedFilterDraft>(() => ({
+    operator: (getParam('createdOperator') || '') as CreatedFilterDraft['operator'],
+    from: getParam('createdFrom') || '', to: getParam('createdTo') || '',
+  }));
+  useEffect(() => { setCurrentPage(1); }, [createdFilter, selectedStatuses, selectedSources, selectedOwners, activeTab]);
 
   const debouncedSearch = useDebounce(searchTerm, 300);
 
@@ -148,7 +157,7 @@ export default function LeadsPage(): React.ReactElement {
       conditions.push({ field: 'assignedUserId', operator: 'equals', value: user.id });
     }
     if (activeTab === 'active') {
-      conditions.push({ field: 'status', operator: 'in', value: ['Hot', 'Warm', 'Inquiry'] });
+      conditions.push({ field: 'status', operator: 'in', value: ['Hot', 'Warm'] });
     }
 
     // Status filter
@@ -166,8 +175,9 @@ export default function LeadsPage(): React.ReactElement {
       conditions.push({ field: 'assignedUserId', operator: 'in', value: selectedOwners });
     }
 
+    conditions.push(...createdFilterCondition(createdFilter));
     return conditions;
-  }, [activeTab, user?.id, selectedStatuses, selectedSources, selectedOwners]);
+  }, [activeTab, user?.id, selectedStatuses, selectedSources, selectedOwners, createdFilter]);
 
   const {
     leads,
@@ -185,6 +195,10 @@ export default function LeadsPage(): React.ReactElement {
     filter: serverFilters.length > 0 ? serverFilters : undefined,
   });
 
+  useEffect(() => {
+    if (leadsError) toast.error(leadsError);
+  }, [leadsError]);
+
   // Total record count from server metadata (falls back to current page
   // length while metadata is still loading on first render)
   const serverTotal = leadsMeta?.total ?? leads.length;
@@ -201,8 +215,9 @@ export default function LeadsPage(): React.ReactElement {
       sources: selectedSources,
       owners: selectedOwners,
       related: selectedRelated,
+      createdOperator: createdFilter.operator || null, createdFrom: createdFilter.from || null, createdTo: createdFilter.to || null,
     });
-  }, [activeTab, debouncedSearch, activeView, selectedSystemFilters, selectedStatuses, selectedSources, selectedOwners, selectedRelated, highlightId, updateParams]);
+  }, [activeTab, debouncedSearch, activeView, selectedSystemFilters, selectedStatuses, selectedSources, selectedOwners, selectedRelated, createdFilter, highlightId, updateParams]);
 
   // -- Persist filter selections (fire-and-forget) ------------------------
   useEffect(() => {
@@ -222,8 +237,9 @@ export default function LeadsPage(): React.ReactElement {
     if (selectedSystemFilters.length > 0) {
       conditions.push({ field: 'system', operator: 'in', value: selectedSystemFilters });
     }
+    conditions.push(...createdFilterCondition(createdFilter));
     persistFilters(conditions);
-  }, [selectedStatuses, selectedSources, selectedOwners, selectedRelated, selectedSystemFilters, persistFilters]);
+  }, [selectedStatuses, selectedSources, selectedOwners, selectedRelated, selectedSystemFilters, createdFilter, persistFilters]);
 
   // ── Filtered Data ─────────────────────────────────────────────────────
   // Status/source/owner/tab filters are now server-side via serverFilters.
@@ -311,7 +327,7 @@ export default function LeadsPage(): React.ReactElement {
 
   const distinctSources = useMemo(() => {
     const set = new Set<string>();
-    activeLeads.forEach((l) => { if (l.leadSource) set.add(l.leadSource); });
+    activeLeads.forEach((l) => { if (l.leadSource && isCurrentLeadSource(l.leadSource)) set.add(l.leadSource); });
     return Array.from(set);
   }, [activeLeads]);
 
@@ -447,7 +463,7 @@ export default function LeadsPage(): React.ReactElement {
         moduleConfig={LEADS_MODULE_CONFIG}
         primaryActionLabel="Create Lead"
         onPrimaryAction={handleCreate}
-        onImport={() => router.push('/crm/leads/import')}
+        onImport={canImport ? () => router.push('/crm/leads/import') : undefined}
         canCreate={canCreate}
         availableViews={['table']}
         activeView={'table' as ViewType}
@@ -459,6 +475,8 @@ export default function LeadsPage(): React.ReactElement {
         ]}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        filterContent={<LeadCreatedFilter value={createdFilter} onChange={setCreatedFilter} />}
+        onClearFilters={() => { setCreatedFilter(emptyCreatedFilter); setSelectedStatuses([]); setSelectedSources([]); setSelectedOwners([]); setSelectedRelated([]); setSelectedSystemFilters([]); setActiveTab('all'); setSearchTerm(''); setCurrentPage(1); }}
         filterGroups={filterGroups}
         onFilterToggle={handleFilterToggle}
         showFilters={showFilters}
@@ -472,7 +490,10 @@ export default function LeadsPage(): React.ReactElement {
         pageSize={pageSize}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onRefresh={() => toast.success('Data refreshed')}
+        onRefresh={refetchLeads}
+        refreshDisabled={isLeadsInitialLoad || isLeadsRefreshing}
+        loading={(activeView === 'list' || activeView === 'table') && (isLeadsInitialLoad || isLeadsRefreshing || isColumnsLoading)}
+        loadingLabel={isLeadsInitialLoad || isLeadsRefreshing ? 'Loading leads...' : 'Loading columns...'}
         onManageColumns={() => setIsManageColumnsOpen(true)}
         onResetColumns={() => {
           resetColumns();
@@ -485,12 +506,11 @@ export default function LeadsPage(): React.ReactElement {
                 onClear: () => setSelectedIds(new Set()),
                 actions: (
                   canDelete && (
-                    <button
-                      className="text-[12px] text-white/80 hover:text-white transition-colors"
+                    <Button variant="outline"
                       onClick={() => confirmArchive([...selectedIds], `${selectedIds.size} leads`)}
                     >
                       Archive
-                    </button>
+                    </Button>
                   )
                 ),
               }
@@ -502,11 +522,6 @@ export default function LeadsPage(): React.ReactElement {
           <button className="text-blue-600 underline" onClick={() => updateParams({ highlight: null, search: null })}>Show all records</button>
         </div>}
         {/* ── List View ─────────────────────────────────────────── */}
-        {/* Initial load: show skeleton when no data has arrived yet */}
-        {(activeView === 'list' || activeView === 'table') && isLeadsInitialLoad && (
-          <DataLoadingSkeleton rowCount={8} columnCount={6} />
-        )}
-
         {/* Error state: only show when there's no data at all to display */}
         {(activeView === 'list' || activeView === 'table') && leadsError && !isLeadsInitialLoad && leads.length === 0 && (
           <DataErrorState
@@ -515,18 +530,7 @@ export default function LeadsPage(): React.ReactElement {
           />
         )}
 
-        {/* Column preferences loading (separate from data loading) */}
-        {(activeView === 'list' || activeView === 'table') && isColumnsLoading && !isLeadsInitialLoad && (
-          <div className="bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-8">
-            <div className="flex items-center justify-center gap-2 text-[13px] text-[#5A6B85] dark:text-slate-400">
-              <div className="w-4 h-4 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
-              Loading columns...
-            </div>
-          </div>
-        )}
-
-        {/* ── List / Table View (DataGrid) ─────────────────── */}
-        {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && !isLeadsInitialLoad && (
+        {(activeView === 'list' || activeView === 'table') && !(leadsError && leads.length === 0) && (
           <LeadsDataGrid
             sort={sort}
             onSortChange={setSort}
@@ -561,51 +565,9 @@ export default function LeadsPage(): React.ReactElement {
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}
         {(activeView === 'list' || activeView === 'table') && !isColumnsLoading && !isLeadsInitialLoad && serverTotal > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-500 dark:text-slate-400">
-                Per page
-              </label>
-              <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
-              <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">
-                {serverTotal} total records
-                {isLeadsRefreshing && (
-                  <span className="ml-1.5 text-blue-400 dark:text-blue-500" aria-live="polite" aria-label="Refreshing data">↻</span>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                Page {currentPage} of {Math.ceil(serverTotal / pageSize) || 1}
-              </span>
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage <= 1}
-                className={cn(
-                  'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
-                  currentPage <= 1
-                    ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700',
-                )}
-                aria-label="Previous page"
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <button
-                onClick={() => setCurrentPage(Math.min(Math.ceil(serverTotal / pageSize), currentPage + 1))}
-                disabled={currentPage >= Math.ceil(serverTotal / pageSize)}
-                className={cn(
-                  'inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
-                  currentPage >= Math.ceil(serverTotal / pageSize)
-                    ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700',
-                )}
-                aria-label="Next page"
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          </div>
+          <LeadsPagination currentPage={currentPage} totalRecords={serverTotal} pageSize={pageSize}
+            onPageChange={setCurrentPage} onPageSizeChange={size => { setPageSize(size); setCurrentPage(1); }}
+            refreshing={isLeadsRefreshing} />
         )}
 
         {/* ── Tile View ─────────────────────────────────────────── */}

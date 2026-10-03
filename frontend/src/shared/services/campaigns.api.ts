@@ -22,6 +22,11 @@ function normalize(c: ApiCampaign & { targetAudience?: { name: string }; deliver
     targetAudience: c.targetAudience?.name || ({ LEADS: 'All Leads', CONTACTS: 'All Contacts', ALL: 'All Leads & Contacts' }[c.audienceSource || ''] ?? 'Not selected') };
 }
 export const campaignsApi = {
+  duplicate: (id: string) => apiClient.post('/marketing/campaigns/' + id + '/duplicate', {}),
+  report: async (id: string): Promise<CampaignDetailResponse> => {
+    const res = await apiClient.get<ApiCampaignDetailResponse>('/marketing/campaigns/' + id + '/report');
+    return { ...res, data: { ...normalize(res.data), sendResult: res.data.sendResult } };
+  },
   list: async (query: Record<string, unknown> = {}): Promise<CampaignsResponse> => {
     const res = await apiClient.get<{ success: boolean; data: ApiCampaign[]; meta: CampaignsResponse['meta'] }>(`/marketing/campaigns${buildQuery(query)}`);
     return { ...res, data: res.data.map(normalize) };

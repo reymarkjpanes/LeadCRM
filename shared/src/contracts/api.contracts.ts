@@ -14,6 +14,7 @@ export interface ApiError {
   error: {
     code:      string;    // e.g. CONTACT_NOT_FOUND | PERMISSION_DENIED
     message:   string;
+    retryAt?:  string;    // ISO timestamp; do not retry before this time
     field?:    string;    // for validation errors
     requestId: string;
     timestamp: string;

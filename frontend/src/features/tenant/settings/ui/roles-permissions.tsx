@@ -7,9 +7,10 @@ import { useData } from '@/store/DataContext';
 import { useAuth } from '@/store/AuthContext';
 import { toast } from 'sonner';
 import type { RoleDefinition, Permission } from '@/store/types';
+import { PERMISSION_GROUPS, togglePermissionSelection } from '@leadcrm/shared';
 import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/shared/components/ui/dropdown-menu';
 
 // ── Permission group definitions ─────────────────────────────────────────────
 
@@ -20,50 +21,7 @@ interface PermGroup {
   modules: string[];
 }
 
-const PERM_GROUPS: PermGroup[] = [
-  {
-    id: 'org',
-    label: 'Organization',
-    description: 'Manage users, settings, roles, and organization configuration',
-    modules: ['users', 'settings', 'roles', 'audit'],
-  },
-  {
-    id: 'contacts',
-    label: 'Contacts & Accounts',
-    description: 'View, create, edit, and archive contacts and accounts',
-    modules: ['contacts', 'accounts'],
-  },
-  {
-    id: 'deals',
-    label: 'Deals & Pipeline',
-    description: 'Manage deals, pipelines, and sales operations',
-    modules: ['deals'],
-  },
-  {
-    id: 'workflows',
-    label: 'Workflows & Automation',
-    description: 'Create and manage automation workflows',
-    modules: ['workflows', 'tasks'],
-  },
-  {
-    id: 'campaigns',
-    label: 'Marketing & Campaigns',
-    description: 'Create and send marketing campaigns',
-    modules: ['campaigns'],
-  },
-  {
-    id: 'reports',
-    label: 'Reports & Analytics',
-    description: 'View analytics reports',
-    modules: ['reports'],
-  },
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    description: 'Access the main dashboard',
-    modules: ['dashboard'],
-  },
-];
+const PERM_GROUPS: PermGroup[] = PERMISSION_GROUPS;
 
 // ── Toggle component ──────────────────────────────────────────────────────────
 
@@ -95,13 +53,13 @@ function Toggle({ checked, onChange, disabled = false, size = 'sm', label, parti
       style={{ width: w, height: h, padding: '2px' }}
       className={cn(
         'rounded-full flex items-center transition-colors duration-200 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2',
-        checked ? 'bg-[var(--primary)]' : 'bg-slate-300 dark:bg-slate-600',
+        partial ? 'bg-amber-500' : checked ? 'bg-[var(--primary)]' : 'bg-slate-300 dark:bg-slate-600',
         disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
       )}
     >
       {partial && <span id={partialId} className="sr-only">Partially enabled</span>}
       <div
-        style={{ width: thumb, height: thumb, transform: checked ? `translateX(${travel}px)` : 'translateX(0)' }}
+        style={{ width: thumb, height: thumb, transform: partial ? `translateX(${travel / 2}px)` : checked ? `translateX(${travel}px)` : 'translateX(0)' }}
         className="bg-white rounded-full shadow-sm transition-transform duration-200"
       />
     </button>
@@ -205,26 +163,24 @@ function RoleEditor({ role, allPerms, allUsers, onSave, onCancel }: RoleEditorPr
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
 
-  const isAdmin = !!role?.isSystemRole && ['Administrator', 'Client Admin', 'System Admin'].includes(role.name);
+  const isAdmin = !!role?.isSystemRole && role.name === 'Client Admin';
   const isSystemRole = role?.isSystemRole ?? false;
   const effectivePermIds = isAdmin ? allPerms.map(permission => permission.id) : activePermIds;
   const userCount = allUsers.filter((u) => !u.isArchived && u.role === role?.name).length;
 
   const handleToggle = useCallback((id: string, v: boolean) => {
-    setActivePermIds((prev) => v ? [...prev, id] : prev.filter((x) => x !== id));
+    setActivePermIds(prev => togglePermissionSelection(prev, [id], v));
   }, []);
 
   const handleGroupToggle = useCallback((ids: string[], v: boolean) => {
-    setActivePermIds((prev) => {
-      const without = prev.filter((x) => !ids.includes(x));
-      return v ? [...without, ...ids] : without;
-    });
+    setActivePermIds(prev => togglePermissionSelection(prev, ids, v));
   }, []);
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (submitting.current || isSystemRole) return;
     if (!name.trim()) { setNameError('Role name is required.'); return; }
+    if (name.trim().length < 2) { setNameError('Name must be at least 2 characters'); return; }
     setNameError(''); setSaveError(''); setSaving(true); submitting.current = true;
     try { await onSave(name.trim(), description.trim(), activePermIds); }
     catch (error) { setSaveError(error instanceof Error ? error.message : 'Unable to save role. Please try again.'); }
@@ -308,7 +264,7 @@ function RoleEditor({ role, allPerms, allUsers, onSave, onCancel }: RoleEditorPr
         <div className="flex items-start gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl mb-6 shrink-0">
           <Info size={16} className="text-slate-500 shrink-0 mt-0.5" />
           <p className="text-sm text-slate-700 dark:text-slate-300">
-            The <strong>Administrator</strong> role always has all permissions enabled and cannot be restricted. To customize access, duplicate this role and modify the copy.
+            The <strong>Client Admin</strong> role always has all permissions enabled and cannot be restricted. To customize access, duplicate this role and modify the copy.
           </p>
         </div>
       )}
@@ -331,73 +287,6 @@ function RoleEditor({ role, allPerms, allUsers, onSave, onCancel }: RoleEditorPr
   );
 }
 
-// ── Dropdown Menu Component (Local) ───────────────────────────────────────────
-
-interface DropdownMenuProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  isSystemRole: boolean;
-}
-
-function RoleDropdownMenu({ isOpen, onClose, onEdit, onDuplicate, onDelete, isSystemRole }: DropdownMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      ref={menuRef}
-      className="absolute top-10 right-3 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-10 py-1 overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button onClick={() => { onEdit(); onClose(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-        <Edit2 size={14} className="text-slate-400" /> Edit Permissions
-      </button>
-      <button onClick={() => { onDuplicate(); onClose(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-        <Copy size={14} className="text-slate-400" /> Duplicate Role
-      </button>
-      
-      <div className="h-px w-full bg-slate-100 dark:bg-slate-800 my-1" />
-      
-      {isSystemRole ? (
-        <TooltipProvider>
-          <Tooltip delayDuration={100}>
-            <TooltipTrigger asChild>
-              <div className="w-full">
-                <button disabled className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-60">
-                  <Trash2 size={14} /> Delete Role
-                </button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="text-xs">
-              System roles cannot be deleted
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : (
-        <button onClick={() => { onDelete(); onClose(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
-          <Trash2 size={14} /> Delete Role
-        </button>
-      )}
-    </div>
-  );
-}
-
-
 // ── Main RolesPermissions component ──────────────────────────────────────────
 
 interface RolesPermissionsProps {
@@ -416,7 +305,10 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
   // dropdown state
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
-  const canManage = userCan('roles', 'canEdit');
+  const canCreate = userCan('roles', 'canCreate');
+  const canEdit = userCan('roles', 'canEdit');
+  const canArchive = userCan('roles', 'canArchive');
+  const canManage = canCreate || canEdit || canArchive;
 
   const visibleRoles = useMemo(
     () => roles.filter((r) => !r.isArchived),
@@ -426,6 +318,7 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
   const notify = (isActive: boolean) => onViewActiveChange?.(isActive);
 
   const openEdit = (role: RoleDefinition) => {
+    if (role.isSystemRole || !canEdit) return;
     setSelectedRole(role);
     setView('edit');
     notify(true);
@@ -433,6 +326,7 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
   };
 
   const openNew = () => {
+    if (!canCreate) return;
     setSelectedRole(null);
     setView('new');
     notify(true);
@@ -464,9 +358,9 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
 
   const handleDeleteConfirm = async (id: string) => {
     try {
-      await deleteRole(id); toast.success('Role deleted'); setDeleteConfirmId(null);
+      await deleteRole(id); toast.success('Role archived'); setDeleteConfirmId(null);
       if (view === 'edit' && selectedRole?.id === id) goList();
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to delete role.'); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to archive role.'); }
   };
 
   useEffect(() => { setView('list'); setSelectedRole(null); onViewActiveChange?.(false); }, [tenant?.id]);
@@ -515,7 +409,7 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Roles &amp; Permissions</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage team access and control what users can see and do.</p>
         </div>
-        {canManage && (
+        {canCreate && (
           <Button onClick={openNew} className="shrink-0"><Plus size={16} /> Create Custom Role</Button>
         )}
       </div>
@@ -536,7 +430,7 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {visibleRoles.map((role, index) => {
             const roleUserCount = users.filter((u) => !u.isArchived && u.role === role.name).length;
-            const enabledCount = role.isSystemRole && ['Administrator', 'Client Admin', 'System Admin'].includes(role.name) ? permissions.length : role.permissions?.length ?? 0;
+            const enabledCount = role.isSystemRole && role.name === 'Client Admin' ? permissions.length : role.permissions?.length ?? 0;
             const isDropdownOpen = openDropdownId === role.id;
             
             return (
@@ -576,31 +470,33 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
                   
                   {/* Actions Dropdown */}
                   {canManage && (
-                    <div className="relative shrink-0">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenDropdownId(isDropdownOpen ? null : role.id);
-                        }}
-                        className={cn(
-                          "p-2 rounded-lg transition-colors duration-200",
-                          isDropdownOpen 
-                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white" 
-                            : "text-slate-400 hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-                        )}
-                      >
-                        <MoreHorizontal size={18} />
-                      </button>
-                      
-                      <RoleDropdownMenu 
-                        isOpen={isDropdownOpen}
-                        onClose={() => setOpenDropdownId(null)}
-                        onEdit={() => openEdit(role)}
-                        onDuplicate={() => handleCopy(role)}
-                        onDelete={() => setDeleteConfirmId(role.id)}
-                        isSystemRole={role.isSystemRole}
-                      />
-                    </div>
+                    <DropdownMenu open={isDropdownOpen} onOpenChange={open => setOpenDropdownId(current => open ? role.id : current === role.id ? null : current)}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          aria-label={`Actions for ${role.name}`}
+                          className={cn(
+                            "p-2 rounded-lg transition-colors duration-200",
+                            isDropdownOpen
+                              ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+                              : "text-slate-400 hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                          )}
+                        >
+                          <MoreHorizontal size={18} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-48" aria-label={`Actions for ${role.name}`}>
+                        <DropdownMenuItem disabled={role.isSystemRole || !canEdit} onSelect={() => openEdit(role)}>
+                          <Edit2 size={14} className="text-slate-400" /> Edit Permissions
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canCreate} onSelect={() => handleCopy(role)}>
+                          <Copy size={14} className="text-slate-400" /> Duplicate Role
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem disabled={role.isSystemRole || !canArchive} destructive onSelect={() => setDeleteConfirmId(role.id)}>
+                          <Trash2 size={14} /> Archive Role
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
 
@@ -621,7 +517,7 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
                   </div>
                   <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                     <span className="font-medium">{enabledCount}</span>
-                    <span className="text-slate-400">perms</span>
+                    <span className="text-slate-400">permissions</span>
                   </div>
                 </div>
               </motion.div>
@@ -645,18 +541,18 @@ export function RolesPermissions({ onViewActiveChange }: RolesPermissionsProps):
                   <div className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-500/10 flex items-center justify-center shrink-0">
                     <Trash2 size={18} className="text-red-600 dark:text-red-400" />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Delete Role?</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Archive Role?</h3>
                 </div>
                 <button onClick={() => setDeleteConfirmId(null)} className="p-2 -mr-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><X size={18} /></button>
               </div>
               <div className="px-6 py-6">
                 <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Are you sure you want to delete this custom role? Users currently assigned to this role will lose their associated permissions. This action cannot be undone.
+                  Archive this custom role? Reassign its users first. Archived roles can be recovered from Archived Data.
                 </p>
               </div>
               <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 dark:bg-white/[0.02] border-t border-gray-100 dark:border-white/[0.05]">
                 <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded-xl transition-colors">Cancel</button>
-                <button onClick={() => handleDeleteConfirm(deleteConfirmId)} className="px-5 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm transition-all hover:shadow-md">Delete Role</button>
+                <button onClick={() => handleDeleteConfirm(deleteConfirmId)} className="px-5 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm transition-all hover:shadow-md">Archive Role</button>
               </div>
             </motion.div>
           </motion.div>

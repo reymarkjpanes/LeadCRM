@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), reset: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock('@/features/tenant/administration/users/services/users.service', () => ({ usersService: { create: mocks.create, update: mocks.update, sendPasswordReset: mocks.reset } }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ userCan: () => true }) }));
 vi.mock('sonner', () => ({ toast: { success: mocks.success, error: mocks.error } }));
 import { UserPanel } from '../user-panel';
 import type { User } from '@/store/types';

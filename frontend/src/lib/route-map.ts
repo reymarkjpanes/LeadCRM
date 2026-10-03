@@ -23,7 +23,6 @@ export const PATHNAME_TO_PATH: Record<string, string> = {
   // Legacy routes — these now redirect to Settings tabs
   '/administration/users':         'users',
   '/administration/roles':         'roles',
-  '/administration/audit':         'audit-log',
   // Settings
   '/settings':                     'settings',
   '/settings/account':             'account-details',
@@ -31,9 +30,6 @@ export const PATHNAME_TO_PATH: Record<string, string> = {
   '/operations/taskboard':         'tasks',
   '/inbox':                        'inbox',
   '/notifications':                'notifications',
-  '/admin/dashboard':              'admin-dashboard',
-  '/admin/clients':                'admin-clients',
-  '/admin/audit':                  'admin-audit-log',
 };
 
 // Reverse map — canonical pathname for each path (first match wins)
@@ -52,10 +48,8 @@ export const PATH_TO_PATHNAME: Record<string, string> = {
   // Legacy paths — resolve to redirect shells which bounce to Settings
   'users':               '/administration/users',
   'roles':               '/administration/roles',
-  'audit-log':           '/administration/audit',
   // Direct Settings tab entries (preferred for new navigation)
   'settings-users':      '/settings?tab=users',
-  'settings-audit':      '/settings?tab=audit',
   'settings-roles':      '/settings?tab=roles',
   // Settings
   'settings':            '/settings',
@@ -64,9 +58,6 @@ export const PATH_TO_PATHNAME: Record<string, string> = {
   'tasks':               '/operations/taskboard',
   'inbox':               '/inbox',
   'notifications':       '/notifications',
-  'admin-dashboard':     '/admin/dashboard',
-  'admin-clients':       '/admin/clients',
-  'admin-audit-log':     '/admin/audit',
 };
 
 export function resolveModulePath(pathname: string): string {

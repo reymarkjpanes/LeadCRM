@@ -5,14 +5,14 @@ const prisma = new PrismaClient();
 /**
  * Seeds rich demo data for the Demo Corp tenant (admin@democorp.com).
  * Run with: npx ts-node src/database/seeders/demo-rich.seed.ts
- * Or add to seed.ts main() after seedDemoAccounts().
+ * Requires an existing Demo Corp tenant.
  */
 export async function seedDemoRichData() {
   console.log('[Seed] Seeding rich demo data for Demo Corp...');
 
   // ── Resolve tenant and users ──────────────────────────────────────
   const tenant = await prisma.tenant.findUnique({ where: { slug: 'demo-corp' } });
-  if (!tenant) throw new Error('Demo Corp tenant not found — run seedDemoAccounts() first');
+  if (!tenant) throw new Error('Demo Corp tenant not found — provision the demo tenant first');
 
   const adminUser = await prisma.user.findFirst({
     where: { tenantId: tenant.id, email: 'admin@democorp.com' },
@@ -31,27 +31,27 @@ export async function seedDemoRichData() {
     prisma.account.upsert({
       where: { id: 'seed-org-techsol' },
       update: {},
-      create: { id: 'seed-org-techsol', tenantId: tId, assignedUserId: sId, name: 'Tech Solutions Inc.', industry: 'Information Technology', size: '51-200', website: 'https://techsolutions.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-techsol', tenantId: tId, assignedUserId: sId, name: 'Tech Solutions Inc.', industry: 'Information Technology', size: '51-200', website: 'https://techsolutions.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-nexus' },
       update: {},
-      create: { id: 'seed-org-nexus', tenantId: tId, assignedUserId: aId, name: 'Nexus Digital Corp', industry: 'Software Development', size: '11-50', website: 'https://nexusdigital.ph', address: 'Ortigas, Pasig, Metro Manila', country: 'Philippines', customerType: 'Prospect' },
+      create: { id: 'seed-org-nexus', tenantId: tId, assignedUserId: aId, name: 'Nexus Digital Corp', industry: 'Software Development', size: '11-50', website: 'https://nexusdigital.ph', address: 'Ortigas, Pasig, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-skynet' },
       update: {},
-      create: { id: 'seed-org-skynet', tenantId: tId, assignedUserId: sId, name: 'Skynet Telecom', industry: 'Telecommunications', size: '200+', website: 'https://skynettelecom.ph', address: 'Makati CBD, Metro Manila', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-skynet', tenantId: tId, assignedUserId: sId, name: 'Skynet Telecom', industry: 'Telecommunications', size: '200+', website: 'https://skynettelecom.ph', address: 'Makati CBD, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-greenpeak' },
       update: {},
-      create: { id: 'seed-org-greenpeak', tenantId: tId, assignedUserId: aId, name: 'Green Peak Energy', industry: 'Renewable Energy', size: '11-50', address: 'Cebu City, Cebu', country: 'Philippines', customerType: 'Prospect' },
+      create: { id: 'seed-org-greenpeak', tenantId: tId, assignedUserId: aId, name: 'Green Peak Energy', industry: 'Renewable Energy', size: '11-50', address: 'Cebu City, Cebu', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-firstbpo' },
       update: {},
-      create: { id: 'seed-org-firstbpo', tenantId: tId, assignedUserId: sId, name: 'FirstBPO Services', industry: 'Business Process Outsourcing', size: '200+', website: 'https://firstbpo.com.ph', address: 'Eastwood, Quezon City', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-firstbpo', tenantId: tId, assignedUserId: sId, name: 'FirstBPO Services', industry: 'Business Process Outsourcing', size: '200+', website: 'https://firstbpo.com.ph', address: 'Eastwood, Quezon City', country: 'Philippines' },
     }),
   ]);
 
@@ -172,7 +172,7 @@ export async function seedDemoRichData() {
       create: {
         id: 'seed-task-2', tenantId: tId, assignedUserId: aId, assignedById: aId,
         title: 'Prepare proposal for Nexus Digital',
-        status: 'in-progress', priority: 'Medium',
+        status: 'in_progress', priority: 'Medium',
         dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
         contactId: contacts[1].id, dealId: deals[1].id,
       },

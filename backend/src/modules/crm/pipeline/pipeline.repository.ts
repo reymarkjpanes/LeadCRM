@@ -1,3 +1,6 @@
+import { Prisma } from '@prisma/client';
+import { salesTransaction, crmScope } from '../leads/lead-automation.service';
+import { ValidationError } from '../../../shared/errors/http-error';
 import prisma from '../../../config/database.config';
 import { CreatePipelineDto, UpdatePipelineDto, CreateStageDto, UpdateStageDto } from './pipeline.dto';
 
@@ -52,41 +55,56 @@ export async function deletePipeline(id: string, tenantId: string) {
 export async function createStage(tenantId: string, dto: CreateStageDto) {
   const pipeline = await prisma.pipeline.findFirst({ where: { id: dto.pipelineId, tenantId } });
   if (!pipeline) return null;
-  // tenantId derived from the parent pipeline — never independently settable
+  // tenantId derived from the parent pipeline â€” never independently settable
   return prisma.stage.create({ data: { ...dto, tenantId } });
 }
 
 export async function updateStage(id: string, tenantId: string, dto: UpdateStageDto) {
-  try {
-    return await prisma.stage.update({ where: { id, tenantId }, data: dto });
-  } catch {
-    return null;
-  }
+  return salesTransaction(async tx => {
+    const stage = await tx.stage.findFirst({ where: { id, tenantId } });
+    if (!stage) return null;
+    if (stage.isDefault && stage.name.toLowerCase() === 'lead' && (dto.name !== undefined && dto.name.toLowerCase() !== 'lead' || dto.isWon || dto.isLost)) {
+      throw new ValidationError('Keep the starting Lead stage so new opportunities begin at Lead.');
+    }
+    const changesTerminalMeaning = dto.isWon !== undefined && dto.isWon !== stage.isWon || dto.isLost !== undefined && dto.isLost !== stage.isLost;
+    if (changesTerminalMeaning && (await tx.deal.count({ where: { tenantId, stageId: id } }) || await tx.dealStageHistory.count({ where: { tenantId, OR: [{ previousStageId: id }, { newStageId: id }] } }))) {
+      throw new ValidationError('A stage referenced by Deals or history cannot change its Won/Lost meaning. Confirm each Deal through its stage action.');
+    }
+    return tx.stage.update({ where: { id, tenantId }, data: dto });
+  });
 }
 
 export async function deleteStage(id: string, tenantId: string) {
-  const stage = await prisma.stage.findFirst({ where: { id, tenantId } });
-  if (!stage) return null;
-
-  const activeDeals = await prisma.deal.count({ where: { stageId: id, tenantId, isArchived: false } });
-  if (activeDeals > 0) return { hasActiveDeals: true as const };
-
-  await prisma.stage.delete({ where: { id } });
-  return { deleted: true as const };
+  try {
+    return await salesTransaction(async tx => {
+      const scope = crmScope(tenantId);
+      const stage = await tx.stage.findFirst({ where: { id, ...scope } });
+      if (!stage) return null;
+      if (stage.isDefault || stage.isWon || stage.isLost) throw new ValidationError('The starting, Won, and Lost stages cannot be removed.');
+      const deals = await tx.deal.count({ where: { stageId: id, ...scope } });
+      const history = await tx.dealStageHistory.count({ where: { ...scope, OR: [{ previousStageId: id }, { newStageId: id }] } });
+      if (deals || history) throw new ValidationError('This stage is referenced by Deals or stage history and cannot be removed. Move current Deals first; historical stages must be retained.');
+      if (await tx.stage.count({ where: { pipelineId: stage.pipelineId, ...scope } }) <= 1) throw new ValidationError('A pipeline must retain at least one stage.');
+      await tx.stage.delete({ where: { id, ...scope } });
+      return { deleted: true as const };
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') throw new ValidationError('This stage is still referenced and cannot be removed.');
+    throw error;
+  }
 }
 
 export async function reorderStages(pipelineId: string, tenantId: string, stageIds: string[]) {
-  const pipeline = await prisma.pipeline.findFirst({ where: { id: pipelineId, tenantId } });
-  if (!pipeline) return null;
-
-  await prisma.$transaction(
-    stageIds.map((stageId, index) =>
-      // SEC: filter by both id and tenantId — prevents cross-tenant stage writes
-      prisma.stage.update({ where: { id: stageId, tenantId }, data: { order: index + 1 } }),
-    ),
-  );
-
-  return findPipelineById(pipelineId, tenantId);
+  const exists = await salesTransaction(async tx => {
+    const scope = crmScope(tenantId);
+    const pipeline = await tx.pipeline.findFirst({ where: { id: pipelineId, ...scope } });
+    if (!pipeline) return false;
+    const stages = await tx.stage.findMany({ where: { pipelineId, ...scope }, select: { id: true } });
+    if (new Set(stageIds).size !== stageIds.length || stages.length !== stageIds.length || stages.some(stage => !stageIds.includes(stage.id))) throw new ValidationError('Reorder must include every stage of this pipeline exactly once.');
+    for (const [index, id] of stageIds.entries()) await tx.stage.update({ where: { id, pipelineId, ...scope }, data: { order: index + 1 } });
+    return true;
+  });
+  return exists ? findPipelineById(pipelineId, tenantId) : null;
 }
 
 export async function reorderDeals(pipelineId: string, tenantId: string, dealIds: string[]) {
@@ -95,7 +113,7 @@ export async function reorderDeals(pipelineId: string, tenantId: string, dealIds
 
   await prisma.$transaction(
     dealIds.map((dealId, index) =>
-      // SEC: filter by both id and tenantId — prevents cross-tenant deal writes
+      // SEC: filter by both id and tenantId â€” prevents cross-tenant deal writes
       prisma.deal.update({ where: { id: dealId, tenantId }, data: { order: index } }),
     ),
   );

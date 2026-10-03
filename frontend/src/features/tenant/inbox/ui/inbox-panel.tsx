@@ -9,6 +9,7 @@ import InboxCurrentEmpty from './inbox-current-empty';
 import InboxDoneEmpty from './inbox-done-empty';
 import InboxFutureEmpty from './inbox-future-empty';
 import InboxEmailList from './inbox-email-list';
+import EmailConversationView from './email-conversation-view';
 
 type InboxTab = 'current' | 'done' | 'future';
 
@@ -28,6 +29,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<GmailConnectionStatus | null>(null);
   const [emails, setEmails] = useState<GmailEmail[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<GmailEmail | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
 
     if (!isOpen) {
       hasFetchedRef.current = false;
+      setSelectedEmail(null);
     }
   }, [isOpen]);
 
@@ -110,6 +113,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
   const isConnected = connectionStatus?.isConnected === true;
 
   const renderTabContent = (): React.ReactElement => {
+    if (selectedEmail) return <EmailConversationView email={selectedEmail} onBack={() => setSelectedEmail(null)} onEmailsChanged={() => { setSelectedEmail(null); void loadEmails(); }} />;
     // Show loading state while checking connection
     if (isLoadingStatus) {
       return (
@@ -143,7 +147,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
             </div>
           );
         }
-        return <InboxEmailList emails={emails} onEmailsChanged={loadEmails} totalCount={emails.length} onEmailClick={() => {}} />;
+        return <InboxEmailList emails={emails} onEmailsChanged={loadEmails} totalCount={emails.length} onEmailClick={setSelectedEmail} />;
       case 'done':
         return <InboxDoneEmpty />;
       case 'future':

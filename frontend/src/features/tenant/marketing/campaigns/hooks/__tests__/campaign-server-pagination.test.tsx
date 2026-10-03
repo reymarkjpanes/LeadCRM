@@ -1,0 +1,22 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { useCampaignsData } from '../use-campaigns-data';
+import { campaignsApi } from '@/shared/services/campaigns.api';
+import { clearPageCache } from '@/shared/cache/page-cache';
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 'tenant' }, user: { id: 'user', } }) }));
+vi.mock('@/shared/services/campaigns.api', () => ({ campaignsApi: { list: vi.fn(), metrics: async () => ({ data: {} }) } }));
+vi.mock('@/shared/services/templates.api', () => ({ templatesApi: { list: async () => ({ data: [] }) } }));
+beforeEach(() => { clearPageCache(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); clearPageCache(); });
+it('retains backend totals beyond a page and requests each page, size and filter', async () => {
+  vi.mocked(campaignsApi.list).mockImplementation(async query => ({ success: true, data: [{ id: `page-${query?.page}` }], meta: { total: query?.status ? 45 : 305, page: Number(query?.page), limit: Number(query?.limit), hasMore: true } }) as never);
+  const { result, rerender } = renderHook(({ page, limit, status }) => useCampaignsData({ query: { page, limit, status }, intervalMs: 0 }), { initialProps: { page: 1, limit: 25, status: '' } });
+  await waitFor(() => expect(result.current.total).toBe(305));
+  expect(result.current.campaigns).toHaveLength(1);
+  rerender({ page: 2, limit: 25, status: '' });
+  await waitFor(() => expect(result.current.campaigns[0]?.id).toBe('page-2'));
+  expect(campaignsApi.list).toHaveBeenLastCalledWith({ page: 2, limit: 25, status: '' });
+  rerender({ page: 1, limit: 20, status: 'SENT,DRAFT' });
+  await waitFor(() => expect(result.current.total).toBe(45));
+  expect(campaignsApi.list).toHaveBeenLastCalledWith({ page: 1, limit: 20, status: 'SENT,DRAFT' });
+});

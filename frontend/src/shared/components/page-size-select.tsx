@@ -8,9 +8,10 @@ interface PageSizeSelectProps {
   value: number;
   onChange: (size: number) => void;
   options?: number[];
+  disabled?: boolean;
 }
 
-export function PageSizeSelect({ value, onChange, options = [10, 20, 25, 50, 100] }: PageSizeSelectProps): React.ReactElement {
+export function PageSizeSelect({ value, onChange, options = [10, 20, 25, 50, 100], disabled }: PageSizeSelectProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -31,6 +32,7 @@ export function PageSizeSelect({ value, onChange, options = [10, 20, 25, 50, 100
     <div ref={ref} className="relative inline-block">
       <button
         type="button"
+        disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         className="inline-flex items-center gap-1 h-7 px-2.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         aria-expanded={isOpen}
@@ -41,7 +43,7 @@ export function PageSizeSelect({ value, onChange, options = [10, 20, 25, 50, 100
         <ChevronDown size={12} className={cn('text-slate-400 transition-transform duration-150', isOpen && 'rotate-180')} />
       </button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute bottom-full left-0 mb-1 w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 py-1" role="listbox">
           {options.map((size) => (
             <button

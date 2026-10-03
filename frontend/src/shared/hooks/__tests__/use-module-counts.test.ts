@@ -4,7 +4,7 @@ import { useModuleCounts } from '../use-module-counts';
 import { clearPageCache } from '@/shared/cache/page-cache';
 import { invalidateApiPageCache } from '@/shared/cache/invalidate-api-page-cache';
 const mocks = vi.hoisted(() => ({
-  auth: { tenant: { id: 'a' }, user: { id: 'user', role: 'Client Admin', activeEnvironment: 'SANDBOX' } },
+  auth: { tenant: { id: 'a' }, user: { id: 'user', role: 'Client Admin', } },
   get: vi.fn(),
 }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => mocks.auth }));
@@ -12,7 +12,7 @@ vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
 beforeEach(() => {
   clearPageCache(); mocks.get.mockReset();
-  mocks.auth = { tenant: { id: 'a' }, user: { id: 'user', role: 'Client Admin', activeEnvironment: 'SANDBOX' } };
+  mocks.auth = { tenant: { id: 'a' }, user: { id: 'user', role: 'Client Admin', } };
   mocks.get.mockImplementation(async (path: string) => ({ meta: { total: path === '/crm/leads' ? 3 : path === '/crm/contacts' ? 5 : 7 } }));
 });
 afterEach(() => { cleanup(); clearPageCache(); });
@@ -21,12 +21,12 @@ it('fetches independent API totals and uses the Contact page service pagination'
   await waitFor(() => expect(hook.result.current.counts).toEqual({ leads: 3, contacts: 5, accounts: 7, deals: 7 }));
   expect(mocks.get).toHaveBeenCalledWith('/crm/contacts', expect.objectContaining({ params: { page: 1, limit: 1 } }));
 });
-it.each(['tenant', 'environment'])('clears stale totals and refetches on %s changes', async scope => {
+it.each(['tenant', 'user'])('clears stale totals and refetches on %s changes', async scope => {
   const hook = renderHook(() => useModuleCounts(['leads', 'contacts']));
   await waitFor(() => expect(hook.result.current.counts.contacts).toBe(5));
   mocks.get.mockImplementation(() => new Promise(() => {}));
   if (scope === 'tenant') mocks.auth.tenant.id = 'b';
-  else mocks.auth.user.activeEnvironment = 'PRODUCTION';
+  else mocks.auth.user.id = 'other-user';
   hook.rerender();
   expect(hook.result.current.counts).toEqual({ leads: 0, contacts: 0 });
   expect(mocks.get).toHaveBeenCalledTimes(4);

@@ -12,12 +12,14 @@ vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
 vi.mock('@/shared/services/notifications.api', () => ({ notificationsApi: mocks }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-const response = (page: number) => ({ data: [{ id: `n${page}`, isRead: false }], meta: { hasMore: page < 3 } });
+const read = new Set<string>();
+const response = (page: number) => ({ data: [{ id: `n${page}`, isRead: read.has(`n${page}`) }], unreadCount: 30 - read.size, meta: { hasMore: page < 3 } });
 beforeEach(() => {
+  read.clear();
   clearPageCache();
   mocks.auth.user.id = 'user-a';
   mocks.list.mockReset().mockImplementation(async ({ page }) => response(page));
-  mocks.markRead.mockResolvedValue({ success: true });
+  mocks.markRead.mockImplementation(async (id: string) => { read.add(id); return { success: true }; });
   mocks.markAllRead.mockResolvedValue({ success: true });
 });
 afterEach(() => { cleanup(); clearPageCache(); });
@@ -30,10 +32,11 @@ it('appends three pages without dropping the previous pages', async () => {
   act(() => hook.result.current.loadMore());
   await waitFor(() => expect(hook.result.current.page).toBe(3));
   expect(hook.result.current.notifications.map((n) => n.id)).toEqual(['n1', 'n2', 'n3']);
-  expect(hook.result.current.unreadCount).toBe(3);
+  expect(hook.result.current.unreadCount).toBe(30);
   await act(async () => { await hook.result.current.markAsRead('n1'); });
   await act(async () => { await hook.result.current.markAsRead('n1'); });
-  expect(hook.result.current.unreadCount).toBe(2);
+  expect(hook.result.current.unreadCount).toBe(29);
+  expect(hook.result.current.notifications.map(n => n.id)).toEqual(['n1', 'n2', 'n3']);
 });
 
 it('does not show another user notifications within the same tenant', async () => {

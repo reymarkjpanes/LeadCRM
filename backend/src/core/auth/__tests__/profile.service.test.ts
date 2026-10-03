@@ -22,7 +22,7 @@ it('updates only the authenticated tenant user, audits and returns canonical pro
   expect(result).not.toHaveProperty('passwordHash');
   expect(db.auditLog.create).toHaveBeenCalledOnce();
 });
-it.each(['role', 'tenantId', 'userId', 'status', 'permissions', 'activeEnvironment', 'passwordHash', 'email', 'avatarUrl'])('rejects self-editing %s', async field => {
+it.each(['role', 'tenantId', 'userId', 'status', 'permissions', 'passwordHash', 'email', 'avatarUrl'])('rejects self-editing %s', async field => {
   await expect(updateSelfProfile(user.id, user.tenantId, { [field]: 'forged' } as any)).rejects.toThrow();
   expect(db.user.update).not.toHaveBeenCalled();
 });

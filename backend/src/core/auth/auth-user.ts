@@ -10,7 +10,6 @@ export const authTenantSelect = {
 } satisfies Prisma.TenantSelect;
 
 export interface AuthUserSource {
-  activeEnvironment?: import('@leadcrm/shared').CrmEnvironment;
   id: string;
   email: string;
   role: string;
@@ -20,6 +19,7 @@ export interface AuthUserSource {
   status?: string;
   emailVerified?: Date | null;
   passwordHash?: string | null;
+  passwordChangedAt?: Date | null;
   mustChangePassword?: boolean;
   phone?: string | null;
   jobTitle?: string | null;
@@ -44,7 +44,6 @@ export type AuthUserResponse = AuthUser;
 export function buildAuthUserResponse(user: AuthUserSource): AuthUser {
   const tenant = user.tenant;
   return {
-    activeEnvironment: user.role === 'System Admin' ? null : user.activeEnvironment ?? 'SANDBOX',
     id: user.id,
     email: user.email,
     role: user.role,
@@ -67,6 +66,7 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUser {
     onboardingCompletedAt: tenant?.onboardingCompletedAt?.toISOString() ?? null,
     isTenantOwner: tenant?.ownerUserId === user.id,
     hasPassword: Boolean(user.passwordHash),
+    passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
     mustChangePassword: user.mustChangePassword ?? false,
   };
 }

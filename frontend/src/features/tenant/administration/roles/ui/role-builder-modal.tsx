@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { PERMISSION_MODULES, ROLE_TEMPLATES } from '@leadcrm/shared';
+import { PERMISSION_MODULES, ROLE_TEMPLATES, EMPTY_PERMISSION_FLAGS } from '@leadcrm/shared';
 import type { PermissionFlags, PermissionAction, RoleListItem } from '@/store/types/roles.types';
 import { PermissionMatrix } from './permission-matrix';
 import { rolesService } from '../services/roles.service';
@@ -20,19 +20,14 @@ type PermissionsState = Record<string, PermissionFlags>;
 
 function buildDefaultPermissions(): PermissionsState {
   return Object.fromEntries(
-    PERMISSION_MODULES.map(m => [m.key, { canView: false, canCreate: false, canEdit: false, canDelete: false }]),
+    PERMISSION_MODULES.map(m => [m.key, { ...EMPTY_PERMISSION_FLAGS }]),
   );
 }
 
 function buildFromRole(role: RoleListItem): PermissionsState {
   const state = buildDefaultPermissions();
   for (const perm of role.permissions) {
-    state[perm.module] = {
-      canView:   perm.canView,
-      canCreate: perm.canCreate,
-      canEdit:   perm.canEdit,
-      canDelete: perm.canDelete,
-    };
+    state[perm.module] = { ...EMPTY_PERMISSION_FLAGS, ...perm };
   }
   return state;
 }
@@ -63,14 +58,14 @@ export function RoleBuilderModal({ isOpen, onClose, onSaved, editRole }: RoleBui
 
   const handlePermissionChange = useCallback((module: string, action: PermissionAction, checked: boolean) => {
     setPerms(prev => {
-      const current = prev[module] ?? { canView: false, canCreate: false, canEdit: false, canDelete: false };
+      const current = prev[module] ?? { ...EMPTY_PERMISSION_FLAGS };
       const next = { ...current, [action]: checked };
 
       // canCreate/canEdit/canDelete require canView
       if (action !== 'canView' && checked) next.canView = true;
       // Deactivating canView clears all
       if (action === 'canView' && !checked) {
-        next.canCreate = false; next.canEdit = false; next.canDelete = false;
+        Object.assign(next, EMPTY_PERMISSION_FLAGS);
       }
       return { ...prev, [module]: next };
     });
@@ -97,10 +92,7 @@ export function RoleBuilderModal({ isOpen, onClose, onSaved, editRole }: RoleBui
 
     const permissionsPayload = PERMISSION_MODULES.map(mod => ({
       module:    mod.key,
-      canView:   permissions[mod.key]?.canView   ?? false,
-      canCreate: permissions[mod.key]?.canCreate ?? false,
-      canEdit:   permissions[mod.key]?.canEdit   ?? false,
-      canDelete: permissions[mod.key]?.canDelete ?? false,
+      ...EMPTY_PERMISSION_FLAGS, ...permissions[mod.key],
     }));
 
     setIsSaving(true);

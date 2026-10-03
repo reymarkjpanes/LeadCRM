@@ -35,6 +35,6 @@ function buildQuery(params: Record<string, unknown>): string {
 }
 
 export const auditApi = {
-  list: (query: AuditLogQuery = {}, systemAdmin = false) =>
-    apiClient.get<AuditLogsResponse>(`${systemAdmin ? "/admin/audit-logs" : "/administration/audit"}${buildQuery(query as Record<string, unknown>)}`),
+  list: (query: AuditLogQuery = {}) =>
+    apiClient.get<AuditLogsResponse>(`/administration/audit${buildQuery(query as Record<string, unknown>)}`),
 };

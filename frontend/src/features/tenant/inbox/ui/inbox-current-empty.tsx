@@ -25,6 +25,7 @@ function GmailIcon(): React.ReactElement {
 export default function InboxCurrentEmpty(): React.ReactElement {
   const shouldReduceMotion = useReducedMotion();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState('');
 
   const contentAnimation = shouldReduceMotion
     ? {}
@@ -36,9 +37,11 @@ export default function InboxCurrentEmpty(): React.ReactElement {
 
   const handleConnect = async (): Promise<void> => {
     setIsConnecting(true);
+    setError('');
     try {
       await initiateGmailConnect();
-    } catch {
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to connect your work email.');
       setIsConnecting(false);
     }
   };
@@ -61,12 +64,12 @@ export default function InboxCurrentEmpty(): React.ReactElement {
 
         {/* Description */}
         <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
-          Connect your Gmail account to keep every customer interaction in one place.
+          Connect the Google Workspace email used by your LeadCRM staff account.
         </p>
 
         {/* Upcoming feature mention */}
         <p className="text-xs text-slate-400 dark:text-slate-500 leading-relaxed mb-8 max-w-xs">
-          Upcoming feature: Two-way Gmail sync using the Gmail API, allowing automatic email syncing, conversation tracking, and sending emails directly from LeadCRM.
+          Read and send work email here. Customer conversations link to matching CRM records. You stay in control of the final Closed Won confirmation.
         </p>
 
         {/* CTA Button */}
@@ -74,15 +77,16 @@ export default function InboxCurrentEmpty(): React.ReactElement {
           onClick={handleConnect}
           disabled={isConnecting}
           className="inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
-          aria-label="Open Emails"
+          aria-label="Connect work email"
         >
           {isConnecting ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <GmailIcon />
           )}
-          <span>{isConnecting ? 'Connecting...' : 'Open Emails'}</span>
+          <span>{isConnecting ? 'Connecting...' : 'Connect work email'}</span>
         </button>
+        {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
       </motion.div>
     </div>
   );

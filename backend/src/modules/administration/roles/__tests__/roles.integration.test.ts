@@ -13,7 +13,7 @@ describe.skipIf(!disposable)('custom roles: authenticated HTTP and database pers
   let server: Server, base: string, tenantId: string, otherTenantId: string, token: string, readerToken: string, otherToken: string;
   const password = 'Role-Test-Password-123!';
   const email = `roles-admin-${Date.now()}@camxian.com`;
-  const permissions = ['contacts', 'accounts', 'deals'].map(module => ({ module, canView: true, canCreate: true, canEdit: true, canDelete: true }));
+  const permissions = ['contacts', 'accounts', 'deals'].map(module => ({ module, canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true }));
   async function call(path: string, method = 'GET', body?: unknown, bearer = token) {
     const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, body: await response.json(), token: response.headers.get('set-cookie')?.match(/leadcrm_token=([^;]+)/)?.[1] };
@@ -83,8 +83,14 @@ describe.skipIf(!disposable)('custom roles: authenticated HTTP and database pers
     finally { failure.mockRestore(); }
     expect(await prisma.roleDefinition.count({ where: { tenantId, name: { in: ['Anonymous', 'Forbidden', 'Failure'] } } })).toBe(0);
   });
-  it('rolls back the RoleDefinition if a RolePermission write fails', async () => {
-    await expect(repo.createRole(tenantId, { name: 'Rollback' }, [permissions[0], permissions[0]])).rejects.toThrow();
+  it('rolls back the RoleDefinition after a simulated RolePermission write failure', async () => {
+    const transaction = prisma.$transaction.bind(prisma);
+    const failure = vi.spyOn(prisma, '$transaction').mockImplementationOnce((async (work: (tx: any) => Promise<unknown>) => transaction(async tx => {
+      const write = vi.spyOn(tx.rolePermission, 'createMany').mockRejectedValueOnce(new Error('Simulated permission write failure'));
+      try { return await work(tx); } finally { write.mockRestore(); }
+    })) as never);
+    try { await expect(repo.createRole(tenantId, { name: 'Rollback' }, [permissions[0]])).rejects.toThrow('Simulated permission write failure'); }
+    finally { failure.mockRestore(); }
     expect(await prisma.roleDefinition.count({ where: { tenantId, name: 'Rollback' } })).toBe(0);
     expect(await prisma.rolePermission.count({ where: { tenantId, role: { name: 'Rollback' } } })).toBe(0);
   });

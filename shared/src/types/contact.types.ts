@@ -7,16 +7,7 @@
  */
 
 /** Possible status values for a Contact/Lead record. */
-export type ContactStatus =
-  | 'HOT'
-  | 'WARM'
-  | 'COLD'
-  | 'CANCELLED'
-  | 'CLOSED'
-  | 'Inquiry'
-  | 'Qualified'
-  | 'Converted'
-  | 'Archived';
+export type { CrmStatus as ContactStatus } from '../contracts/record-experience';
 
 /**
  * Core Contact/Lead entity as returned by the list and detail API endpoints.

@@ -103,19 +103,8 @@ export const LEAD_STATUS_VARIANTS: Record<string, StatusVariant> = {
   Cold: 'neutral',
 };
 
-export const CONTACT_STATUS_VARIANTS: Record<string, StatusVariant> = {
-  Active: 'success',
-  Inactive: 'danger',
-  Lead: 'info',
-};
+export const CONTACT_STATUS_VARIANTS = LEAD_STATUS_VARIANTS;
 
-export const ACCOUNT_TYPE_VARIANTS: Record<string, StatusVariant> = {
-  Customer: 'success',
-  Active: 'success',
-  Prospect: 'info',
-  Partner: 'purple',
-  Churned: 'danger',
-};
 
 export const DEAL_PRIORITY_VARIANTS: Record<string, StatusVariant> = {
   High: 'danger',

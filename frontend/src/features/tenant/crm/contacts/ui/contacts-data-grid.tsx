@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useMemo, useCallback } from 'react';
-import { StatusBadge } from '@/shared/components/crm';
+import { CrmStatusIndicator } from '@/shared/components/crm/crm-status';
 import {
   DataGrid,
   useDataGridColumns,
@@ -25,7 +25,6 @@ import {
   renderDate,
   renderLink,
   MODULE_ACCENT_COLORS,
-  CONTACT_STATUS_VARIANTS,
 } from '@/shared/components/data-grid';
 import type { SortState, RowActionItem } from '@/shared/components/data-grid';
 import type { CellRendererMap } from '@/shared/components/data-grid';
@@ -142,12 +141,7 @@ export function ContactsDataGrid({
       return renderLink(accountName || null);
     },
 
-    status: (_value: unknown, row: Contact) => (
-      <StatusBadge
-        label={row.status ?? 'Active'}
-        variant={CONTACT_STATUS_VARIANTS[row.status ?? 'Active'] ?? 'neutral'}
-      />
-    ),
+    status: (_value: unknown, row: Contact) => <CrmStatusIndicator status={row.status} />,
 
     source: (_value: unknown, row: Contact) => (
       <p className="text-[12px] text-[#5A6B85] dark:text-slate-400 truncate">

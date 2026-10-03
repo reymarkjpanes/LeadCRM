@@ -110,7 +110,7 @@ export function CampaignReportView({
       setIsLoading(true);
       setHasError(false);
       try {
-        const response = await campaignsApi.get(campaign.id);
+        const response = await campaignsApi.report(campaign.id);
         if (!cancelled) {
           const c = response.data;
           setLiveMetrics({
@@ -201,7 +201,7 @@ export function CampaignReportView({
             onClick={() => {
               setHasError(false);
               setIsLoading(true);
-              campaignsApi.get(campaign.id)
+              campaignsApi.report(campaign.id)
                 .then(r => setLiveMetrics({
                   sentCount:    r.data.sentCount,
                   openedCount:  r.data.openedCount ?? 0,

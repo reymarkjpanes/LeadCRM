@@ -1,3 +1,4 @@
+import { PERMISSION_MODULES, permissionLabel } from '@leadcrm/shared';
 import type { Tenant, User, Permission, RoleDefinition } from '../types';
 
 // ─── Tenants ─────────────────────────────────────────────────────────────────
@@ -12,8 +13,6 @@ export const MOCK_TENANTS: Tenant[] = [
     phone: '+1 (555) 123-4567',
     address: '123 Tech Lane, Silicon Valley, CA',
     status: 'active',
-    approvalStep: 'completed',
-    environment: 'production',
     createdAt: '2025-01-15T08:00:00.000Z',
   },
   {
@@ -25,8 +24,6 @@ export const MOCK_TENANTS: Tenant[] = [
     phone: '+1 (555) 987-6543',
     address: '456 Freight Blvd, Chicago, IL',
     status: 'active',
-    approvalStep: 'completed',
-    environment: 'both',
     createdAt: '2025-02-20T10:30:00.000Z',
   },
   {
@@ -38,8 +35,6 @@ export const MOCK_TENANTS: Tenant[] = [
     phone: '+1 (555) 456-7890',
     address: '789 Medical Parkway, Boston, MA',
     status: 'pending',
-    approvalStep: 'basic',
-    environment: 'none',
     createdAt: '2026-03-28T14:15:00.000Z',
   },
   {
@@ -51,8 +46,6 @@ export const MOCK_TENANTS: Tenant[] = [
     phone: '+1 (555) 234-5678',
     address: '321 Creative Studio, Austin, TX',
     status: 'suspended',
-    approvalStep: 'completed',
-    environment: 'production',
     createdAt: '2025-06-10T09:45:00.000Z',
   },
 ];
@@ -60,25 +53,6 @@ export const MOCK_TENANTS: Tenant[] = [
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export const MOCK_USERS: User[] = [
-  {
-    id: 'user_super',
-    tenantId: 'system',
-    firstName: 'System',
-    lastName: 'Admin',
-    email: 'super@leadcrm.com',
-    role: 'System Admin',
-    status: 'active',
-  },
-  {
-    // Primary System Admin — email matches SYSTEM_ADMIN_EMAIL seed default (admin@gmail.com)
-    id: 'user_system_admin',
-    tenantId: 'system',
-    firstName: 'System',
-    lastName: 'Admin',
-    email: 'admin@gmail.com',
-    role: 'System Admin',
-    status: 'active',
-  },
   {
     id: 'user_client_admin',
     tenantId: 'tenant_demo',
@@ -123,51 +97,9 @@ export const MOCK_USERS: User[] = [
 
 // ─── Permissions ─────────────────────────────────────────────────────────────
 
-export const MOCK_PERMISSIONS: Permission[] = [
-  { id: 'p1',      name: 'View Dashboard',       category: 'Dashboard',  description: 'Access to the main dashboard' },
-  { id: 'p2',      name: 'View All Contacts',     category: 'Contacts',   description: 'View all contact lists across the organization' },
-  { id: 'p2_own',  name: 'View Own Contacts',     category: 'Contacts',   description: 'View only assigned contacts' },
-  { id: 'p3',      name: 'Create Contacts',       category: 'Contacts',   description: 'Add new contacts' },
-  { id: 'p4',      name: 'Edit All Contacts',     category: 'Contacts',   description: 'Modify any existing contacts' },
-  { id: 'p4_own',  name: 'Edit Own Contacts',     category: 'Contacts',   description: 'Modify only assigned contacts' },
-  { id: 'p5',      name: 'Delete All Contacts',   category: 'Contacts',   description: 'Remove any contacts' },
-  { id: 'p5_own',  name: 'Delete Own Contacts',   category: 'Contacts',   description: 'Remove only assigned contacts' },
-  { id: 'p6',      name: 'Export Contacts',       category: 'Contacts',   description: 'Export contacts to CSV' },
-  { id: 'p7',      name: 'View All Deals',        category: 'Deals',      description: 'View all deal pipelines across the organization' },
-  { id: 'p7_own',  name: 'View Own Deals',        category: 'Deals',      description: 'View only assigned deals' },
-  { id: 'p8',      name: 'Create Deals',          category: 'Deals',      description: 'Add new deals' },
-  { id: 'p9',      name: 'Edit All Deals',        category: 'Deals',      description: 'Modify any existing deals' },
-  { id: 'p9_own',  name: 'Edit Own Deals',        category: 'Deals',      description: 'Modify only assigned deals' },
-  { id: 'p10',     name: 'Delete All Deals',      category: 'Deals',      description: 'Remove any deals' },
-  { id: 'p10_own', name: 'Delete Own Deals',      category: 'Deals',      description: 'Remove only assigned deals' },
-  { id: 'p11',     name: 'Manage Pipelines',      category: 'Deals',      description: 'Configure pipeline stages' },
-  { id: 'p12',     name: 'View Workflows',        category: 'Workflows',  description: 'View automation workflows' },
-  { id: 'p13',     name: 'Create Workflows',      category: 'Workflows',  description: 'Add new workflows' },
-  { id: 'p14',     name: 'Edit Workflows',        category: 'Workflows',  description: 'Modify existing workflows' },
-  { id: 'p15',     name: 'Delete Workflows',      category: 'Workflows',  description: 'Remove workflows' },
-  { id: 'p16',     name: 'Execute Workflows',     category: 'Workflows',  description: 'Manually run workflows' },
-  { id: 'p17',     name: 'View Campaigns',        category: 'Campaigns',  description: 'View marketing campaigns' },
-  { id: 'p18',     name: 'Create Campaigns',      category: 'Campaigns',  description: 'Add new campaigns' },
-  { id: 'p19',     name: 'Edit Campaigns',        category: 'Campaigns',  description: 'Modify existing campaigns' },
-  { id: 'p20',     name: 'Delete Campaigns',      category: 'Campaigns',  description: 'Remove campaigns' },
-  { id: 'p21',     name: 'Send Campaigns',        category: 'Campaigns',  description: 'Trigger campaign delivery' },
-  { id: 'p22',     name: 'View Users',            category: 'Users',      description: 'View team members' },
-  { id: 'p23',     name: 'Create Users',          category: 'Users',      description: 'Add new team members' },
-  { id: 'p24',     name: 'Edit Users',            category: 'Users',      description: 'Modify user details' },
-  { id: 'p25',     name: 'Delete Users',          category: 'Users',      description: 'Remove team members' },
-  { id: 'p26',     name: 'Manage Roles',          category: 'Users',      description: 'Configure roles and permissions' },
-  { id: 'p27',     name: 'View Settings',         category: 'Settings',   description: 'Access organization settings' },
-  { id: 'p28',     name: 'Edit Settings',         category: 'Settings',   description: 'Modify organization settings' },
-  { id: 'p30',     name: 'View Audit Logs',       category: 'Settings',   description: 'Access system activity logs' },
-  { id: 'p31',     name: 'View Reports',          category: 'Reports',    description: 'Access analytics reports' },
-  { id: 'p32',     name: 'Create Reports',        category: 'Reports',    description: 'Build custom reports' },
-  { id: 'p33',     name: 'Export Reports',        category: 'Reports',    description: 'Export report data' },
-  { id: 'p34',     name: 'Manage Dashboard',      category: 'Dashboard',  description: 'Customize dashboard layout and widgets' },
-  { id: 'p35',     name: 'View Inventory',        category: 'Inventory',  description: 'View stock and inventory levels' },
-  { id: 'p36',     name: 'Manage Inventory',      category: 'Inventory',  description: 'Add, edit, or delete inventory items' },
-  { id: 'p37',     name: 'View Assets',           category: 'Assets',     description: 'View installed client assets' },
-  { id: 'p38',     name: 'Manage Assets',         category: 'Assets',     description: 'Register or modify client assets' },
-];
+export const MOCK_PERMISSIONS: Permission[] = PERMISSION_MODULES.flatMap(module => module.actions.map(action => ({
+  id: module.key + '.' + action, name: permissionLabel(module, action), category: module.key, description: '',
+})));
 
 // ─── Roles ────────────────────────────────────────────────────────────────────
 
@@ -189,7 +121,7 @@ export const MOCK_ROLES: RoleDefinition[] = [
     description: 'Standard access for everyday operations, sales, and reporting.',
     isSystemRole: false,
     userCount: 3,
-    permissions: ['p1','p2_own','p3','p4_own','p7_own','p8','p9_own','p12','p17','p31'],
+    permissions: ['dashboard.canView', 'leads.canView', 'contacts.canView', 'deals.canView', 'tasks.canView'],
     updatedAt: '1/1/2026',
   },
   {
@@ -199,7 +131,7 @@ export const MOCK_ROLES: RoleDefinition[] = [
     description: 'Limited access for learning and basic tasks',
     isSystemRole: false,
     userCount: 2,
-    permissions: ['p1', 'p2', 'p7', 'p12'],
+    permissions: ['dashboard.canView', 'leads.canView', 'contacts.canView', 'deals.canView', 'tasks.canView'],
     updatedAt: '4/10/2026',
   },
   {
@@ -209,7 +141,7 @@ export const MOCK_ROLES: RoleDefinition[] = [
     description: 'Restricted CRM access for external consultants',
     isSystemRole: false,
     userCount: 1,
-    permissions: ['p1', 'p7_own', 'p12'],
+    permissions: ['dashboard.canView', 'leads.canView', 'contacts.canView', 'deals.canView', 'tasks.canView'],
     updatedAt: '4/12/2026',
   },
 ];

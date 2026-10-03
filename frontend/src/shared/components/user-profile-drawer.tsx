@@ -1,4 +1,5 @@
 'use client';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
 
 import React, { useMemo } from 'react';
 import { Mail, Phone, Shield, Briefcase, CheckSquare, TrendingUp, Award, Calendar } from 'lucide-react';
@@ -27,6 +28,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
   onSelectDeal,
 }) => {
   const { tenant } = useAuth();
+  const taskData = useTasks({ assignedUserId: user?.id, limit: 1 });
 
   // Tenant-aware currency — used for all monetary values in this drawer.
   // Avoids hardcoded ₱ symbols for tenants configured with other currencies.
@@ -44,10 +46,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
       ? Math.round((wonDeals.length / assignedDeals.length) * 100)
       : 0;
 
-  const assignedTasks = tasks.filter((t) => t.assignedUserId === user.id);
-  const openTasks = assignedTasks.filter(
-    (t) => t.status !== 'completed' && t.status !== 'cancelled',
-  );
+
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
@@ -127,7 +126,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({
                 <CheckSquare size={14} className="text-amber-500" />
                 <span>Open Tasks</span>
               </div>
-              <p className="text-xl font-black text-slate-900 dark:text-white">{openTasks.length}</p>
+              <p className="text-xl font-black text-slate-900 dark:text-white">{taskData.summary?.active ?? '—'}</p>
               <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Action items pending</p>
             </div>
 

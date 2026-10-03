@@ -16,12 +16,12 @@ interface CachedPageOptions<T> {
 
 /** Cache successful results together with their exact request key; always revalidate on mount. */
 export function useCachedPage<T>({ module, params, fetchFn, intervalMs, revalidateOnInvalidation = false, disabled = USE_MOCK_DATA }: CachedPageOptions<T>) {
-  const { tenant, user } = useAuth();
+  const { tenant, user, isLoading, authError } = useAuth();
   const tenantId = tenant?.id ?? '';
   // Responses (especially notifications) can depend on the user and their role.
-  const scopedParams = { query: params, userId: user?.id, role: user?.role, environment: user?.activeEnvironment };
+  const scopedParams = { query: params, userId: user?.id, role: user?.role };
   const key = buildCacheKey(module, tenantId, scopedParams);
-  const enabled = !disabled && !!tenantId && !!user?.id;
+  const enabled = !disabled && !isLoading && !authError && !!tenantId && !!user?.id;
   const cached = enabled ? getPageCache<T>(module, tenantId, scopedParams) : null;
   const [state, setState] = useState<{
     key: string; data?: T; fetching: boolean; error: string | null;

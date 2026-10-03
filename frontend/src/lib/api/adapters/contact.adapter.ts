@@ -1,40 +1,13 @@
 'use client';
 
-/**
- * Converts a frontend status string to a backend status string (UPPERCASE).
- * Default fallback is 'WARM'.
- * 
- * @param {string | undefined} status Frontend status (e.g., 'Hot', 'Warm', 'Cold')
- * @returns {string} Backend status (e.g., 'HOT', 'WARM', 'COLD')
- */
-export function toBackendStatus(status?: string): string {
-  if (!status) return 'WARM';
-  const upper = status.toUpperCase();
-  if (['HOT', 'WARM', 'COLD', 'CANCELLED', 'CLOSED'].includes(upper)) {
-    return upper;
-  }
-  return 'WARM';
+import { CrmStatusSchema, normalizeCrmStatus, type CrmStatus } from '@leadcrm/shared';
+
+/** API writes must use the canonical contract; never silently replace invalid input. */
+export function toBackendStatus(status?: string): CrmStatus {
+  return CrmStatusSchema.parse(status ?? 'Warm');
 }
 
-/**
- * Converts a backend status string to a frontend status string (Title Case).
- * Default fallback is 'Warm'.
- * 
- * @param {string | undefined} status Backend status (e.g., 'HOT', 'WARM', 'COLD')
- * @returns {string} Frontend status (e.g., 'Hot', 'Warm', 'Cold')
- */
-export function toFrontendStatus(status?: string): string {
-  if (!status) return 'Warm';
-  const upper = status.toUpperCase();
-  switch (upper) {
-    case 'HOT': return 'Hot';
-    case 'WARM': return 'Warm';
-    case 'COLD': return 'Cold';
-    case 'CANCELLED': return 'Cancelled';
-    case 'CLOSED': return 'Closed';
-    default: return 'Warm';
-  }
-}
+export const toFrontendStatus = normalizeCrmStatus;
 
 /**
  * Splits a full name into first and last name.
@@ -67,6 +40,7 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
       };
 
   return {
+    requestId: data.requestId,
     firstName,
     lastName,
     email: data.email || undefined,
@@ -146,6 +120,7 @@ export function toFrontendContact(backendContact: any): Record<string, any> {
     jobTitle: backendContact.jobTitle || '',
     email: backendContact.email || '',
     phone: backendContact.phone || '',
+    productInterestIds: backendContact.productInterestIds,
     productInterests: Array.isArray(backendContact.productInterest)
       ? backendContact.productInterest
       : (Array.isArray(backendContact.productInterests) ? backendContact.productInterests : []),

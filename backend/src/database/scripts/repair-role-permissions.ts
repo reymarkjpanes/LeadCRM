@@ -35,6 +35,7 @@
  * Or add to your deployment runbook for one-time execution.
  */
 
+import { seedSystemRoles } from '../seeders/roles.seed';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -42,28 +43,31 @@ const prisma = new PrismaClient();
 export async function repairRolePermissions(): Promise<void> {
   console.log('[Repair] Fixing RolePermission rows: organizations → accounts...');
 
-  const result = await prisma.rolePermission.updateMany({
-    where: { module: 'organizations' },
-    data: { module: 'accounts' },
-  });
-
-  console.log(`[Repair] Updated ${result.count} RolePermission rows (organizations → accounts).`);
-
-  if (result.count === 0) {
-    console.log('[Repair] No rows needed updating (already correct or table is empty).');
+  const legacy = await prisma.rolePermission.findMany({ where: { module: 'organizations' } });
+  for (const row of legacy) {
+    await prisma.$transaction(async tx => {
+      const current = await tx.rolePermission.findUnique({ where: { roleId_module: { roleId: row.roleId, module: 'accounts' } } });
+      const canCreate = row.canCreate || !!current?.canCreate;
+      const canEdit = row.canEdit || !!current?.canEdit;
+      const canArchive = row.canDelete || row.canArchive || !!current?.canArchive;
+      const canImport = row.canImport || canCreate || !!current?.canImport;
+      const flags = { canView: row.canView || !!current?.canView || canCreate || canEdit || canArchive || canImport, canCreate, canEdit, canArchive, canImport, canDelete: false };
+      await tx.rolePermission.upsert({ where: { roleId_module: { roleId: row.roleId, module: 'accounts' } },
+        create: { tenantId: row.tenantId, roleId: row.roleId, module: 'accounts', ...flags }, update: flags });
+      await tx.rolePermission.delete({ where: { id: row.id } });
+    });
   }
+  console.log(`[Repair] Merged ${legacy.length} legacy account permissions.`);
 }
 
 /**
  * repairClientAdminRoleDefinitions
  *
- * Ensures every tenant has a 'Client Admin' RoleDefinition (isSystemRole: true, no permissions).
+ * Ensures every tenant has a 'Client Admin' RoleDefinition (isSystemRole: true, all applicable permissions).
  * This was added to seedSystemRoles() after initial deployment, so older tenants need it backfilled.
- * Client Admin is a super-role bypass — it has no RolePermission rows; bypass is in rbac.middleware.ts.
+ * Client Admin is a super-role bypass — its RolePermission rows contain every applicable action; bypass is in rbac.middleware.ts.
  *
- * Also re-points any UserRole junction row that points to an 'Admin' RoleDefinition
- * for a user whose User.role = 'Client Admin', switching it to the 'Client Admin' RoleDefinition.
- * This aligns the data with the Role State Invariant.
+ * Adds missing Client Admin assignments while preserving existing UserRole records.
  */
 export async function repairClientAdminRoleDefinitions(): Promise<void> {
   console.log('[Repair] Backfilling Client Admin RoleDefinitions for all tenants...');
@@ -72,23 +76,13 @@ export async function repairClientAdminRoleDefinitions(): Promise<void> {
   let created = 0;
 
   for (const tenant of tenants) {
-    await prisma.roleDefinition.upsert({
-      where: { tenantId_name: { tenantId: tenant.id, name: 'Client Admin' } },
-      update: { isSystemRole: true },
-      create: {
-        tenantId:     tenant.id,
-        name:         'Client Admin',
-        description:  'Full tenant ownership. Manages users, roles, and all CRM data.',
-        isSystemRole: true,
-      },
-    });
+    await seedSystemRoles(tenant.id, prisma);
     created++;
   }
 
   console.log(`[Repair] Client Admin RoleDefinition ensured for ${created} tenant(s).`);
 
-  // Re-point UserRole junctions: users with User.role='Client Admin' should link
-  // to the 'Client Admin' RoleDefinition, not 'Admin'.
+  // Ensure Client Admin has its built-in assignment without deleting other assignments.
   const clientAdminUsers = await prisma.user.findMany({
     where: { role: 'Client Admin' },
     select: { id: true, tenantId: true },
@@ -101,17 +95,15 @@ export async function repairClientAdminRoleDefinitions(): Promise<void> {
     });
     if (!clientAdminDef) continue;
 
-    // Remove any existing UserRole rows for this user (may point to 'Admin')
-    await prisma.userRole.deleteMany({ where: { userId: user.id, tenantId: user.tenantId } });
-
-    // Create the correct UserRole → Client Admin RoleDefinition
-    await prisma.userRole.create({
-      data: { userId: user.id, roleId: clientAdminDef.id, tenantId: user.tenantId },
+    await prisma.userRole.upsert({
+      where: { userId_roleId_tenantId: { userId: user.id, roleId: clientAdminDef.id, tenantId: user.tenantId } },
+      update: {},
+      create: { userId: user.id, roleId: clientAdminDef.id, tenantId: user.tenantId },
     });
     repointed++;
   }
 
-  console.log(`[Repair] Re-pointed UserRole for ${repointed} Client Admin user(s).`);
+  console.log(`[Repair] Ensured UserRole for ${repointed} Client Admin user(s).`);
 }
 
 export async function backfillUserRoles(): Promise<void> {

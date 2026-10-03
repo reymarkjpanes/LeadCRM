@@ -1,4 +1,5 @@
 'use client';
+import { RecordBackButton } from '@/shared/components/crm/record-back-button';
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
@@ -261,9 +262,7 @@ export default function ImportPage({ moduleKey }: ImportPageProps): React.ReactE
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/60 rounded-2xl min-w-0 px-3 sm:px-6 py-5">
             <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
               <div>
-                <button onClick={() => router.push(config.backRoute)} className="inline-flex items-center gap-1 text-[13px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors mb-3 cursor-pointer">
-                  <ArrowLeft size={14} /> Back to {config.moduleLabel}
-                </button>
+                <RecordBackButton label={config.moduleLabel} onClick={() => router.push(config.backRoute)} />
                 <h1 className="text-[22px] font-bold text-slate-900 dark:text-white leading-tight">Import {config.moduleLabel}</h1>
                 <p className="text-[13.5px] text-slate-500 dark:text-slate-400 mt-1">
                   {activeView === 'wizard' ? 'Upload your CSV, map your columns, and review your data before importing.' : `View your past ${config.moduleLabel.toLowerCase()} imports and their results.`}

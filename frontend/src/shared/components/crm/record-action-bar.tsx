@@ -21,7 +21,7 @@ interface OverflowMenuItem {
   icon?: React.ReactNode;
   onClick: () => void;
   destructive?: boolean;
-  permission?: string; // e.g. 'deals.delete' — hide if user lacks this permission
+  permission?: string; // e.g. 'deals.archive' — hide if user lacks this permission
 }
 
 interface RecordActionBarProps {

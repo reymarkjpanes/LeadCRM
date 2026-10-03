@@ -1,5 +1,6 @@
 'use client';
 
+import { PERMISSION_ACTIONS, PERMISSION_MODULES, EMPTY_PERMISSION_FLAGS, permissionLabel } from '@leadcrm/shared';
 import { rolesApi } from '@/shared/services/roles.api';
 import type { RoleListItem, RoleDetail } from '@/store/types/roles.types';
 import type { CreateRolePayload, UpdateRolePayload } from '@/shared/services/roles.api';
@@ -44,16 +45,16 @@ export function toSettingsRole(role: RoleListItem): import('@/store/types').Role
     ...role,
     description: role.description ?? '',
     permissions: role.permissions.flatMap(row =>
-      (['canView', 'canCreate', 'canEdit', 'canDelete'] as const)
+      (PERMISSION_MODULES.find(module => module.key === row.module)?.actions ?? [])
         .filter(action => row[action]).map(action => `${row.module}.${action}`)),
   };
 }
 
 export function toSettingsPermissions(modules: import('@/store/types/roles.types').PermissionModuleDefinition[]): import('@/store/types').Permission[] {
-  const labels = { canView: 'View', canCreate: 'Create', canEdit: 'Edit', canDelete: 'Archive / delete' };
+
   return modules.flatMap(module => module.actions.map(action => ({
     id: `${module.key}.${action}`, category: module.key,
-    name: `${labels[action]} ${module.label}`, description: '',
+    name: permissionLabel(module, action), description: '',
   })));
 }
 
@@ -63,7 +64,7 @@ export function toPermissionRows(ids: string[], permissions: import('@/store/typ
   }
   return [...new Set(ids.map(id => id.split('.')[0]))].map(module => ({
     module,
-    canView: ids.includes(`${module}.canView`), canCreate: ids.includes(`${module}.canCreate`),
-    canEdit: ids.includes(`${module}.canEdit`), canDelete: ids.includes(`${module}.canDelete`),
+    ...EMPTY_PERMISSION_FLAGS,
+    ...Object.fromEntries(PERMISSION_ACTIONS.map(action => [action, ids.includes(`${module}.${action}`)])),
   }));
 }

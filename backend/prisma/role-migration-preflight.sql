@@ -12,7 +12,7 @@ SELECT count(*) AS inconsistent_tenant_assignments FROM "UserRole" ur
 JOIN "User" u ON u."id" = ur."userId" JOIN "RoleDefinition" rd ON rd."id" = ur."roleId"
 WHERE ur."tenantId" <> u."tenantId" OR ur."tenantId" <> rd."tenantId";
 SELECT count(*) AS missing_primary_assignments FROM "User" u
-WHERE u."status" = 'ACTIVE' AND u."role" NOT IN ('System Admin', 'Client Admin')
+WHERE u."status" = 'ACTIVE' AND u."role" NOT IN ('Client Admin')
 AND lower(trim(u."role")) <> 'guest' AND NOT EXISTS (
   SELECT 1 FROM "UserRole" ur JOIN "RoleDefinition" rd ON rd."id" = ur."roleId"
   WHERE ur."userId" = u."id" AND ur."tenantId" = u."tenantId"

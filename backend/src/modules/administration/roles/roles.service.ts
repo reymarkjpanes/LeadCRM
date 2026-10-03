@@ -1,3 +1,4 @@
+import { PERMISSION_MODULES, EMPTY_PERMISSION_FLAGS, type ResolvedPermissions } from '@leadcrm/shared';
 import * as repo from './roles.repository';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ForbiddenError, ConflictError } from '../../../shared/errors/http-error';
@@ -103,7 +104,7 @@ export async function archiveRole(id: string, tenantId: string, userId: string) 
   // Prevent archiving if users are still assigned
   const activeCount = await repo.countActiveUserRoles(id, tenantId);
   if (activeCount > 0) {
-    throw new ConflictError(`Role has ${activeCount} assigned user${activeCount > 1 ? 's' : ''}. Reassign users before deleting.`);
+    throw new ConflictError(`Role has ${activeCount} assigned user${activeCount > 1 ? 's' : ''}. Reassign users before archiving.`);
   }
 
   await repo.archiveRole(id, tenantId);
@@ -153,14 +154,13 @@ export async function removeRoleFromUser(
 export async function getUserPermissions(
   userId: string,
   tenantId: string,
-): Promise<Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>> {
-  const FULL_ACCESS = { canView: true, canCreate: true, canEdit: true, canDelete: true };
+): Promise<ResolvedPermissions> {
+
 
   const target = await prisma.user.findFirst({ where: { id: userId, tenantId }, select: { role: true } });
   if (!target) throw new NotFoundError('User');
   if (checkIsSuperRole(target.role)) {
-    const modules = ['dashboard','contacts','accounts','deals','tasks','campaigns','workflows','settings','users','roles','reports','audit'];
-    return Object.fromEntries(modules.map(m => [m, FULL_ACCESS]));
+    return Object.fromEntries(PERMISSION_MODULES.map(m => [m.key, { ...EMPTY_PERMISSION_FLAGS, ...Object.fromEntries(m.actions.map(action => [action, true])) }]));
   }
 
   return repo.findUserEffectivePermissions(userId, tenantId);

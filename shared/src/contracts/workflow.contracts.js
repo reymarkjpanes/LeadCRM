@@ -15,7 +15,7 @@ exports.WorkflowConditionSchema = zod_1.z.object({
     operator: zod_1.z.enum(['AND', 'OR']), conditions: zod_1.z.array(exports.WorkflowConditionRuleSchema).max(30),
 }).strict();
 exports.WorkflowActionSchema = zod_1.z.object({
-    type: zod_1.z.enum(['create_task', 'send_email', 'assign_owner', 'update_field', 'create_notification', 'move_deal_stage', 'send_campaign']),
+    type: zod_1.z.enum(['create_task', 'send_email', 'send_sms', 'assign_owner', 'update_field', 'create_notification', 'move_deal_stage', 'send_campaign']),
     enabled: zod_1.z.boolean().optional(),
     config: zod_1.z.record(zod_1.z.unknown()),
 }).strict();
@@ -28,11 +28,13 @@ exports.WorkflowDraftSchema = zod_1.z.object({
     isActive: zod_1.z.boolean().default(false),
 }).strict();
 function workflowOperators(type) {
+    if (type === 'products' || type === 'list')
+        return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
     if (type === 'number')
         return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_than_or_equal', 'less_than_or_equal'];
     if (type === 'date')
         return ['equals', 'before', 'after'];
     if (type !== 'string')
-        return ['equals', 'not_equals'];
+        return type === 'boolean' ? ['equals', 'not_equals'] : ['equals', 'not_equals', 'is_empty', 'is_not_empty'];
     return ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_empty', 'is_not_empty'];
 }

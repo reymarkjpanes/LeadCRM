@@ -1,4 +1,5 @@
 'use client';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
 
 import React, { useMemo } from 'react';
 import { useAuth } from '@/store/AuthContext';
@@ -31,7 +32,9 @@ function PesoIcon({ size }: { size: number }): React.ReactElement {
 
 export default function Dashboard() {
   const { user, tenant } = useAuth();
-  const { contacts, deals, users, roles, tasks, tenants, pipelines } = useData();
+  const { contacts, deals, users, roles, tasks, pipelines } = useData();
+  const taskData = useTasks({ assignedUserId: user?.id, limit: 1 });
+  const pendingPreview = useTasks({ assignedUserId: user?.id, status: 'pending', limit: 3 });
   const tenantCurrency = useMemo<CurrencyConfig>(() => getTenantCurrency(tenant), [tenant]);
 
   // ── Lead / Contact count via lightweight server fetch ────────────────────
@@ -48,7 +51,7 @@ export default function Dashboard() {
   const isLoading = deals.length === 0 && users.length === 0;
 
   const handleRefresh = () => {
-    toast.success('Metrics refreshed');
+    taskData.refresh();
   };
 
   const handleExportCSV = () => {
@@ -76,7 +79,7 @@ export default function Dashboard() {
         csvRows.push(['Avg Velocity', avgVelocity > 0 ? `${avgVelocity} days` : '—', 'to close', 'Real data']);
       } else {
         csvRows.push(['My Hot Leads', myHotLeads.length, `${myHotLeads.length} hot`, 'Active']);
-        csvRows.push(['Pending Tasks', myPending.length, myOverdue.length > 0 ? `${myOverdue.length} overdue` : 'On track', myOverdue.length === 0 ? 'Good' : 'Alert']);
+        csvRows.push(['Pending Tasks', (pendingCount ?? '—'), (overdueCount ?? 0) > 0 ? `${overdueCount} overdue` : 'On track', overdueCount === 0 ? 'Good' : 'Alert']);
         csvRows.push(['My Active Deals', activeDeals.filter(d => d.assignedUserId === user.id).length, 'Active', 'Current']);
         csvRows.push(['Total Contacts', totalLeadsCount, '+recent', 'Growing']);
         csvRows.push(['Win Rate', `${winRate}%`, 'This month', 'Tracking']);
@@ -154,9 +157,9 @@ export default function Dashboard() {
 
   const totalRevenue      = wonDeals.reduce((s, d) => s + (d.value ?? 0), 0);
   const winRate           = allActive.length > 0 ? Math.round((wonDeals.length / allActive.length) * 100) : 0;
-  const myTasks           = tasks.filter(t => t.assignedUserId === user?.id);
-  const myPending         = myTasks.filter(t => t.status === 'pending');
-  const myOverdue         = myTasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled' && t.dueDate && new Date(t.dueDate) < new Date());
+  const myPending = pendingPreview.tasks;
+  const pendingCount = taskData.summary?.byStatus.pending;
+  const overdueCount = taskData.summary?.overdue;
   // myHotLeads: contacts is empty in real-API mode after route-scoped migration.
   // This personal KPI shows 0 in real-API mode; future work: dedicated user-scoped hook.
   const myHotLeads        = contacts.filter(c => c.status === 'Hot' && c.assignedUserId === user?.id);
@@ -213,7 +216,7 @@ export default function Dashboard() {
     { label: 'Avg Velocity',  value: avgVelocity > 0 ? `${avgVelocity}d` : '—',           icon: Zap,        color: 'indigo',  trend: 'to close',                                            up: true },
   ] : [
     { label: 'My Hot Leads',    value: myHotLeads.length,                                                                 icon: Zap,      color: 'orange',  trend: `${myHotLeads.length} hot`,                                                     up: true },
-    { label: 'Pending Tasks',   value: myPending.length,                                                                  icon: Clock,    color: 'red',     trend: myOverdue.length > 0 ? `${myOverdue.length} overdue` : 'On track',              up: myOverdue.length === 0 },
+    { label: 'Pending Tasks',   value: (pendingCount ?? '—'),                                                                  icon: Clock,    color: 'red',     trend: (overdueCount ?? 0) > 0 ? `${overdueCount} overdue` : 'On track',              up: overdueCount === 0 },
     { label: 'My Active Deals', value: activeDeals.filter(d => d.assignedUserId === user?.id).length,                    icon: Briefcase,color: 'blue',    trend: 'Active',                                                                       up: true },
     { label: 'Total Contacts',  value: totalLeadsCount,                                                                   icon: Users,    color: 'purple',  trend: 'all contacts',                                                                 up: true },
     { label: 'Win Rate',        value: `${winRate}%`,                                                                     icon: Target,   color: 'emerald', trend: 'This month',                                                                   up: winRate > 0 },
@@ -227,71 +230,6 @@ export default function Dashboard() {
       <div className="p-4 lg:p-6 space-y-6">
         <DashboardSkeleton />
       </div>
-    );
-  }
-
-  // ── System Admin view ──────────────────────────────────────
-  if (user.role === 'System Admin') {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="p-4 lg:p-6 space-y-6"
-      >
-        <div className="flex justify-between items-center">
-          <p className="text-sm text-slate-500 dark:text-slate-400">Platform-wide metrics across all tenants</p>
-          <button onClick={handleRefresh} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white dark:bg-white/[0.03] border border-gray-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-all active:scale-98">
-            <RefreshCw size={14} /> Refresh
-          </button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {[
-            { label: 'Total Tenants', value: tenants.length, icon: Briefcase, color: 'blue' },
-            { label: 'Total Users', value: users.length, icon: Users, color: 'emerald' },
-            { label: 'Total Deals', value: deals.length, icon: TrendingUp, color: 'purple' },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className={`bg-white dark:bg-white/[0.02] p-6 rounded-2xl border border-gray-200 dark:border-white/[0.06] shadow-sm flex items-center gap-4`}>
-              <div className={`p-3 rounded-xl bg-${color}-500/10 text-${color}-500`}><Icon size={22} /></div>
-              <div>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-                <p className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">{value}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="bg-white dark:bg-white/[0.02] rounded-2xl border border-gray-200 dark:border-white/[0.06] shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-white/[0.05]">
-            <h3 className="font-semibold text-slate-900 dark:text-white">Active Tenants</h3>
-          </div>
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-white/[0.02] text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
-              <tr>
-                <th className="px-6 py-3 text-left font-semibold">Company</th>
-                <th className="px-6 py-3 text-left font-semibold">Industry</th>
-                <th className="px-6 py-3 text-left font-semibold">Status</th>
-                <th className="px-6 py-3 text-left font-semibold">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-white/[0.04]">
-              {tenants.map(t => (
-                <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-3.5 font-medium text-slate-900 dark:text-white">{t.name}</td>
-                  <td className="px-6 py-3.5 text-slate-500 dark:text-slate-400">{t.industry}</td>
-                  <td className="px-6 py-3.5">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${t.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400'}`}>
-                      {t.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3.5 text-slate-500 dark:text-slate-400">{new Date(t.createdAt).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      </motion.div>
     );
   }
 
@@ -401,7 +339,9 @@ export default function Dashboard() {
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Hot leads & pending tasks</p>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1">
-            {myPending.length === 0 && myHotLeads.length === 0 ? (
+            {(taskData.error || pendingPreview.error) && <p role="alert" className="text-sm text-destructive">Task summary could not load. <button onClick={taskData.refresh} className="underline">Retry</button></p>}
+            {pendingPreview.loading && <p role="status" className="text-xs text-muted-foreground">Loading tasks…</p>}
+            {pendingCount === 0 && !taskData.error && !pendingPreview.error && !pendingPreview.loading && myHotLeads.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 py-8">
                 <Check size={28} className="text-emerald-500" />
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300">All caught up!</p>

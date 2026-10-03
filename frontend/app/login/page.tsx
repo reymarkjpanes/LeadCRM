@@ -15,7 +15,7 @@ function LoginContent() {
   }
   return (
     <AuthGuard allowAnonymous>
-      <ModernLoginPage onNavigate={navigate} oauthError={search.get('error') ?? undefined} />
+      <ModernLoginPage onNavigate={navigate} loginError={search.get('error') ?? undefined} />
     </AuthGuard>
   );
 }
