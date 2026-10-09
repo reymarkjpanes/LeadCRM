@@ -55,6 +55,11 @@ export default function InboxPage(): React.ReactElement {
   const requestId = useRef(0);
   const shouldReduceMotion = useReducedMotion();
   const [retryAt, setRetryAt] = useState(0);
+  // A missing or unhealthy SSE endpoint must not reconnect forever.
+  // Polling remains database-only; it never starts Gmail synchronization.
+  const [streamUnavailable, setStreamUnavailable] = useState(false);
+  const [apiCooldownUntil, setApiCooldownUntil] = useState(0);
+  const cooldownRef = useRef(0);
 
   useEffect(() => { const timer = setTimeout(() => setDebouncedSearch(search), 400); return () => clearTimeout(timer); }, [search]);
   useEffect(() => {
@@ -76,6 +81,7 @@ export default function InboxPage(): React.ReactElement {
   useEffect(() => { if (!retryAt) return; const timer = setTimeout(() => setRetryAt(0), Math.max(0, retryAt - Date.now())); return () => clearTimeout(timer); }, [retryAt]);
 
   const loadEmails = useCallback((pageToken?: string, targetPage = 1): Promise<void> => {
+    if (Date.now() < cooldownRef.current) return Promise.resolve();
     const key = JSON.stringify([filter, sort, debouncedSearch, pageToken]);
     if (request.current?.key === key) return request.current.promise;
     request.current?.controller.abort();
@@ -90,7 +96,15 @@ export default function InboxPage(): React.ReactElement {
         loaded.current = true; pageRef.current = targetPage; tokenRef.current = pageToken; setPage(targetPage);
       } catch (error) {
         if (controller.signal.aborted || id !== requestId.current) return;
-        setError(error instanceof Error ? error.message : 'Unable to load emails.');
+        const apiError = error as ApiRequestError;
+        if (apiError.status === 429) {
+          const until = Date.parse(apiError.retryAt ?? '');
+          cooldownRef.current = Number.isFinite(until) && until > Date.now() ? until : Date.now() + 60_000;
+          setApiCooldownUntil(cooldownRef.current);
+          setError('Too many requests. Inbox updates will resume automatically.');
+        } else {
+          setError(error instanceof Error ? error.message : 'Unable to load emails.');
+        }
         if ([401, 403, 409].includes((error as ApiRequestError).status ?? 0)) { setEmails([]); setSelectedEmail(null); }
       } finally {
         if (id === requestId.current) { request.current = null; setRefreshing(false); setInitialLoading(false); }
@@ -109,24 +123,62 @@ export default function InboxPage(): React.ReactElement {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
     const refresh = () => {
+      if (!active || document.visibilityState === 'hidden' || Date.now() < cooldownRef.current) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        if (!active || Date.now() < cooldownRef.current) return;
         void loadEmails(tokenRef.current, pageRef.current);
         setRevision(value => value + 1);
-        void getGmailStatus().then(status => { if (active) { setConnectionStatus(status); setSyncError(status.syncError ?? ''); setRetryAt(Date.parse(status.retryAt ?? '') || 0); } }).catch(() => undefined);
+        void getGmailStatus().then(status => {
+          if (active) {
+            setConnectionStatus(status);
+            setSyncError(status.syncError ?? '');
+            setRetryAt(Date.parse(status.retryAt ?? '') || 0);
+          }
+        }).catch(() => undefined);
       }, 250);
     };
-    // This endpoint observes persisted state only. Neither SSE nor visibility calls Gmail.
-    const events = typeof EventSource === 'undefined' ? null : new EventSource('/api/proxy/integrations/gmail/events');
-    events?.addEventListener('mailbox-change', refresh);
-    events?.addEventListener('mailbox-access-changed', () => { setEmails([]); setSelectedEmail(null); refresh(); });
     const visible = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', visible);
-    return () => { active = false; events?.close(); clearTimeout(timer); document.removeEventListener('visibilitychange', visible); };
-  }, [connectionStatus?.isConnected, loadEmails]);
+    // The connection may fail (404 during a partial deployment, or 429).
+    // Do not let EventSource's automatic 3-second retry loop hammer the API.
+    let events: EventSource | null = null;
+    if (!streamUnavailable && typeof EventSource !== 'undefined') {
+      events = new EventSource('/api/proxy/integrations/gmail/events');
+      events.addEventListener('mailbox-change', refresh);
+      events.addEventListener('mailbox-access-changed', () => { setEmails([]); setSelectedEmail(null); refresh(); });
+      events.onerror = () => {
+        events?.close();
+        events = null;
+        setStreamUnavailable(true);
+      };
+    }
+    // Slow, visibility-aware fallback that also respects API Retry-After.
+    const poll = streamUnavailable ? window.setInterval(refresh, 60_000) : undefined;
+    return () => {
+      active = false;
+      events?.close();
+      if (poll !== undefined) window.clearInterval(poll);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [connectionStatus?.isConnected, loadEmails, streamUnavailable]);
+
+  useEffect(() => {
+    if (!apiCooldownUntil) return;
+    const delay = Math.max(0, apiCooldownUntil - Date.now());
+    const timer = window.setTimeout(() => {
+      if (Date.now() >= cooldownRef.current) {
+        cooldownRef.current = 0;
+        setApiCooldownUntil(0);
+        if (connectionStatus?.isConnected) void loadEmails(tokenRef.current, pageRef.current);
+      }
+    }, delay + 25);
+    return () => window.clearTimeout(timer);
+  }, [apiCooldownUntil, connectionStatus?.isConnected, loadEmails]);
 
   const sync = async () => {
-    if (syncPending.current || retryAt > Date.now()) return;
+    if (syncPending.current || retryAt > Date.now() || Date.now() < cooldownRef.current) return;
     syncPending.current = true; setSyncing(true); setSyncError('');
     try {
       const result = await syncGmail();
@@ -152,7 +204,7 @@ export default function InboxPage(): React.ReactElement {
       {connectionStatus?.isConnected && <>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-4 sm:px-5">
           <div className="flex min-w-0 items-center gap-3"><span className="shrink-0 rounded-full bg-[var(--color-brand-light)] p-2 text-[var(--primary)]"><Mail size={18} /></span><div className="min-w-0"><p className="text-sm font-semibold">Work email</p><p className="break-all text-xs text-muted-foreground">{connectionStatus.email}</p></div></div>
-          <div className="flex items-center gap-2"><button className={control} disabled={syncing || retryAt > Date.now()} onClick={() => void sync()}>{syncing && <Loader2 size={14} className="animate-spin" />}Sync now</button><button className={control} onClick={() => void disconnectGmail().then(() => { setConnectionStatus(null); setEmails([]); setUnreadCount(undefined); }).catch(error => setError(error.message))}>Disconnect</button></div>
+          <div className="flex items-center gap-2"><button className={control} disabled={syncing || retryAt > Date.now() || apiCooldownUntil > Date.now()} onClick={() => void sync()}>{syncing && <Loader2 size={14} className="animate-spin" />}Sync now</button><button className={control} onClick={() => void disconnectGmail().then(() => { setConnectionStatus(null); setEmails([]); setUnreadCount(undefined); }).catch(error => setError(error.message))}>Disconnect</button></div>
         </div>
         <div ref={menuRef} className="flex flex-wrap items-center gap-2 border-b border-border p-3 sm:px-5" onKeyDown={event => { if (event.key === 'Escape') setMenu(null); }}>
           <label className="flex min-h-10 min-w-0 basis-full items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 sm:flex-1 sm:basis-auto"><Search size={16} className="shrink-0 text-muted-foreground" /><input aria-label="Search email" placeholder="Search email..." value={search} onChange={event => setSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none" /></label>
