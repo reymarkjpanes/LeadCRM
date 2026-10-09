@@ -25,3 +25,18 @@ it('preserves genuine 401 errors without retrying or concealing them', async () 
   await expect(apiClient.get('/crm/leads')).rejects.toMatchObject({ status: 401, message: 'Authentication required' });
   expect(fetchMock).toHaveBeenCalledOnce();
 });
+
+it('exposes Retry-After as an absolute cooldown after a 429 response', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{"error":"Too many requests"}', {
+    status: 429, headers: { 'Retry-After': '60', 'Content-Type': 'application/json' },
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const before = Date.now();
+  let caught: unknown;
+  try { await apiClient.get('/integrations/gmail/emails'); } catch (error) { caught = error; }
+  expect(caught).toMatchObject({ status: 429 });
+  const retryAt = Date.parse((caught as { retryAt: string }).retryAt);
+  expect(retryAt).toBeGreaterThanOrEqual(before + 59_000);
+  expect(retryAt).toBeLessThanOrEqual(Date.now() + 61_000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
