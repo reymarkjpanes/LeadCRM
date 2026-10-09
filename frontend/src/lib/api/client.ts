@@ -70,6 +70,18 @@ async function request<T>(
       if (typeof rawError.retryAt === 'string' && Number.isFinite(Date.parse(rawError.retryAt))) error.retryAt = rawError.retryAt;
     }
     error.status = res.status;
+    // Preserve HTTP rate-limit guidance as an absolute time for callers.
+    // Retry-After is emitted by the API limiter as seconds or an HTTP date.
+    if (res.status === 429 && !error.retryAt) {
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const until = Number.isFinite(seconds) && seconds >= 0
+          ? Date.now() + Math.ceil(seconds * 1000)
+          : Date.parse(retryAfter);
+        if (Number.isFinite(until) && until > Date.now()) error.retryAt = new Date(until).toISOString();
+      }
+    }
     error.fieldErrors = errorData.fieldErrors;
     throw error;
   }
