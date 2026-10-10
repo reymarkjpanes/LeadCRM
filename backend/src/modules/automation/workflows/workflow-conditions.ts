@@ -3,17 +3,23 @@ import { WorkflowConditionSchema, type WorkflowCondition, type WorkflowCondition
 /** Context is deliberately flat: dots are literal key characters, never traversal. */
 export function evaluateRule(rule: WorkflowConditionRule, context: Record<string, unknown>): boolean {
   const actual = Object.prototype.hasOwnProperty.call(context, rule.field) ? context[rule.field] : undefined;
-  const empty = actual === null || actual === undefined || actual === '';
+  const empty = actual === null || actual === undefined || (typeof actual === 'string' && !actual.trim()) || (Array.isArray(actual) && actual.length === 0);
   if (rule.operator === 'is_empty') return empty;
   if (rule.operator === 'is_not_empty') return !empty;
   if (actual === undefined) return false;
+  // Contact stores uppercase enums; public CRM editors use canonical title case.
+  if (['lead.status', 'contact.status'].includes(rule.field) && typeof actual === 'string' && typeof rule.value === 'string') {
+    const equal = actual.trim().toLowerCase() === rule.value.trim().toLowerCase();
+    if (rule.operator === 'equals') return equal;
+    if (rule.operator === 'not_equals') return !equal;
+  }
   switch (rule.operator) {
     case 'equals': return rule.field.endsWith('Date') && typeof actual === 'string' && typeof rule.value === 'string' ? actual.slice(0, 10) === rule.value : actual === rule.value;
     case 'before': return typeof actual === 'string' && typeof rule.value === 'string' && actual.slice(0, 10) < rule.value;
     case 'after': return typeof actual === 'string' && typeof rule.value === 'string' && actual.slice(0, 10) > rule.value;
     case 'not_equals': return actual !== rule.value;
-    case 'contains': return typeof actual === 'string' && actual.toLowerCase().includes(String(rule.value).toLowerCase());
-    case 'not_contains': return typeof actual === 'string' && !actual.toLowerCase().includes(String(rule.value).toLowerCase());
+    case 'contains': return Array.isArray(actual) ? actual.includes(rule.value) : typeof actual === 'string' && actual.toLowerCase().includes(String(rule.value).toLowerCase());
+    case 'not_contains': return Array.isArray(actual) ? !actual.includes(rule.value) : typeof actual === 'string' && !actual.toLowerCase().includes(String(rule.value).toLowerCase());
     case 'starts_with': return typeof actual === 'string' && actual.startsWith(String(rule.value));
     case 'ends_with': return typeof actual === 'string' && actual.endsWith(String(rule.value));
     default: {

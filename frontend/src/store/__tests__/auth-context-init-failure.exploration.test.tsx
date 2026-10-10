@@ -39,11 +39,6 @@ vi.mock('@/shared/services/auth.api', () => ({
   },
 }));
 
-vi.mock('next-auth/react', () => ({
-  signIn: vi.fn(),
-  signOut: vi.fn(),
-}));
-
 // Mock data / types are imported by AuthContext; provide minimal stubs.
 vi.mock('@/store/mockData', () => ({
   MOCK_USERS: [],

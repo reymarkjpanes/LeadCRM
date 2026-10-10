@@ -3,13 +3,11 @@ import prisma from '../../config/database.config';
 import { comparePassword } from '../../shared/helpers/crypto';
 import { AppError } from '../../shared/errors/app-error';
 import { createAuthSessionToken, type SessionContext } from './auth-session';
-import { authTenantSelect, buildAuthUserResponse } from './auth-user';
-import { createMfaChallenge } from './mfa.service';
+import { authUserInclude, buildAuthUserResponse } from './auth-user';
 import { authTransaction } from './auth-transaction';
+import { isWorkspaceAccessible } from '@leadcrm/shared';
 export { buildAuthUserResponse } from './auth-user';
 export type { AuthUserSource, AuthUserResponse } from './auth-user';
-export { acceptInvitation } from './registration.service';
-export { sendRegistrationOtp, verifyRegistrationOtp } from './verification.service';
 export { requestPasswordReset, resetPasswordWithToken } from './password-reset.service';
 
 export interface LoginDto { email: string; password: string; }
@@ -23,7 +21,7 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
   // Preserve deterministic password login for legacy tenant-scoped email duplicates.
   const candidates = await prisma.user.findMany({
     where: { email: { equals: normalisedEmail, mode: 'insensitive' } },
-    include: { tenant: { select: authTenantSelect } },
+    include: authUserInclude,
     orderBy: { createdAt: 'asc' },
   });
 
@@ -45,8 +43,8 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
   if (!user) throw new AppError('Invalid email or password', 401);
 
   requireEmployeeAccount(user);
-  if (user.role !== 'System Admin' && ['SUSPENDED', 'REJECTED'].includes(user.tenant?.status ?? '')) {
-    throw new AppError('Workspace access is suspended.', 403);
+  if (!isWorkspaceAccessible(user.tenant?.status)) {
+    throw new AppError('Workspace access is unavailable.', 403);
   }
 
   if (user.status !== 'ACTIVE') {
@@ -54,14 +52,13 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
   }
 
   const verified = user;
-  // Re-read under the same transaction that creates the challenge/session so concurrent
-  // password changes, deactivation, or MFA enrollment cannot leave a bypass session.
+  // Re-read under the same transaction that creates the session so concurrent
+  // password changes or deactivation cannot leave a bypass session.
   return authTransaction(async tx => {
-    const current = await tx.user.findFirst({ where: { id: verified.id, tenantId: verified.tenantId }, include: { tenant: { select: authTenantSelect } } });
+    const current = await tx.user.findFirst({ where: { id: verified.id, tenantId: verified.tenantId }, include: authUserInclude });
     if (!current || current.passwordHash !== verified.passwordHash || current.status !== 'ACTIVE') throw new AppError('Invalid email or password', 401);
     requireEmployeeAccount(current);
-    if (current.role !== 'System Admin' && ['SUSPENDED', 'REJECTED'].includes(current.tenant?.status ?? '')) throw new AppError('Workspace access is suspended.', 403);
-    if (current.mfaEnabled) return { mfaRequired: true as const, challengeToken: await createMfaChallenge(current.id, tx) };
+    if (!isWorkspaceAccessible(current.tenant?.status)) throw new AppError('Workspace access is unavailable.', 403);
     return { token: await createAuthSessionToken(current, ctx, tx), user: buildAuthUserResponse(current) };
   });
 }

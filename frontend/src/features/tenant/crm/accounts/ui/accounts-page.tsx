@@ -1,14 +1,16 @@
 ﻿'use client';
 
 import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
+import { Button } from '@/shared/components/ui/button';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ModuleWorkspace, ViewType, AccountPanel, StatusBadge } from '@/shared/components/crm';
-import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
+import { DataErrorState } from '@/shared/components/crm/data-view-states';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useColumnPreferences } from '@/shared/hooks/use-column-preferences';
 import { useAccounts } from '../hooks/use-accounts';
 import { useData } from '@/store/DataContext';
+import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 import { useFilterUrlSync } from '@/shared/hooks/use-filter-url-sync';
 import { useDebounce } from '@/shared/hooks/use-debounce';
 import { useTablePreferences } from '@/shared/hooks/use-table-preferences';
@@ -24,9 +26,9 @@ import { SideSheet } from '@/shared/components/side-sheet';
 import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
-import { PageSizeSelect } from '@/shared/components/page-size-select';
+import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import type { Account } from '../types/account.types';
 import type { ColumnConfigItem } from '@leadcrm/shared';
 
@@ -36,8 +38,9 @@ export default function AccountsPage(): React.ReactElement {
   const router = useRouter();
   const { dialogProps, confirm, close } = useConfirmDialog();
   const canCreate = useHasPermission('accounts.create');
+  const canImport = useHasPermission('accounts.import');
   const canEdit = useHasPermission('accounts.edit');
-  const canDelete = useHasPermission('accounts.delete');
+  const canDelete = useHasPermission('accounts.archive');
 
   const { deals, users } = useData();
   const { getParam, getArrayParam, updateParams } = useFilterUrlSync('accounts');
@@ -160,6 +163,8 @@ export default function AccountsPage(): React.ReactElement {
     isFormOpen,
     isLoading,
     isRefreshing,
+    error: accountsError,
+    refetch: refetchAccounts,
     editTarget,
     handleCreate,
     handleUpdate,
@@ -175,6 +180,10 @@ export default function AccountsPage(): React.ReactElement {
     search: debouncedSearch || undefined,
     filter: serverFilters.length > 0 ? serverFilters : undefined,
   });
+
+  useEffect(() => {
+    if (accountsError) toast.error(accountsError);
+  }, [accountsError]);
 
   // Server total from metadata
   const serverTotal = totalCount;
@@ -263,7 +272,7 @@ export default function AccountsPage(): React.ReactElement {
           count: accounts.filter((a) => a.size === sz).length,
           isChecked: selectedTypes.includes(sz),
         })),
-        ...users.slice(0, 5).map((u) => ({
+        ...getAssignableAgents(users).slice(0, 5).map((u) => ({
           id: `owner:${u.id}`,
           label: `Owner: ${u.firstName} ${u.lastName}`,
           count: accounts.filter((a) => a.assignedUserId === u.id).length,
@@ -328,15 +337,19 @@ export default function AccountsPage(): React.ReactElement {
     title: 'Archive Account' + (ids.length > 1 ? 's?' : '?'),
     description: `${name} will be removed from active Accounts and moved to Archived Data. You can restore this record later.`,
     confirmLabel: 'Archive',
+    variant: 'destructive',
     onConfirm: async () => {
-      try {
-        await Promise.all(ids.map((id) => handleArchive(id)));
+      const results = await Promise.allSettled(ids.map(id => handleArchive(id)));
+      const failedIds = ids.filter((_, index) => results[index].status === 'rejected');
+      setAccountSelectedIds(previous => new Set([...previous].filter(id => failedIds.includes(id))));
 
-        close();
-        toast.success('Account archived');
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to archive account');
+      if (failedIds.length) {
+        confirmArchive(failedIds, ids.length === 1 ? name : `${failedIds.length} account${failedIds.length === 1 ? '' : 's'}`);
+        const failure = results.find(result => result.status === 'rejected');
+        throw new Error(failure?.status === 'rejected' && failure.reason instanceof Error ? failure.reason.message : 'Unable to archive the remaining records. Please try again.');
       }
+      close();
+      toast.success('Account archived');
     },
   });
 
@@ -344,12 +357,14 @@ export default function AccountsPage(): React.ReactElement {
     <>
       <ConfirmActionDialog {...dialogProps} />
       <ModuleWorkspace
+        bulkSelection={{ count: accountSelectedIds.size, onClear: () => setAccountSelectedIds(new Set()), actions: canDelete && <Button variant="outline" onClick={() => confirmArchive([...accountSelectedIds], `${accountSelectedIds.size} accounts`)}>Archive</Button> }}
         moduleId="accounts"
         title="Accounts"
+        description="Manage companies and organizations linked to CRM records."
         moduleConfig={ACCOUNTS_MODULE_CONFIG}
         primaryActionLabel="Add Account"
         onPrimaryAction={handleOpenCreate}
-        onImport={() => router.push('/crm/accounts/import')}
+        onImport={canImport ? () => router.push('/crm/accounts/import') : undefined}
         canCreate={canCreate}
         availableViews={['table']}
         activeView={'table' as ViewType}
@@ -374,7 +389,10 @@ export default function AccountsPage(): React.ReactElement {
         searchTerm={searchTerm}
         onSearch={setSearchTerm}
         searchPlaceholder="Search accounts..."
-        onRefresh={() => toast.success('Refreshed')}
+        onRefresh={refetchAccounts}
+        refreshDisabled={isLoading || isRefreshing}
+        loading={isLoading || isRefreshing || isColumnsLoading}
+        loadingLabel={isLoading || isRefreshing ? 'Loading accounts...' : 'Loading columns...'}
         onManageColumns={() => setIsManageColumnsOpen(true)}
       >
         {highlightId && <div className="mb-3 flex items-center justify-between gap-3 text-sm text-slate-500">
@@ -384,11 +402,8 @@ export default function AccountsPage(): React.ReactElement {
         {/* List View — DataGrid */}
         {(activeView === 'list' || activeView === 'table') && (
           <>
-            {/* Initial load skeleton */}
-            {isLoading && filteredAccounts.length === 0 && (
-              <DataLoadingSkeleton rowCount={8} columnCount={6} />
-            )}
-            {filteredAccounts.length === 0 && !isLoading && (
+            {accountsError && accounts.length === 0 && <DataErrorState message={accountsError} onRetry={refetchAccounts} />}
+            {filteredAccounts.length === 0 && !isLoading && !accountsError && (
               <ActionableEmptyState
                 icon={Building2}
                 title={debouncedSearch ? 'No accounts match your search' : 'No accounts yet'}
@@ -435,27 +450,7 @@ export default function AccountsPage(): React.ReactElement {
 
         {/* ── Bottom Pagination + Per Page ─────────────────────── */}
         {(activeView === 'list' || activeView === 'table') && serverTotal > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-            <div className="flex items-center gap-2">
-              <label htmlFor="accounts-page-size" className="text-xs text-slate-500 dark:text-slate-400">Per page</label>
-              <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
-              <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">
-                {serverTotal} total records
-                {isRefreshing && (
-                  <span className="ml-1.5 text-blue-400 dark:text-blue-500" aria-live="polite" aria-label="Refreshing data">↻</span>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Page {currentPage} of {Math.ceil(serverTotal / pageSize) || 1}</span>
-              <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage <= 1 ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Previous page">
-                <ChevronLeft size={14} />
-              </button>
-              <button onClick={() => setCurrentPage(Math.min(Math.ceil(serverTotal / pageSize), currentPage + 1))} disabled={currentPage >= Math.ceil(serverTotal / pageSize)} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage >= Math.ceil(serverTotal / pageSize) ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Next page">
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          </div>
+          <LeadsPagination currentPage={currentPage} totalRecords={serverTotal} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={size => { setPageSize(size); setCurrentPage(1); }} />
         )}
 
         {/* Tile View */}
@@ -468,11 +463,11 @@ export default function AccountsPage(): React.ReactElement {
                 className="bg-white dark:bg-slate-800/60 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-4 cursor-pointer hover:shadow-md hover:border-[#2563EB]/30 transition-all"
               >
                 <div className="flex items-start gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-[11px] shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-[11px] shrink-0">
                     {getInitials(account.name)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-[#0F172A] dark:text-white truncate">
+                    <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate hover:underline">
                       {account.name}
                     </p>
                     <p className="text-[11.5px] text-[#5A6B85] dark:text-slate-400 truncate">
@@ -502,11 +497,11 @@ export default function AccountsPage(): React.ReactElement {
                 onClick={() => handleRowClick(account)}
                 className="bg-white dark:bg-slate-800/60 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-3 cursor-pointer hover:shadow-md transition-all flex items-center gap-2.5"
               >
-                <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
+                <div className="w-9 h-9 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
                   {getInitials(account.name)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[12px] font-semibold text-[#0F172A] dark:text-white truncate">
+                  <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate hover:underline">
                     {account.name}
                   </p>
                   <p className="text-[10.5px] text-[#5A6B85] dark:text-slate-400 truncate">
@@ -532,6 +527,7 @@ export default function AccountsPage(): React.ReactElement {
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         title={editTarget ? 'Edit Account' : 'New Account'}
+        subtitle="Complete the account details below."
       >
         <AccountForm
           initial={editTarget}

@@ -1,4 +1,6 @@
 'use client';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
+import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import { uuid } from '@/lib/utils';
 
 import React, { useState, useMemo } from 'react';
@@ -10,9 +12,11 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Deal, Pipeline, User as UserType, Task, TaskStatus } from '@/store/types';
 import { useData } from '@/store/DataContext';
+import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 import { toast } from 'sonner';
 import { ModalCloseButton } from '@/shared/components/ui/modal-close-button';
 import { DealContactsField } from '@/features/tenant/crm/deals/ui/deal-contacts-field';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -26,7 +30,6 @@ interface EditFields {
   value: number;
   priority: string;
   expectedCloseDate: string;
-  description: string;
   assignedUserId: string;
   stageId: string;
   leadSource: string;
@@ -63,13 +66,13 @@ export interface DealDetailsModalProps {
 
 const TASK_STATUS_STYLES: Record<TaskStatus, string> = {
   pending:      'bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400',
-  'in-progress':'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
+  'in_progress':'bg-blue-100 text-blue-700 dark:bg-primary/10 dark:text-primary',
   blocked:      'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400',
   completed:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400',
   cancelled:    'bg-slate-100 text-slate-400 dark:bg-white/5 line-through',
 };
 
-const TASK_STATUS_OPTIONS: TaskStatus[] = ['pending', 'in-progress', 'blocked', 'completed', 'cancelled'];
+const TASK_STATUS_OPTIONS: TaskStatus[] = ['pending', 'in_progress', 'blocked', 'completed', 'cancelled'];
 
 function isOverdue(task: Task): boolean {
   if (task.status === 'completed' || task.status === 'cancelled') return false;
@@ -91,7 +94,6 @@ function buildEditFields(deal: Deal): EditFields {
     value: deal.value || 0,
     priority: deal.priority || 'Medium',
     expectedCloseDate: deal.expectedCloseDate || '',
-    description: deal.description || '',
     assignedUserId: deal.assignedUserId || '',
     stageId: deal.stageId || '',
     leadSource: deal.leadSource || '',
@@ -137,16 +139,6 @@ export function DealDetailsModal({
     userId: currentUserId,
   });
 
-  // Task form state
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [newTask, setNewTask] = useState({
-    title: '',
-    description: '',
-    dueDate: '',
-    assignedUserId: currentUserId,
-    priority: 'Medium' as 'Low' | 'Medium' | 'High',
-  });
-
   const currentStageIdx = pipeline.stages.findIndex(s => s.id === deal.stageId);
   const currentStageName = pipeline.stages[currentStageIdx]?.name ?? '—';
   const nextStage = pipeline.stages[currentStageIdx + 1];
@@ -155,13 +147,8 @@ export function DealDetailsModal({
 
   const isClosedLost = currentStageName === 'Closed Lost';
 
-  const dealTasks = useMemo(
-    () => tasks.filter(t => t.dealId === deal.id),
-    [tasks, deal.id],
-  );
-  const openTasks      = dealTasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
-  const completedTasks = dealTasks.filter(t => t.status === 'completed');
-  const overdueTasks   = openTasks.filter(isOverdue);
+  const taskData = useTasks({ dealId: deal.id, limit: 1 });
+  const taskCount = taskData.summary?.total ?? 0;
 
   function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -199,24 +186,6 @@ export function DealDetailsModal({
     toast.success('Activity logged');
   }
 
-  function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTask.title.trim()) return;
-    onAddTask({
-      dealId: deal.id,
-      title: newTask.title,
-      description: newTask.description,
-      dueDate: newTask.dueDate,
-      assignedUserId: newTask.assignedUserId,
-      assignedBy: currentUserId,
-      priority: newTask.priority,
-      status: 'pending',
-    } as any);
-    setNewTask({ title: '', description: '', dueDate: '', assignedUserId: currentUserId, priority: 'Medium' });
-    setShowTaskForm(false);
-    toast.success('Task created');
-  }
-
   const tabClass = (tab: DrawerTab) =>
     `px-3 py-3 text-sm font-medium transition-all relative whitespace-nowrap ${
       activeTab === tab
@@ -225,31 +194,15 @@ export function DealDetailsModal({
     }`;
 
   return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[60]"
-      />
-
-      {/* Drawer panel */}
-      <motion.div
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-full max-w-lg bg-gray-50 dark:bg-slate-900 border-l border-gray-300 dark:border-white/[0.1] z-[70] shadow-2xl flex flex-col"
-      >
+    <Sheet open onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent showClose={false} aria-label="Deal details" layerClassName="z-[70]" className="max-w-lg sm:max-w-lg bg-gray-50 dark:bg-slate-900 border-l border-gray-300 dark:border-white/[0.1] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-6 border-b border-gray-200 dark:border-white/[0.05] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
               deal.priority === 'High'   ? 'bg-red-500/10 text-red-400' :
               deal.priority === 'Medium' ? 'bg-orange-500/10 text-orange-400' :
-                                           'bg-blue-500/10 text-blue-400'
+                                           'bg-primary/10 text-blue-400'
             }`}>
               <Building size={20} />
             </div>
@@ -266,20 +219,20 @@ export function DealDetailsModal({
           {(['overview', 'activities', 'tasks', 'history', 'automation'] as DrawerTab[]).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={tabClass(tab)}>
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'tasks' && dealTasks.length > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400">
-                  {dealTasks.length}
+              {tab === 'tasks' && taskCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/20 text-blue-400">
+                  {taskCount}
                 </span>
               )}
               {activeTab === tab && (
-                <motion.div layoutId="dealModalTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+                <motion.div layoutId="dealModalTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
               )}
             </button>
           ))}
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar">
 
           {/* ── OVERVIEW TAB ─────────────────────────────────────────────── */}
           {activeTab === 'overview' && (
@@ -295,7 +248,7 @@ export function DealDetailsModal({
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${
                       deal.priority === 'High' ? 'bg-red-500' :
-                      deal.priority === 'Medium' ? 'bg-orange-500' : 'bg-blue-500'
+                      deal.priority === 'Medium' ? 'bg-orange-500' : 'bg-primary'
                     }`} />
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">{deal.priority}</p>
                   </div>
@@ -304,13 +257,13 @@ export function DealDetailsModal({
 
               {/* Automation block */}
               {isAutomatedOnly && (
-                <div className="bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-blue-500/25 rounded-2xl p-5 space-y-3">
+                <div className="bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-primary/25 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Shield size={16} className="text-blue-400 animate-pulse" />
                       <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider">Process Automation</h4>
                     </div>
-                    <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded-full border border-blue-500/10">Active Enforcer</span>
+                    <span className="text-[10px] bg-primary/20 text-blue-300 font-semibold px-2 py-0.5 rounded-full border border-primary/10">Active Enforcer</span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                     Manual stage drags are disabled. This deal progresses automatically based on verified sales workflow rules.
@@ -322,7 +275,7 @@ export function DealDetailsModal({
                     </div>
                     <div className="flex gap-1 w-full h-1.5 bg-gray-200 dark:bg-white/5 rounded-full overflow-hidden">
                       {pipeline.stages.map((st, idx) => (
-                        <div key={st.id} className={`h-full flex-1 transition-all duration-300 ${idx <= currentStageIdx ? 'bg-blue-500' : 'bg-gray-300 dark:bg-white/10'}`} />
+                        <div key={st.id} className={`h-full flex-1 transition-all duration-300 ${idx <= currentStageIdx ? 'bg-primary' : 'bg-gray-300 dark:bg-white/10'}`} />
                       ))}
                     </div>
                   </div>
@@ -350,7 +303,7 @@ export function DealDetailsModal({
                 <form onSubmit={handleSaveEdit} className="space-y-4 bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] p-5 rounded-2xl">
                   <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/[0.05] pb-2">
                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Edit Deal Fields</h4>
-                    <span className="text-[10px] text-blue-400 font-semibold px-2 py-0.5 bg-blue-500/10 rounded-full">Editing</span>
+                    <span className="text-[10px] text-blue-400 font-semibold px-2 py-0.5 bg-primary/10 rounded-full">Editing</span>
                   </div>
 
                   <div>
@@ -379,7 +332,7 @@ export function DealDetailsModal({
                     <select value={editFields.assignedUserId} onChange={e => setEditFields({ ...editFields, assignedUserId: e.target.value })}
                       className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none">
                       <option value="">Unassigned</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                      {getAssignableAgents(users).map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                     </select>
                   </div>
 
@@ -444,11 +397,6 @@ export function DealDetailsModal({
                       className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Description</label>
-                    <textarea rows={3} value={editFields.description} onChange={e => setEditFields({ ...editFields, description: e.target.value })}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl p-3 text-slate-900 dark:text-white text-sm focus:outline-none resize-none" />
-                  </div>
 
                   <div className="flex gap-2 justify-end pt-1">
                     <button type="button" onClick={() => setIsEditing(false)}
@@ -456,7 +404,7 @@ export function DealDetailsModal({
                       Cancel
                     </button>
                     <button type="submit"
-                      className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-500 transition-all shadow-md shadow-blue-500/10">
+                      className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md shadow-primary/10">
                       Save Changes
                     </button>
                   </div>
@@ -480,7 +428,7 @@ export function DealDetailsModal({
                           : 'Unassigned' },
                       { icon: <Calendar size={14} />, label: 'Close Date', value: deal.expectedCloseDate || 'Not set' },
                       { icon: <Tag size={14} />, label: 'Stage',
-                        value: <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs font-medium">{currentStageName}</span> },
+                        value: <span className="bg-primary/10 text-blue-400 px-2 py-0.5 rounded text-xs font-medium">{currentStageName}</span> },
                       { icon: <span>🌐</span>, label: 'Contact Source', value: deal.leadSource || '—' },
                       { icon: <span>🏭</span>, label: 'Industry',       value: deal.industry    || '—' },
                       { icon: <span>📌</span>, label: 'Product Interests', value: deal.productInterests?.length ? deal.productInterests.join(', ') : '—' },
@@ -504,12 +452,6 @@ export function DealDetailsModal({
                       </div>
                     )}
                   </div>
-                  <div className="space-y-2 pt-1">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Description</h4>
-                    <div className="bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] p-4 rounded-2xl text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                      {deal.description || 'No description provided.'}
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -518,9 +460,9 @@ export function DealDetailsModal({
                 <div className="space-y-3 pt-1">
                   <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-widest">Next Steps</h4>
                   <button onClick={() => onNavigate('workflows')}
-                    className="w-full flex items-center justify-between p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl hover:bg-blue-500/20 transition-all group">
+                    className="w-full flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl hover:bg-primary/20 transition-all group">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                      <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
                         <Rocket size={20} />
                       </div>
                       <div className="text-left">
@@ -564,7 +506,7 @@ export function DealDetailsModal({
                         <div key={act.id} className="flex gap-3">
                           <div className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 ${
                             act.type === 'call'    ? 'bg-green-500/20 border-green-500/30 text-green-400' :
-                            act.type === 'email'   ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' :
+                            act.type === 'email'   ? 'bg-primary/20 border-primary/30 text-blue-400' :
                             act.type === 'meeting' ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' :
                                                      'bg-slate-500/20 border-slate-500/30 text-slate-400'
                           }`}>
@@ -594,7 +536,7 @@ export function DealDetailsModal({
                     <button key={type} type="button" onClick={() => setNewActivity({ ...newActivity, type })}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
                         newActivity.type === type
-                          ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                          ? 'bg-primary/20 text-blue-400 border-primary/30'
                           : 'bg-white dark:bg-white/[0.02] text-slate-500 border-transparent hover:bg-gray-50 dark:hover:bg-white/[0.05]'
                       }`}>
                       {type === 'call' ? <PhoneCall size={12} /> : type === 'email' ? <Mail size={12} /> : type === 'meeting' ? <Users size={12} /> : <MessageSquare size={12} />}
@@ -625,7 +567,7 @@ export function DealDetailsModal({
                   className="w-full bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none resize-none" />
                 <div className="flex justify-end">
                   <button type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-500 transition-all">
+                    className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/90 transition-all">
                     Log Activity
                   </button>
                 </div>
@@ -639,7 +581,7 @@ export function DealDetailsModal({
                       <div key={act.id} className="flex gap-3">
                         <div className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 ${
                           act.type === 'call'    ? 'bg-green-500/20 border-green-500/30 text-green-400' :
-                          act.type === 'email'   ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' :
+                          act.type === 'email'   ? 'bg-primary/20 border-primary/30 text-blue-400' :
                           act.type === 'meeting' ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' :
                                                    'bg-slate-500/20 border-slate-500/30 text-slate-400'
                         }`}>
@@ -662,128 +604,7 @@ export function DealDetailsModal({
           )}
 
           {/* ── TASKS TAB ────────────────────────────────────────────────── */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-5">
-              {/* Summary chips */}
-              <div className="flex gap-2 flex-wrap">
-                <span className="text-[11px] font-semibold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 px-2.5 py-1 rounded-full">
-                  {openTasks.length} Open
-                </span>
-                {overdueTasks.length > 0 && (
-                  <span className="text-[11px] font-semibold bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full flex items-center gap-1">
-                    <AlertTriangle size={11} /> {overdueTasks.length} Overdue
-                  </span>
-                )}
-                <span className="text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full">
-                  {completedTasks.length} Done
-                </span>
-              </div>
-
-              {/* Add task button / form toggle */}
-              {canEdit && !showTaskForm && (
-                <button type="button" onClick={() => setShowTaskForm(true)}
-                  className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 dark:border-white/[0.1] text-slate-500 hover:text-blue-400 hover:border-blue-400/50 rounded-xl py-2.5 text-xs font-semibold transition-all">
-                  <Plus size={14} /> Add Task
-                </button>
-              )}
-
-              {/* Inline task creation form */}
-              {showTaskForm && canEdit && (
-                <form onSubmit={handleAddTask} className="bg-white dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.05] rounded-2xl p-4 space-y-3">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">New Task</h4>
-                  <input required type="text" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })}
-                    placeholder="Task title..."
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
-                  <textarea rows={2} value={newTask.description} onChange={e => setNewTask({ ...newTask, description: e.target.value })}
-                    placeholder="Description (optional)..."
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none resize-none" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Due Date</label>
-                      <input type="date" value={newTask.dueDate} onChange={e => setNewTask({ ...newTask, dueDate: e.target.value })}
-                        className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Priority</label>
-                      <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value as any })}
-                        className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none">
-                        <option>Low</option><option>Medium</option><option>High</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Assign To</label>
-                    <select value={newTask.assignedUserId} onChange={e => setNewTask({ ...newTask, assignedUserId: e.target.value })}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.05] rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none">
-                      <option value="">Unassigned</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <button type="button" onClick={() => setShowTaskForm(false)}
-                      className="px-3 py-1.5 border border-gray-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-400 text-xs font-bold rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-all">
-                      Cancel
-                    </button>
-                    <button type="submit"
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-500 transition-all">
-                      Create Task
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Task list */}
-              <div className="space-y-2">
-                {dealTasks.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic text-center py-6">No tasks linked to this deal yet.</p>
-                ) : (
-                  dealTasks.map(task => {
-                    const overdueTask = isOverdue(task);
-                    const assignee = users.find(u => u.id === task.assignedUserId);
-                    const assigner = users.find(u => u.id === task.assignedBy);
-                    return (
-                      <div key={task.id} className={`bg-white dark:bg-white/[0.02] border rounded-xl p-3 space-y-2 transition-all ${overdueTask ? 'border-red-300 dark:border-red-500/30' : 'border-gray-200 dark:border-white/[0.05]'}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1">
-                            <p className={`text-sm font-semibold ${task.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
-                              {task.title}
-                            </p>
-                            {task.description && <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{task.description}</p>}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {overdueTask && (
-                              <span className="text-[10px] font-bold bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-500/20 flex items-center gap-0.5">
-                                <Clock size={10} /> Overdue
-                              </span>
-                            )}
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded capitalize ${TASK_STATUS_STYLES[task.status] ?? TASK_STATUS_STYLES.pending}`}>
-                              {task.status}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-gray-100 dark:border-white/[0.03]">
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1"><User size={11} />{assignee ? `${assignee.firstName} ${assignee.lastName}` : 'Unassigned'}</span>
-                            {task.dueDate && <span className="flex items-center gap-1"><Calendar size={11} />{task.dueDate}</span>}
-                          </div>
-                          {canEdit && (
-                            <select value={task.status}
-                              onChange={e => { onUpdateTask(task.id, { status: e.target.value as TaskStatus }); toast.success('Task status updated'); }}
-                              className="text-[11px] bg-transparent border-none outline-none text-blue-400 cursor-pointer font-semibold">
-                              {TASK_STATUS_OPTIONS.map(s => <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">{s}</option>)}
-                            </select>
-                          )}
-                        </div>
-                        {assigner && task.assignedBy !== task.assignedUserId && (
-                          <p className="text-[10px] text-slate-400">Assigned by {assigner.firstName} {assigner.lastName}</p>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'tasks' && <RelatedTasks links={{ dealId: deal.id }} />}
 
           {/* ── HISTORY TAB ──────────────────────────────────────────────── */}
           {activeTab === 'history' && (
@@ -806,7 +627,7 @@ export function DealDetailsModal({
                         <div className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 text-xs ${
                           isWon  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' :
                           isLost ? 'bg-red-500/20 border-red-500/30 text-red-400' :
-                                   'bg-blue-500/20 border-blue-500/30 text-blue-400'
+                                   'bg-primary/20 border-primary/30 text-blue-400'
                         }`}>
                           <ArrowRight size={12} />
                         </div>
@@ -841,7 +662,7 @@ export function DealDetailsModal({
           {activeTab === 'automation' && (
             <div className="space-y-3 p-4 text-sm text-slate-600 dark:text-slate-300">
               <p>Workflow activity is recorded in this deal's timeline. Open Workflows to inspect persisted runs and step results.</p>
-              <a className="text-blue-600 dark:text-blue-400 underline" href="/automation/workflows">Open workflow runs</a>
+              <a className="text-primary dark:text-primary underline" href="/automation/workflows">Open workflow runs</a>
             </div>
           )}
         </div>{/* end scrollable content */}
@@ -854,7 +675,7 @@ export function DealDetailsModal({
           </button>
           {canEdit && (
             <button type="button" onClick={handleOpenEdit}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-blue-500/20">
+              className="flex-1 bg-primary hover:bg-primary/90 text-white py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/20">
               Edit Deal
             </button>
           )}
@@ -866,8 +687,7 @@ export function DealDetailsModal({
           )}
         </div>
 
-      </motion.div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }
-

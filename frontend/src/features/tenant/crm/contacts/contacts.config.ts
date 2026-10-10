@@ -3,6 +3,7 @@
  * References the column registry directly (same array instance, not a copy).
  */
 
+import { CRM_STATUSES } from '@leadcrm/shared';
 import type { ModuleConfig } from '@leadcrm/shared';
 import { CONTACTS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 
@@ -14,18 +15,14 @@ export const CONTACTS_MODULE_CONFIG: ModuleConfig = {
     { id: 'firstName', label: 'Name' },
     { id: 'email', label: 'Email' },
     { id: 'companyName', label: 'Company' },
-    { id: 'status', label: 'Type' },
+    { id: 'status', label: 'Status' },
     { id: 'createdAt', label: 'Created Date' },
   ],
   filterGroups: [
     {
       id: 'status',
       label: 'Status',
-      items: [
-        { id: 'active', label: 'Active' },
-        { id: 'inactive', label: 'Inactive' },
-        { id: 'prospect', label: 'Prospect' },
-      ],
+      items: CRM_STATUSES.map(status => ({ id: status, label: status })),
     },
     {
       id: 'source',

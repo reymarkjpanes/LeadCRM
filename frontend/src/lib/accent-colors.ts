@@ -1,5 +1,3 @@
-'use client';
-
 export interface AccentColorConfig {
   id: string;
   name: string;
@@ -97,16 +95,20 @@ export const ACCENT_KEY = 'app_accent_color';
 /**
  * Updates root and container CSS variables dynamically for instant whole-app accent styling
  */
-export function applyAccentColor(accentId: string): void {
+export function applyAccentTokens(accentId: string): void {
   const config = ACCENT_COLORS.find((c) => c.id === accentId) || ACCENT_COLORS[0];
   if (typeof document === 'undefined') return;
 
   const root = document.documentElement;
-  const container = document.querySelector('[data-theme-container]') as HTMLElement | null;
-
-  const targets = [root, container].filter(Boolean) as HTMLElement[];
+  const targets = [root];
 
   targets.forEach((el) => {
+    el.style.setProperty('--app-primary', config.primary);
+    el.style.setProperty('--app-primary-dark', config.primaryDark);
+    el.style.setProperty('--app-primary-hover', config.primaryHover);
+    el.style.setProperty('--app-primary-light', config.primaryLight);
+    el.style.setProperty('--app-focus-ring', config.focusRing);
+    el.style.setProperty('--ring', config.primary);
     el.style.setProperty('--color-primary', config.primary);
     el.style.setProperty('--color-brand', config.primary);
     el.style.setProperty('--primary', config.primary);
@@ -120,6 +122,13 @@ export function applyAccentColor(accentId: string): void {
     el.style.setProperty('--focus-ring', config.focusRing);
   });
 
+}
+
+/** Compatibility entry point for existing accent selectors. */
+export function applyAccentColor(accentId: string): void {
+  if (typeof document === 'undefined') return;
+  const config = ACCENT_COLORS.find(color => color.id === accentId) || ACCENT_COLORS[0];
+  applyAccentTokens(config.id);
   try {
     localStorage.setItem(ACCENT_KEY, config.id);
   } catch {

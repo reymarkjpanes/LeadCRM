@@ -10,6 +10,7 @@ export async function sortedPageIds(
   skip: number,
   limit: number,
   readKeys: () => Promise<Array<{ id: string; [key: string]: unknown }>>,
+  readDatePage?: (direction: 'asc' | 'desc') => Promise<Array<{ id: string }>>,
 ): Promise<string[] | null> {
   if (sort == null || sort === '') return null;
   if (typeof sort !== 'string') throw new AppError('Invalid sort', 400);
@@ -17,6 +18,9 @@ export async function sortedPageIds(
   if (!fields.includes(field) || !['asc', 'desc'].includes(direction) || extra !== undefined) {
     throw new AppError('Unsupported sort field or direction', 400);
   }
+  // Date values have the same order in PostgreSQL and compareSortValues.
+  // Keep natural text ordering until a compatible database collation is deployed.
+  if (field === 'createdAt' && readDatePage) return (await readDatePage(direction as 'asc' | 'desc')).map(row => row.id);
   const rows = await readKeys();
   const value = (row: Record<string, unknown>) => field === 'firstName'
     ? `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() : row[field];

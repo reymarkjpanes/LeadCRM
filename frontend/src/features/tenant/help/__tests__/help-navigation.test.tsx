@@ -38,7 +38,11 @@ it('preserves normal CRM navigation and permission filtering', () => {
   mocks.pathname = '/crm/leads';
   const { result } = renderHook(useLayout);
   expect(result.current.currentPath).toBe('leads');
-  expect(result.current.filteredNav.some(item => item.path === 'settings')).toBe(false);
+  // Settings contains personal preferences and is available to every user;
+  // individual administration pages enforce their own permissions.
+  expect(result.current.filteredNav.some(item => item.path === 'settings')).toBe(true);
+  expect(result.current.filteredNav.some(item => item.path === 'contacts')).toBe(true);
+  expect(result.current.filteredNav.some(item => item.path === 'leads')).toBe(false);
   result.current.navigate('leads');
   expect(mocks.push).toHaveBeenCalledWith('/crm/leads');
 });

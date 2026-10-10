@@ -1,12 +1,15 @@
+import { resolveProducts, salesTransaction } from '../leads/lead-automation.service';
+import { validateSalesOwner } from '../leads/lead-automation.service';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import * as repo from './deals.repository';
 import { writeAuditLog, buildChangeset } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError, ConflictError } from '../../../shared/errors/http-error';
-import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams } from './deals.dto';
+import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams, ManualCreateDealSchema } from './deals.dto';
 import { paginate } from '../../../shared/helpers/pagination';
-import { fireDealCreated, fireDealStageChanged } from '../../automation/triggers/triggers.service';
-import { createNotification } from '../../notifications/notifications.service';
+import { fireDealCreated, fireDealStageChanged, fireDealUpdated } from '../../automation/triggers/triggers.service';
+import { recordChanges, customFieldChangeTracker } from '../record-updates';
+import { assertDealStageTransition, dealHasEverBeenWon } from './deal-lifecycle';
 
 /**
  * Maps known Prisma constraint/infrastructure errors to appropriate HTTP errors.
@@ -50,10 +53,17 @@ export async function getDealById(id: string, tenantId: string) {
 }
 
 export async function createDeal(tenantId: string, userId: string, dto: CreateDealDto) {
+  dto = ManualCreateDealSchema.parse(dto);
+  if (dto.assignedUserId) await validateSalesOwner(prisma, tenantId, dto.assignedUserId);
+  const stage = await prisma.stage.findFirst({ where: { id: dto.stageId, tenantId, pipelineId: dto.pipelineId } });
+  if (!stage) throw new ValidationError('Stage must belong to the selected pipeline.');
+  const initial = await prisma.stage.findMany({ where: { tenantId, pipelineId: dto.pipelineId, name: { equals: 'Lead', mode: 'insensitive' }, isWon: false, isLost: false } });
+  if (initial.length !== 1) throw new ValidationError('Configure one Lead starting stage in this pipeline.');
+  dto = { ...dto, stageId: initial[0].id };
 
   let deal;
   try {
-    deal = await repo.createDeal(tenantId, userId, dto);
+    deal = await prisma.$transaction(tx => repo.createDeal(tenantId, userId, dto, tx));
   } catch (error) {
     mapRepositoryError(error, 'createDeal');
   }
@@ -61,49 +71,30 @@ export async function createDeal(tenantId: string, userId: string, dto: CreateDe
   await writeAuditLog({
     tenantId, userId,
     action: 'deal.created', entityType: 'Deal', entityId: deal.id,
-    after: { title: dto.title, pipelineId: dto.pipelineId, stageId: dto.stageId, value: dto.value },
+    after: { title: dto.title, pipelineId: dto.pipelineId, stageId: dto.stageId, value: deal.value },
   });
 
   // Fire workflow trigger (non-blocking — never fails the request)
   await fireDealCreated({ tenantId, actorId: userId, deal });
 
-  // Notify the assigned user that a deal has been assigned to them.
-  // Only fires when the creator is NOT the assignee (no self-notification).
-  if (deal.assignedUserId && deal.assignedUserId !== userId) {
-    createNotification({
-      tenantId,
-      userId:     deal.assignedUserId,
-      type:       'deal_assigned',
-      title:      `Deal assigned to you`,
-      body:       `"${deal.title}" has been assigned to you.`,
-      entityType: 'Deal',
-      entityId:   deal.id,
-    }).catch(() => {});
-  }
+  // Assignment events commit with the Deal through the notification outbox.
 
   return deal;
 }
 
 export async function updateDeal(id: string, tenantId: string, userId: string, dto: UpdateDealDto) {
+  if (dto.assignedUserId) await validateSalesOwner(prisma, tenantId, dto.assignedUserId);
   const before = await repo.findDealById(id, tenantId);
   if (!before) throw new NotFoundError('Deal');
+  const withCustomChanges = await customFieldChangeTracker(tenantId, 'deals', id, dto.customFieldValues);
 
   let deal;
   try {
-    deal = await repo.updateDeal(id, tenantId, dto);
+    deal = await repo.updateDeal(id, tenantId, dto, userId);
   } catch (error) {
     mapRepositoryError(error, 'updateDeal');
   }
   if (!deal) throw new NotFoundError('Deal');
-
-  // After deal update succeeds, sync associations if provided.
-  // Contacts → ContactDeal, Leads → LeadDeal (distinct junctions).
-  if (dto.contactIds) {
-    await repo.syncContactAssociations(id, tenantId, dto.contactIds, userId);
-  }
-  if (dto.leadIds) {
-    await repo.syncLeadAssociations(id, tenantId, dto.leadIds, userId);
-  }
 
   const { before: changedBefore, after: changedAfter } = buildChangeset(
     before as unknown as Record<string, unknown>,
@@ -115,24 +106,10 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     action: 'deal.updated', entityType: 'Deal', entityId: id,
     before: changedBefore, after: changedAfter,
   });
+  const changes = await withCustomChanges(recordChanges(before, deal));
+  if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, record: deal, changedFields: changes.changedFields, changes });
 
-  // Notify the newly assigned user when the deal is reassigned to someone else.
-  // Before: dto.assignedUserId differs from the previous owner AND is not the actor.
-  if (
-    dto.assignedUserId &&
-    dto.assignedUserId !== before.assignedUserId &&
-    dto.assignedUserId !== userId
-  ) {
-    createNotification({
-      tenantId,
-      userId:     dto.assignedUserId,
-      type:       'deal_assigned',
-      title:      `Deal assigned to you`,
-      body:       `"${deal.title}" has been assigned to you.`,
-      entityType: 'Deal',
-      entityId:   id,
-    }).catch(() => {});
-  }
+  // Assignment events commit with the Deal through the notification outbox.
 
   return deal;
 }
@@ -144,15 +121,18 @@ export async function validateDealStageMove(id: string, tenantId: string, dto: M
   });
   if (!newStage) throw new NotFoundError('Stage');
 
+  const deal = await prisma.deal.findFirst({ where: { id, tenantId }, include: { stage: true } });
+  if (!deal) throw new NotFoundError('Deal');
+  if (deal.pipelineId !== newStage.pipelineId) throw new ValidationError('Stage must belong to this Deal’s pipeline.');
+  if (deal.stageId === newStage.id) return newStage;
+  assertDealStageTransition(deal, newStage, await dealHasEverBeenWon(prisma, tenantId, deal));
+
   if (newStage.isLost && !dto.lostReason) {
     throw new ValidationError('Lost reason is required when closing a deal as lost');
   }
 
   // BW-5 / REQ089: Enforce stage entry requirements before allowing transition
   if (newStage.requiredFields && newStage.requiredFields.length > 0) {
-    const deal = await prisma.deal.findFirst({ where: { id, tenantId } });
-    if (!deal) throw new NotFoundError('Deal');
-
     const missingFields: string[] = [];
     for (const field of newStage.requiredFields) {
       const value = (deal as Record<string, unknown>)[field];
@@ -174,11 +154,12 @@ export async function moveDealStage(id: string, tenantId: string, userId: string
   const newStage = await validateDealStageMove(id, tenantId, dto);
   let result;
   try {
-    result = await repo.moveDealStage(id, tenantId, dto.stageId, userId, dto.note, dto.handoff, dto.lostReason);
+    result = await repo.moveDealStage(id, tenantId, dto.stageId, userId, dto.note, dto.handoff, dto.lostReason, dto.confirmation);
   } catch (error) {
     mapRepositoryError(error, 'moveDealStage');
   }
   if (!result) throw new NotFoundError('Deal');
+  if (!result.stageHistory) return { deal: result.deal, stageHistory: result.stageHistory };
 
   await writeAuditLog({
     tenantId, userId,
@@ -198,34 +179,11 @@ export async function moveDealStage(id: string, tenantId: string, userId: string
     isLost:       newStage.isLost,
     prevStageId:  result.stageHistory.previousStageId ?? undefined,
   });
+  const changes = recordChanges(result.previousDeal, result.deal);
+  if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, eventId: result.stageHistory.id,
+    record: result.deal, changedFields: changes.changedFields, changes });
 
-  // Notify the deal owner when a deal is closed won or closed lost.
-  // Skip if no assigned user, or if the actor IS the assigned user (they already know).
-  if (result.deal.assignedUserId && result.deal.assignedUserId !== userId) {
-    if (newStage.isWon) {
-      createNotification({
-        tenantId,
-        userId:     result.deal.assignedUserId,
-        type:       'deal_won',
-        title:      `Deal closed — Won 🎉`,
-        body:       `"${result.deal.title}" was moved to "${newStage.name}".`,
-        entityType: 'Deal',
-        entityId:   id,
-      }).catch(() => {});
-    } else if (newStage.isLost) {
-      createNotification({
-        tenantId,
-        userId:     result.deal.assignedUserId,
-        type:       'deal_lost',
-        title:      `Deal closed — Lost`,
-        body:       `"${result.deal.title}" was moved to "${newStage.name}".`,
-        entityType: 'Deal',
-        entityId:   id,
-      }).catch(() => {});
-    }
-  }
-
-  return result;
+  return { deal: result.deal, stageHistory: result.stageHistory };
 }
 
 export async function archiveDeal(id: string, tenantId: string, userId: string, archiveReason?: string) {
@@ -263,13 +221,15 @@ export async function restoreDeal(id: string, tenantId: string, userId: string) 
     after: { isArchived: false, archiveReason: null },
   });
 
-  return restored;
+  return { ...restored, leadId: deal.leadId, contactId: deal.contactId };
 }
 
 export async function duplicateDeal(id: string, tenantId: string, userId: string) {
 
   const source = await repo.findDealById(id, tenantId);
   if (!source) throw new NotFoundError('Deal');
+  const initialStage = await prisma.stage.findFirst({ where: { tenantId, pipelineId: source.pipelineId, name: { equals: 'Lead', mode: 'insensitive' }, isWon: false, isLost: false } });
+  if (!initialStage) throw new ValidationError('Configure a Lead stage before duplicating an opportunity.');
 
   // Destructure to exclude fields that shouldn't be copied
   const {
@@ -277,41 +237,58 @@ export async function duplicateDeal(id: string, tenantId: string, userId: string
     isArchived: _a, deletedAt: _d,
     // Exclude relation fields that Prisma won't accept in create
     stage: _stage, pipeline: _pipeline, organization: _org, assignedUser: _au,
-    owner: _owner, leadDeals: _ld, stageHistories: _sh,
+    owner: _owner, leadDeals: _ld, contactDeals: _cd, stageHistories: _sh, productInterestRecord: _product,
+    lead: _lead, contact: _contact, leadId: _leadId, contactId: _contactId,
     ...copyData
   } = source as Record<string, unknown>;
 
   let newDeal: any;
   try {
-    newDeal = await prisma.deal.create({
-      data: {
-        ...copyData,
-        title: `${source.title} (Copy)`,
-        tenantId,
-        ownerId: userId,
-        isArchived: false,
-        closedAt: null,
-        lostReason: null,
-      } as never,
+    newDeal = await salesTransaction(async tx => {
+      const ids = [...new Set([...source.productInterestIds, ...(source.productInterestId ? [source.productInterestId] : [])])];
+      if (ids.length !== 1) throw new ValidationError('Choose one Product in a new Deal instead of duplicating a legacy opportunity.');
+      const [product] = await resolveProducts(tx, tenantId, ids);
+      if (source.productInterests.some(name => name.trim().toLowerCase() !== product.name.trim().toLowerCase())) throw new ValidationError('Reconcile legacy Product details before duplicating this Deal.');
+      const created = await tx.deal.create({
+        data: {
+          ...copyData,
+          productInterestId: product.id, productInterestIds: [], productInterests: [], productsNormalized: true,
+          value: Number(product.dealValue), currency: 'PHP',
+          automationKey: null,
+          hasEverBeenWon: false,
+          wonHistoryVerified: true,
+          title: `${source.title} (Copy)`,
+          tenantId,
+          ownerId: userId,
+          isArchived: false,
+          closedAt: null,
+          lostReason: null,
+          stageId: initialStage.id,
+          stageChangedAt: new Date(),
+          wonConfirmationType: null, wonConfirmationNote: null, wonConfirmedById: null, wonConfirmedAt: null,
+          closingValues: {}, closingSnapshot: Prisma.DbNull,
+        } as never,
+      });
+
+      // Copy lead associations from source deal
+      const leadAssociations = await tx.leadDeal.findMany({ where: { dealId: id, tenantId } });
+      if (leadAssociations.length > 0) {
+        await tx.leadDeal.createMany({
+          data: leadAssociations.map(a => ({ leadId: a.leadId, dealId: created.id, tenantId, addedById: userId, position: a.position })),
+          skipDuplicates: true,
+        });
+      }
+
+      // Copy contact associations from source deal
+      const contactAssociations = await tx.contactDeal.findMany({ where: { dealId: id, tenantId } });
+      if (contactAssociations.length > 0) {
+        await tx.contactDeal.createMany({
+          data: contactAssociations.map(a => ({ contactId: a.contactId, dealId: created.id, tenantId, addedById: userId, position: a.position })),
+          skipDuplicates: true,
+        });
+      }
+      return created;
     });
-
-    // Copy lead associations from source deal
-    const leadAssociations = await prisma.leadDeal.findMany({ where: { dealId: id, tenantId } });
-    if (leadAssociations.length > 0) {
-      await prisma.leadDeal.createMany({
-        data: leadAssociations.map(a => ({ leadId: a.leadId, dealId: newDeal.id, tenantId, addedById: userId })),
-        skipDuplicates: true,
-      });
-    }
-
-    // Copy contact associations from source deal
-    const contactAssociations = await prisma.contactDeal.findMany({ where: { dealId: id, tenantId } });
-    if (contactAssociations.length > 0) {
-      await prisma.contactDeal.createMany({
-        data: contactAssociations.map(a => ({ contactId: a.contactId, dealId: newDeal.id, tenantId, addedById: userId })),
-        skipDuplicates: true,
-      });
-    }
   } catch (error) {
     mapRepositoryError(error, 'duplicateDeal');
   }
@@ -323,5 +300,5 @@ export async function duplicateDeal(id: string, tenantId: string, userId: string
   });
 
   await fireDealCreated({ tenantId, actorId: userId, deal: newDeal });
-  return newDeal;
+  return repo.findDealById(newDeal.id, tenantId);
 }

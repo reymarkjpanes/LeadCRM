@@ -1,0 +1,65 @@
+[
+  {
+    "page": "Tasks",
+    "before": 442.3000183105469,
+    "after": 442.3000183105469,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Leads",
+    "before": 443.1000061035156,
+    "after": 443.1000061035156,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Contacts",
+    "before": 466.6000061035156,
+    "after": 466.6000061035156,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Accounts",
+    "before": 467.1000061035156,
+    "after": 467.1000061035156,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Campaigns",
+    "before": 661.1625366210938,
+    "after": 661.1625366210938,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Workflows",
+    "before": 422.8000183105469,
+    "after": 422.8000183105469,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Products",
+    "before": 570.7999877929688,
+    "after": 570.7999877929688,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Users",
+    "before": 499.2000122070313,
+    "after": 499.2000122070313,
+    "overflow": false,
+    "toolbarPlacement": true
+  },
+  {
+    "page": "Archived Data",
+    "before": 529.5625,
+    "after": 529.5625,
+    "overflow": false,
+    "toolbarPlacement": true
+  }
+]

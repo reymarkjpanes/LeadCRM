@@ -41,7 +41,7 @@ export default function HelpHome() {
           <input ref={input} id="help-search" type="search" value={query} maxLength={180} placeholder="Try “create role” or “pipeline”" onChange={event => updateQuery(event.target.value)} />
           {query && <button type="button" aria-label="Clear help search" onClick={() => { updateQuery(''); input.current?.focus(); }}><X size={18} aria-hidden="true" /></button>}
         </div>
-        <p className={styles.searchHint}>Search guides by topic, question, or field name. To find CRM records, use the top-bar search.</p>
+        <p className={styles.searchHint}>Search guides by topic, question, or field name.</p>
       </form>
     </header>
     {searching ? <section className={styles.section} aria-labelledby="search-results-heading">

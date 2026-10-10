@@ -29,12 +29,12 @@ export async function seedDemoFullData() {
   // ── Organizations ──────────────────────────────────────────────────
   console.log('[Seed:Full] Seeding organizations...');
   const orgs = await Promise.all([
-    prisma.account.upsert({ where: { id: 'df-org-1' }, update: {}, create: { id: 'df-org-1', tenantId: tId, assignedUserId: bId, name: 'Antigravity Solutions Inc.', industry: 'Information Technology', size: '11-50', website: 'https://antigravity.ph', address: 'BGC, Taguig', city: 'Taguig', country: 'Philippines', customerType: 'Active Customer', customerSince: new Date('2024-01-15'), tags: ['enterprise', 'IT'], productInterests: ['CRM Enterprise', 'Workflow Automation'] } }),
-    prisma.account.upsert({ where: { id: 'df-org-2' }, update: {}, create: { id: 'df-org-2', tenantId: tId, assignedUserId: aId, name: 'Nexwave Digital Corp', industry: 'Software Development', size: '1-10', website: 'https://nexwave.ph', address: 'Ortigas, Pasig', city: 'Pasig', country: 'Philippines', customerType: 'Prospect', tags: ['startup', 'software'] } }),
-    prisma.account.upsert({ where: { id: 'df-org-3' }, update: {}, create: { id: 'df-org-3', tenantId: tId, assignedUserId: bId, name: 'CloudPH Telecom', industry: 'Telecommunications', size: '200+', address: 'Makati CBD', city: 'Makati', country: 'Philippines', customerType: 'Active Customer', customerSince: new Date('2023-06-01'), tags: ['telecom', 'enterprise'], productInterests: ['Service Orders', 'CRM Enterprise'] } }),
-    prisma.account.upsert({ where: { id: 'df-org-4' }, update: {}, create: { id: 'df-org-4', tenantId: tId, assignedUserId: aId, name: 'BrightPath BPO Services', industry: 'Business Process Outsourcing', size: '51-200', address: 'Cebu City', city: 'Cebu City', country: 'Philippines', customerType: 'Prospect', tags: ['bpo', 'outsourcing'] } }),
-    prisma.account.upsert({ where: { id: 'df-org-5' }, update: {}, create: { id: 'df-org-5', tenantId: tId, assignedUserId: bId, name: 'GreenTech Energy PH', industry: 'Renewable Energy', size: '11-50', address: 'Davao City', city: 'Davao City', country: 'Philippines', customerType: 'Inactive Customer', tags: ['energy', 'green'] } }),
-    prisma.account.upsert({ where: { id: 'df-org-6' }, update: {}, create: { id: 'df-org-6', tenantId: tId, assignedUserId: aId, name: 'SecureNet Security', industry: 'Security Services', size: '51-200', address: 'Quezon City', city: 'Quezon City', country: 'Philippines', customerType: 'Active Customer', customerSince: new Date('2024-03-10'), tags: ['security', 'B2B'], productInterests: ['CRM Pro', 'Service Orders'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-1' }, update: {}, create: { id: 'df-org-1', tenantId: tId, assignedUserId: bId, name: 'Antigravity Solutions Inc.', industry: 'Information Technology', size: '11-50', website: 'https://antigravity.ph', address: 'BGC, Taguig', city: 'Taguig', country: 'Philippines', tags: ['enterprise', 'IT'], productInterests: ['CRM Enterprise', 'Workflow Automation'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-2' }, update: {}, create: { id: 'df-org-2', tenantId: tId, assignedUserId: aId, name: 'Nexwave Digital Corp', industry: 'Software Development', size: '1-10', website: 'https://nexwave.ph', address: 'Ortigas, Pasig', city: 'Pasig', country: 'Philippines', tags: ['startup', 'software'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-3' }, update: {}, create: { id: 'df-org-3', tenantId: tId, assignedUserId: bId, name: 'CloudPH Telecom', industry: 'Telecommunications', size: '200+', address: 'Makati CBD', city: 'Makati', country: 'Philippines', tags: ['telecom', 'enterprise'], productInterests: ['Service Orders', 'CRM Enterprise'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-4' }, update: {}, create: { id: 'df-org-4', tenantId: tId, assignedUserId: aId, name: 'BrightPath BPO Services', industry: 'Business Process Outsourcing', size: '51-200', address: 'Cebu City', city: 'Cebu City', country: 'Philippines', tags: ['bpo', 'outsourcing'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-5' }, update: {}, create: { id: 'df-org-5', tenantId: tId, assignedUserId: bId, name: 'GreenTech Energy PH', industry: 'Renewable Energy', size: '11-50', address: 'Davao City', city: 'Davao City', country: 'Philippines', tags: ['energy', 'green'] } }),
+    prisma.account.upsert({ where: { id: 'df-org-6' }, update: {}, create: { id: 'df-org-6', tenantId: tId, assignedUserId: aId, name: 'SecureNet Security', industry: 'Security Services', size: '51-200', address: 'Quezon City', city: 'Quezon City', country: 'Philippines', tags: ['security', 'B2B'], productInterests: ['CRM Pro', 'Service Orders'] } }),
   ]);
   console.log(`[Seed:Full] ${orgs.length} organizations seeded.`);
 
@@ -63,13 +63,13 @@ export async function seedDemoFullData() {
       id: 'df-pipeline-1', tenantId: tId, name: 'IT & Telecom Sales', isDefault: true, type: 'Sales',
       stages: {
         create: [
-          { id: 'df-s-1', tenantId: tId, name: 'New Inquiry',    order: 1, probability: 10,  color: '#6366f1', isDefault: true },
-          { id: 'df-s-2', tenantId: tId, name: 'Contacted',      order: 2, probability: 20,  color: '#8b5cf6' },
-          { id: 'df-s-3', tenantId: tId, name: 'Qualified',      order: 3, probability: 40,  color: '#0ea5e9' },
-          { id: 'df-s-4', tenantId: tId, name: 'Proposal Sent',  order: 4, probability: 60,  color: '#3b82f6' },
-          { id: 'df-s-5', tenantId: tId, name: 'Negotiation',    order: 5, probability: 80,  color: '#f59e0b' },
-          { id: 'df-s-6', tenantId: tId, name: 'Closed Won',     order: 6, probability: 100, color: '#10b981', isWon: true },
-          { id: 'df-s-7', tenantId: tId, name: 'Closed Lost',    order: 7, probability: 0,   color: '#ef4444', isLost: true },
+          { id: 'df-s-1', name: 'New Inquiry',    order: 1, probability: 10,  color: '#6366f1', isDefault: true },
+          { id: 'df-s-2', name: 'Contacted',      order: 2, probability: 20,  color: '#8b5cf6' },
+          { id: 'df-s-3', name: 'Qualified',      order: 3, probability: 40,  color: '#0ea5e9' },
+          { id: 'df-s-4', name: 'Proposal Sent',  order: 4, probability: 60,  color: '#3b82f6' },
+          { id: 'df-s-5', name: 'Negotiation',    order: 5, probability: 80,  color: '#f59e0b' },
+          { id: 'df-s-6', name: 'Closed Won',     order: 6, probability: 100, color: '#10b981', isWon: true },
+          { id: 'df-s-7', name: 'Closed Lost',    order: 7, probability: 0,   color: '#ef4444', isLost: true },
         ],
       },
     },
@@ -81,31 +81,38 @@ export async function seedDemoFullData() {
   // ── Deals ──────────────────────────────────────────────────────────
   console.log('[Seed:Full] Seeding deals...');
   const deals = await Promise.all([
-    prisma.deal.upsert({ where: { id: 'df-d-1' }, update: {}, create: { id: 'df-d-1', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-4', assignedUserId: bId, ownerId: bId, contactId: contacts[0].id, accountId: orgs[0].id, title: 'CRM Enterprise — Antigravity Solutions', value: 380000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 25 * 86400000), leadSource: 'Referral', tags: ['enterprise', 'priority'] } }),
-    prisma.deal.upsert({ where: { id: 'df-d-2' }, update: {}, create: { id: 'df-d-2', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-3', assignedUserId: aId, ownerId: aId, contactId: contacts[1].id, accountId: orgs[1].id, title: 'CRM Pro — Nexwave Digital', value: 120000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() + 40 * 86400000), leadSource: 'LinkedIn', tags: ['startup'] } }),
-    prisma.deal.upsert({ where: { id: 'df-d-3' }, update: {}, create: { id: 'df-d-3', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-5', assignedUserId: bId, ownerId: bId, contactId: contacts[2].id, accountId: orgs[2].id, title: 'Telecom Service Suite — CloudPH', value: 650000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 10 * 86400000), leadSource: 'Cold Email', tags: ['telecom', 'hot'] } }),
-    prisma.deal.upsert({ where: { id: 'df-d-4' }, update: {}, create: { id: 'df-d-4', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-1', assignedUserId: aId, ownerId: aId, contactId: contacts[3].id, accountId: orgs[3].id, title: 'CRM Starter — BrightPath BPO', value: 75000, currency: 'PHP', priority: 'LOW', expectedCloseDate: new Date(Date.now() + 55 * 86400000), leadSource: 'Website' } }),
-    prisma.deal.upsert({ where: { id: 'df-d-5' }, update: {}, create: { id: 'df-d-5', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-6', assignedUserId: bId, ownerId: bId, contactId: contacts[7].id, accountId: orgs[5].id, title: 'Security CRM — SecureNet Won', value: 820000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() - 5 * 86400000), closedAt: new Date(Date.now() - 5 * 86400000), leadSource: 'Cold Call', tags: ['won'] } }),
-    prisma.deal.upsert({ where: { id: 'df-d-6' }, update: {}, create: { id: 'df-d-6', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-7', assignedUserId: aId, ownerId: aId, contactId: contacts[4].id, accountId: orgs[4].id, title: 'CRM Pro — GreenTech (Lost)', value: 95000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() - 15 * 86400000), closedAt: new Date(Date.now() - 15 * 86400000), lostReason: 'Budget constraints', tags: ['lost'] } }),
-    prisma.deal.upsert({ where: { id: 'df-d-7' }, update: {}, create: { id: 'df-d-7', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-2', assignedUserId: bId, ownerId: bId, contactId: contacts[6].id, accountId: orgs[0].id, title: 'Workflow Automation — Antigravity Add-on', value: 180000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() + 30 * 86400000), leadSource: 'Referral' } }),
-    prisma.deal.upsert({ where: { id: 'df-d-8' }, update: {}, create: { id: 'df-d-8', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-3', assignedUserId: aId, ownerId: aId, contactId: contacts[8].id, accountId: orgs[2].id, title: 'CRM Enterprise Expansion — CloudPH Q2', value: 450000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 20 * 86400000), leadSource: 'Cold Email', tags: ['expansion', 'enterprise'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-1' }, update: {}, create: { id: 'df-d-1', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-4', assignedUserId: bId, ownerId: bId, contactDeals: { create: { contactId: contacts[0].id, position: 0 } }, accountId: orgs[0].id, title: 'CRM Enterprise — Antigravity Solutions', value: 380000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 25 * 86400000), leadSource: 'Referral', tags: ['enterprise', 'priority'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-2' }, update: {}, create: { id: 'df-d-2', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-3', assignedUserId: aId, ownerId: aId, contactDeals: { create: { contactId: contacts[1].id, position: 0 } }, accountId: orgs[1].id, title: 'CRM Pro — Nexwave Digital', value: 120000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() + 40 * 86400000), leadSource: 'LinkedIn', tags: ['startup'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-3' }, update: {}, create: { id: 'df-d-3', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-5', assignedUserId: bId, ownerId: bId, contactDeals: { create: { contactId: contacts[2].id, position: 0 } }, accountId: orgs[2].id, title: 'Telecom Service Suite — CloudPH', value: 650000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 10 * 86400000), leadSource: 'Cold Email', tags: ['telecom', 'hot'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-4' }, update: {}, create: { id: 'df-d-4', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-1', assignedUserId: aId, ownerId: aId, contactDeals: { create: { contactId: contacts[3].id, position: 0 } }, accountId: orgs[3].id, title: 'CRM Starter — BrightPath BPO', value: 75000, currency: 'PHP', priority: 'LOW', expectedCloseDate: new Date(Date.now() + 55 * 86400000), leadSource: 'Website' } }),
+    prisma.deal.upsert({ where: { id: 'df-d-5' }, update: {}, create: { id: 'df-d-5', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-6', assignedUserId: bId, ownerId: bId, contactDeals: { create: { contactId: contacts[7].id, position: 0 } }, accountId: orgs[5].id, title: 'Security CRM — SecureNet Won', value: 820000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() - 5 * 86400000), closedAt: new Date(Date.now() - 5 * 86400000), leadSource: 'Cold Call', tags: ['won'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-6' }, update: {}, create: { id: 'df-d-6', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-7', assignedUserId: aId, ownerId: aId, contactDeals: { create: { contactId: contacts[4].id, position: 0 } }, accountId: orgs[4].id, title: 'CRM Pro — GreenTech (Lost)', value: 95000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() - 15 * 86400000), closedAt: new Date(Date.now() - 15 * 86400000), lostReason: 'Budget constraints', tags: ['lost'] } }),
+    prisma.deal.upsert({ where: { id: 'df-d-7' }, update: {}, create: { id: 'df-d-7', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-2', assignedUserId: bId, ownerId: bId, contactDeals: { create: { contactId: contacts[6].id, position: 0 } }, accountId: orgs[0].id, title: 'Workflow Automation — Antigravity Add-on', value: 180000, currency: 'PHP', priority: 'MEDIUM', expectedCloseDate: new Date(Date.now() + 30 * 86400000), leadSource: 'Referral' } }),
+    prisma.deal.upsert({ where: { id: 'df-d-8' }, update: {}, create: { id: 'df-d-8', tenantId: tId, pipelineId: pipeline.id, stageId: 'df-s-3', assignedUserId: aId, ownerId: aId, contactDeals: { create: { contactId: contacts[8].id, position: 0 } }, accountId: orgs[2].id, title: 'CRM Enterprise Expansion — CloudPH Q2', value: 450000, currency: 'PHP', priority: 'HIGH', expectedCloseDate: new Date(Date.now() + 20 * 86400000), leadSource: 'Cold Email', tags: ['expansion', 'enterprise'] } }),
   ]);
   console.log(`[Seed:Full] ${deals.length} deals seeded.`);
 
   // ── Tasks ──────────────────────────────────────────────────────────
   console.log('[Seed:Full] Seeding tasks...');
-  await prisma.task.createMany({ skipDuplicates: true, data: [
+  await prisma.$transaction(async tx => {
+    for (const row of [
     { id: 'df-t-1', tenantId: tId, assignedUserId: bId, assignedById: aId, title: 'Follow up with Anna Reyes — Enterprise demo', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 2 * 86400000), contactId: contacts[0].id, dealId: deals[0].id },
-    { id: 'df-t-2', tenantId: tId, assignedUserId: aId, assignedById: aId, title: 'Prepare proposal for Nexwave Digital', status: 'in-progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), contactId: contacts[1].id, dealId: deals[1].id },
+    { id: 'df-t-2', tenantId: tId, assignedUserId: aId, assignedById: aId, title: 'Prepare proposal for Nexwave Digital', status: 'in_progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), contactId: contacts[1].id, dealId: deals[1].id },
     { id: 'df-t-3', tenantId: tId, assignedUserId: bId, assignedById: bId, title: 'Contract negotiation call — CloudPH Telecom', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 1 * 86400000), contactId: contacts[2].id, dealId: deals[2].id },
     { id: 'df-t-4', tenantId: tId, assignedUserId: aId, assignedById: aId, title: 'Send onboarding docs — SecureNet', status: 'completed', priority: 'Medium', dueDate: new Date(Date.now() - 3 * 86400000), completedAt: new Date(Date.now() - 2 * 86400000), contactId: contacts[7].id, dealId: deals[4].id },
     { id: 'df-t-5', tenantId: tId, assignedUserId: bId, assignedById: aId, title: 'LinkedIn outreach — Jerico Tan', status: 'pending', priority: 'Low', dueDate: new Date(Date.now() + 7 * 86400000), contactId: contacts[5].id },
     { id: 'df-t-6', tenantId: tId, assignedUserId: aId, assignedById: bId, title: 'Schedule product demo — BrightPath BPO', status: 'pending', priority: 'Medium', dueDate: new Date(Date.now() + 4 * 86400000), contactId: contacts[3].id, dealId: deals[3].id },
     { id: 'df-t-7', tenantId: tId, assignedUserId: bId, assignedById: bId, title: 'Renewal discussion — GreenTech', status: 'cancelled', priority: 'Low', dueDate: new Date(Date.now() - 10 * 86400000), contactId: contacts[4].id, dealId: deals[5].id },
-    { id: 'df-t-8', tenantId: tId, assignedUserId: aId, assignedById: aId, title: 'Send add-on pricing — Antigravity', status: 'in-progress', priority: 'Medium', dueDate: new Date(Date.now() + 3 * 86400000), contactId: contacts[6].id, dealId: deals[6].id },
+    { id: 'df-t-8', tenantId: tId, assignedUserId: aId, assignedById: aId, title: 'Send add-on pricing — Antigravity', status: 'in_progress', priority: 'Medium', dueDate: new Date(Date.now() + 3 * 86400000), contactId: contacts[6].id, dealId: deals[6].id },
     { id: 'df-t-9', tenantId: tId, assignedUserId: bId, assignedById: aId, title: 'Quarterly review — CloudPH expansion', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 8 * 86400000), contactId: contacts[8].id, dealId: deals[7].id },
     { id: 'df-t-10', tenantId: tId, assignedUserId: aId, assignedById: bId, title: 'Cold outreach — Renato Lim', status: 'pending', priority: 'Low', dueDate: new Date(Date.now() + 14 * 86400000), contactId: contacts[9].id },
-  ]});
+  ]) {
+      const { contactId, dealId, ...data } = row;
+      const create = { ...data, contactLinks: { create: { contactId, position: 0 } },
+        ...(dealId ? { dealLinks: { create: { dealId, position: 0 } } } : {}) };
+      await tx.task.upsert({ where: { id: data.id }, update: {}, create });
+    }
+  });
   console.log('[Seed:Full] 10 tasks seeded.');
 
   // ── Activities ─────────────────────────────────────────────────────
@@ -148,11 +155,11 @@ export async function seedDemoFullData() {
   // ── Campaigns ──────────────────────────────────────────────────────
   console.log('[Seed:Full] Seeding campaigns...');
   await prisma.campaign.createMany({ skipDuplicates: true, data: [
-    { id: 'df-camp-1', tenantId: tId, targetAudienceId: audiences[0].id, emailTemplateId: 'df-tpl-2', name: 'Q3 IT Solutions Outreach',    type: 'EMAIL', status: 'ACTIVE',     subject: 'Streamline your IT workflows with LeadCRM', sentCount: 142, openedCount: 67, clickedCount: 23, engagement: 47.2, scheduledFor: new Date(Date.now() + 3 * 86400000) },
+    { id: 'df-camp-1', tenantId: tId, targetAudienceId: audiences[0].id, emailTemplateId: 'df-tpl-2', name: 'Q3 IT Solutions Outreach',    type: 'EMAIL', status: 'SENDING',     subject: 'Streamline your IT workflows with LeadCRM', sentCount: 142, openedCount: 67, clickedCount: 23, engagement: 47.2, scheduledFor: new Date(Date.now() + 3 * 86400000) },
     { id: 'df-camp-2', tenantId: tId, targetAudienceId: audiences[1].id,                              name: 'BPO Industry Newsletter',       type: 'EMAIL', status: 'DRAFT',      subject: 'How BPO companies grow 3x faster with CRM', sentCount: 0,   openedCount: 0,  clickedCount: 0,  engagement: 0 },
-    { id: 'df-camp-3', tenantId: tId, targetAudienceId: audiences[2].id, emailTemplateId: 'df-tpl-6', name: 'Win-Back — Lost Deals',         type: 'EMAIL', status: 'COMPLETED',  subject: 'We have a special offer for you', sentCount: 38, openedCount: 15, clickedCount: 6, engagement: 39.5, scheduledFor: new Date(Date.now() - 10 * 86400000), sentAt: new Date(Date.now() - 10 * 86400000) },
-    { id: 'df-camp-4', tenantId: tId, targetAudienceId: audiences[0].id,                              name: 'Hot Leads SMS Blast',           type: 'SMS',   status: 'ACTIVE',     sentCount: 25, openedCount: 0, clickedCount: 0, engagement: 0 },
-    { id: 'df-camp-5', tenantId: tId, targetAudienceId: audiences[1].id, emailTemplateId: 'df-tpl-4', name: 'Renewal Campaign Q4',           type: 'EMAIL', status: 'SCHEDULED',  subject: 'Your renewal is coming up', sentCount: 0, openedCount: 0, clickedCount: 0, engagement: 0, scheduledFor: new Date(Date.now() + 30 * 86400000) },
+    { id: 'df-camp-3', tenantId: tId, targetAudienceId: audiences[2].id, emailTemplateId: 'df-tpl-6', name: 'Win-Back — Lost Deals',         type: 'EMAIL', status: 'SENDING',  subject: 'We have a special offer for you', sentCount: 38, openedCount: 15, clickedCount: 6, engagement: 39.5, scheduledFor: new Date(Date.now() - 10 * 86400000), sentAt: new Date(Date.now() - 10 * 86400000) },
+    { id: 'df-camp-4', tenantId: tId, targetAudienceId: audiences[0].id,                              name: 'Hot Leads SMS Blast',           type: 'SMS',   status: 'SENDING',     sentCount: 25, openedCount: 0, clickedCount: 0, engagement: 0 },
+    { id: 'df-camp-5', tenantId: tId, targetAudienceId: audiences[1].id, emailTemplateId: 'df-tpl-4', name: 'Renewal Campaign Q4',           type: 'EMAIL', status: 'SENDING',  subject: 'Your renewal is coming up', sentCount: 0, openedCount: 0, clickedCount: 0, engagement: 0, scheduledFor: new Date(Date.now() + 30 * 86400000) },
   ]});
   console.log('[Seed:Full] 5 campaigns seeded.');
 

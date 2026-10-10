@@ -1,36 +1,69 @@
-'use client';
-
-import { apiClient } from '@/lib/api/client';
-import type { Task } from '@/store/types';
-
-export interface TasksResponse { success: boolean; data: Task[]; meta: { total: number; page: number; limit: number; hasMore: boolean }; }
-export interface TaskResponse  { success: boolean; data: Task; }
-
-function buildQuery(params: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : '';
+"use client";
+import { apiClient } from "@/lib/api/client";
+import type {
+  TaskRecord,
+  TaskPage,
+  TaskSummary,
+  TaskListQuery,
+  CreateTaskInput,
+  UpdateTaskDto,
+  TaskBulkInput,
+  TaskBulkResult,
+  TaskOptionKind,
+  TaskOption,
+} from "@leadcrm/shared";
+export interface TasksResponse extends TaskPage {
+  success: boolean;
 }
-
+export interface TaskResponse {
+  success: boolean;
+  data: TaskRecord;
+}
 export const tasksApi = {
-  list: (query: Record<string, unknown> = {}) =>
-    apiClient.get<TasksResponse>(`/operations/tasks${buildQuery(query)}`),
-
+  list: (query: TaskListQuery = {}) =>
+    apiClient.get<TasksResponse>("/operations/tasks", { params: query }),
+  summary: (query: TaskListQuery = {}) =>
+    apiClient.get<{ success: boolean; data: TaskSummary }>(
+      "/operations/tasks/summary",
+      { params: query },
+    ),
+  options: (
+    kind: TaskOptionKind,
+    search = "",
+    signal?: AbortSignal,
+    leadIds: string[] = [],
+  ) =>
+    apiClient.get<{ success: boolean; data: TaskOption[] }>(
+      "/operations/tasks/options",
+      {
+        params: {
+          kind,
+          search,
+          ...(leadIds.length ? { leadIds: leadIds.join(",") } : {}),
+        },
+        signal,
+      },
+    ),
   get: (id: string) =>
-    apiClient.get<TaskResponse>(`/operations/tasks/${id}`),
-
-  create: (data: Partial<Task>) =>
-    apiClient.post<TaskResponse>('/operations/tasks', data),
-
-  update: (id: string, data: Partial<Task>) =>
-    apiClient.put<TaskResponse>(`/operations/tasks/${id}`, data),
-
+    apiClient.get<TaskResponse>(`/operations/tasks/${encodeURIComponent(id)}`),
+  create: (data: CreateTaskInput) =>
+    apiClient.post<TaskResponse>("/operations/tasks", data),
+  update: (id: string, data: UpdateTaskDto) =>
+    apiClient.put<TaskResponse>(
+      `/operations/tasks/${encodeURIComponent(id)}`,
+      data,
+    ),
   complete: (id: string) =>
-    apiClient.patch<TaskResponse>(`/operations/tasks/${id}/complete`),
-
+    apiClient.patch<TaskResponse>(
+      `/operations/tasks/${encodeURIComponent(id)}/complete`,
+    ),
   archive: (id: string) =>
-    apiClient.patch<{ success: boolean }>(`/operations/tasks/${id}/archive`),
+    apiClient.patch<{ success: boolean }>(
+      `/operations/tasks/${encodeURIComponent(id)}/archive`,
+    ),
+  bulk: (data: TaskBulkInput) =>
+    apiClient.post<{ success: boolean; data: TaskBulkResult }>(
+      "/operations/tasks/bulk",
+      data,
+    ),
 };

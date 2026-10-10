@@ -22,7 +22,8 @@ export interface RoleDefinition {
 }
 
 export interface User {
-  activeEnvironment?: import('@leadcrm/shared').CrmEnvironment | null;
+  assignableAgent?: boolean;
+  createdAt?: string;
   id: string;
   tenantId: string;
   firstName: string;
@@ -30,7 +31,8 @@ export interface User {
   email: string;
   phone?: string;
   jobTitle?: string;
-  department?: string;
+  groups?: { id: string; name: string }[];
+  groupIds?: string[];
   avatarUrl?: string;
   org?: string; // keeping org for legacy compatibility temporarily if used elsewhere
   team?: string; // keeping team for legacy compatibility temporarily
@@ -41,13 +43,14 @@ export interface User {
   isArchived?: boolean;
   // Auth-response fields — populated from /auth/me and POST /auth/login
   emailVerified?: string | null;
+  passwordChangedAt?: string | null;
   tenantName?: string | null;
   tenantStatus?: string | null;
   onboardingStep?: number;
   onboardingCompletedAt?: string | null;
-  /** Flattened from tenant — used for OAuth company-setup gate in AuthGuard */
+  /** Flattened workspace information */
   industry?: string | null;
-  /** True when the user registered with a password (manual). False for OAuth-only users. */
+  /** Whether a password has been provisioned for this account. */
   hasPassword?: boolean;
   mustChangePassword?: boolean;
   companySize?: string | null;
@@ -64,20 +67,8 @@ export interface Tenant {
   phone: string;
   address: string;
   status: 'active' | 'pending' | 'suspended' | 'rejected';
-  approvalStep: 'basic' | 'requirements' | 'completed';
-  /** Platform resource-monitoring metadata only; CRM selection is User.activeEnvironment. */
-  environment?: 'none' | 'sandbox' | 'production' | 'both';
   createdAt: string;
   timezone?: string;
   currency?: string;
   domain?: string;
-  adminNotes?: string;
-  healthMetrics?: {
-    cpuUsage: number;
-    memoryUsage: number;
-    storageUsage?: number;
-    uptime: string;
-    status: 'healthy' | 'warning' | 'critical';
-    lastCheck: string;
-  };
 }

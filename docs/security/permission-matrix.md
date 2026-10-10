@@ -3,7 +3,7 @@
 > Last updated: June 27, 2026
 > Permissions are stored in the `RolePermission` table — one row per module per role
 > with `canView`, `canCreate`, `canEdit`, `canDelete` boolean flags.
-> `Client Admin` and `System Admin` bypass all permission checks at the middleware level.
+> `Client Admin` has full permissions within the current tenant. Staff permissions come from tenant role assignments.
 
 ---
 
@@ -11,7 +11,6 @@
 
 | Role | Scope | Description |
 |---|---|---|
-| **System Admin** | Cross-tenant (platform) | LeadCRM operator. Manages all tenants, workspace access and resource monitoring. No tenantId — stored in `SystemAdmin` table, not `User`. |
 | **Client Admin** | Tenant-wide | Highest client-level role. Full access to all modules within their tenant. Manages `RoleDefinition` + `RolePermission` rows. Full bypass. |
 | **Sales Rep** | Tenant | Manages own contacts and deals. Read-only on campaigns, workflows, reports, settings. |
 | **Viewer** | Tenant | Read-only access to all modules. Cannot create, edit, or delete. |
@@ -27,21 +26,20 @@
 ➕ = canCreate only
 ❌ = no access
 
-| Module | System Admin | Client Admin | Sales Rep | Viewer | Technician |
-|---|---|---|---|---|---|
-| **contacts** | ✅ | ✅ | 🔵 | 👁 | 👁 |
-| **deals** | ✅ | ✅ | 🔵 | 👁 | 👁 |
-| **organizations** | ✅ | ✅ | 🔵 | 👁 | 👁 |
-| **campaigns** | ✅ | ✅ | 👁 | 👁 | ❌ |
-| **workflows** | ✅ | ✅ | 👁 | 👁 | ❌ |
-| **tasks** | ✅ | ✅ | 🔵 | 👁 | 👁 |
-| **service_orders** | ✅ | ✅ | 👁 | 👁 | 🔵 |
-| **reports** | ✅ | ✅ | 👁 | 👁 | ❌ |
-| **billing** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **users** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **settings** | ✅ | ✅ | 👁 | 👁 | ❌ |
-| **audit** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Admin Console** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Module | Client Admin | Sales Rep | Viewer | Technician |
+|---|---|---|---|---|
+| **contacts** | ✅ | 🔵 | 👁 | 👁 |
+| **deals** | ✅ | 🔵 | 👁 | 👁 |
+| **organizations** | ✅ | 🔵 | 👁 | 👁 |
+| **campaigns** | ✅ | 👁 | 👁 | ❌ |
+| **workflows** | ✅ | 👁 | 👁 | ❌ |
+| **tasks** | ✅ | 🔵 | 👁 | 👁 |
+| **service_orders** | ✅ | 👁 | 👁 | 🔵 |
+| **reports** | ✅ | 👁 | 👁 | ❌ |
+| **billing** | ✅ | ❌ | ❌ | ❌ |
+| **users** | ✅ | ❌ | ❌ | ❌ |
+| **settings** | ✅ | 👁 | 👁 | ❌ |
+| **audit** | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -90,7 +88,7 @@ model RolePermission {
 | `billing` | Invoice, PaymentTransaction |
 | `users` | User CRUD, invitations |
 | `settings` | Tenant settings, pipeline config |
-| `audit` | AuditLog view and export |
+| `audit` | Team Management user activity history |
 
 ---
 

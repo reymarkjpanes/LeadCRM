@@ -5,7 +5,7 @@
 
 **Project:** LeadCRM — SaaS-Based Progressive Web CRM System  
 **Repository:** https://github.com/reymarkjpanes/LeadCRM  
-**Stack:** Next.js · React · TypeScript · Tailwind CSS · shadcn/ui · Express.js · PostgreSQL · Prisma · NextAuth · PWA
+**Stack:** Next.js · React · TypeScript · Tailwind CSS · shadcn/ui · Express.js · PostgreSQL · Prisma · PWA
 
 ---
 

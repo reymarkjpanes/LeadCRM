@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, ChevronDown, Check, Filter, ArrowDownAZ, Loader2 } from 'lucide-react';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 import { motion, AnimatePresence } from 'motion/react';
-import { useReducedMotion } from 'motion/react';
 import { getGmailStatus, fetchGmailEmails, GmailConnectionStatus, GmailEmail } from '../services/gmail.service';
 import InboxCurrentEmpty from './inbox-current-empty';
 import InboxDoneEmpty from './inbox-done-empty';
 import InboxFutureEmpty from './inbox-future-empty';
 import InboxEmailList from './inbox-email-list';
+import EmailConversationView from './email-conversation-view';
 
 type InboxTab = 'current' | 'done' | 'future';
 
@@ -28,11 +29,11 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<GmailConnectionStatus | null>(null);
   const [emails, setEmails] = useState<GmailEmail[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<GmailEmail | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const shouldReduceMotion = useReducedMotion();
   const hasFetchedRef = useRef(false);
 
   // Fetch connection status when panel opens
@@ -55,6 +56,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
 
     if (!isOpen) {
       hasFetchedRef.current = false;
+      setSelectedEmail(null);
     }
   }, [isOpen]);
 
@@ -73,6 +75,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.key === 'Escape') {
+      event.preventDefault();
       if (isDropdownOpen) {
         setIsDropdownOpen(false);
       } else {
@@ -101,15 +104,12 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
     }
   }, [isDropdownOpen]);
 
-  const springTransition = shouldReduceMotion
-    ? { duration: 0 }
-    : { type: 'spring' as const, damping: 25, stiffness: 200 };
-
   const activeLabel = TAB_OPTIONS.find((t) => t.id === activeTab)?.label ?? 'Current';
 
   const isConnected = connectionStatus?.isConnected === true;
 
   const renderTabContent = (): React.ReactElement => {
+    if (selectedEmail) return <EmailConversationView email={selectedEmail} onBack={() => setSelectedEmail(null)} onEmailsChanged={() => { setSelectedEmail(null); void loadEmails(); }} />;
     // Show loading state while checking connection
     if (isLoadingStatus) {
       return (
@@ -136,14 +136,14 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
               <p className="text-sm text-red-500 dark:text-red-400 mb-3">{emailError}</p>
               <button
                 onClick={loadEmails}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                className="text-sm text-primary dark:text-primary hover:underline cursor-pointer"
               >
                 Try again
               </button>
             </div>
           );
         }
-        return <InboxEmailList emails={emails} onEmailsChanged={loadEmails} totalCount={emails.length} onEmailClick={() => {}} />;
+        return <InboxEmailList emails={emails} onEmailsChanged={loadEmails} totalCount={emails.length} onEmailClick={setSelectedEmail} />;
       case 'done':
         return <InboxDoneEmpty />;
       case 'future':
@@ -152,31 +152,10 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
   };
 
   return (
-    <AnimatePresence>
+    <Sheet open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
       {isOpen && (
         <>
-          {/* Backdrop */}
-          <motion.div
-            className="fixed inset-0 z-50 bg-black/50"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            onClick={onClose}
-            aria-hidden="true"
-          />
-
-          {/* Panel */}
-          <motion.aside
-            className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl flex flex-col bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-white/[0.05] shadow-2xl"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={springTransition}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Inbox"
-          >
+          <SheetContent showClose={false} aria-label="Inbox" className="max-w-2xl sm:max-w-2xl flex flex-col overflow-hidden bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-white/[0.05] shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-white/[0.05] shrink-0">
               <div className="flex items-center gap-3">
@@ -220,7 +199,7 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
                               className={`
                                 w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors cursor-pointer
                                 ${isActive
-                                  ? 'bg-blue-600/10 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium'
+                                  ? 'bg-primary/10 dark:bg-primary/15 text-primary dark:text-primary font-medium'
                                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05]'}
                               `}
                               role="option"
@@ -269,12 +248,12 @@ export default function InboxPanel({ isOpen, onClose }: InboxPanelProps): React.
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {renderTabContent()}
             </div>
-          </motion.aside>
+          </SheetContent>
         </>
       )}
-    </AnimatePresence>
+    </Sheet>
   );
 }

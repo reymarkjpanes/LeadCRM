@@ -96,11 +96,14 @@ export interface ValidatedRow {
  * Summary returned after submitting an import to the backend.
  */
 export interface ImportSummary {
+  module: 'LEAD' | 'CONTACT' | 'ACCOUNT' | 'DEAL';
+  idempotencyKey?: string | null;
   id: string;
   fileName: string;
   totalRecords: number;
   successfulRecords: number;
   failedRecords: number;
+  duplicateRecords: number;
   status: 'pending' | 'importing' | 'completed' | 'completed_with_errors' | 'failed';
   createdAt: string;
   completedAt: string | null;
@@ -114,8 +117,9 @@ export interface ImportResultRow {
   id: string;
   importId: string;
   rowNumber: number;
-  status: 'imported' | 'failed';
-  entityId: string | null;
+  status: 'imported' | 'failed' | 'duplicate';
+  importJobId: string;
+  recordId: string | null;
   remarks: string | null;
   data: Record<string, string | null>;
   createdAt: string;

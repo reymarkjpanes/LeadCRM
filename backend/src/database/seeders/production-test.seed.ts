@@ -41,10 +41,8 @@ async function seedProductionTestData() {
       create: {
         id: TEST_TENANT_ID,
         name: 'Production Test Tenant',
-        subdomain: 'test-prod',
+        slug: 'test-prod',
         status: 'ACTIVE',
-        contactsUsed: 2,
-        usersUsed: 1,
       },
     });
     console.log('✅ Test tenant created/updated');
@@ -80,19 +78,17 @@ async function seedProductionTestData() {
     // 3. Create test leads (recipients)
     console.log('📧 Creating test recipient leads...');
     for (const recipient of TEST_RECIPIENTS) {
+      const existing = await prisma.lead.findFirst({ where: { tenantId: TEST_TENANT_ID, email: recipient.email, source: 'production-test' }, select: { id: true } });
+      const id = existing?.id ?? `${TEST_TENANT_ID}-${recipient.email}`;
       await prisma.lead.upsert({
-        where: {
-          tenantId_email: {
-            tenantId: TEST_TENANT_ID,
-            email: recipient.email,
-          },
-        },
+        where: { id },
         update: {
           firstName: recipient.firstName,
           lastName: recipient.lastName,
           status: recipient.status,
         },
         create: {
+          id,
           tenantId: TEST_TENANT_ID,
           email: recipient.email,
           firstName: recipient.firstName,
@@ -127,12 +123,12 @@ async function seedProductionTestData() {
           description: 'Full access to all tenant features',
           permissions: {
             create: [
-              { tenantId: TEST_TENANT_ID, module: 'contacts', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'campaigns', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'deals', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'workflows', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'users', canView: true, canCreate: true, canEdit: true, canDelete: true },
-              { tenantId: TEST_TENANT_ID, module: 'settings', canView: true, canCreate: true, canEdit: true, canDelete: true },
+              { module: 'contacts', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { module: 'campaigns', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { module: 'deals', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { module: 'workflows', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { module: 'users', canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true },
+              { module: 'settings', canView: true, canCreate: false, canEdit: true, canDelete: false },
             ],
           },
         },

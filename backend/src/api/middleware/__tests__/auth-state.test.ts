@@ -20,10 +20,11 @@ const request = () => ({
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv('LEADCRM_PRODUCTION_AUTH_ENABLED', 'false');
   vi.mocked(validateSession).mockResolvedValue(claims);
   vi.mocked(readAuthUser).mockResolvedValue({
     id: 'user-1', tenantId: 'tenant-1', role: 'Sales', status: 'ACTIVE',
-    email: 'owner@camxian.com',
+    email: 'owner@camxian.com', tenantStatus: 'ACTIVE', onboardingCompletedAt: '2026-01-01',
   } as never);
 });
 it('uses the current database role instead of a stale Client Admin JWT role', async () => {
@@ -56,38 +57,75 @@ it('rejects forged tokens before session lookup', async () => {
 });
 
 it.each(['/api/v1/crm', '/api/v1/administration', '/api/v1/preferences', '/api/v1/billing'])('blocks temporary-password sessions at %s', async baseUrl => {
-  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
+  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', tenantStatus: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
   const next = vi.fn();
   await authMiddleware({ ...request(), baseUrl, path: '/anything' } as never, {} as never, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'PASSWORD_CHANGE_REQUIRED' }));
 });
 it.each(['/me', '/change-password'])('permits only required recovery actions: %s', async path => {
-  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
+  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', tenantStatus: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
   const next = vi.fn();
   await authMiddleware({ ...request(), baseUrl: '/api/v1/auth', path } as never, {} as never, next);
   expect(next).toHaveBeenCalledWith();
 });
 it('does not allow the onboarding endpoint to bypass a temporary password', async () => {
-  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
+  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Client Admin', status: 'ACTIVE', tenantStatus: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: true } as never);
   const next = vi.fn();
   await authMiddleware({ ...request(), baseUrl: '/api/v1/auth', path: '/onboarding/complete' } as never, {} as never, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'PASSWORD_CHANGE_REQUIRED' }));
 });
 it('blocks CRM access until persisted onboarding is complete', async () => {
-  vi.mocked(readAuthUser).mockResolvedValue({ role: 'Client Admin', status: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: false, onboardingCompletedAt: null } as never);
+  vi.mocked(readAuthUser).mockResolvedValue({ role: 'Client Admin', status: 'ACTIVE', tenantStatus: 'ACTIVE', email: 'employee@camxian.com', mustChangePassword: false, onboardingCompletedAt: null } as never);
   const next = vi.fn();
   await authMiddleware({ ...request(), baseUrl: '/api/v1/crm', path: '/leads' } as never, {} as never, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'ONBOARDING_REQUIRED' }));
 });
 it('rejects an external employee account even with an existing signed session', async () => {
-  vi.mocked(readAuthUser).mockResolvedValue({ role: 'Client Admin', status: 'ACTIVE', email: 'employee@example.com' } as never);
+  vi.mocked(readAuthUser).mockResolvedValue({ role: 'Client Admin', status: 'ACTIVE', tenantStatus: 'ACTIVE', email: 'employee@example.com' } as never);
   const next = vi.fn();
   await authMiddleware(request() as never, {} as never, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMPLOYEE_ACCOUNT_REQUIRED' }));
 });
-it('allows System Admin API access with incomplete tenant onboarding', async () => {
-  vi.mocked(readAuthUser).mockResolvedValue({ role: 'System Admin', status: 'ACTIVE', email: 'operator@example.com', mustChangePassword: true, onboardingCompletedAt: null } as never);
+
+it.each(['tironjulieann10@gmail.com', 'reymarkjpanes@gmail.com'])('allows %s through a normally validated development session', async email => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('LEADCRM_TEST_AUTH_ENABLED', 'true');
+  vi.stubEnv('LEADCRM_TEST_EMAIL_ALLOWLIST', 'tironjulieann10@gmail.com,reymarkjpanes@gmail.com');
+  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Sales', status: 'ACTIVE', tenantStatus: 'ACTIVE', email, onboardingCompletedAt: '2026-01-01' } as never);
   const next = vi.fn();
-  await authMiddleware({ ...request(), baseUrl: '/api/v1/admin', path: '/tenants' } as never, {} as never, next);
+  const req = request();
+
+  await authMiddleware(req as never, {} as never, next);
+
+  expect(validateSession).toHaveBeenCalledOnce();
+  expect(req).toHaveProperty('user.email', email);
+  expect(next).toHaveBeenCalledWith();
+});
+
+
+it('returns Authentication required for a genuinely signed-out request', async () => {
+  const next = vi.fn();
+  await authMiddleware({ cookies: {}, headers: {} } as never, {} as never, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 401, message: 'Authentication required' }));
+  expect(validateSession).not.toHaveBeenCalled();
+});
+
+it.each(['SUSPENDED', 'CANCELLED', 'DELETED', 'REJECTED', 'unknown', null, undefined])('blocks an existing session in an unavailable workspace (%s)', async tenantStatus => {
+  vi.mocked(readAuthUser).mockResolvedValue({
+    id: 'user-1', tenantId: 'tenant-1', role: 'Sales', status: 'ACTIVE', tenantStatus,
+    email: 'owner@camxian.com', onboardingCompletedAt: '2026-01-01',
+  } as never);
+  const next = vi.fn();
+  const req = request();
+  await authMiddleware(req as never, {} as never, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403, message: 'Workspace access is unavailable.' }));
+  expect(req).not.toHaveProperty('user');
+});
+
+it.each(['ACTIVE', 'SANDBOX'])('allows eligible sessions in %s workspaces', async tenantStatus => {
+  vi.mocked(readAuthUser).mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', role: 'Sales', status: 'ACTIVE', tenantStatus,
+    email: 'owner@camxian.com', onboardingCompletedAt: '2026-01-01' } as never);
+  const next = vi.fn();
+  await authMiddleware(request() as never, {} as never, next);
   expect(next).toHaveBeenCalledWith();
 });

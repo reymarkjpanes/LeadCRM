@@ -1,9 +1,14 @@
 'use client';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { CreateButton } from '@/shared/components/ui/button';
+
+import { SelectedRowsBar } from '@/shared/components/crm/selected-rows-bar';
+
 
 import React, { useState, useCallback, useRef, useEffect, useMemo, ReactNode } from 'react';
 import {
   List, LayoutGrid, Table2, Columns3, Grid3X3,
-  TrendingUp, Filter, RefreshCw, Search,
+  TrendingUp,
   Settings2, ChevronDown, ChevronLeft, ChevronRight, X, Upload,
   ListOrdered, Eye, Check, FileUp, UserPlus, Plus,
 } from 'lucide-react';
@@ -14,6 +19,12 @@ import type { ModuleConfig, ViewType as SharedViewType, ColumnConfigItem } from 
 import { useViewTypePreference } from '@/shared/hooks/use-view-type-preference';
 import { VIEW_OPTIONS as VIEW_RENDERERS } from './view-registry';
 import { validateModuleConfig } from './validate-module-config';
+import { ModuleFilterRail, type FilterGroup } from './module-filter-rail';
+import { ManageColumnsButton } from './manage-columns-button';
+import { ModuleSearchInput } from './module-search-input';
+import { FilterButton } from './filter-button';
+import { RefreshButton } from './refresh-button';
+import { TableLoadingState } from './table-loading-state';
 import { PaginationControls } from './pagination-controls';
 import {
   Tooltip,
@@ -41,20 +52,6 @@ interface SavedViewTab {
   id: string;
   label: string;
   isActive?: boolean;
-}
-
-interface FilterGroup {
-  id: string;
-  label: string;
-  isExpanded?: boolean;
-  items: FilterItem[];
-}
-
-interface FilterItem {
-  id: string;
-  label: string;
-  count?: number;
-  isChecked?: boolean;
 }
 
 interface KpiCard {
@@ -102,6 +99,13 @@ export interface ModuleWorkspaceProps {
   selectedIds?: Set<string>;
   /** Whether data is loading */
   isDataLoading?: boolean;
+  /** Show the shared table loading card in place of the content. */
+  loading?: boolean;
+  loadingLabel?: string;
+  refreshDisabled?: boolean;
+  refreshLabel?: string;
+  directManageColumns?: boolean;
+  onClearFilters?: () => void;
   /** Saved view tabs */
   savedTabs?: SavedViewTab[];
   /** Active tab id */
@@ -109,6 +113,7 @@ export interface ModuleWorkspaceProps {
   /** Tab change handler */
   onTabChange?: (tabId: string) => void;
   /** Filter rail groups */
+  filterContent?: ReactNode;
   filterGroups?: FilterGroup[];
   /** Filter toggle handler */
   onFilterToggle?: (groupId: string, itemId: string) => void;
@@ -201,6 +206,13 @@ export function ModuleWorkspace({
   onRowSelect,
   selectedIds,
   isDataLoading,
+  loading = false,
+  loadingLabel = 'Loading records...',
+  refreshDisabled = false,
+  refreshLabel,
+  directManageColumns = false,
+  onClearFilters,
+  filterContent,
   savedTabs,
   activeTab,
   onTabChange,
@@ -288,27 +300,10 @@ export function ModuleWorkspace({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex flex-row items-center justify-between gap-3 mb-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[28px] font-extrabold text-[#0F172A] dark:text-white tracking-tight leading-tight">
-            {title}
-          </h1>
-          {description && (
-            <p className="text-[13px] text-[#5A6B85] dark:text-slate-400 mt-0.5">
-              {description}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canCreate && (
-            <CreateActionDropdown
-              primaryActionLabel={primaryActionLabel}
-              onPrimaryAction={onPrimaryAction}
-              onImport={onImport}
-            />
-          )}
-        </div>
-      </div>
+      <PageHeader title={title} subtitle={description} actions={<>
+        {canCreate && <CreateActionDropdown primaryActionLabel={primaryActionLabel} onPrimaryAction={onPrimaryAction} onImport={onImport} />}
+        {!canCreate && onImport && <button onClick={onImport} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Import File</button>}
+      </>} />
 
       {/* ── Saved View Tabs ─────────────────────────────────────────── */}
       {savedTabs && savedTabs.length > 0 && (
@@ -320,72 +315,40 @@ export function ModuleWorkspace({
               className={cn(
                 'px-3 py-2 text-[13px] font-medium transition-colors relative',
                 activeTab === tab.id
-                  ? 'text-[#2563EB] dark:text-blue-400'
+                  ? 'text-primary dark:text-primary'
                   : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white',
               )}
             >
               {tab.label}
               {activeTab === tab.id && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2563EB] dark:bg-blue-400 rounded-full" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary dark:bg-primary rounded-full" />
               )}
             </button>
           ))}
-          <button className="px-2 py-2 text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white transition-colors">
-            <span className="text-lg leading-none">···</span>
-          </button>
         </div>
       )}
 
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       {/* Control order: search → filter toggle → sort dropdown → page-size selector → pagination nav (Req 8.1) */}
       {/* Mobile: search on row 1 (full width), all secondary controls on row 2 via flex-col */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 mb-3" role="toolbar" aria-label="Module controls">
+      <div data-selection-toolbar className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 mb-3" role="toolbar" aria-label="Module controls">
         {/* 1. Search field — full width on mobile, fixed width on sm+ */}
-        <div className="relative w-full sm:flex-none sm:w-auto">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearch?.(e.target.value)}
-            placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
-            className="h-8 w-full sm:w-48 lg:w-56 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
-          />
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-        </div>
+        <ModuleSearchInput value={searchTerm} onChange={value => onSearch?.(value)} placeholder={searchPlaceholder} />
 
         {/* Row 2 on mobile / inline on sm+: all secondary controls */}
         {/* sm:contents dissolves this wrapper on sm+ so children participate directly in the parent flex */}
         <div className="flex flex-wrap items-center gap-2 sm:contents">
 
           {/* 2. Filter toggle */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onToggleFilters}
-                  aria-label={`Filter ${title}`}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-semibold rounded-lg border transition-colors',
-                    showFilters
-                      ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                      : 'bg-white dark:bg-slate-800 text-[#5A6B85] dark:text-slate-300 border-[#E4E9F0] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700',
-                  )}
-                >
-                  <Filter size={13} aria-hidden="true" />
-                  Filter
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Filter {title}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <FilterButton title={title} open={showFilters} onClick={onToggleFilters} />
 
           {/* 3. Page-size selector */}
-          {onPageSizeChange && (
+          {!loading && !isDataLoading && onPageSizeChange && (
             <PageSizeSelectorInline pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
           )}
 
           {/* 5. Pagination nav (compact toolbar variant) */}
-          {onPageChange && (paginationTotalRecords ?? totalRecords) > 0 && (
+          {!loading && !isDataLoading && onPageChange && (paginationTotalRecords ?? totalRecords) > 0 && (
             <PaginationNavInline
               currentPage={currentPage}
               totalRecords={paginationTotalRecords ?? totalRecords}
@@ -417,7 +380,7 @@ export function ModuleWorkspace({
                   className={cn(
                     'p-1.5 rounded-md transition-colors',
                     isActive
-                      ? 'bg-[#2563EB] text-white shadow-sm'
+                      ? 'bg-primary text-white shadow-sm'
                       : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700',
                   )}
                 >
@@ -455,13 +418,13 @@ export function ModuleWorkspace({
                           className={cn(
                             'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium transition-colors',
                             isActive
-                              ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                              ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                               : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                           )}
                         >
                           <Icon size={15} />
                           {viewOption.label}
-                          {isActive && <span className="ml-auto text-[#2563EB]">✓</span>}
+                          {isActive && <span className="ml-auto text-primary">✓</span>}
                         </button>
                       );
                     })}
@@ -510,13 +473,13 @@ export function ModuleWorkspace({
                           className={cn(
                             'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium transition-colors',
                             isActive
-                              ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                              ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                               : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                           )}
                         >
                           <Icon size={15} />
                           {viewOption.label}
-                          {isActive && <Check size={13} className="ml-auto text-[#2563EB]" />}
+                          {isActive && <Check size={13} className="ml-auto text-primary" />}
                         </button>
                       );
                     })}
@@ -528,34 +491,23 @@ export function ModuleWorkspace({
 
           {/* Refresh */}
           {onRefresh && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onRefresh}
-                    className="p-1.5 text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                    aria-label="Refresh"
-                  >
-                    <RefreshCw size={15} aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Refresh</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <RefreshButton onClick={() => onRefresh()} disabled={refreshDisabled || loading} refreshing={loading} label={refreshLabel} />
           )}
 
           {/* Extra toolbar (pipeline selector, etc.) */}
           {toolbarExtra}
 
           {/* Table Settings Menu (Manage Columns, Reset Columns, View Mode) */}
-          <TableSettingsMenuInline
+          {directManageColumns ? (
+            <ManageColumnsButton onClick={onManageColumns} />
+          ) : <TableSettingsMenuInline
             pageSize={pageSize}
             onPageSizeChange={onPageSizeChange}
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
             onManageColumns={onManageColumns}
             onResetColumns={onResetColumns}
-          />
+          />}
 
         </div>{/* end secondary controls row */}
       </div>
@@ -586,138 +538,23 @@ export function ModuleWorkspace({
 
       {/* ── Main Content Area ───────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 gap-0">
-        {/* Filter Rail — backdrop for mobile */}
-        {showFilters && filterGroups && (
-          <div
-            className="fixed inset-0 z-30 bg-black/30 sm:hidden"
-            onClick={onToggleFilters}
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Filter Rail — mobile: fixed overlay slide-in from left (hidden on sm+) */}
-        <AnimatePresence>
-          {showFilters && filterGroups && (
-            <motion.aside
-              initial={{ x: -260, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -260, opacity: 0 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 z-40 w-[260px] sm:hidden shadow-2xl"
-            >
-              <div className="w-full h-full flex flex-col bg-white dark:bg-slate-800 border-r border-[#E4E9F0] dark:border-slate-700 overflow-hidden">
-                {/* Filter header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
-                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
-                    Filter by
-                  </span>
-                  <button
-                    onClick={onToggleFilters}
-                    className="p-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
-                    aria-label="Close filters"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-                {/* Filter search */}
-                <div className="px-3 py-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={filterSearchTerm}
-                      onChange={(e) => onFilterSearch?.(e.target.value)}
-                      placeholder="Search filters"
-                      aria-label="Search filters"
-                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
-                    />
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-                  </div>
-                </div>
-                {/* Filter groups */}
-                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
-                  {filterGroups.map((group) => (
-                    <FilterGroupSection
-                      key={group.id}
-                      group={group}
-                      filterSearchTerm={filterSearchTerm}
-                      onToggle={onFilterToggle}
-                    />
-                  ))}
-                </div>
-                {/* Footer */}
-                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
-                  {totalRecords} records in this module
-                </div>
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
-
-        {/* Filter Rail — desktop: inline side panel animates width (hidden on mobile) */}
-        <AnimatePresence>
-          {showFilters && filterGroups && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 260, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="hidden sm:block shrink-0 overflow-hidden"
-            >
-              <div className="w-[260px] h-full flex flex-col bg-white dark:bg-slate-800/40 border border-[#E4E9F0] dark:border-slate-700 rounded-xl mr-3 overflow-hidden">
-                {/* Filter header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E9F0] dark:border-slate-700">
-                  <span className="text-[13px] font-semibold text-[#0F172A] dark:text-white">
-                    Filter by
-                  </span>
-                  <button
-                    onClick={onToggleFilters}
-                    className="p-1 text-[#5A6B85] hover:text-[#0F172A] dark:hover:text-white rounded transition-colors"
-                    aria-label="Close filters"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* Filter search */}
-                <div className="px-3 py-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={filterSearchTerm}
-                      onChange={(e) => onFilterSearch?.(e.target.value)}
-                      placeholder="Search filters"
-                      aria-label="Search filters"
-                      className="w-full h-8 pl-8 pr-3 text-[12px] rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 placeholder:text-[#5A6B85] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
-                    />
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A6B85]" aria-hidden="true" />
-                  </div>
-                </div>
-
-                {/* Filter groups */}
-                <div className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar">
-                  {filterGroups.map((group) => (
-                    <FilterGroupSection
-                      key={group.id}
-                      group={group}
-                      filterSearchTerm={filterSearchTerm}
-                      onToggle={onFilterToggle}
-                    />
-                  ))}
-                </div>
-
-                {/* Footer */}
-                <div className="px-4 py-2.5 border-t border-[#E4E9F0] dark:border-slate-700 text-[11.5px] text-[#5A6B85] dark:text-slate-400">
-                  {totalRecords} records in this module
-                </div>
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
+        <ModuleFilterRail filterContent={filterContent}
+          onClearFilters={onClearFilters}
+          showFilters={showFilters}
+          filterGroups={filterGroups}
+          onToggleFilters={onToggleFilters}
+          filterSearchTerm={filterSearchTerm}
+          onFilterSearch={onFilterSearch}
+          onFilterToggle={onFilterToggle}
+          totalRecords={totalRecords}
+        />
 
         {/* Content area */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Render active view from VIEW_OPTIONS registry when moduleConfig is provided */}
-          {moduleConfig && ActiveViewRenderer && viewData && viewColumns ? (
+          {loading ? (
+            <TableLoadingState label={loadingLabel} />
+          ) : moduleConfig && ActiveViewRenderer && viewData && viewColumns ? (
             <ActiveViewRenderer
               data={viewData}
               columns={viewColumns}
@@ -733,7 +570,7 @@ export function ModuleWorkspace({
           )}
 
           {/* Pagination Controls (Task 13.2) */}
-          {onPageChange && onPageSizeChange && (
+          {!loading && !isDataLoading && onPageChange && onPageSizeChange && (
             <PaginationControls
               currentPage={currentPage}
               totalRecords={paginationTotalRecords ?? totalRecords}
@@ -745,27 +582,7 @@ export function ModuleWorkspace({
         </div>
       </div>
 
-      {/* ── Bulk Selection Bar ───────────────────────────────────────── */}
-      <AnimatePresence>
-        {bulkSelection && bulkSelection.count > 0 && (
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-[#0F172A] dark:bg-slate-700 text-white rounded-xl px-4 py-2.5 shadow-xl flex items-center gap-3 text-[13px]"
-          >
-            <span className="font-semibold">{bulkSelection.count} selected</span>
-            <button
-              onClick={bulkSelection.onClear}
-              className="text-slate-300 hover:text-white text-[12px] underline transition-colors"
-            >
-              Clear
-            </button>
-            <div className="h-4 w-px bg-slate-600" />
-            {bulkSelection.actions}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {bulkSelection && <SelectedRowsBar count={bulkSelection.count} onClear={bulkSelection.onClear}>{bulkSelection.actions}</SelectedRowsBar>}
     </div>
   );
 }
@@ -820,6 +637,7 @@ function TableSettingsMenuInline({
 
   return (
     <div className="relative" ref={menuRef}>
+      <TooltipProvider><Tooltip><TooltipTrigger asChild>
       <button
         onClick={() => { setIsOpen((prev) => !prev); setActiveSubmenu(null); }}
         className="inline-flex items-center gap-1.5 h-8 px-2.5 text-[12px] font-medium text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
@@ -827,15 +645,16 @@ function TableSettingsMenuInline({
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
-        <Settings2 size={14} />
+        <Settings2 size={14} aria-hidden="true" />
       </button>
+      </TooltipTrigger><TooltipContent>Table settings</TooltipContent></Tooltip></TooltipProvider>
 
       {isOpen && (
         <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5 overflow-visible">
           {/* Manage Columns */}
           {onManageColumns && (
             <button
-              onClick={() => { onManageColumns(); setIsOpen(false); }}
+              onClick={() => { menuRef.current?.querySelector('button')?.focus(); onManageColumns(); setIsOpen(false); }}
               className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               <Settings2 size={14} className="text-[#5A6B85] dark:text-slate-400" />
@@ -866,6 +685,8 @@ function TableSettingsMenuInline({
                 onMouseLeave={() => setActiveSubmenu(null)}
               >
                 <button
+                  onClick={() => setActiveSubmenu('pageSize')}
+                  aria-expanded={activeSubmenu === 'pageSize'}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-haspopup="true"
                 >
@@ -876,7 +697,7 @@ function TableSettingsMenuInline({
                 </button>
 
                 {activeSubmenu === 'pageSize' && (
-                  <div className="absolute right-full top-0 mr-1 w-32 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5">
+                  <div className="relative mx-2 my-1 sm:absolute sm:right-full sm:top-0 sm:mr-1 sm:ml-0 sm:my-0 sm:w-32 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5">
                     {PAGE_SIZE_OPTIONS.map((size) => (
                       <button
                         key={size}
@@ -884,7 +705,7 @@ function TableSettingsMenuInline({
                         className={cn(
                           'w-full flex items-center gap-2 px-3 py-2 text-[13px] font-medium transition-colors',
                           pageSize === size
-                            ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                            ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                             : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                         )}
                       >
@@ -910,6 +731,8 @@ function TableSettingsMenuInline({
             onMouseLeave={() => setActiveSubmenu(null)}
           >
             <button
+              onClick={() => setActiveSubmenu('viewMode')}
+              aria-expanded={activeSubmenu === 'viewMode'}
               className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
               aria-haspopup="true"
             >
@@ -922,13 +745,13 @@ function TableSettingsMenuInline({
             </button>
 
             {activeSubmenu === 'viewMode' && (
-              <div className="absolute right-full top-0 mr-1 w-36 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5">
+              <div className="relative mx-2 my-1 sm:absolute sm:right-full sm:top-0 sm:mr-1 sm:ml-0 sm:my-0 sm:w-36 bg-white dark:bg-slate-800 border border-[#E4E9F0] dark:border-slate-700 rounded-xl shadow-lg z-50 py-1.5">
                 <button
                   onClick={() => { onViewModeChange?.('wrap'); setIsOpen(false); setActiveSubmenu(null); }}
                   className={cn(
                     'w-full flex items-center gap-2 px-3 py-2 text-[13px] font-medium transition-colors',
                     viewMode === 'wrap'
-                      ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                      ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                       : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                   )}
                 >
@@ -940,7 +763,7 @@ function TableSettingsMenuInline({
                   className={cn(
                     'w-full flex items-center gap-2 px-3 py-2 text-[13px] font-medium transition-colors',
                     viewMode === 'clip'
-                      ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                      ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                       : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                   )}
                 >
@@ -979,7 +802,7 @@ function PageSizeSelectorInline({ pageSize, onPageSizeChange }: PageSizeSelector
         id="toolbar-page-size"
         value={pageSize}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}
-        className="h-8 px-2 pr-6 text-[12px] font-medium rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 cursor-pointer appearance-none"
+        className="h-8 px-2 pr-6 text-[12px] font-medium rounded-lg border border-[#E4E9F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#0F172A] dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer appearance-none"
         aria-label="Records per page"
       >
         {PAGE_SIZE_OPTIONS.map((size) => (
@@ -1046,83 +869,7 @@ function PaginationNavInline({ currentPage, totalRecords, pageSize, onPageChange
 
 // ── Filter Group Sub-component ─────────────────────────────────────────────────
 
-interface FilterGroupSectionProps {
-  group: FilterGroup;
-  filterSearchTerm?: string;
-  onToggle?: (groupId: string, itemId: string) => void;
-}
-
-export function FilterGroupSection({ group, filterSearchTerm = '', onToggle }: FilterGroupSectionProps): React.ReactElement | null {
-  const [isExpanded, setIsExpanded] = useState(group.isExpanded ?? true);
-
-  const visibleItems = React.useMemo(() => {
-    if (!filterSearchTerm.trim()) return group.items;
-    const term = filterSearchTerm.toLowerCase().trim();
-    return group.items.filter((item) => item.label.toLowerCase().includes(term));
-  }, [group.items, filterSearchTerm]);
-
-  if (visibleItems.length === 0 && filterSearchTerm.trim()) {
-    return null;
-  }
-
-  return (
-    <div className="mb-3">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-1 w-full text-left py-1.5"
-      >
-        <ChevronDown
-          size={12}
-          className={cn(
-            'text-[#5A6B85] transition-transform',
-            !isExpanded && '-rotate-90',
-          )}
-        />
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-[#5A6B85] dark:text-slate-400">
-          {group.label}
-        </span>
-      </button>
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-col gap-0.5 pl-1">
-              {visibleItems.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer group"
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.isChecked ?? false}
-                    onChange={() => onToggle?.(group.id, item.id)}
-                    className="w-3.5 h-3.5 rounded border-[#E4E9F0] dark:border-slate-600 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
-                    aria-label={`Filter by ${item.label}`}
-                  />
-                  <span className="flex-1 text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate min-w-0">
-                    {item.label}
-                  </span>
-                  {item.count !== undefined && (
-                    <span className="text-[11px] text-[#5A6B85] dark:text-slate-500 tabular-nums shrink-0">
-                      {item.count}
-                    </span>
-                  )}
-                </label>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ── Create Action Dropdown ─────────────────────────────────────────────────────
+export { FilterGroupSection } from './module-filter-rail';
 
 interface CreateActionDropdownProps {
   primaryActionLabel: string;
@@ -1156,54 +903,13 @@ export function CreateActionDropdown({ primaryActionLabel, onPrimaryAction, onIm
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen]);
 
-  // If no import action, just render the primary button directly (no dropdown)
-  if (!onImport) {
-    return (
-      <>
-        {/* Mobile: compact icon-only button (hidden at sm+) */}
-        <button
-          onClick={onPrimaryAction}
-          aria-label={primaryActionLabel}
-          className="sm:hidden inline-flex items-center justify-center h-9 w-9 shrink-0 text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg transition-colors shadow-sm"
-        >
-          <Plus size={16} />
-        </button>
-        {/* Desktop: full labeled button (hidden below sm) */}
-        <button
-          onClick={onPrimaryAction}
-          className="hidden sm:inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg transition-colors shadow-sm"
-        >
-          <span className="text-base leading-none">+</span>
-          {primaryActionLabel}
-        </button>
-      </>
-    );
-  }
+  if (!onImport) return <CreateButton label={primaryActionLabel} onClick={onPrimaryAction} />;
 
   return (
     <div ref={dropdownRef} className="relative">
-      {/* Mobile: compact icon-only [+] button (hidden at sm+) */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        aria-expanded={isOpen}
-        aria-haspopup="true"
-        aria-label={primaryActionLabel}
-        className="sm:hidden inline-flex items-center justify-center h-9 w-9 shrink-0 text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg transition-colors shadow-sm"
-      >
-        <Plus size={16} />
-      </button>
-
-      {/* Desktop: full labeled dropdown button (hidden below sm) */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        aria-expanded={isOpen}
-        aria-haspopup="true"
-        className="hidden sm:inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg transition-colors shadow-sm"
-      >
-        <span className="text-base leading-none">+</span>
-        {primaryActionLabel}
-        <ChevronDown size={14} className={cn('ml-0.5 opacity-60 transition-transform', isOpen && 'rotate-180')} />
-      </button>
+      <CreateButton label={primaryActionLabel} onClick={() => setIsOpen(!isOpen)} aria-expanded={isOpen} aria-haspopup="menu">
+        <ChevronDown size={14} className={cn('hidden sm:block opacity-60 transition-transform', isOpen && 'rotate-180')} />
+      </CreateButton>
 
       <AnimatePresence>
         {isOpen && (
@@ -1212,11 +918,11 @@ export function CreateActionDropdown({ primaryActionLabel, onPrimaryAction, onIm
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.95 }}
             transition={{ duration: 0.12 }}
-            className="absolute top-full right-0 mt-1.5 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 py-1"
+            className="absolute top-full right-0 mt-1.5 w-48 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 py-1"
             role="menu"
           >
             <button
-              onClick={() => { onPrimaryAction(); setIsOpen(false); }}
+              onClick={() => { dropdownRef.current?.querySelector('button')?.focus(); onPrimaryAction(); setIsOpen(false); }}
               className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left"
               role="menuitem"
             >

@@ -1,144 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-/**
- * Regression test for C2 — Lead -> Contact conversion field mapping.
- *
- * Guards against the bug where convertContact() wrote fields that do not exist on the
- * Contact model (companyName, productInterest) and an invalid ContactStatus ('Active'),
- * which caused the whole conversion $transaction to throw and roll back at runtime.
- *
- * Spec: .kiro/specs/lead-conversion-fix/
- *
- * Strategy: mock the Prisma client's $transaction to invoke the callback with a mock tx
- * client, capture the arguments passed to tx.contact.create, and assert the create data uses
- * ONLY valid Contact fields with the correct Lead -> Contact mapping.
- */
-
-// ── Mocks ────────────────────────────────────────────────────────────────
-const mockContactCreate = vi.fn();
-const mockAccountCreate = vi.fn();
-const mockLeadUpdate = vi.fn();
-const mockActivityCreate = vi.fn();
-const mockTransaction = vi.fn();
-
-const CONTACT_STATUS_VALUES = ['HOT', 'WARM', 'COLD', 'CANCELLED', 'CLOSED'];
-const CONTACT_LIFECYCLE_VALUES = ['LEAD', 'QUALIFIED', 'CONTACT', 'CUSTOMER', 'CHURNED', 'DISQUALIFIED'];
-
-// Fields that exist on the Contact model (schema ground truth). Any create-data key outside
-// this set would be an "Unknown argument" at runtime — the exact class of bug we are guarding.
-const VALID_CONTACT_FIELDS = new Set([
-  'tenantId', 'accountId', 'assignedUserId', 'ownerId',
-  'firstName', 'lastName', 'email', 'phone', 'company', 'jobTitle', 'linkedinUrl',
-  'status', 'score', 'source', 'notes', 'lastContactedAt', 'convertedAt', 'doNotContact',
-  'isArchived', 'archiveReason', 'deletedAt', 'deletedBy',
-  'activeProducts', 'address', 'customerSince', 'customerType', 'productInterests',
-  'lifecycleStage', 'recordType', 'qualifiedAt', 'disqualifiedReason',
-]);
-
-const LEAD = {
-  id: 'lead-1',
-  tenantId: 'tenant-1',
-  status: 'Inquiry',
-  firstName: 'John',
-  lastName: 'Smith',
-  email: 'john@abc.com',
-  phone: '+63 900 000 0000',
-  companyName: 'ABC Corporation',
-  address: 'Makati',
-  source: 'Website',
-  productInterest: ['CRM Enterprise', 'Workflow Automation'],
-  assignedUserId: 'user-1',
-};
-
-vi.mock('../../../../config/database.config', () => ({
-  default: {
-    $transaction: (cb: (tx: unknown) => Promise<unknown>) => mockTransaction(cb),
-  },
-}));
-
-vi.mock('../../../../core/audit/audit.service', () => ({ writeAuditLog: vi.fn() }));
-vi.mock('../../../automation/triggers/triggers.service', () => ({
-  fireLeadCreated: vi.fn().mockResolvedValue(undefined),
-  fireLeadStatusChanged: vi.fn().mockResolvedValue(undefined),
-  fireDealCreated: vi.fn().mockResolvedValue(undefined),
-  fireContactCreated: vi.fn(() => Promise.resolve()),
-  fireContactStatusChanged: vi.fn(() => Promise.resolve()),
-}));
-
-// repo.findContactById is used to load the source lead
-vi.mock('../contacts.repository', () => ({
-  findContactById: vi.fn(() => Promise.resolve(LEAD)),
-}));
-
-import { convertContact } from '../contacts.service';
-
-function buildTxClient() {
-  return {
-    account:  { findFirst: vi.fn(), create: mockAccountCreate },
-    contact:  { findFirst: vi.fn(), create: mockContactCreate, update: vi.fn() },
-    deal:     { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-    leadDeal: { create: vi.fn() },
-    contactDeal: { create: vi.fn() },
-    pipeline: { findFirst: vi.fn() },
-    lead:     { update: mockLeadUpdate },
-    activity: { create: mockActivityCreate },
-  };
-}
-
-describe('C2 regression — convertContact Lead->Contact field mapping', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockAccountCreate.mockResolvedValue({ id: 'acct-1', name: 'ABC Corporation' });
-    mockContactCreate.mockResolvedValue({ id: 'contact-1', firstName: 'John', lastName: 'Smith' });
-    mockLeadUpdate.mockResolvedValue({});
-    mockActivityCreate.mockResolvedValue({});
-    mockTransaction.mockImplementation((cb: (tx: unknown) => Promise<unknown>) => cb(buildTxClient()));
-  });
-
-  it('creates a Contact using only valid Contact fields with correct mapping', async () => {
-    await convertContact('lead-1', 'tenant-1', 'user-1', {
-      accountName: 'ABC Corporation',
-      createContact: true,
-      createDeal: false,
-      dealPriority: 'MEDIUM',
-    } as never);
-
-    expect(mockContactCreate).toHaveBeenCalledTimes(1);
-    const createArg = mockContactCreate.mock.calls[0][0] as { data: Record<string, unknown> };
-    const data = createArg.data;
-
-    // No unknown fields (guards companyName/productInterest regression)
-    for (const key of Object.keys(data)) {
-      expect(VALID_CONTACT_FIELDS.has(key), `unexpected Contact field: ${key}`).toBe(true);
-    }
-    expect(data).not.toHaveProperty('companyName');
-    expect(data).not.toHaveProperty('productInterest');
-
-    // Correct mapping
-    expect(data.company).toBe('ABC Corporation');
-    expect(data.productInterests).toEqual(['CRM Enterprise', 'Workflow Automation']);
-    expect(data.firstName).toBe('John');
-    expect(data.accountId).toBe('acct-1');
-
-    // Valid enums
-    expect(CONTACT_STATUS_VALUES).toContain(data.status);
-    expect(CONTACT_LIFECYCLE_VALUES).toContain(data.lifecycleStage);
-    expect(data.lifecycleStage).toBe('CUSTOMER');
-    expect(data.convertedAt).toBeInstanceOf(Date);
-  });
-
-  it('marks the lead as Converted with the resolved account and contact', async () => {
-    await convertContact('lead-1', 'tenant-1', 'user-1', {
-      accountName: 'ABC Corporation',
-      createContact: true,
-      createDeal: false,
-      dealPriority: 'MEDIUM',
-    } as never);
-
-    expect(mockLeadUpdate).toHaveBeenCalledTimes(1);
-    const updateArg = mockLeadUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(updateArg.data.status).toBe('Converted');
-    expect(updateArg.data.accountId).toBe('acct-1');
-    expect(updateArg.data.contactId).toBe('contact-1');
-  });
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+import { conversionFixture } from './conversion-fixture';
+vi.mock('../../../../config/database.config', () => ({ default: new PrismaClient({ datasources: { db: { url: process.env.CONVERSION_TEST_DATABASE_URL! } } }) }));
+vi.mock('../../../automation/triggers/triggers.service', () => ({ fireLeadUpdated: vi.fn(), fireLeadStatusChanged: vi.fn(), fireContactCreated: vi.fn(), fireContactUpdated: vi.fn(), fireContactStatusChanged: vi.fn(), fireDealUpdated: vi.fn() }));
+let fixture: Awaited<ReturnType<typeof conversionFixture>>;
+beforeAll(async () => { fixture = await conversionFixture(); }, 60000);
+afterAll(async () => { await fixture?.close(); });
+it('maps Lead fields into real Contact columns and normalized Product links after a confirmed sale', async () => {
+  const { lead, deal } = await fixture.inquiry('ABC Corporation');
+  const result = await fixture.convert(lead.id);
+  const contact = await fixture.db.contact.findUniqueOrThrow({ where: { id: result.contact.id }, include: { productLinks: true } });
+  expect(contact).toMatchObject({ firstName: 'John', lastName: 'Smith', company: 'ABC Corporation', address: 'Makati', source: 'Website', notes: 'Original inquiry', status: 'CLOSED', lifecycleStage: 'CUSTOMER' });
+  expect(contact.productLinks).toEqual([expect.objectContaining({ productInterestId: 'product', interested: true, activeProduct: true })]);
+  expect(contact.productInterests).toEqual(['CRM Enterprise']);
+  expect(contact.activeProducts).toEqual(['CRM Enterprise']);
+  expect(contact.productLinks[0]).not.toHaveProperty('product');
+  expect(await fixture.db.contact.findUniqueOrThrow({ where: { id: contact.id }, select: {
+    productInterests: true, activeProducts: true, productLinks: { select: { productInterestId: true } },
+  } })).toEqual({ productInterests: ['CRM Enterprise'], activeProducts: ['CRM Enterprise'], productLinks: [{ productInterestId: 'product' }] });
+  expect(result.lead).toMatchObject({ status: 'Closed', contactId: contact.id, accountId: contact.accountId });
+  expect(result.lead.convertedAt).toBeInstanceOf(Date);
+  expect(await fixture.db.contactDeal.count({ where: { contactId: contact.id, dealId: deal.id } })).toBe(1);
+  expect(await fixture.db.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ value: 12500, stageId: 'won', title: 'Original sale' });
+});
+it('rejects conversion before a confirmed sale without changing the Lead or creating a Contact', async () => {
+  const { lead } = await fixture.inquiry('Not yet sold', false);
+  const before = await fixture.db.lead.findUniqueOrThrow({ where: { id: lead.id } });
+  await expect(fixture.convert(lead.id)).rejects.toThrow('Closed Won');
+  expect(await fixture.db.lead.findUniqueOrThrow({ where: { id: lead.id } })).toEqual(before);
+  expect(await fixture.db.contact.count({ where: { email: lead.email } })).toBe(0);
 });

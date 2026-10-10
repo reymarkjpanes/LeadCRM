@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   DndContext,
   DragOverlay,
@@ -11,6 +12,7 @@ import {
 } from '@dnd-kit/core';
 import {
   WorkflowDraftSchema,
+  workflowOperators,
   type Workflow,
   type WorkflowDraft,
   type ActionDefinition,
@@ -28,8 +30,10 @@ import {
   FlaskConical,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
+import { StatusBadge } from '@/shared/components/crm/record-drawer';
 import { Input } from '@/shared/components/ui/input';
 import { workflowsApi } from '@/shared/services/workflows.api';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import { WorkflowDialog } from './workflow-dialog';
 import {
   ActionFields,
@@ -48,6 +52,8 @@ import {
   insertAction,
   moveAction,
   toDraft,
+  workflowNameIssue,
+  retiredActionLabels,
   type DragItem,
   type EditorDocument,
   type LibraryItem,
@@ -59,9 +65,12 @@ interface Props {
   initial: WorkflowDraft;
   workflowId?: string;
   initialStatus?: Workflow['status'];
+  initialVersion?: number;
   triggers: TriggerDefinition[];
   actions: ActionDefinition[];
   options?: WorkflowOptions;
+  existingWorkflows?: Array<{ id: string; name: string }>;
+  onCheckName?: (name: string, excludeId?: string) => Promise<boolean>;
   canActivate: boolean;
   readOnly?: boolean;
   onSave: (draft: WorkflowDraft) => Promise<Workflow | void>;
@@ -77,9 +86,12 @@ export default function WorkflowBuilder({
   initial,
   workflowId,
   initialStatus,
+  initialVersion,
   triggers,
   actions: definitions,
   options = emptyOptions,
+  existingWorkflows = [],
+  onCheckName,
   canActivate,
   readOnly,
   onSave,
@@ -96,6 +108,8 @@ export default function WorkflowBuilder({
   const [savedStatus, setSavedStatus] = useState(
     initialStatus ?? (initial.isActive ? 'ACTIVE' : 'DRAFT'),
   );
+  const [savedVersion, setSavedVersion] = useState(initialVersion);
+  const [nameCheck, setNameCheck] = useState<{ name: string; available?: boolean; failed?: boolean } | null>(null);
   const [selected, setSelected] = useState<StepSelection | null>(
     initial.name ? null : 'details',
   );
@@ -111,6 +125,7 @@ export default function WorkflowBuilder({
     [busy, setBusy] = useState(false);
   const [changeTrigger, setChangeTrigger] = useState<string | null>(null),
     [exit, setExit] = useState<(() => void) | null>(null);
+  const [confirmActivation, setConfirmActivation] = useState(false);
   const operation = useRef(false),
     focusOrigin = useRef<HTMLElement | null>(null),
     leaving = useRef(false);
@@ -127,13 +142,31 @@ export default function WorkflowBuilder({
   const trigger = triggers.find((entry) => entry.type === draft.trigger);
   const dirty = JSON.stringify(toDraft(draft)) !== JSON.stringify(saved);
   const locked = !!readOnly || busy;
-  const issues = editorIssues(document, triggers, definitions, options);
+  const nameIssue = workflowNameIssue(draft.name, existingWorkflows, savedId) ||
+    (nameCheck?.name === draft.name && nameCheck.available === false ? 'A workflow with this name already exists. Choose another name.' : '');
+  const issues = [
+    ...editorIssues(document, triggers, definitions, options, false, savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined),
+    ...(nameIssue && draft.name.trim() ? [{ step: 'details' as const, message: nameIssue }] : []),
+  ];
   const actionIndex = selected?.startsWith('action:')
     ? document.actionIds.indexOf(selected.slice(7))
     : -1;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
+
+  useEffect(() => {
+    if (!onCheckName || !draft.name.trim() || readOnly) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      onCheckName(draft.name, savedId).then((available) => {
+        if (!cancelled) setNameCheck({ name: draft.name, available });
+      }).catch(() => {
+        if (!cancelled) setNameCheck({ name: draft.name, failed: true });
+      });
+    }, 350);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [draft.name, savedId, onCheckName, readOnly]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1280px)');
@@ -337,7 +370,7 @@ export default function WorkflowBuilder({
             ...(draft.conditions?.conditions ?? []),
             {
               field: field?.field ?? '',
-              operator: 'equals',
+              operator: workflowOperators(field?.type ?? 'string')[0],
               value:
                 field?.type === 'number'
                   ? 0
@@ -383,20 +416,32 @@ export default function WorkflowBuilder({
     setDragging(null);
     if (item && target) place(item, target);
   }
-  async function submit(activate: boolean, validateOnly = false) {
+  function reportError(message: string) {
+    setError(message);
+    toast.error(message);
+  }
+  async function submit(activate: boolean, validateOnly = false, confirmed = false) {
     if (operation.current || readOnly || (activate && !canActivate)) return;
     setError('');
     setMessage('');
+    if (nameIssue) {
+      select('details');
+      reportError(nameIssue);
+      if (confirmed) throw new Error(nameIssue);
+      return;
+    }
     const local = editorIssues(
       document,
       triggers,
       definitions,
       options,
       !activate && !validateOnly,
+      savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined,
     );
     if (local.length) {
       select(local[0].step);
-      setError(local[0].message);
+      reportError(local[0].message);
+      if (confirmed) throw new Error(local[0].message);
       return;
     }
     const parsed = WorkflowDraftSchema.safeParse({
@@ -404,35 +449,49 @@ export default function WorkflowBuilder({
       isActive: activate,
     });
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Review the workflow.');
+      const issue = parsed.error.issues[0]?.message ?? 'Review the workflow.';
+      reportError(issue);
+      if (confirmed) throw new Error(issue);
+      return;
+    }
+    if (activate && !confirmed) {
+      closeInspector();
+      setConfirmActivation(true);
       return;
     }
     operation.current = true;
     setBusy(true);
     try {
-      if (validateOnly)
-        setMessage((await workflowsApi.validate(parsed.data)).data.message);
+      if (validateOnly) {
+        const result = (await workflowsApi.validate(parsed.data, savedId)).data;
+        if (!result.valid) throw new Error(result.message || 'Review the workflow configuration.');
+        setMessage(result.message);
+        toast.success(result.message);
+      }
       else {
         const result = await onSave(parsed.data),
           persisted = result ? toDraft(result) : parsed.data;
+        const paused = !persisted.isActive && (result?.status === 'PAUSED' || saved.isActive || savedStatus === 'PAUSED');
         setSaved(persisted);
-        setSavedStatus(result?.status ?? (activate ? 'ACTIVE' : 'DRAFT'));
-        if (result) setSavedId(result.id);
+        setSavedStatus(result?.status ?? (persisted.isActive ? 'ACTIVE' : paused ? 'PAUSED' : 'DRAFT'));
+        if (result) { setSavedId(result.id); setSavedVersion(result.version); }
         setHistory({
           present: { ...document, draft: persisted },
           past: [],
           future: [],
         });
         setMessage(
-          activate
+          persisted.isActive
             ? 'Saved and active. Matching CRM events will run this workflow.'
-            : 'Draft saved. This workflow is inactive.',
+            : paused ? 'Changes saved. This workflow is paused.' : 'Draft saved. This workflow is inactive.',
         );
+        toast.success(persisted.isActive ? 'Workflow saved and activated.' : paused ? 'Workflow saved and paused.' : 'Draft saved.');
       }
     } catch (failure) {
-      setError(
+      reportError(
         failure instanceof Error ? failure.message : 'Unable to save workflow.',
       );
+      if (confirmed) throw failure;
     } finally {
       operation.current = false;
       setBusy(false);
@@ -443,6 +502,7 @@ export default function WorkflowBuilder({
     operation.current = true;
     setBusy(true);
     setError('');
+    setMessage('');
     try {
       const result = await onPause();
       setSaved(toDraft(result));
@@ -457,8 +517,9 @@ export default function WorkflowBuilder({
       setMessage(
         'Workflow paused. Remaining actions will be skipped; an already dispatched action cannot be recalled.',
       );
+      toast.success('Workflow paused.');
     } catch (failure) {
-      setError(
+      reportError(
         failure instanceof Error
           ? failure.message
           : 'Unable to pause workflow.',
@@ -480,7 +541,7 @@ export default function WorkflowBuilder({
                 ? 'Conditions'
                 : (definitions.find(
                     (def) => def.type === draft.actions[actionIndex]?.type,
-                  )?.label ?? 'Select a step')}
+                  )?.label ?? retiredActionLabels[draft.actions[actionIndex]?.type] ?? 'Unavailable action')}
         </h2>
         <Button
           size="sm"
@@ -495,13 +556,13 @@ export default function WorkflowBuilder({
         {selected === 'details' && (
           <>
             <label className="block space-y-2 text-sm">
-              Workflow name
+              <span>Workflow name <span className="text-red-500" aria-hidden="true">*</span></span>
               <Input
                 aria-label="Workflow name"
                 aria-required="true"
-                aria-invalid={!draft.name.trim()}
+                aria-invalid={!!nameIssue}
                 aria-describedby={
-                  !draft.name.trim() ? 'workflow-name-error' : undefined
+                  nameIssue ? 'workflow-name-error' : undefined
                 }
                 maxLength={255}
                 value={draft.name}
@@ -509,14 +570,15 @@ export default function WorkflowBuilder({
                   updateDraft({ ...draft, name: event.target.value })
                 }
               />
-              {!draft.name.trim() && (
+              {nameIssue && (
                 <span
                   id="workflow-name-error"
                   className="text-xs text-amber-700 dark:text-amber-300"
                 >
-                  Workflow name is required.
+                  {nameIssue}
                 </span>
               )}
+              {nameCheck?.name === draft.name && nameCheck.failed && !nameIssue && <span className="block text-xs text-[var(--muted-foreground)]">Name availability will be checked when you save.</span>}
             </label>
             <label className="block space-y-2 text-sm">
               Description
@@ -625,7 +687,7 @@ export default function WorkflowBuilder({
       <p className="text-xs text-[var(--muted-foreground)]">
         Changes update the canvas immediately. Save the workflow to apply them.
       </p>
-      <Button variant="outline" onClick={closeInspector}>
+      <Button variant={selected === 'trigger' || selected === 'conditions' ? 'default' : 'outline'} onClick={closeInspector}>
         Done
       </Button>
     </div>
@@ -669,11 +731,7 @@ export default function WorkflowBuilder({
                 {draft.name || 'New workflow'}
               </button>
               <p className="text-xs text-[var(--muted-foreground)]">
-                {savedStatus === 'ACTIVE'
-                  ? 'Active'
-                  : savedStatus === 'PAUSED'
-                    ? 'Paused'
-                    : 'Draft'}{' '}
+                <StatusBadge label={savedStatus === 'ACTIVE' ? 'Active' : savedStatus === 'PAUSED' ? 'Paused' : 'Draft'} variant={savedStatus === 'ACTIVE' ? 'success' : savedStatus === 'PAUSED' ? 'warn' : 'neutral'} />{savedVersion ? ` · v${savedVersion}` : ''}{' '}
                 ·{' '}
                 {dirty
                   ? 'Unsaved changes'
@@ -709,7 +767,7 @@ export default function WorkflowBuilder({
                 disabled={busy}
                 onClick={() => void submit(false)}
               >
-                {saved.isActive ? 'Save and pause' : 'Save draft'}
+                {saved.isActive ? 'Save and pause' : savedStatus === 'PAUSED' ? 'Save changes' : 'Save draft'}
               </Button>
               {canActivate && (
                 <Button
@@ -790,6 +848,7 @@ export default function WorkflowBuilder({
           </div>
         </div>
       </header>
+      {dirty && savedId && <p className="border-b border-[var(--border)] px-5 py-2 text-sm text-[var(--muted-foreground)]">Testing uses the last saved version of this workflow. Save changes before running the check.</p>}
       {error && (
         <p
           role="alert"
@@ -965,55 +1024,22 @@ export default function WorkflowBuilder({
         </WorkflowDialog>
       )}
       {changeTrigger && (
-        <WorkflowDialog
-          title="Change workflow record type?"
-          onClose={() => setChangeTrigger(null)}
-        >
-          <p>
-            This clears {draft.conditions?.conditions.length ?? 0} condition
-            rules and removes{' '}
-            {
-              draft.actions.filter(
-                (action) =>
-                  !definitions
-                    .find((def) => def.type === action.type)
-                    ?.entities.includes(
-                      triggers.find((entry) => entry.type === changeTrigger)!
-                        .entity,
-                    ),
-              ).length
-            }{' '}
-            incompatible actions. Compatible actions are kept. Review their
-            configuration before saving.
-          </p>
-          <Button variant="outline" onClick={() => setChangeTrigger(null)}>
-            Keep current trigger
-          </Button>
-          <Button onClick={() => applyTrigger(changeTrigger)}>
-            Change trigger
-          </Button>
-        </WorkflowDialog>
+        <ConfirmActionDialog open onOpenChange={open => { if (!open) setChangeTrigger(null); }}
+          title="Change workflow record type?" variant="warning" confirmLabel="Change trigger" cancelLabel="Keep current trigger"
+          onConfirm={() => applyTrigger(changeTrigger)}>
+          <p>This clears {draft.conditions?.conditions.length ?? 0} condition rules and removes {draft.actions.filter(action => !definitions.find(def => def.type === action.type)?.entities.includes(triggers.find(entry => entry.type === changeTrigger)!.entity)).length} incompatible actions. Compatible actions are kept. Review their configuration before saving.</p>
+        </ConfirmActionDialog>
       )}
-      {exit && (
-        <WorkflowDialog
-          title="Discard unsaved changes?"
-          onClose={() => setExit(null)}
-        >
-          <p>Your last saved workflow will be kept.</p>
-          <Button variant="outline" onClick={() => setExit(null)}>
-            Keep editing
-          </Button>
-          <Button
-            onClick={() => {
-              leaving.current = true;
-              setSaved(toDraft(draft));
-              exit();
-            }}
-          >
-            Discard changes
-          </Button>
-        </WorkflowDialog>
-      )}
+      <ConfirmActionDialog open={confirmActivation} onOpenChange={setConfirmActivation}
+        title={saved.isActive ? 'Save changes to active workflow?' : 'Activate workflow?'}
+        description={`${draft.name} will run when ${trigger?.label ?? 'its trigger'} occurs and its conditions match. ${draft.actions.filter(action => action.enabled !== false).length} enabled action(s) may create tasks, update records, or send messages.`}
+        warning="Review recipients, assigned agents, and field changes before activating. Already dispatched actions cannot be recalled."
+        variant="success" confirmLabel="Confirm activation" cancelLabel="Keep editing" isLoading={busy}
+        confirmDisabled={readOnly || !canActivate} onConfirm={() => submit(true, false, true)} />
+      <ConfirmActionDialog open={!!exit} onOpenChange={open => { if (!open) setExit(null); }}
+        title="Discard unsaved changes?" description="Your last saved workflow will be kept."
+        variant="warning" confirmLabel="Discard changes" cancelLabel="Keep editing"
+        onConfirm={() => { leaving.current = true; setSaved(toDraft(draft)); exit?.(); }} />
     </div>
   );
 }

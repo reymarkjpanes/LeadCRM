@@ -13,7 +13,7 @@ const MAX_RESULTS = 10;
  * Normalize a phone number for comparison by stripping non-digit chars
  * and handling common Philippine number formats (+63 / 0 prefix).
  */
-function normalizePhone(phone: string): string {
+export function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   // Remove leading country code 63 or leading 0
   if (digits.startsWith('63') && digits.length >= 11) {

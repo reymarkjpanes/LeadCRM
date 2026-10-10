@@ -1,3 +1,9 @@
+import { ValidationError } from '../../../shared/errors/http-error';
+import { resolveSalesAgent } from '../leads/lead-automation.service';
+import { validateProductSnapshots, normalizeProductOther } from '../leads/product-snapshots';
+import { productRelationData } from '../leads/product-relations';
+import { salesTransaction } from '../leads/lead-automation.service';
+import { saveRecordValues } from '../closing-requirements/custom-field-values.repository';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
 import prisma from '../../../config/database.config';
 import { getPaginationParams } from '../../../shared/helpers/pagination';
@@ -38,8 +44,9 @@ export async function findAllCompanies(tenantId: string, query: Record<string, u
     ...(filterClauses.length > 0 ? { AND: filterClauses } : {}),
   };
 
-  const ids = await sortedPageIds(query.sort, ["name","industry","customerType","size","city","country","createdAt"], skip, limit,
-    () => prisma.account.findMany({ where, select: { id: true, name: true, industry: true, customerType: true, size: true, city: true, country: true, createdAt: true } }));
+  const ids = await sortedPageIds(query.sort, ["name","industry","size","city","country","createdAt"], skip, limit,
+    () => prisma.account.findMany({ where, select: { id: true, name: true, industry: true, size: true, city: true, country: true, createdAt: true } }),
+    direction => prisma.account.findMany({ where, skip, take: limit, orderBy: [{ createdAt: direction }, { id: 'asc' }], select: { id: true } }));
   const [data, total] = await Promise.all([
     prisma.account.findMany({
       where: ids ? { ...where, id: { in: ids } } : where, skip: ids ? 0 : skip, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
@@ -62,17 +69,33 @@ export async function findCompanyById(id: string, tenantId: string) {
   });
 }
 
-export async function createCompany(tenantId: string, dto: CreateCompanyDto) {
-  return prisma.account.create({ data: { ...dto, tenantId } as never });
+export async function createCompany(tenantId: string, dto: CreateCompanyDto, actorId?: string) {
+  dto.productInterests = await validateProductSnapshots(tenantId, dto.productInterests);
+  normalizeProductOther(dto, (dto.productInterests as string[] | undefined) ?? []);
+  const { customFieldValues, ...data } = dto;
+  return salesTransaction(async tx => {
+    const agent = await resolveSalesAgent(tx, tenantId, dto.assignedUserId);
+    const account = await tx.account.create({ data: { ...data, assignedUserId: agent?.id ?? null, ...await productRelationData(tx, 'account', tenantId, { names: dto.productInterests, activeNames: dto.activeProducts }), tenantId } as never });
+    await saveRecordValues(tx, tenantId, 'accounts', account.id, customFieldValues, actorId);
+    return account;
+  });
 }
 
-export async function updateCompany(id: string, tenantId: string, dto: UpdateCompanyDto) {
-  try {
-    return await prisma.account.update({ where: { id, tenantId }, data: dto as never });
-  } catch {
-    // Record not found or cross-tenant attempt
-    return null;
-  }
+export async function updateCompany(id: string, tenantId: string, dto: UpdateCompanyDto, actorId?: string) {
+  const previous = await prisma.account.findFirst({ where: { id, tenantId } });
+  if ((dto.productInterestIds !== undefined && dto.productInterests !== undefined) || (dto.activeProductIds !== undefined && dto.activeProducts !== undefined)) throw new ValidationError('Supply Product IDs or legacy names, not both.');
+  dto.productInterests = await validateProductSnapshots(tenantId, dto.productInterests, previous?.productInterests);
+  const interestNames = dto.productInterestIds === undefined ? (dto.productInterests as string[] | undefined) ?? previous?.productInterests ?? []
+    : (await prisma.productInterest.findMany({ where: { tenantId, id: { in: dto.productInterestIds as string[] } }, select: { name: true } })).map(product => product.name);
+  normalizeProductOther(dto, interestNames, previous?.productInterestOther);
+  return salesTransaction(async tx => {
+      const current = await tx.account.findFirst({ where: { id, tenantId } });
+      if (!current) return null;
+      const relations = dto.productInterests === undefined && dto.activeProducts === undefined && dto.productInterestIds === undefined && dto.activeProductIds === undefined ? {} : await productRelationData(tx, 'account', tenantId, { ids: dto.productInterestIds, activeIds: dto.activeProductIds, names: dto.productInterests, activeNames: dto.activeProducts }, current, true);
+      const { customFieldValues, productInterestIds: _productIds, activeProductIds: _activeIds, ...data } = dto;
+      await saveRecordValues(tx, tenantId, 'accounts', id, customFieldValues, actorId);
+      return tx.account.update({ where: { id, tenantId }, data: { ...data, ...relations } as never });
+  });
 }
 
 export async function archiveCompany(id: string, tenantId: string, userId: string) {

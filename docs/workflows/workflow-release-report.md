@@ -33,7 +33,7 @@ Triggers: `lead.created`, `lead.status_changed`, `contact.created`, `contact.sta
 | `send_email` | Immediate | Lead/Client Profile template through connected Gmail; no external sending in Sandbox |
 | `create_notification` | Immediate | Notification for an active workspace user |
 | `assign_owner` | Immediate | Scoped active user, through CRM services |
-| `update_field` | Immediate | Client Profile notes or Lead/Deal description only |
+| `update_field` | Immediate | Client Profile notes or Lead description only; Deal is not a supported target |
 | `move_deal_stage` | Immediate | Deal service validates required fields and lost reason and preserves stage side effects |
 
 None is schedulable in this release. SMS and delay are unsupported and removed from workflow controls.

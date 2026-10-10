@@ -1,11 +1,5 @@
 import rateLimit from 'express-rate-limit';
-
-// Account-scoped throttling supplements the IP limit on authenticated MFA operations.
-export const mfaRateLimiter = rateLimit({
-  windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false,
-  keyGenerator: req => req.user!.userId,
-  message: { success: false, error: 'Too many security attempts. Try again in 15 minutes.' },
-});
+import { createHash } from 'crypto';
 
 // In development, use very high limits to avoid blocking local testing
 const isDev = process.env.NODE_ENV !== 'production';
@@ -30,14 +24,6 @@ export const authRateLimiter = rateLimit({
   message: { success: false, error: 'Too many login attempts — try again in 15 minutes.' },
 });
 
-export const registerRateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: isDev ? 10000 : 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: 'Too many registration attempts — try again in an hour.' },
-});
-
 // Extra-strict limit for password reset
 export const passwordResetRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -47,31 +33,15 @@ export const passwordResetRateLimiter = rateLimit({
   message: { success: false, error: 'Too many password reset requests — try again in an hour.' },
 });
 
-// Rate limit for magic link verification — prevents token brute-force
-export const verifyEmailRateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: isDev ? 10000 : 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: 'Too many verification attempts — try again later.' },
-});
-
-// Rate limit for resend verification — keyed by email, NOT by IP.
-// Keying by IP was broken on Render: all users shared one bucket because
-// Render's LB IP was seen as the client IP due to proxy hop misconfiguration.
-// Keying by email means each user gets their own independent 3/minute window.
-export const resendVerificationRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
+// Runs after validation/normalization. Keys never contain an address or tenant ID.
+export const passwordRecoveryAddressRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
   max: isDev ? 10000 : 3,
+  keyGenerator: req => createHash('sha256').update(req.body.email).digest('hex'),
   standardHeaders: true,
   legacyHeaders: false,
-  // Key by email so each address gets its own bucket regardless of shared proxy IPs.
-  // Falls back to IP if email is missing (malformed requests).
-  keyGenerator: (req) => {
-    const email = (req.body as Record<string, unknown>)?.email;
-    return typeof email === 'string' && email.includes('@')
-      ? `resend:${email.toLowerCase().trim()}`
-      : req.ip ?? 'unknown';
+  handler: (_req, res) => {
+    console.warn('[PasswordRecovery]', { event: 'address_rate_limited' });
+    res.status(429).json({ success: false, error: { code: 'PASSWORD_RECOVERY_RATE_LIMITED', message: 'Too many password reset requests — try again in an hour.' } });
   },
-  message: { success: false, error: 'Please wait before requesting another verification email.' },
 });

@@ -14,10 +14,14 @@ import type { ColumnSource } from '@leadcrm/shared';
 
 // Map module IDs to their view permission key
 const MODULE_VIEW_PERMISSIONS: Record<string, string> = {
-  leads: 'contacts.view',
+  leads: 'leads.view',
   contacts: 'contacts.view',
   accounts: 'accounts.view',
   deals: 'deals.view',
+  tasks: 'tasks.view',
+  campaigns: 'campaigns.view',
+  workflows: 'workflows.view',
+  users: 'users.view',
 };
 
 /** R12 AC2: Check module-level view permission (returns 404 to not reveal existence) */
@@ -26,7 +30,7 @@ async function hasModuleViewPermission(req: Request, module: string): Promise<bo
   if (!role) return false;
   if (isSuperRole(role)) return true;
   const requiredPermission = MODULE_VIEW_PERMISSIONS[module];
-  if (!requiredPermission) return true;
+  if (!requiredPermission) return false;
   const permissions = await findUserEffectivePermissions(req.user!.userId, req.user!.tenantId);
   return permissions[requiredPermission.split('.')[0]]?.canView === true;
 }

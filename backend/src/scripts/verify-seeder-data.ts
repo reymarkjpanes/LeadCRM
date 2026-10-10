@@ -13,10 +13,8 @@ async function main() {
   assert.equal(user.tenant.ownerUserId, user.id);
   assert.ok(user.passwordHash && user.emailVerified);
   assert.ok(user.userRoles.some(assignment => assignment.role.name === 'Client Admin' && !assignment.role.isArchived));
-  for (const environment of ['SANDBOX', 'PRODUCTION'] as const) {
-    assert.equal(await prisma.pipeline.count({ where: { tenantId: user.tenantId, environment, isDefault: true, isArchived: false } }), 1);
-  }
-  console.log(`Verified ${user.email}: Client Admin, tenant owner, ${user.activeEnvironment}; first-login password change: ${user.mustChangePassword}. Both environment pipelines exist.`);
+  assert.equal(await prisma.pipeline.count({ where: { tenantId: user.tenantId, isDefault: true, isArchived: false } }), 1);
+  console.log(`Verified ${user.email}: Client Admin, tenant owner; first-login password change: ${user.mustChangePassword}. Default pipeline exists.`);
 }
 main().catch(error => {
   console.error(error instanceof Error ? error.message : 'Verification failed');

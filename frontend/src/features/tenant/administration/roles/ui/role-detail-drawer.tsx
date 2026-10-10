@@ -1,10 +1,12 @@
 'use client';
+import { panelSurfaceClass, panelHeaderClass, panelTitleClass, panelBodyClass, panelCloseClass } from '@/shared/components/side-panel-styles';
 
 import React from 'react';
 import { X, Lock, Shield, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RoleDetail } from '@/store/types/roles.types';
 import { PermissionMatrix } from './permission-matrix';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 
 interface RoleDetailDrawerProps {
   role:    RoleDetail | null;
@@ -15,28 +17,23 @@ interface RoleDetailDrawerProps {
 function buildPermissionsMap(role: RoleDetail): Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> {
   const map: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
   for (const p of role.permissions) {
-    map[p.module] = { canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete };
+    map[p.module] = { ...p };
   }
   return map;
 }
 
 export function RoleDetailDrawer({ role, isOpen, onClose }: RoleDetailDrawerProps): React.ReactElement {
   return (
-    <>
-      {/* Backdrop */}
-      {isOpen && <div className="fixed inset-0 z-40 bg-black/30 dark:bg-black/50" onClick={onClose} />}
-
-      {/* Drawer */}
-      <div className={cn(
-        'fixed inset-y-0 right-0 z-50 w-full max-w-xl bg-white dark:bg-slate-900',
+    <Sheet open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent showClose={false} aria-label="Role details" className={cn(
+        panelSurfaceClass,
         'border-l border-slate-200 dark:border-slate-700 shadow-2xl',
-        'flex flex-col transition-transform duration-200',
-        isOpen ? 'translate-x-0' : 'translate-x-full',
+        'flex flex-col',
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+        <div className={panelHeaderClass + " flex items-start justify-between gap-3"}>
           {role && (
-            <div className="flex items-center gap-2.5">
+            <div className="flex min-w-0 flex-1 flex-wrap items-start gap-2.5">
               <div className={cn(
                 'p-2 rounded-lg',
                 role.isSystemRole
@@ -45,10 +42,10 @@ export function RoleDetailDrawer({ role, isOpen, onClose }: RoleDetailDrawerProp
               )}>
                 {role.isSystemRole ? <Lock size={14} /> : <Shield size={14} />}
               </div>
-              <div>
-                <h2 className="text-[14px] font-semibold text-slate-900 dark:text-white">{role.name}</h2>
+              <div className="min-w-0 flex-1">
+                <h2 className={panelTitleClass}>{role.name}</h2>
                 {role.description && (
-                  <p className="text-[11.5px] text-slate-500 dark:text-slate-400">{role.description}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 [overflow-wrap:anywhere]">{role.description}</p>
                 )}
               </div>
               {role.isSystemRole && (
@@ -58,23 +55,23 @@ export function RoleDetailDrawer({ role, isOpen, onClose }: RoleDetailDrawerProp
               )}
             </div>
           )}
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+          <button type="button" onClick={onClose} aria-label="Close role details" className={panelCloseClass + " grid place-items-center"}>
             <X size={16} />
           </button>
         </div>
 
         {/* Body */}
         {role && (
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+          <div className={panelBodyClass + " space-y-6"}>
             {/* Permission Matrix — read-only */}
             <div>
               <h3 className="text-[12px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">Permissions</h3>
               {role.isSystemRole && (
-                <p className="text-[11.5px] text-slate-500 dark:text-slate-400 mb-3">
+                <p className="text-sm text-slate-500 dark:text-slate-400 [overflow-wrap:anywhere] mb-3">
                   System roles cannot be modified.
                 </p>
               )}
-              <div className="border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3">
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-4 sm:px-4 overflow-x-auto">
                 <PermissionMatrix value={buildPermissionsMap(role)} readOnly />
               </div>
             </div>
@@ -107,7 +104,7 @@ export function RoleDetailDrawer({ role, isOpen, onClose }: RoleDetailDrawerProp
             </div>
           </div>
         )}
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

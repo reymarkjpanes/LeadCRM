@@ -58,7 +58,7 @@ export function DataGridQuickFilter({
           'bg-white dark:bg-white/[0.02]',
           'text-slate-900 dark:text-white',
           'placeholder:text-slate-400 dark:placeholder:text-slate-500',
-          'focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20',
+          'focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20',
           'transition-colors',
         )}
         aria-label="Quick filter search"

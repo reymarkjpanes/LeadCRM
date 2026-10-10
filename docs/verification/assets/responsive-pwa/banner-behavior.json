@@ -1,0 +1,13 @@
+{
+  "promptCalls": 1,
+  "keyboardInstall": true,
+  "keyboardDismissFocus": true,
+  "focusOutline": "solid",
+  "hiddenAfterInstalled": true,
+  "heightAfterInstalled": "0px",
+  "successToasts": 1,
+  "dismissedAfterReload": true,
+  "initialPreferencesRestored": true,
+  "minimumTextContrast": 11.653468338954353,
+  "minimumButtonContrast": 5.0155974781114745
+}

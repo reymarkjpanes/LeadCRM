@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PERMISSION_MODULES } from '@leadcrm/shared';
+import { PERMISSION_MODULES, PERMISSION_ACTIONS } from '@leadcrm/shared';
 
 const permissionRowSchema = z.object({
   module:    z.string().refine(value => PERMISSION_MODULES.some(module => module.key === value), 'Invalid permission module'),
@@ -7,9 +7,27 @@ const permissionRowSchema = z.object({
   canCreate: z.boolean(),
   canEdit:   z.boolean(),
   canDelete: z.boolean(),
+  canArchive: z.boolean().default(false),
+  canImport: z.boolean().default(false),
+  canManageStages: z.boolean().default(false),
+  canComplete: z.boolean().default(false),
+  canAssign: z.boolean().default(false),
+  canSend: z.boolean().default(false),
+  canDuplicate: z.boolean().default(false),
+  canViewReports: z.boolean().default(false),
+  canActivate: z.boolean().default(false),
+  canViewRuns: z.boolean().default(false),
+  canPublish: z.boolean().default(false),
+  canViewSubmissions: z.boolean().default(false),
+  canViewClosedWon: z.boolean().default(false),
+  canDisable: z.boolean().default(false),
+  canRestore: z.boolean().default(false),
 }).strict().superRefine((row, ctx) => {
   const module = PERMISSION_MODULES.find(module => module.key === row.module);
-  for (const action of ['canView', 'canCreate', 'canEdit', 'canDelete'] as const) {
+  if (!row.canView && PERMISSION_ACTIONS.some(action => action !== 'canView' && row[action])) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['canView'], message: 'View permission is required for this module' });
+  }
+  for (const action of PERMISSION_ACTIONS) {
     if (row[action] && module && !module.actions.includes(action)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [action], message: 'Invalid permission action for this module' });
     }

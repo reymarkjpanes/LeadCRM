@@ -1,51 +1,71 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Minus, Maximize2, Send, Loader2, Paperclip, Link2, Smile, Image, MoreVertical, Trash2, Bold, Italic, Underline, List, ChevronDown } from 'lucide-react';
+import { X, Minus, Maximize2, Send, Loader2, Link2, Smile, MoreVertical, Trash2, Bold, Italic, Underline, List, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useReducedMotion } from 'motion/react';
-import { sendGmailEmail, saveGmailDraft } from '../services/gmail.service';
+import { ManilaDateTimePicker } from '@/shared/components/ui/manila-date-time-picker';
+import { manilaLocalDateTime, manilaTaskDueInstant } from '@/lib/manila-time';
+import { SendMailboxEmailSchema } from '@leadcrm/shared';
+import { sendGmailEmail, saveGmailDraft, scheduleGmailEmail, deleteGmailDraft } from '../services/gmail.service';
 import EmojiPicker from './emoji-picker';
+import { safeMailboxHtml } from '../services/email-html';
+import type { MailboxComposeDraft } from '../services/email-presentation';
+import type { ApiRequestError } from '@/lib/api/client';
+import { useFocusMode } from '@/shared/lib/overlay-state';
+import { useMediaQuery } from '@/shared/hooks/use-media-query';
+import { useModalInteraction } from '@/shared/hooks/use-modal-interaction';
 
 interface ComposeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSent: () => void;
-  initialDraft?: { to: string; subject: string; body: string; draftId?: string } | null;
+  initialDraft?: MailboxComposeDraft | null;
+  retryAt?: number;
 }
 
-interface Attachment {
-  name: string;
-  size: number;
-  type: string;
-}
-
-export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: ComposeModalProps): React.ReactElement | null {
+export default function ComposeModal({ isOpen, onClose, onSent, initialDraft, retryAt = 0 }: ComposeModalProps): React.ReactElement | null {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionRetryAt, setActionRetryAt] = useState(0);
+  const [, refreshCooldown] = useState(0);
+  const pauseUntil = Math.max(retryAt, actionRetryAt), paused = pauseUntil > Date.now();
   const [toError, setToError] = useState<string | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showScheduleMenu, setShowScheduleMenu] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState('');
+  const scheduleRequest = useRef<{ key: string; id: string } | null>(null);
+  const sendRequest = useRef<{ key: string; id: string } | null>(null);
+  const mutationPending = useRef(false);
   const [currentDraftId, setCurrentDraftId] = useState<string | undefined>(undefined);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
   const shouldReduceMotion = useReducedMotion();
   const toInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const minimizedBody = useRef('');
   const emojiRef = useRef<HTMLDivElement>(null);
   const linkRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
   const scheduleRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const owner = React.useId();
+  const compact = useMediaQuery('(max-width: 767px)');
+  const modal = isOpen && !isMinimized && (compact || isFullscreen);
+  useFocusMode(isOpen && !isMinimized && isFullscreen);
+  useModalInteraction({ open: modal, panelRef, owner, onClose: () => { if (!mutationPending.current) { resetForm(); onClose(); } } });
+
+  useEffect(() => {
+    if (!pauseUntil) return;
+    const timer = setTimeout(() => { setActionRetryAt(0); refreshCooldown(value => value + 1); }, Math.max(0, pauseUntil - Date.now()));
+    return () => clearTimeout(timer);
+  }, [pauseUntil]);
 
   // Focus the "To" field when opened
   useEffect(() => {
@@ -54,20 +74,27 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
     }
   }, [isOpen, isMinimized]);
 
-  // Load initial draft data when opened with a draft
+  // Every new compose starts with its explicit draft or an empty recipient.
   useEffect(() => {
-    if (isOpen && initialDraft) {
-      setTo(initialDraft.to);
-      setSubject(initialDraft.subject);
-      setCurrentDraftId(initialDraft.draftId);
+    if (isOpen) {
+      setError(null); setShowScheduleMenu(false); scheduleRequest.current = null; sendRequest.current = null;
+      setTo(initialDraft?.to ?? '');
+      setSubject(initialDraft?.subject ?? '');
+      setCurrentDraftId(initialDraft?.draftId);
       // Set body content in the editor after a short delay to ensure ref is mounted
-      setTimeout(() => {
-        if (editorRef.current && initialDraft.body) {
-          editorRef.current.innerHTML = initialDraft.body;
-        }
+      const timer = setTimeout(() => {
+        if (editorRef.current) editorRef.current.innerHTML = safeMailboxHtml(initialDraft?.body ?? '');
       }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, initialDraft]);
+
+  useEffect(() => {
+    if (!isMinimized && editorRef.current && minimizedBody.current) {
+      editorRef.current.innerHTML = minimizedBody.current;
+      minimizedBody.current = '';
+    }
+  }, [isMinimized]);
 
   // Close popups on outside click
   useEffect(() => {
@@ -111,10 +138,16 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   if (!isOpen) return null;
 
   const getEditorContent = (): string => {
-    return editorRef.current?.innerHTML ?? '';
+    return safeMailboxHtml(editorRef.current?.innerHTML ?? '');
+  };
+  const actionFailed = (error: unknown, fallback: string) => {
+    setError(error instanceof Error ? error.message : fallback);
+    const request = error as ApiRequestError;
+    setActionRetryAt(Date.parse(request.retryAt ?? '') || (request.status === 429 ? Date.now() + 60000 : 0));
   };
 
-  const handleSend = async (): Promise<void> => {
+  const handleSend = async (scheduledAt?: string): Promise<void> => {
+    if (mutationPending.current || paused) return;
     if (!to.trim()) {
       setError('Please specify at least one recipient');
       return;
@@ -122,7 +155,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(to.trim())) {
+    const recipients = to.split(',').map(value => value.trim());
+    if (recipients.some(value => !emailRegex.test(value))) {
       setError('Please enter a valid email address (e.g., name@gmail.com)');
       return;
     }
@@ -135,18 +169,29 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       return;
     }
 
-    setIsSending(true);
+    const parsed = SendMailboxEmailSchema.safeParse({ to: recipients, subject: subject.trim() || '(no subject)', body: htmlBody, replyToMessageId: initialDraft?.replyToMessageId });
+    if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
+    mutationPending.current = true; setIsSending(true);
     setError(null);
 
     try {
-      await sendGmailEmail(to.trim(), subject.trim() || '(no subject)', htmlBody);
+      if (scheduledAt) {
+        const payload = { to: recipients, subject: subject.trim() || '(no subject)', body: htmlBody, scheduledAt, draftId: currentDraftId, replyToMessageId: initialDraft?.replyToMessageId, forwardSourceMessageId: initialDraft?.forwardSourceMessageId };
+        const key = JSON.stringify(payload);
+        if (scheduleRequest.current?.key !== key) scheduleRequest.current = { key, id: crypto.randomUUID() };
+        await scheduleGmailEmail({ ...payload, requestId: scheduleRequest.current.id });
+      } else {
+        const key = JSON.stringify([recipients, subject, htmlBody, initialDraft?.replyToMessageId, currentDraftId, initialDraft?.forwardSourceMessageId]);
+        if (sendRequest.current?.key !== key) sendRequest.current = { key, id: crypto.randomUUID() };
+        await sendGmailEmail(recipients, subject.trim() || '(no subject)', htmlBody, initialDraft?.replyToMessageId, currentDraftId, initialDraft?.forwardSourceMessageId, sendRequest.current.id);
+      }
       resetForm();
       onSent();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send email');
+      actionFailed(err, 'Failed to send email');
     } finally {
-      setIsSending(false);
+      mutationPending.current = false; setIsSending(false);
     }
   };
 
@@ -155,7 +200,6 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
     setSubject('');
     setError(null);
     setToError(null);
-    setAttachments([]);
     setIsMinimized(false);
     setIsFullscreen(false);
     setShowEmojiPicker(false);
@@ -164,49 +208,37 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
     setShowScheduleMenu(false);
     setCurrentDraftId(undefined);
     setDraftSaved(false);
+    minimizedBody.current = '';
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
   const handleSaveDraft = async (): Promise<void> => {
-    const htmlBody = editorRef.current?.innerHTML ?? '';
+    if (mutationPending.current || paused) return;
+    const htmlBody = getEditorContent();
     if (!to.trim() && !subject.trim() && !htmlBody.trim()) {
       return; // Nothing to save
     }
 
-    setIsSavingDraft(true);
+    mutationPending.current = true; setIsSavingDraft(true);
     try {
-      const result = await saveGmailDraft(to.trim(), subject.trim(), htmlBody, currentDraftId);
+      const result = await saveGmailDraft(to.trim(), subject.trim(), htmlBody, currentDraftId, initialDraft?.replyToMessageId, initialDraft?.forwardSourceMessageId);
       setCurrentDraftId(result.draftId);
       setDraftSaved(true);
       // Reset saved indicator after 3 seconds
       setTimeout(() => setDraftSaved(false), 3000);
-    } catch {
-      // Silent — draft save failure is non-blocking
+    } catch (error) {
+      actionFailed(error, 'Draft was not saved.');
     } finally {
-      setIsSavingDraft(false);
+      mutationPending.current = false; setIsSavingDraft(false);
     }
   };
 
-  const handleDiscard = (): void => {
-    resetForm();
-    onClose();
-  };
-
-  // Attach file
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const files = e.target.files;
-    if (!files) return;
-    const newAttachments: Attachment[] = Array.from(files).map((f) => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-    }));
-    setAttachments((prev) => [...prev, ...newAttachments]);
-    e.target.value = '';
-  };
-
-  const removeAttachment = (index: number): void => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  const handleDiscard = async (): Promise<void> => {
+    if (mutationPending.current || currentDraftId && paused) return;
+    mutationPending.current = true;
+    try { if (currentDraftId) await deleteGmailDraft(currentDraftId); resetForm(); onSent(); onClose(); }
+    catch (error) { actionFailed(error, 'Draft could not be deleted.'); }
+    finally { mutationPending.current = false; }
   };
 
   // Insert emoji at cursor position in the editor
@@ -219,6 +251,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   // Insert link
   const insertLink = (): void => {
     if (linkUrl.trim()) {
+      if (!/^https?:\/\//i.test(linkUrl.trim())) { setError('Use an http or https link.'); return; }
       editorRef.current?.focus();
       const selection = window.getSelection();
       const hasSelection = selection && selection.toString().length > 0;
@@ -226,18 +259,13 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
       if (hasSelection) {
         document.execCommand('createLink', false, linkUrl.trim());
       } else {
-        document.execCommand('insertHTML', false, `<a href="${linkUrl.trim()}">${linkUrl.trim()}</a>`);
+        const link = document.createElement('a'); link.href = linkUrl.trim(); link.textContent = linkUrl.trim();
+        document.execCommand('insertHTML', false, link.outerHTML);
       }
 
       setLinkUrl('');
       setShowLinkInput(false);
     }
-  };
-
-  const formatSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const springTransition = shouldReduceMotion
@@ -248,7 +276,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   if (isMinimized) {
     return (
       <div className="fixed bottom-0 right-6 z-50">
-        <div className="flex items-center justify-between px-4 py-2.5 rounded-t-lg bg-slate-800 dark:bg-slate-800 text-white shadow-xl min-w-[320px]">
+        <div className="flex items-center justify-between px-4 py-2.5 rounded-t-lg bg-slate-800 dark:bg-slate-800 text-white shadow-xl w-[min(320px,calc(100vw-3rem))]">
           <button
             onClick={() => setIsMinimized(false)}
             className="flex items-center gap-2 flex-1 cursor-pointer"
@@ -265,7 +293,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={handleDiscard}
+              onClick={() => { if (!mutationPending.current) { resetForm(); onClose(); } }}
               className="p-1.5 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
               aria-label="Close"
             >
@@ -278,15 +306,20 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
   }
 
   const containerClasses = isFullscreen
-    ? 'fixed inset-4 z-50 rounded-xl'
-    : 'fixed bottom-0 right-6 z-50 w-[580px] max-w-[calc(100vw-3rem)] h-[520px] rounded-t-xl';
+    ? 'fixed inset-2 sm:inset-4 z-50 rounded-xl'
+    : 'fixed bottom-0 right-2 sm:right-6 z-50 w-[580px] max-w-[calc(100vw-1rem)] h-[min(600px,calc(100dvh-1rem))] rounded-t-xl';
 
   return (
     <motion.div
+      ref={panelRef}
       initial={{ opacity: 0, y: 30, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={springTransition}
       className={`${containerClasses} flex flex-col border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 shadow-2xl`}
+      role="dialog"
+      aria-modal={modal ? true : undefined}
+      aria-label="Compose email"
+      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); if (showEmojiPicker || showLinkInput || showMoreMenu || showScheduleMenu) { setShowEmojiPicker(false); setShowLinkInput(false); setShowMoreMenu(false); setShowScheduleMenu(false); } else if (!mutationPending.current) { resetForm(); onClose(); } } }}
     >
       {/* Title Bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-800 dark:bg-slate-800 rounded-t-xl shrink-0">
@@ -295,7 +328,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
         </span>
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => setIsMinimized(true)}
+            onClick={() => { minimizedBody.current = getEditorContent(); setIsMinimized(true); }}
             className="p-1.5 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
             aria-label="Minimize"
           >
@@ -309,7 +342,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={handleDiscard}
+            onClick={() => { if (!mutationPending.current) { resetForm(); onClose(); } }}
             className="p-1.5 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
             aria-label="Close"
           >
@@ -328,6 +361,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             ref={toInputRef}
             id="compose-to"
             type="email"
+            multiple
             value={to}
             onChange={(e) => {
               setTo(e.target.value);
@@ -344,7 +378,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                 setToError(null);
               }
             }}
-            className={`flex-1 py-2.5 text-[13px] text-slate-900 dark:text-white bg-transparent focus:outline-none ${toError ? 'text-red-500 dark:text-red-400' : ''}`}
+            className={`min-w-0 flex-1 py-2.5 text-[13px] text-slate-900 dark:text-white bg-transparent focus:outline-none ${toError ? 'text-red-500 dark:text-red-400' : ''}`}
           />
         </div>
         {toError && (
@@ -362,7 +396,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           placeholder="Subject"
-          className="flex-1 py-2.5 text-[13px] text-slate-900 dark:text-white bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
+          className="min-w-0 flex-1 py-2.5 text-[13px] text-slate-900 dark:text-white bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
         />
       </div>
 
@@ -376,52 +410,30 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           aria-multiline="true"
           onKeyUp={updateActiveFormats}
           onMouseUp={updateActiveFormats}
+          onPaste={event => { event.preventDefault(); const html = event.clipboardData.getData('text/html'); document.execCommand(html ? 'insertHTML' : 'insertText', false, html ? safeMailboxHtml(html) : event.clipboardData.getData('text/plain')); }}
           className="w-full flex-1 px-4 py-3 text-[13px] text-slate-900 dark:text-white bg-transparent focus:outline-none overflow-y-auto leading-relaxed min-h-[100px] [&_a]:text-blue-500 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-0.5"
           suppressContentEditableWarning
         />
 
-        {/* Attachments list */}
-        {attachments.length > 0 && (
-          <div className="px-4 py-2 border-t border-gray-100 dark:border-white/[0.05] shrink-0">
-            <div className="flex flex-wrap gap-2">
-              {attachments.map((file, index) => (
-                <div
-                  key={`${file.name}-${index}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/[0.08] text-xs"
-                >
-                  <Paperclip className="w-3 h-3 text-slate-400" />
-                  <span className="text-slate-700 dark:text-slate-300 truncate max-w-[120px]">{file.name}</span>
-                  <span className="text-slate-400 dark:text-slate-500">{formatSize(file.size)}</span>
-                  <button
-                    onClick={() => removeAttachment(index)}
-                    className="p-0.5 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Error */}
+      {paused && <p role="status" className="px-4 py-1.5 text-xs text-muted-foreground">Gmail updates are temporarily paused. Your message remains open.</p>}
       {error && (
         <div className="px-4 py-1.5 shrink-0">
-          <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+          <p role="alert" className="text-xs text-red-500 dark:text-red-400">{error}</p>
         </div>
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-t border-gray-100 dark:border-white/[0.05] shrink-0">
-        <div className="flex items-center gap-1">
+      <div className="flex min-w-0 flex-col gap-2 px-3 py-2.5 border-t border-gray-100 dark:border-white/[0.05] shrink-0">
+        <div className="flex min-w-0 flex-col items-start gap-2">
           {/* Send button with schedule dropdown */}
-          <div className="relative flex items-center" ref={scheduleRef}>
+          <div className="flex items-center" ref={scheduleRef}>
             <button
-              onClick={handleSend}
-              disabled={isSending}
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-l-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[13px] font-medium active:scale-95 transition-all cursor-pointer"
+              onClick={() => void handleSend()}
+              disabled={isSending || isSavingDraft || paused}
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-l-full bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[13px] font-medium active:scale-95 transition-all cursor-pointer"
               aria-label="Send email"
             >
               {isSending ? (
@@ -432,121 +444,27 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
               <span>{isSending ? 'Sending...' : 'Send'}</span>
             </button>
             <button
-              onClick={() => setShowScheduleMenu((prev) => !prev)}
-              disabled={isSending}
-              className="h-9 px-2 rounded-r-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 border-l border-blue-500 text-white cursor-pointer transition-colors"
+              disabled={isSending || isSavingDraft || paused}
+              onClick={() => setShowScheduleMenu(value => !value)}
+              aria-expanded={showScheduleMenu}
+              title="Schedule send"
+              className="h-9 px-2 rounded-r-full bg-primary hover:bg-primary/90 disabled:opacity-60 border-l border-primary text-white cursor-pointer transition-colors"
               aria-label="Schedule send options"
             >
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
 
-            <AnimatePresence>
-              {showScheduleMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.12 }}
-                  className="absolute bottom-full left-0 mb-2 w-64 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg py-2 z-10"
-                >
-                  <p className="px-3 pb-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                    Schedule Send
-                  </p>
-                  <button
-                    onClick={() => {
-                      const tomorrow = new Date();
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      tomorrow.setHours(8, 0, 0, 0);
-                      setScheduledDate(tomorrow.toISOString());
-                      setShowScheduleMenu(false);
-                      handleSend();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                  >
-                    Tomorrow morning (8:00 AM)
-                  </button>
-                  <button
-                    onClick={() => {
-                      const tomorrow = new Date();
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      tomorrow.setHours(13, 0, 0, 0);
-                      setScheduledDate(tomorrow.toISOString());
-                      setShowScheduleMenu(false);
-                      handleSend();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                  >
-                    Tomorrow afternoon (1:00 PM)
-                  </button>
-                  <button
-                    onClick={() => {
-                      const nextMonday = new Date();
-                      nextMonday.setDate(nextMonday.getDate() + ((8 - nextMonday.getDay()) % 7 || 7));
-                      nextMonday.setHours(8, 0, 0, 0);
-                      setScheduledDate(nextMonday.toISOString());
-                      setShowScheduleMenu(false);
-                      handleSend();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                  >
-                    Monday morning (8:00 AM)
-                  </button>
-                  <div className="border-t border-gray-100 dark:border-white/[0.05] my-1.5" />
-                  <div className="px-3 py-2">
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
-                      Pick date & time
-                    </p>
-                    <div className="flex items-center gap-2 mb-2">
-                      <input
-                        id="schedule-date"
-                        type="date"
-                        value={scheduledDate ? scheduledDate.split('T')[0] : ''}
-                        onChange={(e) => {
-                          const time = scheduledDate ? scheduledDate.split('T')[1]?.slice(0, 5) : '09:00';
-                          setScheduledDate(`${e.target.value}T${time}:00`);
-                        }}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="flex-1 h-9 px-3 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                      />
-                      <input
-                        id="schedule-time"
-                        type="time"
-                        value={scheduledDate ? scheduledDate.split('T')[1]?.slice(0, 5) : ''}
-                        onChange={(e) => {
-                          const date = scheduledDate ? scheduledDate.split('T')[0] : new Date().toISOString().split('T')[0];
-                          setScheduledDate(`${date}T${e.target.value}:00`);
-                        }}
-                        className="w-24 h-9 px-3 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    {scheduledDate && (
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
-                        Scheduled for {new Date(scheduledDate).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    )}
-                    <button
-                      onClick={() => {
-                        if (scheduledDate) {
-                          setShowScheduleMenu(false);
-                          handleSend();
-                        }
-                      }}
-                      disabled={!scheduledDate}
-                      className="w-full h-9 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold cursor-pointer transition-colors"
-                    >
-                      Schedule Send
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {showScheduleMenu && <div className="absolute bottom-[112px] left-2 right-2 z-30 max-h-[calc(100dvh-180px)] overflow-y-auto rounded-xl bg-card shadow-xl sm:left-3 sm:right-auto sm:w-96">
+              <p className="px-3 py-2 text-sm font-semibold">Schedule send</p>
+              <ManilaDateTimePicker value={manilaLocalDateTime(new Date(Date.now() + 3600000))} busy={isSending || isSavingDraft || paused} onCancel={() => setShowScheduleMenu(false)} onDone={value => void handleSend(manilaTaskDueInstant(value))} />
+            </div>}
           </div>
 
           {/* Formatting toolbar */}
-          <div className="flex items-center ml-2 gap-0.5">
+          <div role="toolbar" aria-label="Message formatting" className="flex w-full min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto [&>*]:shrink-0">
             <button
               onClick={() => execFormat('bold')}
-              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('bold') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('bold') ? 'text-primary dark:text-primary bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               aria-label="Bold"
               title="Bold (Ctrl+B)"
             >
@@ -554,7 +472,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             </button>
             <button
               onClick={() => execFormat('italic')}
-              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('italic') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('italic') ? 'text-primary dark:text-primary bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               aria-label="Italic"
               title="Italic (Ctrl+I)"
             >
@@ -562,7 +480,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             </button>
             <button
               onClick={() => execFormat('underline')}
-              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('underline') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('underline') ? 'text-primary dark:text-primary bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               aria-label="Underline"
               title="Underline (Ctrl+U)"
             >
@@ -570,7 +488,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             </button>
             <button
               onClick={() => execFormat('insertUnorderedList')}
-              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('list') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${activeFormats.has('list') ? 'text-primary dark:text-primary bg-blue-50 dark:bg-blue-950/40' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               aria-label="Bullet list"
               title="Bullet list"
             >
@@ -580,26 +498,8 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             {/* Divider */}
             <div className="w-px h-5 bg-gray-200 dark:bg-white/[0.08] mx-1" />
 
-            {/* Attach file */}
-            <button
-              onClick={() => { if (fileInputRef.current) { fileInputRef.current.accept = ''; fileInputRef.current.click(); } }}
-              className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              aria-label="Attach file"
-              title="Attach file"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              onChange={handleFileSelect}
-              className="hidden"
-              aria-hidden="true"
-            />
-
             {/* Insert link */}
-            <div className="relative" ref={linkRef}>
+            <div className="static" ref={linkRef}>
               <button
                 onClick={() => { setShowLinkInput((prev) => !prev); setShowEmojiPicker(false); setShowMoreMenu(false); }}
                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -615,7 +515,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full left-0 mb-2 p-2 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg w-64 z-10"
+                    className="absolute bottom-24 left-3 right-3 sm:bottom-24 sm:left-auto sm:right-3 sm:w-64 mb-2 p-2 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                   >
                     <div className="flex items-center gap-2">
                       <input
@@ -623,13 +523,13 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                         value={linkUrl}
                         onChange={(e) => setLinkUrl(e.target.value)}
                         placeholder="https://..."
-                        className="flex-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                        className="min-w-0 flex-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-primary"
                         onKeyDown={(e) => { if (e.key === 'Enter') insertLink(); }}
                         autoFocus
                       />
                       <button
                         onClick={insertLink}
-                        className="h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 cursor-pointer"
+                        className="h-8 px-3 rounded-md bg-primary text-white text-xs font-medium hover:bg-primary/90 cursor-pointer"
                       >
                         Add
                       </button>
@@ -640,7 +540,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
             </div>
 
             {/* Emoji picker */}
-            <div className="relative" ref={emojiRef}>
+            <div className="static" ref={emojiRef}>
               <button
                 onClick={() => { setShowEmojiPicker((prev) => !prev); setShowLinkInput(false); setShowMoreMenu(false); }}
                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -656,7 +556,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full right-0 mb-2 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
+                    className="absolute bottom-24 left-3 right-3 sm:left-auto sm:right-3 sm:w-80 max-w-[calc(100vw-2.5rem)] mb-2 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                   >
                     <EmojiPicker onSelect={insertEmoji} />
                   </motion.div>
@@ -664,19 +564,6 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
               </AnimatePresence>
             </div>
 
-            {/* Insert image */}
-            <button
-              onClick={() => { if (fileInputRef.current) { fileInputRef.current.accept = 'image/*'; fileInputRef.current.click(); } }}
-              className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              aria-label="Insert image"
-              title="Insert image"
-            >
-              <Image className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1">
           {/* Draft status */}
           {draftSaved && (
             <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mr-1">
@@ -692,7 +579,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           {/* Save Draft */}
           <button
             onClick={handleSaveDraft}
-            disabled={isSavingDraft}
+            disabled={isSavingDraft || isSending || paused}
             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
             aria-label="Save as draft"
             title="Save as draft"
@@ -705,7 +592,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
           </button>
 
           {/* More options */}
-          <div className="relative" ref={moreRef}>
+          <div className="static" ref={moreRef}>
             <button
               onClick={() => { setShowMoreMenu((prev) => !prev); setShowEmojiPicker(false); setShowLinkInput(false); }}
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -721,7 +608,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute bottom-full right-0 mb-2 py-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg w-48 z-10"
+                  className="absolute bottom-16 left-3 right-3 sm:bottom-24 sm:left-auto sm:right-3 sm:w-48 mb-2 py-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg z-10"
                 >
                   <button
                     onClick={() => { if (editorRef.current) editorRef.current.innerHTML = ''; setShowMoreMenu(false); }}
@@ -735,12 +622,6 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
                   >
                     Clear subject
                   </button>
-                  <button
-                    onClick={() => { setAttachments([]); setShowMoreMenu(false); }}
-                    className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                  >
-                    Remove all attachments
-                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -748,13 +629,15 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft }: 
 
           {/* Discard */}
           <button
-            onClick={handleDiscard}
+            onClick={() => void handleDiscard()}
+            disabled={isSavingDraft || isSending || !!currentDraftId && paused}
             className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             aria-label="Discard draft"
             title="Discard"
           >
             <Trash2 className="w-4 h-4" />
           </button>
+          </div>
         </div>
       </div>
     </motion.div>

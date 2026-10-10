@@ -4,22 +4,7 @@ This directory contains database seeding scripts for different environments and 
 
 ## Available Seeders
 
-### 1. Demo Accounts (`demo.seed.ts`)
-
-Main demo account seeder used in production and development.
-
-**Accounts:**
-
-- `admin@gmail.com` / `admin123` — System Admin
-- `super@leadcrm.com` / `admin123` — System Admin alias
-- `admin@democorp.com` / `admin123` — Client Admin (Demo Corp)
-- `bob@democorp.com` / `admin123` — Sales Rep (Demo Corp)
-
-**Run:**
-
-```bash
-npm run db:seed:demo
-```
+The obsolete operator seeder has been removed. Server startup does not provision accounts or reset passwords.
 
 ### 2. Seeder Account (`seeder.seed.ts`)
 
@@ -76,7 +61,7 @@ npm run db:seed:production-test
 
 ### 5. Main Seed (`prisma/seed.ts`)
 
-Entry point for standard database seeding. Runs demo accounts + sample tenants (dev only).
+Entry point for standard database seeding. Runs role repairs, the optional Gmail system sender setup, and sample tenants (development only).
 
 **Run:**
 
@@ -91,9 +76,6 @@ npx prisma db seed
 ### Run Individual Seeders
 
 ```bash
-# Demo accounts
-npm run db:seed:demo
-
 # Seeder account with full CRM data
 npm run db:seed:seeder
 
@@ -137,23 +119,13 @@ The **seeder account** is perfect for:
 
 ## Environment Variables
 
-Some seeders require environment variables:
-
-```env
-# System Admin (for admin.seed.ts and demo.seed.ts)
-SYSTEM_ADMIN_EMAIL=admin@gmail.com
-SYSTEM_ADMIN_PASSWORD=admin123
-
-# Demo Mode (for OTP bypass)
-DEMO_MODE=true
-```
+The main seed reads `DATABASE_URL`, `NODE_ENV`, and `SKIP_DEMO_TENANTS`. Gmail sender setup additionally reads `GMAIL_SYSTEM_SENDER_*` and `ENCRYPTION_KEY`; see `prisma/seed.ts`.
 
 ## Safety Notes
 
 - All seeders use `upsert` operations — safe to run multiple times
 - Production test seeder cleans up old test campaigns automatically
 - Reymark seeder cleans up legacy non-UUID records
-- Demo accounts restore passwords on every run (useful if credentials get corrupted)
 
 ## Creating New Seeders
 
@@ -176,10 +148,10 @@ After seeding, test login:
 # Start backend
 npm run dev
 
-# Login with seeder account
-curl -X POST http://localhost:4000/api/v1/auth/send-otp \
+# Login with an eligible employee account
+curl -X POST http://localhost:4000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "seeder@leadcrm.com"}'
+  -d '{"email": "your-user@camxian.com", "password": "your-password"}'
 
 # Check if user exists
 curl http://localhost:4000/api/v1/auth/me

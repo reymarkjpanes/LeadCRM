@@ -1,6 +1,9 @@
-const CACHE_NAME = 'leadcrm-cache-v4';
+const CACHE_NAME = 'leadcrm-cache-v5';
 const STATIC_ASSETS = [
-  '/manifest.json'
+  '/manifest.json',
+  '/icons/leadcrm-192.png',
+  '/icons/leadcrm-512.png',
+  '/icons/leadcrm-maskable-512.png'
 ];
 
 // ── Install: pre-cache critical static assets ─────────

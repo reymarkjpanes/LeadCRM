@@ -5,6 +5,7 @@ import { RowActionsMenu, buildDefaultRowActions } from '../row-actions-menu';
 import { LeadsDataGrid } from '@/features/tenant/crm/leads/ui/leads-data-grid';
 import { ContactsDataGrid } from '@/features/tenant/crm/contacts/ui/contacts-data-grid';
 import { AccountsDataGrid } from '@/features/tenant/crm/accounts/ui/accounts-data-grid';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 let trigger = { top: 100, bottom: 128, left: 50, right: 78 };
 beforeEach(() => {
@@ -28,7 +29,7 @@ function menu() {
 it('opens downward through a fixed body portal with enough space', () => {
   menu();
   const dropdown = screen.getByRole('menu');
-  expect(dropdown.parentElement).toBe(document.body);
+  expect(dropdown.closest('[data-theme-portal]')?.parentElement).toBe(document.body);
   expect(dropdown.style.top).toBe('132px');
   expect(dropdown.style.left).toBe('50px');
 });
@@ -74,4 +75,14 @@ it.each(['leads', 'contacts', 'accounts'])('last %s row has Archive, no Delete o
 });
 it('omits archive when permission is denied', () => {
   expect(buildDefaultRowActions({ onView: vi.fn(), onArchive: vi.fn(), canArchive: false }).map(item => item.id)).toEqual(['view']);
+});
+
+it.each([320, 375, 390, 768, 1440])('keeps bottom-row menus in the %spx viewport and toggles the same trigger closed', width => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+  trigger = { top: 550, bottom: 578, left: width - 30, right: width - 2 };
+  menu(); const dropdown = screen.getByRole('menu');
+  expect(parseFloat(dropdown.style.left)).toBeGreaterThanOrEqual(8);
+  expect(parseFloat(dropdown.style.left) + 180).toBeLessThanOrEqual(width - 8);
+  expect(parseFloat(dropdown.style.top) + 300).toBeLessThanOrEqual(592);
+  open(); expect(screen.queryByRole('menu')).toBeNull();
 });

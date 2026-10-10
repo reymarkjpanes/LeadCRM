@@ -137,13 +137,13 @@ export function TrelloFilter({
       {/* We match the exact dark Trello style or standard style */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 h-9 min-h-[44px] px-3 text-xs font-medium rounded-md transition-colors border shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+        className={`flex items-center gap-1.5 h-9 min-h-[44px] px-3 text-xs font-medium rounded-md transition-colors border shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
           isOpen || activeCount > 0
-            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/60'
+            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-primary border-blue-200 dark:border-blue-800/60'
             : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
         }`}
       >
-        <Filter size={14} className={activeCount > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'} />
+        <Filter size={14} className={activeCount > 0 ? 'text-primary dark:text-primary' : 'text-slate-500'} />
         <span>Filter</span>
         {activeCount > 0 && (
           <span className="flex items-center justify-center min-w-4.5 h-4.5 px-1 bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-full text-[11px] font-semibold ml-0.5">
@@ -187,7 +187,7 @@ export function TrelloFilter({
                       placeholder="Search keywords..."
                       value={searchTerm || ''}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-8 py-2 text-sm font-medium bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-900 dark:text-slate-100 placeholder-slate-400 transition-colors"
+                      className="w-full pl-9 pr-8 py-2 text-sm font-medium bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-slate-900 dark:text-slate-100 placeholder-slate-400 transition-colors"
                     />
                     {searchTerm && (
                       <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-200 dark:bg-slate-800 rounded-full p-0.5">
@@ -209,7 +209,7 @@ export function TrelloFilter({
                         onClick={() => setSelectedView(v.id)}
                         className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <div className={`flex items-center justify-center w-4 h-4 rounded-full border transition-colors ${selectedView === v.id ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                        <div className={`flex items-center justify-center w-4 h-4 rounded-full border transition-colors ${selectedView === v.id ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                           <div className={`w-1.5 h-1.5 rounded-full ${selectedView === v.id ? 'bg-white' : 'transparent'}`}></div>
                         </div>
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{v.label}</span>
@@ -228,7 +228,7 @@ export function TrelloFilter({
                       onClick={() => toggleMember('unassigned')}
                       className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
-                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedMembers.includes('unassigned') ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedMembers.includes('unassigned') ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                         {selectedMembers.includes('unassigned') && <Check size={12} className="text-white stroke-[3px]" />}
                       </div>
                       <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
@@ -241,10 +241,10 @@ export function TrelloFilter({
                       onClick={() => toggleMember('me')}
                       className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
-                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedMembers.includes('me') ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedMembers.includes('me') ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                         {selectedMembers.includes('me') && <Check size={12} className="text-white stroke-[3px]" />}
                       </div>
-                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold uppercase shadow-sm">
+                      <div className="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-bold uppercase shadow-sm">
                         {currentUserEmail ? currentUserEmail.substring(0, 2) : 'ME'}
                       </div>
                       <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Cards assigned to me</span>
@@ -252,7 +252,7 @@ export function TrelloFilter({
 
                     {/* Member select dropdown matching screenshot 2 "Select members" */}
                     <div className="relative mt-2">
-                      <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500/80 transition-all">
+                      <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/80 transition-all">
                         <details className="group/details" open={memberSearch.length > 0 ? true : undefined}>
                           <summary className="flex items-center justify-between w-full relative cursor-pointer list-none">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -294,7 +294,7 @@ export function TrelloFilter({
                                   onClick={() => toggleMember(m.id)}
                                   className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group"
                                 >
-                                  <div className={`flex items-center justify-center w-4 h-4 rounded border shrink-0 transition-colors ${selectedMembers.includes(m.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                                  <div className={`flex items-center justify-center w-4 h-4 rounded border shrink-0 transition-colors ${selectedMembers.includes(m.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                                     {selectedMembers.includes(m.id) && <Check size={12} className="text-white stroke-[3px]" />}
                                   </div>
                                   <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold uppercase shrink-0">
@@ -327,7 +327,7 @@ export function TrelloFilter({
                         onClick={() => toggleStatus(st.id)}
                         className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedStatuses.includes(st.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedStatuses.includes(st.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                           {selectedStatuses.includes(st.id) && <Check size={12} className="text-white stroke-[3px]" />}
                         </div>
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{st.label}</span>
@@ -346,7 +346,7 @@ export function TrelloFilter({
                       onClick={() => toggleLabel('none')}
                       className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
-                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedLabels.includes('none') ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                      <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedLabels.includes('none') ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                         {selectedLabels.includes('none') && <Check size={12} className="text-white stroke-[3px]" />}
                       </div>
                       <div className="w-7 h-7 flex items-center justify-center text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg">
@@ -361,7 +361,7 @@ export function TrelloFilter({
                         onClick={() => toggleLabel(l.id)}
                         className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedLabels.includes(l.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedLabels.includes(l.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                           {selectedLabels.includes(l.id) && <Check size={12} className="text-white stroke-[3px]" />}
                         </div>
                         {l.color ? (
@@ -391,7 +391,7 @@ export function TrelloFilter({
                         onClick={() => toggleTrigger(tr.id)}
                         className="flex items-center gap-3 p-1.5 rounded-xl cursor-pointer group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedTriggers.includes(tr.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
+                        <div className={`flex items-center justify-center w-4 h-4 rounded border transition-colors ${selectedTriggers.includes(tr.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-slate-400'}`}>
                           {selectedTriggers.includes(tr.id) && <Check size={12} className="text-white stroke-[3px]" />}
                         </div>
                         {tr.icon && <div className="text-slate-400">{tr.icon}</div>}
@@ -408,7 +408,7 @@ export function TrelloFilter({
                    <select 
                      value={matchType}
                      onChange={(e) => setMatchType(e.target.value as 'any' | 'exact')}
-                     className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                     className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
                    >
                      <option value="any">Match any selected</option>
                      <option value="exact">Match all selected</option>

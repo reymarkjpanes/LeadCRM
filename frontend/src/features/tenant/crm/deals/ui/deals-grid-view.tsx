@@ -40,7 +40,7 @@ export function DealsGridView({ deals, onEdit, onDelete }: DealsGridViewProps): 
       await onDelete(dealId);
     } else {
       await deleteDeal(dealId);
-      toast.success('Deal deleted');
+      toast.success('Deal archived');
     }
   }, [onDelete, deleteDeal]);
 
@@ -68,7 +68,6 @@ export function DealsGridView({ deals, onEdit, onDelete }: DealsGridViewProps): 
               dealId={deal.id}
               dealTitle={deal.title}
               onEdit={() => handleEdit(deal.id)}
-              onDelete={handleDelete}
               onArchive={handleDelete}
             />
           }

@@ -1,20 +1,18 @@
 // Disposable real-database preview for manual/browser verification. Never reads .env.
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { readFileSync } from 'node:fs';
+import { replayCrmMigrations } from '../../scripts/replay-crm-migrations.mjs';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '../..');
 const pg = await PGlite.create();
-await pg.exec(readFileSync(resolve(root, 'src/tests/security-baseline.sql'), 'utf8'));
-for (const name of ['20261007000000_add_mfa', '20261008000000_remove_retired_billing_domains', '20261009000000_lead_archive_state']) await pg.exec(readFileSync(resolve(root, 'prisma/migrations', name, 'migration.sql'), 'utf8'));
+await replayCrmMigrations(pg);
 const socket = new PGLiteSocketServer({ db: pg, host: '127.0.0.1', port: 0 });
 await socket.start();
 process.env.DATABASE_URL = `postgresql://postgres:postgres@${socket.getServerConn()}/postgres?connection_limit=1`;
 process.env.JWT_SECRET = randomBytes(32).toString('hex');
-process.env.MFA_ENCRYPTION_KEY = randomBytes(32).toString('hex');
 process.env.APP_URL = 'http://localhost:3011';
 process.env.ALLOWED_ORIGINS = process.env.APP_URL;
 const Module = require('module');
@@ -23,7 +21,9 @@ Module._resolveFilename = function (request, parent, isMain, options) { return r
 const db = require(resolve(root, 'dist/backend/src/config/database.config.js')).default;
 const { hashPassword } = require(resolve(root, 'dist/backend/src/shared/helpers/crypto.js'));
 const tenant = await db.tenant.create({ data: { name: 'Security Preview', slug: 'security-preview', status: 'ACTIVE', onboardingStep: 3, onboardingCompletedAt: new Date() } });
-await db.user.create({ data: { tenantId: tenant.id, email: 'preview@camxian.com', firstName: 'Security', lastName: 'Preview', role: 'Client Admin', mustChangePassword: false, passwordHash: await hashPassword('Preview2026!') } });
+const firstLogin = process.argv.includes('--first-login');
+await db.user.create({ data: { tenantId: tenant.id, email: 'preview@camxian.com', firstName: 'Security', lastName: 'Preview', role: 'Client Admin', mustChangePassword: firstLogin, onboardingCompletedAt: firstLogin ? null : new Date(), passwordHash: await hashPassword('Preview2026!') } });
+if (firstLogin) await db.user.create({ data: { tenantId: tenant.id, email: 'tour@camxian.com', firstName: 'Tour', lastName: 'Preview', role: 'Client Admin', mustChangePassword: false, onboardingCompletedAt: null, passwordHash: await hashPassword('Preview2026!') } });
 const app = require(resolve(root, 'dist/backend/src/app.js')).default;
 const http = app.listen(4011, '127.0.0.1', () => console.log('Disposable security preview backend: http://127.0.0.1:4011'));
 process.on('SIGINT', async () => { http.close(); await db.$disconnect(); await socket.stop(); await pg.close(); process.exit(0); });

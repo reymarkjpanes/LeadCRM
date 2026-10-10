@@ -1,174 +1,103 @@
 'use client';
+import { useNotificationRecordLink } from '@/features/tenant/notifications/hooks/use-notification-record-link';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { CreateButton } from '@/shared/components/ui/button';
 
-import React, { useState, useEffect } from 'react';
-import { Plus, Layout, Trash2, ExternalLink, MoreHorizontal } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useAuth } from '@/store/AuthContext';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, Layout, Edit, Copy, Trash2, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { FormRecord } from '../types/form.types';
-import { getFormsByTenant, createForm, deleteForm } from '../services/forms.service';
+import { useAuth } from '@/store/AuthContext';
+import { RowActionsMenu } from '@/shared/components/data-grid/row-actions-menu';
+import { getFormsByTenant, getFormById, createForm, deleteForm, duplicateForm, unpublishForm } from '../services/forms.service';
+import type { FormRecord } from '../types/form.types';
+import { Badge } from '@/shared/components/ui/badge';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import { FormBuilderPage } from './form-builder-page';
 
-export default function FormsPage(): React.ReactElement {
-  const { tenant } = useAuth();
+export default function FormsPage({ onBuilderActiveChange }: { onBuilderActiveChange?: (active: boolean) => void }) {
+  const { tenant, user, userCan } = useAuth();
+  const canDelete = userCan('forms', 'canDelete');
+  const canEdit = userCan('forms', 'canEdit');
+  const canCreate = userCan('forms', 'canCreate'), canPublish = userCan('forms', 'canPublish'), canDuplicate = userCan('forms', 'canDuplicate');
   const [forms, setForms] = useState<FormRecord[]>([]);
-  const [activeForm, setActiveForm] = useState<FormRecord | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [newFormName, setNewFormName] = useState('');
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-
+  const [active, setActive] = useState<FormRecord | null>(null);
+  const [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FormRecord | null>(null);
+  const mutationLock = useRef(false);
+  const identity = `${tenant?.id}`;
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
+    let cancelled = false; setActive(null); setDeleteTarget(null); setLoading(true); setError('');
     if (!tenant?.id) return;
-    const loadForms = async (): Promise<void> => {
-      try {
-        const loaded = await getFormsByTenant(tenant.id);
-        setForms(loaded);
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : 'Failed to load forms');
-      }
-    };
-    void loadForms();
-  }, [tenant?.id]);
-
-  const handleCreate = async (): Promise<void> => {
-    if (!newFormName.trim()) { toast.error('Form name is required'); return; }
-    if (!tenant?.id) { toast.error('Unable to save. Please refresh and try again.'); return; }
-    try {
-      const form = await createForm({ name: newFormName.trim(), tenantId: tenant.id });
-      setForms((prev) => [...prev, form]);
-      setNewFormName('');
-      setIsCreating(false);
-      setActiveForm(form);
-      toast.success('Form created');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create form');
-    }
+    getFormsByTenant(tenant.id).then(data => { if (!cancelled) setForms(data); })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load forms.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenant?.id, retry]);
+  useEffect(() => { onBuilderActiveChange?.(!!active); return () => onBuilderActiveChange?.(false); }, [!!active, onBuilderActiveChange]);
+  useNotificationRecordLink('formId', (tenant?.id ?? '') + ':' + (user?.id ?? ''), !!tenant && userCan('forms', 'canView'), getFormById, setActive);
+  const mutate = async (work: () => Promise<void>, propagateError = false) => {
+    if (mutationLock.current) return; mutationLock.current = true; setBusy(true);
+    try { await work(); } catch (err) { if (propagateError) throw err; toast.error(err instanceof Error ? err.message : 'Unable to save form.'); } finally { mutationLock.current = false; setBusy(false); }
   };
-
-  const handleDelete = async (id: string): Promise<void> => {
-    try {
-      await deleteForm(id);
-      setForms((prev) => prev.filter((f) => f.id !== id));
-      setOpenMenuId(null);
-      toast.success('Form deleted');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete form');
-    }
+  const update = useCallback((form: FormRecord) => { setForms(items => items.map(f => f.id === form.id ? form : f)); setActive(form); }, []);
+  const create = () => void mutate(async () => {
+    if (!tenant || !canCreate) return;
+    const form = await createForm({ name: 'Contact Us', tenantId: tenant.id });
+    setForms(items => [form, ...items]); setActive(form);
+  });
+  const confirmDelete = async () => {
+    if (!deleteTarget || !canDelete || deleteTarget.status.toLowerCase() === 'published') return;
+    const target = deleteTarget;
+    const requestedIdentity = identity;
+    await mutate(async () => {
+      await deleteForm(target.id);
+      if (currentIdentity.current !== requestedIdentity) return;
+      setForms(items => items.filter(form => form.id !== target.id));
+      setDeleteTarget(null);
+      toast.success('Form permanently deleted.');
+    }, true);
   };
-
-  const handleFormUpdate = (updated: FormRecord) => {
-    setForms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-  };
-
-  if (activeForm) {
-    return <FormBuilderPage form={activeForm} onBack={() => setActiveForm(null)} onFormUpdate={handleFormUpdate} />;
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Forms</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Create and manage web forms to capture leads</p>
-        </div>
-        <button onClick={() => setIsCreating(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-blue-500/20 transition-colors cursor-pointer">
-          <Plus size={14} /> New Form
+  if (active) return <FormBuilderPage key={active.id} form={active} onBack={() => setActive(null)} onFormUpdate={update} />;
+  return <div className="space-y-5 min-w-0">
+    <PageHeader title="Forms" subtitle="Create and manage web forms used to capture inquiries and leads."
+      actions={<CreateButton label="New Form" disabled={busy || loading || !canCreate} onClick={create} />} />
+    {loading ? <div aria-label="Loading forms" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{[1,2,3].map(n => <div key={n} className="animate-pulse h-52 rounded-xl bg-slate-200 dark:bg-slate-800" />)}</div>
+      : error ? <div role="alert" className="p-6 border rounded-xl"><p>{error}</p><button className="mt-3 text-blue-600 underline" onClick={() => setRetry(v => v + 1)}>Retry</button></div>
+      : !forms.length ? <div className="py-16 text-center border border-dashed rounded-xl"><Layout className="mx-auto mb-3 text-slate-400" /><h2 className="font-semibold">No forms yet</h2><p className="text-sm text-slate-500">Create your first Contact Us form to start capturing leads.</p></div>
+      : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">{forms.map(form => <article key={form.id} className="min-w-0 border border-slate-200 rounded-lg bg-white dark:bg-slate-900 overflow-hidden">
+        <button className="h-36 w-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center" aria-label={(canEdit ? 'Edit ' : 'View ') + form.name} onClick={() => setActive(form)}>
+          <div aria-hidden="true" className="w-24 bg-white border rounded-md p-3 shadow-sm space-y-2"><div className="h-2 w-2/3 bg-slate-800 rounded" /><div className="h-2 bg-slate-100 rounded" /><div className="h-2 bg-slate-100 rounded" /><div className="h-3 bg-blue-600 rounded" /></div>
         </button>
-      </div>
-
-      {/* New form name modal */}
-      <AnimatePresence>
-        {isCreating && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setIsCreating(false)}>
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-              className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-2xl p-6 w-full max-w-sm shadow-2xl"
-              onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4">New Form</h3>
-              <input type="text" value={newFormName} onChange={(e) => setNewFormName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
-                placeholder="e.g. Contact Us Form" autoFocus
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors mb-4" />
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer">Cancel</button>
-                <button onClick={() => { void handleCreate(); }}
-                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-md shadow-blue-500/20 transition-colors cursor-pointer">Create</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Forms grid */}
-      {forms.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-          <Layout size={40} className="text-slate-300 dark:text-slate-700 mb-3" />
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No forms yet</h3>
-          <p className="text-xs text-slate-400 mb-4">Create your first form to start capturing leads</p>
-          <button onClick={() => setIsCreating(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer">
-            <Plus size={14} /> Create Form
-          </button>
+        <div className="flex justify-between items-center gap-2 p-4">
+          <div className="min-w-0"><button className="text-sm font-semibold truncate max-w-full block" onClick={() => setActive(form)}>{form.name}</button><div className="text-xs text-slate-500 mt-1 flex gap-2"><Badge variant={form.status.toLowerCase() === 'published' ? 'default' : 'secondary'} className="uppercase px-1 py-0 text-[10px]">{form.status.toLowerCase() === 'published' ? 'Published' : 'Draft'}</Badge><span>{form.fields.length} fields</span></div></div>
+          <RowActionsMenu label="More actions" position="right" actions={[
+            { id: 'edit', label: canEdit ? 'Edit' : 'View', icon: <Edit size={14} />, onClick: () => setActive(form) },
+            { id: 'duplicate', label: 'Duplicate', icon: <Copy size={14} />, disabled: busy || !canDuplicate, onClick: () => void mutate(async () => { const copy = await duplicateForm(form.id); setForms(items => [copy, ...items]); }) },
+            ...(form.status.toLowerCase() === 'published' ? [{ id: 'unpublish', label: 'Unpublish', icon: <EyeOff size={14} />, disabled: busy || !canPublish,
+              onClick: () => void mutate(async () => {
+                const requestedIdentity = identity;
+                const updated = await unpublishForm(form.id);
+                if (currentIdentity.current !== requestedIdentity) return;
+                setForms(items => items.map(item => item.id === updated.id ? updated : item));
+                toast.success('Form unpublished.');
+              }) }] : []),
+            { id: 'delete', label: 'Delete', icon: <Trash2 size={14} />, destructive: true,
+              disabled: busy || !canDelete || form.status.toLowerCase() === 'published',
+              disabledReason: form.status.toLowerCase() === 'published' ? 'Unpublish this form before deleting it.' : undefined,
+              onClick: () => setDeleteTarget(form) },
+          ]} />
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {forms.map((form) => (
-            <div key={form.id} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.06] rounded-2xl overflow-hidden hover:border-blue-400/50 transition-all group">
-              {/* Preview thumbnail */}
-              <div className="h-32 bg-slate-50 dark:bg-slate-800/40 border-b border-gray-100 dark:border-white/[0.05] flex items-center justify-center cursor-pointer" onClick={() => setActiveForm(form)}>
-                <div className="w-28 bg-white border border-slate-200 rounded-lg p-2 shadow-sm scale-90 group-hover:scale-95 transition-transform">
-                  <div className="h-2.5 w-3/4 bg-slate-800 rounded mb-2" />
-                  <div className="h-1.5 w-full bg-slate-200 rounded mb-1" />
-                  <div className="h-4 w-full bg-slate-100 border border-slate-200 rounded mb-1" />
-                  <div className="h-4 w-full bg-slate-100 border border-slate-200 rounded mb-2" />
-                  <div className="h-4 w-full bg-blue-500 rounded" />
-                </div>
-              </div>
-              {/* Info */}
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onClick={() => setActiveForm(form)}>
-                      {form.name}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      {form.status === 'published' ? (
-                        <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold rounded border border-emerald-500/20 uppercase">Published</span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold rounded uppercase">Draft</span>
-                      )}
-                      <span className="text-[10px] text-slate-400">{form.fields.length} fields</span>
-                    </div>
-                  </div>
-                  <div className="relative shrink-0">
-                    <button onClick={() => setOpenMenuId(openMenuId === form.id ? null : form.id)}
-                      className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer">
-                      <MoreHorizontal size={14} />
-                    </button>
-                    <AnimatePresence>
-                      {openMenuId === form.id && (
-                        <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                          className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-lg z-20 py-1 overflow-hidden"
-                          onMouseLeave={() => setOpenMenuId(null)}>
-                          <button onClick={() => { setActiveForm(form); setOpenMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] cursor-pointer">
-                            <ExternalLink size={12} /> Open
-                          </button>
-                          <button onClick={() => { void handleDelete(form.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer">
-                            <Trash2 size={12} /> Delete
-                          </button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+
+      </article>)}</div>}
+    <ConfirmActionDialog
+      open={!!deleteTarget} onOpenChange={open => { if (!open && !busy) setDeleteTarget(null); }}
+      title="Delete form?" description="This will permanently delete this form and cannot be undone."
+      warning="Its submission history will also be deleted. Linked Leads and Contacts will be kept."
+      confirmLabel="Delete Form" cancelLabel="Cancel" variant="destructive" isLoading={busy} onConfirm={confirmDelete}
+    />
+  </div>;
 }

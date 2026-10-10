@@ -97,7 +97,7 @@ export function GlobalOmnibox({ autoFocus = false, onResultSelect }: GlobalOmnib
     } finally {
       if (version === searchVersion.current) setIsSearching(false);
     }
-  }, [tenant?.id, user?.id, user?.activeEnvironment]);
+  }, [tenant?.id, user?.id]);
 
   useEffect(() => {
     setServerLeads([]); setServerContacts([]); setServerAccounts([]);

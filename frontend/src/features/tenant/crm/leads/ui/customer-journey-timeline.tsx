@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { Calendar, CheckCircle2, DollarSign, FileText, Briefcase, UserCheck, MessageSquare, AlertCircle, Clock, ShieldCheck } from 'lucide-react';
-import { Lead, Deal, Task } from '@/store/types';
+import { Lead, Deal } from '@/store/types';
+import { useTasks } from '@/features/tenant/operations/tasks/use-tasks';
 import { usePagination } from '@/shared/hooks/use-pagination';
 import { Pagination } from '@/shared/components/ui/pagination';
 
@@ -22,16 +23,15 @@ export interface TimelineEvent {
 interface CustomerJourneyTimelineProps {
   lead: Lead;
   deals: Deal[];
-  tasks: Task[];
   onSelectDeal?: (deal: Deal) => void;
 }
 
 export const CustomerJourneyTimeline: React.FC<CustomerJourneyTimelineProps> = ({
   lead,
   deals = [],
-  tasks = [],
   onSelectDeal,
 }) => {
+  const taskData = useTasks({ leadId: lead.id, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' });
   // Aggregate dynamic timeline events from deals, tasks, and activities
   const events: TimelineEvent[] = [];
 
@@ -92,7 +92,7 @@ export const CustomerJourneyTimeline: React.FC<CustomerJourneyTimelineProps> = (
   });
 
   // 3. Aggregate Task Events
-  const clientTasks = tasks.filter(t => clientDeals.some(d => d.id === t.dealId));
+  const clientTasks = taskData.tasks;
   clientTasks.forEach(task => {
     events.push({
       id: `evt_task_${task.id}`,
@@ -100,8 +100,8 @@ export const CustomerJourneyTimeline: React.FC<CustomerJourneyTimelineProps> = (
       eventType: 'task_event',
       title: `Task ${task.status === 'completed' ? 'Completed' : 'Assigned'}: ${task.title}`,
       description: task.description || 'Execution task linked to active deal workflow.',
-      timestamp: task.createdAt,
-      actorName: task.assignedUserId || 'Operations',
+      timestamp: task.completedAt ?? task.createdAt,
+      actorName: task.completedBy ? `${task.completedBy.firstName} ${task.completedBy.lastName}` : task.assignedUser ? `${task.assignedUser.firstName} ${task.assignedUser.lastName}` : 'Operations',
       entityId: task.id,
       entityType: 'task',
     });
@@ -125,6 +125,13 @@ export const CustomerJourneyTimeline: React.FC<CustomerJourneyTimelineProps> = (
   // Sort events chronologically (newest first)
   const sortedEvents = events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+  const pagination = usePagination({
+    totalItems: sortedEvents.length,
+    initialPageSize: 10,
+    pageSizeOptions: [10, 25, 50],
+  });
+  const paginatedEvents = pagination.paginateItems(sortedEvents);
+
   if (sortedEvents.length === 0) {
     return (
       <div className="p-8 text-center text-xs text-slate-400 border border-dashed rounded-xl my-4">
@@ -133,15 +140,10 @@ export const CustomerJourneyTimeline: React.FC<CustomerJourneyTimelineProps> = (
     );
   }
 
-  const pagination = usePagination({
-    totalItems: sortedEvents.length,
-    initialPageSize: 10,
-    pageSizeOptions: [10, 25, 50],
-  });
-  const paginatedEvents = pagination.paginateItems(sortedEvents);
-
   return (
     <div className="space-y-4 py-2">
+      {taskData.error && <p role="alert" className="text-xs text-destructive">Task history could not load. <button onClick={taskData.refresh}>Retry</button></p>}
+      {taskData.canRead && (taskData.meta?.total ?? 0) > 100 && <p className="text-xs text-muted-foreground">Showing the 100 most recently created linked tasks. Use the Tasks tab for the full list.</p>}
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
           <Clock size={14} className="text-blue-500" />

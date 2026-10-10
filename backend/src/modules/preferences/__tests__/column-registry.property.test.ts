@@ -83,10 +83,10 @@ describe('Feature: manage-columns-persistence, Property 5: Unknown Column Reject
 });
 
 describe('Feature: manage-columns-persistence, Property 7: Column ID Format Validation', () => {
-  it('should reject column ids containing special characters', () => {
-    // Generate strings that contain at least one non-alphanumeric character
+  it('should reject column ids with unsupported characters or an invalid first character', () => {
+    // Custom-field column keys permit hyphens/underscores after an initial letter.
     const specialCharArb = fc.string({ minLength: 1, maxLength: 64 }).filter(
-      (s) => s.length > 0 && !/^[a-zA-Z0-9]+$/.test(s)
+      (s) => s.length > 0 && !/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(s)
     );
 
     fc.assert(
@@ -97,7 +97,7 @@ describe('Feature: manage-columns-persistence, Property 7: Column ID Format Vali
           order: 0,
         });
 
-        // Zod schema should reject ids with special characters
+        // Unsupported punctuation and invalid starting characters must be rejected.
         expect(result.success).toBe(false);
       }),
       { numRuns: 100 }
@@ -136,11 +136,13 @@ describe('Feature: manage-columns-persistence, Property 7: Column ID Format Vali
     expect(result.success).toBe(false);
   });
 
-  it('should accept valid alphanumeric column ids within length limits', () => {
+  it('should accept letter-prefixed column ids including supported separators within length limits', () => {
     const alphanumChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const validIdArb = fc
-      .array(fc.constantFrom(...alphanumChars.split('')), { minLength: 1, maxLength: 255 })
-      .map((chars) => chars.join(''));
+    const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const validIdArb = fc.tuple(
+      fc.constantFrom(...letters),
+      fc.array(fc.constantFrom(...(alphanumChars + '_-')), { minLength: 0, maxLength: 254 }),
+    ).map(([first, rest]) => first + rest.join(''));
 
     fc.assert(
       fc.property(validIdArb, (validId) => {
@@ -150,15 +152,15 @@ describe('Feature: manage-columns-persistence, Property 7: Column ID Format Vali
           order: 0,
         });
 
-        // Valid alphanumeric ids within length should pass
+        // A leading letter and the supported key characters should pass.
         expect(result.success).toBe(true);
       }),
       { numRuns: 100 }
     );
   });
 
-  it('should reject ids with specific problematic characters (dots, underscores, hyphens, spaces, symbols)', () => {
-    const problematicChars = ['.', '_', '-', ' ', '@', '#', '$', '%', '!', '/', '\\', '(', ')'];
+  it('should reject ids with unsupported punctuation, spaces, and symbols', () => {
+    const problematicChars = ['.', ' ', '@', '#', '$', '%', '!', '/', '\\', '(', ')'];
     const alphanumChars = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
     const prefixArb = fc

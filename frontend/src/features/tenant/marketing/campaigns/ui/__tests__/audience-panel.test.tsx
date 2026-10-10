@@ -1,0 +1,57 @@
+import React from 'react';
+import { createPortal } from 'react-dom';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+const api = vi.hoisted(() => ({ companies: vi.fn(), preview: vi.fn(), create: vi.fn() }));
+vi.mock('@/shared/services/audiences.api', () => ({ audiencesApi: api }));
+vi.mock('@/shared/components/side-sheet', () => ({ SideSheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('@/shared/components/crm/product-interest-select', () => ({ CatalogProductInterestSelect: () => <><button>Products</button>{createPortal(<input type="checkbox" aria-label="Product choice" />, document.body)}</> }));
+vi.mock('@/shared/components/entity-combobox', () => ({ EntityCombobox: () => <button>Agents</button> }));
+import { AudiencePanel } from '../audience-panel';
+beforeEach(() => { vi.clearAllMocks(); api.companies.mockResolvedValue({ data: ['McDonalds', 'Acme'] }); api.preview.mockResolvedValue({ data: { eligible: 0, recipients: [] } }); });
+afterEach(cleanup);
+it('validates incomplete rows only on blur or submit and never exposes raw enums', async () => {
+  render(<AudiencePanel onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByText('+ Add Condition'));
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(screen.getByText('Create Audience'));
+  expect(screen.getByText('Select a status.')).toBeTruthy();
+  expect(screen.queryByText(/Invalid enum|Expected.*Hot/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('Value *'), { target: { value: 'Warm' } });
+  expect(screen.queryByText('Select a status.')).toBeNull();
+  await waitFor(() => expect(api.preview).toHaveBeenCalled());
+});
+it('loads company choices for each source and clears stale selections', async () => {
+  render(<AudiencePanel onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByText('+ Add Condition'));
+  fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'company' } });
+  await screen.findByRole('option', { name: 'McDonalds' });
+  const value = screen.getByLabelText('Value *') as HTMLSelectElement;
+  expect(value.tagName).toBe('SELECT');
+  fireEvent.change(value, { target: { value: 'McDonalds' } });
+  fireEvent.change(screen.getByLabelText('Source *'), { target: { value: 'CONTACTS' } });
+  expect(value.value).toBe('');
+  await waitFor(() => expect(api.companies).toHaveBeenCalledWith('CONTACTS'));
+  expect(screen.queryByRole('option', { name: 'contains' })).toBeNull();
+});
+it('does not validate a new date range until it loses focus', async () => {
+  render(<AudiencePanel onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByText('+ Add Condition'));
+  fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'createdAt' } });
+  fireEvent.change(screen.getByLabelText('Operator'), { target: { value: 'between' } });
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.blur(screen.getByLabelText('Created To'));
+  await waitFor(() => expect(screen.getByText('Enter valid dates with From on or before To.')).toBeTruthy());
+});
+it('keeps portaled product choices untouched until focus leaves the selector', async () => {
+  render(<AudiencePanel onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByText('+ Add Condition'));
+  fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'productInterest' } });
+  const trigger = screen.getByText('Products'), choice = screen.getByLabelText('Product choice');
+  fireEvent.blur(trigger, { relatedTarget: choice });
+  fireEvent.focus(choice, { relatedTarget: trigger });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(screen.queryByText('Select a Product Interest.')).toBeNull();
+  fireEvent.blur(choice, { relatedTarget: screen.getByLabelText('Audience Name *') });
+  await waitFor(() => expect(screen.getByText('Select a Product Interest.')).toBeTruthy());
+});

@@ -110,11 +110,11 @@ export function DealsDataGrid({
 
       return (
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`w-8 h-8 rounded-full ${MODULE_ACCENT_COLORS.deals} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
+          <div className={`w-7 h-7 rounded-full ${MODULE_ACCENT_COLORS.leads} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[#0F172A] dark:text-white truncate leading-tight">
+            <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate leading-tight hover:underline cursor-pointer">
               {row.title}
             </p>
             {row.companyName && (
@@ -129,7 +129,7 @@ export function DealsDataGrid({
 
     value: (_value: unknown, row: Deal) => (
       <span className="text-[13px] font-semibold text-[#0F172A] dark:text-slate-100">
-        {typeof row.value === 'number' && row.value > 0 ? formatCurrency(row.value, currencyConfig) : '—'}
+        {typeof row.value === 'number' ? formatCurrency(row.value, currencyConfig) : '—'}
       </span>
     ),
 
@@ -152,12 +152,12 @@ export function DealsDataGrid({
 
     assignedUserId: (_value: unknown, row: Deal) => (
       <span className="text-[12px] text-[#5A6B85] dark:text-slate-400 truncate">
-        {getAssignedUserName(row.assignedUserId)}
+        {row.assignedUser ? `${row.assignedUser.firstName} ${row.assignedUser.lastName}`.trim() : getAssignedUserName(row.assignedUserId)}
       </span>
     ),
 
     accountId: (_value: unknown, row: Deal) => {
-      const accountName = getAccountName(row.organizationId);
+      const accountName = row.companyName || getAccountName(row.organizationId);
       return renderLink(accountName || null);
     },
 
@@ -225,7 +225,7 @@ export function DealsDataGrid({
       data={deals}
       highlightRowId={highlightRowId}
       getRowId={getRowId}
-      height={600}
+      height="auto"
       selectable
       selectedIds={selectedIds}
       onSelectionChange={onSelectionChange}

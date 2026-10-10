@@ -1,5 +1,7 @@
-export const CONTACT_STATUSES = ['Hot', 'Warm', 'Cold', 'Closed', 'Cancelled'] as const;
-export type LeadStatus = typeof CONTACT_STATUSES[number];
+import { LEAD_STATUSES } from '@leadcrm/shared';
+
+export const CONTACT_STATUSES = LEAD_STATUSES;
+export type LeadStatus = typeof LEAD_STATUSES[number];
 
 export const CONTACT_SOURCES = ['Facebook', 'Google', 'Referral', 'Website', 'Other'] as const;
 export type LeadSource = typeof CONTACT_SOURCES[number];

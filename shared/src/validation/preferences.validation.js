@@ -14,8 +14,8 @@ exports.ColumnModuleParamsSchema = zod_1.z.object({
 });
 /** Single column item in a save payload. */
 exports.ColumnItemSchema = zod_1.z.object({
-    id: zod_1.z.string().min(1).max(255).regex(/^[a-zA-Z0-9]+$/, {
-        message: 'Column id must contain only alphanumeric characters',
+    id: zod_1.z.string().min(1).max(255).regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, {
+        message: 'Column ID must start with a letter and contain only letters, numbers, hyphens, or underscores',
     }),
     visible: zod_1.z.boolean(),
     order: zod_1.z.number().int().nonnegative(),

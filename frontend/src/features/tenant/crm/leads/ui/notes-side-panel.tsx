@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 
 interface NotesSidePanelProps {
   isOpen: boolean;
@@ -44,9 +45,9 @@ const COLOR_MAP = {
   },
   blue: {
     bg: 'bg-blue-50 dark:bg-blue-950/20',
-    border: 'border-blue-200/60 dark:border-blue-500/20',
+    border: 'border-blue-200/60 dark:border-primary/20',
     text: 'text-blue-800 dark:text-blue-300',
-    accent: 'bg-blue-400',
+    accent: 'bg-primary',
     badge: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
   },
   emerald: {
@@ -308,30 +309,14 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
   }, [notes, activeCategory, searchQuery]);
 
   return (
-    <AnimatePresence>
+    <Sheet open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
       {isOpen && (
         <>
-          {/* Backdrop Overlay */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 transition-opacity cursor-pointer"
-          />
-
-          {/* Drawer Panel */}
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-            className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-slate-950 border-l border-gray-200 dark:border-white/10 z-50 shadow-2xl flex flex-col h-full"
-          >
+          <SheetContent showClose={false} aria-label="Workspace Scratchpad" className="max-w-md sm:max-w-md bg-white dark:bg-slate-950 border-l border-gray-200 dark:border-white/10 shadow-2xl flex flex-col overflow-hidden">
             {/* Header */}
             <div className="p-5 border-b border-gray-100 dark:border-white/5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-blue-500/10 text-blue-500 rounded-lg">
+                <div className="p-1.5 bg-primary/10 text-blue-500 rounded-lg">
                   <StickyNote size={20} className="animate-pulse" />
                 </div>
                 <div>
@@ -340,7 +325,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                 </div>
               </div>
               
-              <button 
+              <button aria-label="Close scratchpad"
                 onClick={onClose}
                 className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
               >
@@ -349,7 +334,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
             </div>
 
             {/* Scrolling Core Space */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 custom-scrollbar">
               
               {/* Form trigger / Edit state */}
               {isAdding ? (
@@ -365,7 +350,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                         <button
                           type="button"
                           onClick={() => applyAutofill('call')}
-                          className="text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 px-2 py-0.5 rounded-full font-medium transition-colors"
+                          className="text-[10px] bg-primary/10 hover:bg-primary/20 text-blue-500 px-2 py-0.5 rounded-full font-medium transition-colors"
                         >
                           + Call Log
                         </button>
@@ -387,7 +372,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                       value={title}
                       onChange={e => setTitle(e.target.value)}
                       placeholder="Note Heading (e.g. Call logs with John)"
-                      className="w-full text-sm font-semibold bg-white dark:bg-slate-950 border border-gray-200 dark:border-white/8 rounded-xl px-3 py-2 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+                      className="w-full text-sm font-semibold bg-white dark:bg-slate-950 border border-gray-200 dark:border-white/8 rounded-xl px-3 py-2 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -399,7 +384,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                       rows={4}
                       required
                       placeholder="Jot down customer specifications, billing details or meeting notes details..."
-                      className="w-full text-xs font-normal bg-white dark:bg-slate-950 border border-gray-200 dark:border-white/8 rounded-xl px-3 py-2 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                      className="w-full text-xs font-normal bg-white dark:bg-slate-950 border border-gray-200 dark:border-white/8 rounded-xl px-3 py-2 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-primary resize-none"
                     />
                   </div>
 
@@ -433,7 +418,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                             className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
                               c === 'slate' ? 'bg-slate-400 border-slate-500' :
                               c === 'amber' ? 'bg-amber-400 border-amber-500' :
-                              c === 'blue' ? 'bg-blue-400 border-blue-500' :
+                              c === 'blue' ? 'bg-primary border-primary' :
                               c === 'emerald' ? 'bg-emerald-400 border-emerald-500' :
                               c === 'rose' ? 'bg-rose-400 border-rose-500' :
                               'bg-indigo-400 border-indigo-500'
@@ -456,7 +441,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                       <button
                         type="button"
                         onClick={() => { setLinkType('none'); setSelectedEntityId(''); }}
-                        className={`px-2.5 py-1 rounded bg-gray-100 dark:bg-white/5 border transition-all ${linkType === 'none' ? 'border-blue-500/40 text-blue-500' : 'border-transparent text-slate-500'}`}
+                        className={`px-2.5 py-1 rounded bg-gray-100 dark:bg-white/5 border transition-all ${linkType === 'none' ? 'border-primary/40 text-blue-500' : 'border-transparent text-slate-500'}`}
                       >
                         Unlinked
                       </button>
@@ -518,7 +503,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-semibold hover:bg-blue-600 shadow-sm transition-colors flex items-center gap-1.5"
+                      className="px-4 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 shadow-sm transition-colors flex items-center gap-1.5"
                     >
                       <Check size={13} /> {editingId ? 'Save Edits' : 'Save Note'}
                     </button>
@@ -527,7 +512,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
               ) : (
                 <button
                   onClick={() => setIsAdding(true)}
-                  className="w-full py-2.5 border border-dashed border-gray-300 dark:border-white/10 hover:border-blue-500 bg-gray-50/20 hover:bg-blue-500/5 text-slate-600 dark:text-slate-300 hover:text-blue-500 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all duration-150"
+                  className="w-full py-2.5 border border-dashed border-gray-300 dark:border-white/10 hover:border-primary bg-gray-50/20 hover:bg-primary/5 text-slate-600 dark:text-slate-300 hover:text-blue-500 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all duration-150"
                 >
                   <Plus size={15} /> Create a Fleeting Note or Scratchpad Log
                 </button>
@@ -543,7 +528,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder="Search scratchpad notes..."
-                    className="w-full text-xs bg-gray-50 dark:bg-white/2/30 border border-gray-200 dark:border-white/8 rounded-full pl-9 pr-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    className="w-full text-xs bg-gray-50 dark:bg-white/2/30 border border-gray-200 dark:border-white/8 rounded-full pl-9 pr-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-primary"
                   />
                   {searchQuery && (
                     <button 
@@ -565,7 +550,7 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
                         onClick={() => setActiveCategory(tab)}
                         className={`px-3 py-1 rounded-full whitespace-nowrap transition-all ${
                           isActive 
-                            ? 'bg-blue-500 text-white font-semibold shadow-sm' 
+                            ? 'bg-primary text-white font-semibold shadow-sm'
                             : 'bg-gray-100 dark:bg-white/3 hover:bg-gray-200 dark:hover:bg-white/6'
                         }`}
                       >
@@ -683,9 +668,9 @@ export default function NotesSidePanel({ isOpen, onClose }: NotesSidePanelProps)
               </div>
 
             </div>
-          </motion.div>
+          </SheetContent>
         </>
       )}
-    </AnimatePresence>
+    </Sheet>
   );
 }

@@ -1,4 +1,4 @@
-export type TenantStatus = 'SANDBOX' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+export type TenantStatus = 'SANDBOX' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED' | 'DELETED';
 
 export interface Tenant {
   id: string;

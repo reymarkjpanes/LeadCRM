@@ -3,7 +3,7 @@ import { cleanup, renderHook } from '@testing-library/react';
 const mocks = vi.hoisted(() => ({ permission: true, cache: vi.fn(), getAll: vi.fn(), get: vi.fn() }));
 vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ activities: [], users: [] }) }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user', tenantId: 'tenant', activeEnvironment: 'SANDBOX' } }) }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user', tenantId: 'tenant', } }) }));
 vi.mock('./use-permissions', () => ({ useHasPermission: () => mocks.permission }));
 vi.mock('./use-cached-page', () => ({ useCachedPage: mocks.cache }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));

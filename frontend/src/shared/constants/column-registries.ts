@@ -1,3 +1,4 @@
+import { TASK_COLUMN_DEFINITIONS } from '@leadcrm/shared';
 /**
  * Frontend column registry definitions — mirrors the backend column-registry.ts.
  * Used by the ManageColumnsDrawer to display labels and enforce required columns.
@@ -15,6 +16,7 @@ import type { ColumnDefinition } from '@leadcrm/shared';
 export const LEADS_COLUMN_REGISTRY: ColumnDefinition[] = [
   // ── Leads ──────────────────────────────────────────────────
   { id: 'firstName',           label: 'Name',                          required: true,  defaultVisible: true,  defaultOrder: 0,  group: 'Leads',              priority: 'required' },
+  { id: 'assignedUserId',      label: 'Assigned Agent',                required: false, defaultVisible: true,  defaultOrder: 3,  group: 'Leads',              priority: 'medium' },
   { id: 'phoneAction',         label: '📞',                            required: false, defaultVisible: false,  defaultOrder: 1,  group: 'Leads',              priority: 'high' },
   { id: 'emailAction',         label: '✉',                             required: false, defaultVisible: false,  defaultOrder: 2,  group: 'Leads',              priority: 'high' },
   { id: 'email',               label: 'Email address',                 required: false, defaultVisible: true, defaultOrder: 4,  group: 'Leads',              priority: 'low' },
@@ -93,7 +95,6 @@ export const LEADS_COLUMN_REGISTRY: ColumnDefinition[] = [
   { id: 'primaryOppCloseDate',     label: 'Primary opp. close date',       required: false, defaultVisible: false, defaultOrder: 61, group: 'Opportunities', priority: 'low' },
   { id: 'primaryOppCreated',       label: 'Primary opp. created',          required: false, defaultVisible: false, defaultOrder: 62, group: 'Opportunities', priority: 'low' },
   { id: 'primaryOppUpdated',       label: 'Primary opp. updated',          required: false, defaultVisible: false, defaultOrder: 63, group: 'Opportunities', priority: 'low' },
-  { id: 'primaryOppConfidence',    label: 'Primary opp. confidence %',     required: false, defaultVisible: false, defaultOrder: 64, group: 'Opportunities', priority: 'low' },
   { id: 'primaryOppValue',         label: 'Primary opp. value',            required: false, defaultVisible: false, defaultOrder: 65, group: 'Opportunities', priority: 'low' },
   { id: 'primaryOppUser',          label: 'Primary opp. user',             required: false, defaultVisible: false, defaultOrder: 66, group: 'Opportunities', priority: 'low' },
   { id: 'lastOppStatusChangeDate', label: 'Last opp. status change date',  required: false, defaultVisible: false, defaultOrder: 67, group: 'Opportunities', priority: 'low' },
@@ -118,11 +119,10 @@ export const LEADS_COLUMN_REGISTRY: ColumnDefinition[] = [
 export const ACCOUNTS_COLUMN_REGISTRY: ColumnDefinition[] = [
   { id: 'name',            label: 'Account Name',      required: true,  defaultVisible: true,  defaultOrder: 0, group: 'Account Info',  priority: 'required' },
   { id: 'industry',        label: 'Industry',          required: false, defaultVisible: true,  defaultOrder: 1, group: 'Account Info',  priority: 'medium' },
-  { id: 'customerType',    label: 'Account Type',      required: false, defaultVisible: true,  defaultOrder: 2, group: 'Account Info',  priority: 'medium' },
   { id: 'size',            label: 'Company Size',      required: false, defaultVisible: true,  defaultOrder: 3, group: 'Account Info',  priority: 'medium' },
   { id: 'city',            label: 'City',              required: false, defaultVisible: true,  defaultOrder: 4, group: 'Location',      priority: 'low' },
   { id: 'country',         label: 'Country',           required: false, defaultVisible: false, defaultOrder: 5, group: 'Location',      priority: 'low' },
-  { id: 'assignedUserId',  label: 'Owner',             required: false, defaultVisible: true,  defaultOrder: 6, group: 'Account Info',  priority: 'medium' },
+  { id: 'assignedUserId',  label: 'Assigned Agent',             required: false, defaultVisible: true,  defaultOrder: 6, group: 'Account Info',  priority: 'medium' },
   { id: 'website',         label: 'Website',           required: false, defaultVisible: false, defaultOrder: 7, group: 'Account Info',  priority: 'low' },
   { id: 'tags',            label: 'Tags',              required: false, defaultVisible: false, defaultOrder: 8, group: 'Account Info',  priority: 'low' },
   { id: 'createdAt',       label: 'Created Date',      required: false, defaultVisible: true,  defaultOrder: 9, group: 'System',        priority: 'low' },
@@ -140,7 +140,7 @@ export const CONTACTS_COLUMN_REGISTRY: ColumnDefinition[] = [
   { id: 'companyName',     label: 'Company',           required: false, defaultVisible: true,  defaultOrder: 4, group: 'Organization',  priority: 'high' },
   { id: 'status',          label: 'Status',            required: false, defaultVisible: true,  defaultOrder: 5, group: 'Contact Info',  priority: 'medium' },
   { id: 'source',          label: 'Source',            required: false, defaultVisible: false, defaultOrder: 6, group: 'Contact Info',  priority: 'medium' },
-  { id: 'assignedUserId',  label: 'Assigned To',       required: false, defaultVisible: true,  defaultOrder: 7, group: 'Contact Info',  priority: 'medium' },
+  { id: 'assignedUserId',  label: 'Assigned Agent',       required: false, defaultVisible: true,  defaultOrder: 7, group: 'Contact Info',  priority: 'medium' },
   { id: 'accountId',       label: 'Account',           required: false, defaultVisible: false, defaultOrder: 8, group: 'Organization',  priority: 'low' },
   { id: 'createdAt',       label: 'Created Date',      required: false, defaultVisible: true,  defaultOrder: 9, group: 'System',        priority: 'low' },
 ];
@@ -167,6 +167,7 @@ export const DEALS_COLUMN_REGISTRY: ColumnDefinition[] = [
 // ─────────────────────────────────────────────────────
 
 export const MODULE_COLUMN_REGISTRIES: Record<string, ColumnDefinition[]> = {
+  tasks: TASK_COLUMN_DEFINITIONS,
   leads: LEADS_COLUMN_REGISTRY,
   accounts: ACCOUNTS_COLUMN_REGISTRY,
   contacts: CONTACTS_COLUMN_REGISTRY,

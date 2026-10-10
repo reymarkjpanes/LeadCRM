@@ -60,12 +60,12 @@ async function main() {
       isDefault: true,
       stages: {
         create: [
-          { name: 'Lead',          order: 1, probability: 10, isDefault: true, color: '#64748b', tenantId: TENANT_ID },
-          { name: 'Qualified',     order: 2, probability: 30, color: '#3b82f6', tenantId: TENANT_ID },
-          { name: 'Proposal Sent', order: 3, probability: 50, color: '#f59e0b', tenantId: TENANT_ID },
-          { name: 'Negotiation',   order: 4, probability: 75, color: '#8b5cf6', tenantId: TENANT_ID },
-          { name: 'Closed Won',    order: 5, probability: 100, isWon: true,  color: '#10b981', tenantId: TENANT_ID },
-          { name: 'Closed Lost',   order: 6, probability: 0,   isLost: true, color: '#ef4444', tenantId: TENANT_ID },
+          { name: 'Lead',          order: 1, probability: 10, isDefault: true, color: '#64748b' },
+          { name: 'Qualified',     order: 2, probability: 30, color: '#3b82f6' },
+          { name: 'Proposal Sent', order: 3, probability: 50, color: '#f59e0b' },
+          { name: 'Negotiation',   order: 4, probability: 75, color: '#8b5cf6' },
+          { name: 'Closed Won',    order: 5, probability: 100, isWon: true,  color: '#10b981' },
+          { name: 'Closed Lost',   order: 6, probability: 0,   isLost: true, color: '#ef4444' },
         ],
       },
     },
@@ -77,11 +77,11 @@ async function main() {
 
   // ── Organizations ──────────────────────────────────────────────────
   const orgs = await Promise.all([
-    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'Antigravity Solutions Inc.', industry: 'Information Technology', size: '11-50', website: 'https://antigravity.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines', customerType: 'Active Customer' } }),
-    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'Nexwave Digital', industry: 'Software Development', size: '1-10', website: 'https://nexwave.ph', address: 'Ortigas, Pasig', country: 'Philippines', customerType: 'Prospect' } }),
-    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'CloudPH Telecom', industry: 'Telecommunications', size: '200+', address: 'Makati, Metro Manila', country: 'Philippines', customerType: 'Active Customer' } }),
-    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'BrightPath BPO', industry: 'Business Process Outsourcing', size: '51-200', address: 'Cebu City, Cebu', country: 'Philippines', customerType: 'Prospect' } }),
-    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'GreenTech Energy PH', industry: 'Renewable Energy', size: '11-50', address: 'Davao City', country: 'Philippines', customerType: 'Prospect' } }),
+    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'Antigravity Solutions Inc.', industry: 'Information Technology', size: '11-50', website: 'https://antigravity.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines' } }),
+    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'Nexwave Digital', industry: 'Software Development', size: '1-10', website: 'https://nexwave.ph', address: 'Ortigas, Pasig', country: 'Philippines' } }),
+    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'CloudPH Telecom', industry: 'Telecommunications', size: '200+', address: 'Makati, Metro Manila', country: 'Philippines' } }),
+    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'BrightPath BPO', industry: 'Business Process Outsourcing', size: '51-200', address: 'Cebu City, Cebu', country: 'Philippines' } }),
+    prisma.account.create({ data: { tenantId: TENANT_ID, assignedUserId: USER_ID, name: 'GreenTech Energy PH', industry: 'Renewable Energy', size: '11-50', address: 'Davao City', country: 'Philippines' } }),
   ]);
   console.log('[Seed] Organizations created.');
 
@@ -124,14 +124,19 @@ async function main() {
   console.log('[Seed] Contact-Deal links created.');
 
   // ── Tasks ──────────────────────────────────────────────────────────
-  await prisma.task.createMany({
-    data: [
+  await prisma.$transaction(async tx => {
+    for (const row of [
       { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Follow up with Anna Reyes re: Enterprise demo', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 2 * 86400000), contactId: contacts[0].id, dealId: deals[0].id },
-      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Prepare proposal document for Nexwave', status: 'in-progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), contactId: contacts[1].id, dealId: deals[1].id },
+      { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Prepare proposal document for Nexwave', status: 'in_progress', priority: 'Medium', dueDate: new Date(Date.now() + 5 * 86400000), contactId: contacts[1].id, dealId: deals[1].id },
       { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Contract negotiation call — CloudPH', status: 'pending', priority: 'High', dueDate: new Date(Date.now() + 1 * 86400000), contactId: contacts[2].id, dealId: deals[2].id },
       { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'Send onboarding docs — CloudPH Won', status: 'completed', priority: 'Medium', dueDate: new Date(Date.now() - 3 * 86400000), contactId: contacts[7].id, dealId: deals[4].id },
       { tenantId: TENANT_ID, assignedUserId: USER_ID, assignedById: USER_ID, title: 'LinkedIn outreach — Jerico Tan', status: 'pending', priority: 'Low', dueDate: new Date(Date.now() + 7 * 86400000), contactId: contacts[5].id },
-    ],
+    ]) {
+      const { contactId, dealId, ...data } = row;
+      const create = { ...data, contactLinks: { create: { contactId, position: 0 } },
+        ...(dealId ? { dealLinks: { create: { dealId, position: 0 } } } : {}) };
+      await tx.task.create({ data: create });
+    }
   });
   console.log('[Seed] Tasks created.');
 
@@ -150,9 +155,9 @@ async function main() {
   // ── Campaigns ──────────────────────────────────────────────────────
   await prisma.campaign.createMany({
     data: [
-      { tenantId: TENANT_ID, name: 'Q3 IT Solutions Outreach', type: 'EMAIL', status: 'ACTIVE',     subject: 'Streamline your IT workflows with LeadCRM', scheduledFor: new Date(Date.now() + 3 * 86400000) },
+      { tenantId: TENANT_ID, name: 'Q3 IT Solutions Outreach', type: 'EMAIL', status: 'SENDING',     subject: 'Streamline your IT workflows with LeadCRM', scheduledFor: new Date(Date.now() + 3 * 86400000) },
       { tenantId: TENANT_ID, name: 'BPO Industry Newsletter',  type: 'EMAIL', status: 'DRAFT',      subject: 'How BPO companies are using CRM to grow 3x faster' },
-      { tenantId: TENANT_ID, name: 'Win-Back — Lost Deals',    type: 'EMAIL', status: 'COMPLETED',  subject: 'We have a special offer for you', scheduledFor: new Date(Date.now() - 10 * 86400000) },
+      { tenantId: TENANT_ID, name: 'Win-Back — Lost Deals',    type: 'EMAIL', status: 'SENDING',  subject: 'We have a special offer for you', scheduledFor: new Date(Date.now() - 10 * 86400000) },
     ],
   });
   console.log('[Seed] Campaigns created.');

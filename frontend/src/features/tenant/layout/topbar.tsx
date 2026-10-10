@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Menu, Bell, Mail, Search } from 'lucide-react';
 import { useNotifications } from '@/features/tenant/notifications/hooks/use-notifications';
-import { getGmailStatus, fetchGmailEmails } from '@/features/tenant/inbox/services/gmail.service';
+import { getGmailStatus, fetchGmailUnreadCount } from '@/features/tenant/inbox/services/gmail.service';
 import { useLayout, NAV_ITEMS } from './use-layout';
 import { useAuth } from '@/store/AuthContext';
 import { usePathname } from 'next/navigation';
@@ -12,19 +12,19 @@ import { GlobalOmnibox } from '@/shared/components/global-omnibox';
 import { MobileSearchOverlay } from '@/shared/components/mobile-search-overlay';
 import { UserProfileDropdown } from './user-profile-dropdown';
 import { cn } from '@/lib/utils';
-import { EnvironmentSwitcher } from './environment-switcher';
 
 // -- Types ---------------------------------------------------------------------
 
 interface TopbarProps {
   onOpenSidebar: () => void;
   onOpenInbox: () => void;
+  sidebarOpen?: boolean;
 }
 
 // -- Component -----------------------------------------------------------------
 
-export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): React.ReactElement {
-  const { unreadCount: notificationCount } = useNotifications();
+export default function Topbar({ onOpenSidebar, onOpenInbox, sidebarOpen = false }: TopbarProps): React.ReactElement {
+  const { unreadCount: notificationCount } = useNotifications('all', { countsOnly: true });
   const { currentPath } = useLayout();
   const { tenant, user } = useAuth();
   const pathname = usePathname();
@@ -39,21 +39,23 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
   // Fetch unread email count for inbox badge
   useEffect(() => {
     let isMounted = true;
+    const unreadChanged = (event: Event) => { const count = (event as CustomEvent<number>).detail; if (Number.isSafeInteger(count) && count >= 0) setInboxCount(count); };
+    window.addEventListener('mailbox-unread-change', unreadChanged);
     getGmailStatus()
       .then((status) => {
         if (status.isConnected) {
-          return fetchGmailEmails({ maxResults: 30, query: 'in:inbox is:unread' });
+          return fetchGmailUnreadCount();
         }
         return null;
       })
       .then((result) => {
         if (isMounted && result) {
-          setInboxCount(result.emails.length);
+          setInboxCount(result.unreadCount);
         }
       })
       .catch(() => { /* silently ignore � Gmail may not be connected */ });
 
-    return () => { isMounted = false; };
+    return () => { isMounted = false; window.removeEventListener('mailbox-unread-change', unreadChanged); };
   }, []);
 
   // Listen for settings tab changes to update breadcrumb
@@ -73,13 +75,18 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
     : NAV_ITEMS.find(item => item.path === currentPath)?.name ||
         (currentPath === 'help' ? 'Help Center' :
          currentPath === 'notifications' ? 'Notifications' :
-         currentPath === 'inbox' ? 'Messages' : 'Dashboard');
+         currentPath === 'inbox' ? 'Messages' :
+         currentPath === 'profile-settings' ? 'Profile Settings' :
+         currentPath === 'forms' ? 'Forms' :
+         currentPath === 'reports' ? 'Reports' :
+         currentPath === 'deals' ? 'Deals' :
+         currentPath === 'card-showcase' ? 'Card Showcase' : 'Dashboard');
 
   // Get parent group for breadcrumb
   const currentGroup = NAV_ITEMS.find(item => item.path === currentPath);
   const groupName = currentPath === 'settings'
     ? settingsBreadcrumb.group
-    : (currentGroup as any)?.group ?? '';
+    : (currentGroup as any)?.group ?? ({ 'profile-settings': 'General', forms: 'Marketing', deals: 'CRM', reports: 'Reporting' } as Record<string, string>)[currentPath] ?? '';
 
   // Sub-page breadcrumb (e.g. "Import" for /crm/leads/import)
   const subPageName = isImportPage ? 'Import' : null;
@@ -89,9 +96,12 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
       {/* Left: Mobile hamburger + Mobile search + Breadcrumb */}
       <div className="flex items-center gap-0.5 sm:gap-1 flex-1 min-w-0">
         <button
-          className="lg:hidden text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors"
+          type="button"
+          className="navigation-menu-trigger text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1.5 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg transition-colors"
           onClick={onOpenSidebar}
           aria-label="Open sidebar"
+          aria-expanded={sidebarOpen}
+          aria-controls="crm-navigation"
         >
           <Menu size={18} />
         </button>
@@ -137,19 +147,18 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
 
       {/* Center: Global Search Omnibox */}
       <div className="hidden md:flex flex-1 max-w-[460px] mx-4 justify-center">
-        <GlobalOmnibox key={user?.activeEnvironment} />
+        <GlobalOmnibox />
       </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-0.5 sm:gap-1.5 flex-none md:flex-1 justify-end">
-        {user?.role !== 'System Admin' && <EnvironmentSwitcher />}
         {/* Inbox (Gmail) */}
         <button
           onClick={onOpenInbox}
           className={cn(
             'relative w-8 h-8 sm:min-w-[44px] sm:min-h-[44px] rounded-lg flex items-center justify-center transition-colors',
             currentPath === 'inbox'
-              ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
+              ? 'bg-primary/10 text-primary'
               : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]',
           )}
           aria-label="Open Inbox"
@@ -170,15 +179,17 @@ export default function Topbar({ onOpenSidebar, onOpenInbox }: TopbarProps): Rea
           className={cn(
             'relative w-8 h-8 sm:min-w-[44px] sm:min-h-[44px] rounded-lg flex items-center justify-center transition-colors',
             isNotificationsOpen
-              ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
+              ? 'bg-primary/10 text-primary'
               : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]',
           )}
-          aria-label="Notifications"
+          aria-label={`Notifications, ${notificationCount} unread`}
           aria-expanded={isNotificationsOpen}
+          aria-haspopup="dialog"
+          aria-controls="notifications-dropdown"
         >
           <Bell size={16} />
           {notificationCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#3B82F6]" />
+            <span className="absolute -top-1 -right-1 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-bold leading-4 text-white">{notificationCount > 99 ? '99+' : notificationCount}</span>
           )}
         </button>
 

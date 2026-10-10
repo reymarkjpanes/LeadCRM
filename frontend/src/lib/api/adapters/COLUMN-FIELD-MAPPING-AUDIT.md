@@ -1,5 +1,7 @@
 # Column Registry ↔ API Response DTO Field Mapping Audit
 
+> Historical audit. The 2026-10-05 [CRM consistency validation](../../../../../docs/plans/crm-table-consistency-validation.md) supersedes the affected mappings below. Lead description, website, audit users, and status-change date are now populated fields; Contact and Lead use distinct models, and related-record display no longer depends solely on global lookup pages.
+
 **Task:** 13.1 — Verify Column Registry ↔ API response DTO field mapping per module
 **Date:** Audit performed as part of CRM Data View Modernization spec
 **Requirements:** 12.1, 12.2

@@ -27,7 +27,7 @@ export default function WorkloadView({ tasks, users }: WorkloadViewProps) {
           t => t.assignedUserId === u.id && t.status !== 'cancelled' && t.status !== 'completed',
         );
         const pending    = userTasks.filter(t => t.status === 'pending').length;
-        const inProgress = userTasks.filter(t => t.status === 'in-progress').length;
+        const inProgress = userTasks.filter(t => t.status === 'in_progress').length;
         const overdue    = userTasks.filter(t => t.dueDate && new Date(t.dueDate) < today).length;
         const total      = userTasks.length;
         return { user: u, pending, inProgress, overdue, total };

@@ -5,8 +5,8 @@ import * as fc from 'fast-check';
  * Property-based test for deal duplication field preservation.
  *
  * **Property 13: Deal Duplication Field Preservation**
- * For any deal, the duplicated deal SHALL have identical values for all fields except
- * `id`, `createdAt`, `updatedAt`, `closedAt`, `lostReason`, `isArchived`, and `ownerId`.
+ * Preserve sales context while starting a new opportunity at the current Product price.
+ * Identity, lifecycle, owner, price and currency are deliberately reset.
  * The duplicated deal's `title` SHALL equal the source title suffixed with ` (Copy)`.
  *
  * **Validates: Requirements 16.1, 16.2, 16.3**
@@ -23,8 +23,10 @@ const mockContactDealFindMany = vi.fn();
 const mockContactDealCreateMany = vi.fn();
 
 vi.mock('../../../../config/database.config', () => {
-  return {
-    default: {
+  const client = {
+      $transaction: async (work: (tx: unknown) => unknown) => work(client),
+      productInterest: { findMany: async () => [{ id: '11111111-1111-4111-8111-111111111111', name: 'CCTV', dealValue: 30000, active: true }] },
+      stage: { findFirst: async () => ({ id: "initial-lead-stage" }) },
       deal: {
         create: (...args: unknown[]) => mockDealCreate(...args),
       },
@@ -36,8 +38,8 @@ vi.mock('../../../../config/database.config', () => {
         findMany: (...args: unknown[]) => mockContactDealFindMany(...args),
         createMany: (...args: unknown[]) => mockContactDealCreateMany(...args),
       },
-    },
-  };
+    };
+  return { default: client };
 });
 
 vi.mock('../../../../core/audit/audit.service', () => ({
@@ -109,9 +111,9 @@ const sourceDealArb = fc.record({
   ownerId: uuidArb,
   expectedCloseDate: fc.oneof(fc.constant(null), dateArb),
   probability: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 100 })),
-  description: fc.oneof(fc.constant(null), fc.string({ minLength: 0, maxLength: 200 })),
   source: fc.oneof(fc.constant(null), fc.constantFrom('Inbound', 'Outbound', 'Referral')),
-  productInterests: fc.oneof(fc.constant(null), fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 5 })),
+  productInterests: fc.constant(['CCTV']),
+  productInterestIds: fc.constant(['11111111-1111-4111-8111-111111111111']),
   currency: fc.oneof(fc.constant(null), fc.constantFrom('PHP', 'USD', 'EUR', 'GBP')),
 
   // Relation fields (returned by findDealById include but excluded from create)
@@ -226,7 +228,7 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
       );
     });
 
-    it('preserved fields (stageId, pipelineId, value, priority, etc.) match source deal', async () => {
+    it('preserves Deal fields and resets the stage to Lead', async () => {
       await fc.assert(
         fc.asyncProperty(sourceDealArb, async (sourceDeal) => {
           setupMocks();
@@ -237,12 +239,12 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
           expect(mockDealCreate).toHaveBeenCalledTimes(1);
           const createCallData = mockDealCreate.mock.calls[0][0].data;
 
-          // Pipeline and stage are preserved (same pipeline/stage as source)
-          expect(createCallData.stageId).toBe(sourceDeal.stageId);
+          // Duplicates start at Lead in the same pipeline.
+          expect(createCallData.stageId).toBe("initial-lead-stage");
           expect(createCallData.pipelineId).toBe(sourceDeal.pipelineId);
 
-          // Value and priority preserved
-          expect(createCallData.value).toBe(sourceDeal.value);
+          // A duplicate is a NEW Deal; the original historical value is untouched.
+          expect(createCallData.value).toBe(30000);
           expect(createCallData.priority).toBe(sourceDeal.priority);
 
           // Other preserved fields
@@ -250,9 +252,8 @@ describe('Feature: deals-module-modernization, Property 13: Deal Duplication Fie
           expect(createCallData.accountId).toBe(sourceDeal.accountId);
           expect(createCallData.expectedCloseDate).toEqual(sourceDeal.expectedCloseDate);
           expect(createCallData.probability).toBe(sourceDeal.probability);
-          expect(createCallData.description).toBe(sourceDeal.description);
           expect(createCallData.source).toBe(sourceDeal.source);
-          expect(createCallData.currency).toBe(sourceDeal.currency);
+          expect(createCallData.currency).toBe('PHP');
         }),
         { numRuns: 100 },
       );

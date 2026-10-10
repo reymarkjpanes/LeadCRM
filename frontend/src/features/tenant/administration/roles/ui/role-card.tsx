@@ -9,12 +9,13 @@ import { PERMISSION_MODULES } from '@leadcrm/shared';
 interface RoleCardProps {
   role:          RoleListItem;
   canEdit:       boolean;
+  canArchive: boolean;
   onEdit:        (role: RoleListItem) => void;
   onArchive:     (role: RoleListItem) => void;
   onViewDetail:  (id: string) => void;
 }
 
-export function RoleCard({ role, canEdit, onEdit, onArchive, onViewDetail }: RoleCardProps): React.ReactElement {
+export function RoleCard({ role, canEdit, canArchive, onEdit, onArchive, onViewDetail }: RoleCardProps): React.ReactElement {
   // Count how many modules have at least one permission granted
   const activeModules = PERMISSION_MODULES.filter(mod =>
     role.permissions.some(p => p.module === mod.key && (p.canView || p.canCreate || p.canEdit || p.canDelete)),
@@ -70,13 +71,14 @@ export function RoleCard({ role, canEdit, onEdit, onArchive, onViewDetail }: Rol
       </div>
 
       {/* Actions — only for custom roles when canEdit */}
-      {!role.isSystemRole && canEdit && (
+      {!role.isSystemRole && (canEdit || canArchive) && (
         <div
           className="flex items-center gap-1 pt-2 border-t border-slate-100 dark:border-slate-800"
           onClick={(e) => e.stopPropagation()}
         >
           <button
             type="button"
+            disabled={!canEdit}
             onClick={(e) => { e.stopPropagation(); onEdit(role); }}
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
@@ -85,11 +87,12 @@ export function RoleCard({ role, canEdit, onEdit, onArchive, onViewDetail }: Rol
           </button>
           <button
             type="button"
+            disabled={!canArchive}
             onClick={(e) => { e.stopPropagation(); onArchive(role); }}
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
           >
             <Trash2 size={11} />
-            Delete
+            Archive
           </button>
         </div>
       )}

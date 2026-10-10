@@ -12,11 +12,11 @@ export type ActivityModule = 'leads' | 'contacts' | 'accounts' | 'deals';
 export type TimelineActivity = Pick<ActivityRecord, 'id' | 'type' | 'title' | 'createdAt' | 'description' | 'metadata'> & { createdBy?: ActivityRecord['createdBy'] };
 export const activityReadKey = { leads: 'leadId', accounts: 'accountId', deals: 'dealId' } as const;
 
-/** One contextual reader, using the existing tenant/user/environment cache. */
+/** One contextual reader, using the existing tenant/user cache. */
 export function useRecordActivities(module: ActivityModule, id: string | undefined, enabled = true, providedActivities?: TimelineActivity[]) {
   const { activities, users } = useData();
   const { user } = useAuth();
-  const canViewActivities = useHasPermission('contacts.view');
+  const canViewActivities = useHasPermission(`${module}.view`);
   const result = useCachedPage<TimelineActivity[]>({
     module: 'activities',
     params: { recordModule: module, id },
@@ -33,7 +33,7 @@ export function useRecordActivities(module: ActivityModule, id: string | undefin
   });
   const relatedType = module === 'accounts' ? 'company' : module === 'deals' ? 'deal' : 'contact';
   const mockActivities: TimelineActivity[] = activities
-    .filter(activity => activity.tenantId === user?.tenantId && (activity.environment ?? 'SANDBOX') === (user?.activeEnvironment ?? 'SANDBOX') && activity.relatedToId === id && activity.relatedToType === relatedType)
+    .filter(activity => activity.tenantId === user?.tenantId && activity.relatedToId === id && activity.relatedToType === relatedType)
     .map(activity => {
       const actor = users.find(person => person.id === activity.createdBy);
       return { ...activity, createdBy: actor ? { id: actor.id, firstName: actor.firstName, lastName: actor.lastName, email: actor.email } : undefined };

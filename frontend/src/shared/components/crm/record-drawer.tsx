@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useId, useRef, ReactNode } from 'react';
+import { useModalInteraction } from '@/shared/hooks/use-modal-interaction';
+import { OverlayOwnerContext, ThemedPortal } from '@/shared/components/theme-scope';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Edit, Phone, Mail, ListTodo, MoreHorizontal, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -63,25 +64,9 @@ export function RecordDrawer({
   children,
 }: RecordDrawerProps): React.ReactElement | null {
 
-  // Lock body scroll when open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const owner = useId();
+  useModalInteraction({ open: isOpen, panelRef, owner, onClose });
 
   const content = (
     <AnimatePresence>
@@ -100,6 +85,8 @@ export function RecordDrawer({
 
           {/* Drawer panel */}
           <motion.div
+            ref={panelRef}
+            tabIndex={-1}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -107,7 +94,7 @@ export function RecordDrawer({
             role="dialog"
             aria-modal="true"
             aria-label={`${name} details`}
-            className="fixed inset-y-0 right-0 w-full sm:w-[560px] bg-white dark:bg-slate-900 shadow-2xl z-[210] flex flex-col border-l border-[#E4E9F0] dark:border-slate-700"
+            className="fixed inset-y-0 right-0 h-dvh min-w-0 w-full max-w-full sm:w-[560px] bg-card shadow-2xl z-[210] flex flex-col border-l border-[#E4E9F0] dark:border-slate-700"
           >
             {/* ── Header ──────────────────────────────────────────── */}
             <div className="px-5 pt-5 pb-4 border-b border-[#E4E9F0] dark:border-slate-700">
@@ -157,7 +144,7 @@ export function RecordDrawer({
 
             {/* ── KPI Tiles ────────────────────────────────────────── */}
             {kpiTiles && kpiTiles.length > 0 && (
-              <div className="grid grid-cols-4 border-b border-[#E4E9F0] dark:border-slate-700">
+              <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-[#E4E9F0] dark:border-slate-700">
                 {kpiTiles.map((tile, idx) => (
                   <div
                     key={tile.label}
@@ -178,7 +165,7 @@ export function RecordDrawer({
             )}
 
             {/* ── Tabs ────────────────────────────────────────────── */}
-            <div className="flex items-center border-b border-[#E4E9F0] dark:border-slate-700 px-5 gap-0.5">
+            <div className="flex shrink-0 flex-wrap items-center border-b border-[#E4E9F0] dark:border-slate-700 px-3 sm:px-5 gap-0.5">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -186,20 +173,20 @@ export function RecordDrawer({
                   className={cn(
                     'px-3 py-2.5 text-[13px] font-medium transition-colors relative',
                     activeTab === tab.id
-                      ? 'text-[#2563EB] dark:text-blue-400'
+                      ? 'text-primary'
                       : 'text-[#5A6B85] dark:text-slate-400 hover:text-[#0F172A] dark:hover:text-white',
                   )}
                 >
                   {tab.label}
                   {activeTab === tab.id && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2563EB] dark:bg-blue-400 rounded-full" />
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
                   )}
                 </button>
               ))}
             </div>
 
             {/* ── Tab content ──────────────────────────────────────── */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 custom-scrollbar">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 sm:px-5 py-4 custom-scrollbar">
               {children}
             </div>
           </motion.div>
@@ -209,7 +196,7 @@ export function RecordDrawer({
   );
 
   if (typeof window === 'undefined') return null;
-  return createPortal(content, document.body);
+  return <OverlayOwnerContext.Provider value={owner}><ThemedPortal>{content}</ThemedPortal></OverlayOwnerContext.Provider>;
 }
 
 // ── Helper: Status Badge ───────────────────────────────────────────────────────

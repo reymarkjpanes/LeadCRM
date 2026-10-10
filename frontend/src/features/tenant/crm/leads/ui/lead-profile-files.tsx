@@ -94,7 +94,7 @@ export const ClientProfileFiles = ({ leadId, initialAttachments = [], currentUse
         }}
         className={`border-2 border-dashed rounded-xl p-6 text-center select-none transition-colors duration-150 ${
           isDragOver 
-            ? 'border-blue-500 bg-blue-500/5' 
+            ? 'border-primary bg-primary/5'
             : 'border-slate-200 dark:border-white/[0.05] hover:bg-slate-50 dark:hover:bg-white/[0.01]'
         }`}
       >
@@ -113,7 +113,7 @@ export const ClientProfileFiles = ({ leadId, initialAttachments = [], currentUse
         {paginatedAttachments.map(file => (
           <div key={file.id} className="flex items-center justify-between p-3.5 bg-white dark:bg-white/[0.02] border border-gray-150 dark:border-white/[0.04] rounded-xl text-xs hover:border-gray-250 dark:hover:border-white/10 transition-all">
             <div className="flex items-center gap-3 truncate min-w-0">
-              <div className="p-2 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-lg shrink-0">
+              <div className="p-2 bg-blue-50 dark:bg-primary/10 text-blue-500 rounded-lg shrink-0">
                 <FileText size={16} />
               </div>
               <div className="truncate text-left">

@@ -8,6 +8,21 @@ export interface PermissionFlags {
   canCreate: boolean;
   canEdit:   boolean;
   canDelete: boolean;
+  canArchive?: boolean;
+  canImport?: boolean;
+  canManageStages?: boolean;
+  canComplete?: boolean;
+  canAssign?: boolean;
+  canSend?: boolean;
+  canDuplicate?: boolean;
+  canViewReports?: boolean;
+  canActivate?: boolean;
+  canViewRuns?: boolean;
+  canPublish?: boolean;
+  canViewSubmissions?: boolean;
+  canViewClosedWon?: boolean;
+  canDisable?: boolean;
+  canRestore?: boolean;
 }
 
 export interface RolePermissionRow extends PermissionFlags {
@@ -45,7 +60,7 @@ export interface RoleDetail extends RoleListItem {
 /** Map of module key → resolved permission flags for a user. */
 export type ResolvedPermissions = Record<string, PermissionFlags>;
 
-export type PermissionAction = 'canView' | 'canCreate' | 'canEdit' | 'canDelete';
+export type PermissionAction = keyof PermissionFlags;
 
 export interface PermissionModuleDefinition {
   /** e.g. "contacts" */

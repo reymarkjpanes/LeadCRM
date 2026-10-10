@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { usesWorkspaceAppearance } from '@/lib/appearance-config';
 import { useAuth } from '@/store/AuthContext';
 import { AuthLoadingScreen } from '@/shared/components/auth-loading-screen';
 import { AuthRecoveryScreen } from '@/shared/components/auth-recovery-screen';
@@ -16,6 +17,7 @@ export function AuthGuard({
   const { user, isLoading, authError } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const workspace = usesWorkspaceAppearance(pathname, Boolean(user));
   const target = resolveAuthRoute(user, pathname);
   const issue = user && ['/onboarding', '/company-setup'].includes(pathname)
     ? getSetupIssue(user) : null;
@@ -28,7 +30,7 @@ export function AuthGuard({
       return;
     }
     if (!target) return;
-    if (user && ['/', '/login', '/register'].includes(pathname)) {
+    if (user && ['/', '/login'].includes(pathname)) {
       const saved = sessionStorage.getItem('leadcrm_redirect_after_login');
       const destination = getPostLoginDestination(user, saved);
       sessionStorage.removeItem('leadcrm_redirect_after_login');
@@ -38,9 +40,9 @@ export function AuthGuard({
     }
   }, [user, isLoading, authError, pathname, target, router, allowAnonymous]);
 
-  if (isLoading) return <AuthLoadingScreen />;
-  if (authError) return <AuthRecoveryScreen message={authError} />;
-  if (target || (!user && !allowAnonymous)) return <AuthLoadingScreen />;
-  if (issue) return <AuthRecoveryScreen message={issue} />;
+  if (isLoading) return <AuthLoadingScreen workspace={workspace} />;
+  if (authError) return <AuthRecoveryScreen workspace={workspace} message={authError} />;
+  if (target || (!user && !allowAnonymous)) return <AuthLoadingScreen workspace={workspace} />;
+  if (issue) return <AuthRecoveryScreen workspace={workspace} message={issue} />;
   return <>{children}</>;
 }

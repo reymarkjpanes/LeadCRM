@@ -23,6 +23,7 @@ import type {
 import { Button } from '@/shared/components/ui/button';
 import {
   actionSummary,
+  retiredActionLabels,
   conditionSummary,
   canPlace,
   type DragItem,
@@ -310,9 +311,11 @@ export function WorkflowCanvas({
         <span className="text-[var(--muted-foreground)]">
           {document.draft.actions.length}/20 actions ·{' '}
           {trigger?.entity === 'contact'
-            ? 'Client Profiles'
+            ? 'Contacts'
             : trigger?.entity === 'deal'
               ? 'Deals'
+              : trigger?.entity === 'account'
+                ? 'Accounts'
               : trigger
                 ? 'Leads'
                 : 'Choose an event'}
@@ -399,7 +402,7 @@ export function WorkflowCanvas({
                 <MovableAction id={document.actionIds[index]} disabled={locked}>
                   <NodeCard
                     kind="action"
-                    label={`${index + 1}. ${actions.find((entry) => entry.type === action.type)?.label ?? 'Unavailable action'}`}
+                    label={`${index + 1}. ${actions.find((entry) => entry.type === action.type)?.label ?? retiredActionLabels[action.type] ?? 'Unavailable action'}`}
                     summary={actionSummary(action, options)}
                     disabled={action.enabled === false}
                     selected={

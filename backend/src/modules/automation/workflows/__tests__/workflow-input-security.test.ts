@@ -21,7 +21,7 @@ describe('workflow input security', () => {
     expect(() => validateWorkflowConditions({...draft,conditions:{operator:'AND',conditions:[rule as any]}})).toThrow();
   });
   it('compares dates by calendar day and exposes only date operators', () => {
-    expect(workflowOperators('date')).toEqual(['equals','before','after']);
+    expect(workflowOperators('date')).toEqual(['equals','not_equals','before','after','is_empty','is_not_empty']);
     expect(evaluateRule({field:'deal.expectedCloseDate',operator:'equals',value:'2026-09-25'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'})).toBe(true);
     expect(evaluateRule({field:'deal.expectedCloseDate',operator:'before',value:'2026-09-26'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'})).toBe(true);
   });

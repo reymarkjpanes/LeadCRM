@@ -13,7 +13,7 @@ export default function CreateCampaignPage() {
   };
 
   return (
-    <div className="h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="h-full min-h-0 min-w-0 bg-slate-50 dark:bg-slate-900">
       <CampaignBuilder 
         onBack={handleBack}
       />

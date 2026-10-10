@@ -1,30 +1,23 @@
 'use client';
-import { MfaRequiredError } from '@/shared/services/auth.api';
 
 import { normalizeMockUser } from './auth-state';
-import type { AuthUser } from '@leadcrm/shared';
+import type { AuthUser, PasswordRecoveryResponse } from '@leadcrm/shared';
 import React, {
   createContext, useContext, useState, useEffect,
   useCallback, useRef, ReactNode,
 } from 'react';
 import { User, Tenant } from './types';
+import { hasModulePermission, isApplicablePermission } from '@leadcrm/shared';
 import type { ResolvedPermissions, PermissionAction } from './types/roles.types';
-import { MOCK_USERS, MOCK_TENANTS } from './mockData';
+import { MOCK_USERS, MOCK_TENANTS, MOCK_ROLES } from './mockData';
+import { resolveMockPermissions } from './mock-permissions';
 import { authApi } from '@/shared/services/auth.api';
 import { rolesApi } from '@/shared/services/roles.api';
 import { clearPageCache }         from '@/shared/cache/page-cache';
-import { beginEnvironmentSwitch, endEnvironmentSwitch, setTransportEnvironment, environmentSnapshot } from '@/lib/api/environment-transport';
-import type { CrmEnvironment } from '@leadcrm/shared';
-import { USE_MOCK_DATA } from '@/lib/config';
 
 // When true, auth calls hit the mock localStorage data instead of the backend.
 // Set NEXT_PUBLIC_USE_MOCK_AUTH=false in .env.local to use the real API.
 const USE_MOCK_AUTH = process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_USE_MOCK_AUTH === 'true';
-
-// ─── Super-role names ─────────────────────────────────────────────────────────
-// Module-level constant — never recreated per render.
-// These roles bypass RolePermission evaluation in userCan().
-const SUPER_ROLE_NAMES = ['Client Admin', 'System Admin'] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +65,6 @@ export function buildTenantFromApiUser(apiUser: Record<string, unknown>): Tenant
     phone:              '',
     address:            '',
     status:             (tenantStatus?.toLowerCase() ?? 'active') as Tenant['status'],
-    approvalStep:       'completed' as Tenant['approvalStep'],
     createdAt:          '',
     currency:           (apiUser.currency as string | null) ?? null,
   } as unknown as Tenant;
@@ -81,8 +73,6 @@ export function buildTenantFromApiUser(apiUser: Record<string, unknown>): Tenant
 // ─── Context interface ────────────────────────────────────────────────────────
 
 interface AuthContextType {
-  switchEnvironment: (environment: CrmEnvironment) => Promise<void>;
-  isSwitchingEnvironment: boolean;
   user: User | null;
   tenant: Tenant | null;
   isLoading: boolean;
@@ -91,11 +81,10 @@ interface AuthContextType {
   retryAuthInit: () => Promise<void>;
   refreshUser: () => Promise<void>;
   applyOrganizationSettings: (settings: import('@leadcrm/shared').OrganizationSettings) => void;
-  applyAuthUser: (user: AuthUser, expectedUserId?: string, preserveEnvironment?: boolean) => void;
+  applyAuthUser: (user: AuthUser, expectedUserId?: string) => void;
   login: (email: string, password?: string) => Promise<boolean>;
-  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<boolean>;
+  requestPasswordReset: (email: string) => Promise<PasswordRecoveryResponse>;
   confirmPasswordReset: (token: string, password: string) => Promise<boolean>;
   switchRole: (role: string) => void;
   updateProfile: (profileData: import('@leadcrm/shared').UpdateSelfProfile) => Promise<void>;
@@ -114,8 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant]   = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [isSwitchingEnvironment, setIsSwitchingEnvironment] = useState(false);
-  const switchingEnvironment = useRef(false);
   const [permissions, setPermissions]           = useState<ResolvedPermissions>({});
   const [isPermissionsLoaded, setIsPermissionsLoaded] = useState(false);
 
@@ -132,63 +119,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(current => current?.tenantId === settings.id ? { ...current, tenantName: settings.name, industry: settings.industry } : current);
   }, []);
 
-  const applyAuthUser = useCallback((apiUser: AuthUser, expectedUserId?: string, preserveEnvironment = false) => {
+  const applyAuthUser = useCallback((apiUser: AuthUser, expectedUserId?: string) => {
     if (expectedUserId && activeUserId.current !== expectedUserId) return;
-    // Profile responses cannot undo a concurrent, confirmed environment switch.
-    if (preserveEnvironment) apiUser = { ...apiUser, activeEnvironment: environmentSnapshot().environment };
     requestGeneration.current += 1;
-    const environment = apiUser.role === 'System Admin' ? null : apiUser.activeEnvironment ?? 'SANDBOX';
-    if (environmentSnapshot().environment !== environment) clearPageCache();
-    setTransportEnvironment(environment);
     activeUserId.current = apiUser.id;
     setUser({
       ...apiUser,
       status: apiUser.status as User['status'],
       phone: apiUser.phone ?? undefined,
       jobTitle: apiUser.jobTitle ?? undefined,
-      department: apiUser.department ?? undefined,
+      groups: apiUser.groups ?? [],
       avatarUrl: apiUser.avatarUrl ?? undefined,
     });
-    setTenant(apiUser.role === 'System Admin' ? null : buildTenantFromApiUser({ ...apiUser }));
+    setTenant(buildTenantFromApiUser({ ...apiUser }));
     setAuthError(null);
     setIsLoading(false);
   }, []);
-
-  const switchEnvironment = async (environment: CrmEnvironment): Promise<void> => {
-    if (switchingEnvironment.current || !user || user.role === 'System Admin' || environment === user.activeEnvironment) return;
-    // Demo stores contain a single legacy dataset; never label it as isolated Live data.
-    if (USE_MOCK_AUTH || USE_MOCK_DATA) throw new Error('Environment switching requires the connected CRM backend. Disable mock mode.');
-    switchingEnvironment.current = true;
-    setIsSwitchingEnvironment(true);
-    const expectedUser = user.id;
-    const commit = (value: CrmEnvironment) => {
-      if (activeUserId.current !== expectedUser) return;
-      requestGeneration.current += 1;
-      clearPageCache();
-      setTransportEnvironment(value);
-      setUser(current => current?.id === expectedUser ? { ...current, activeEnvironment: value } : current);
-    };
-    try {
-      await beginEnvironmentSwitch();
-      const response = await authApi.changeEnvironment(environment);
-      commit(response.data.environment);
-    } catch (error) {
-      // A lost response may follow a committed update. Reconcile only ambiguous failures.
-      const status = (error as { status?: number })?.status;
-      if (!status || status >= 500) {
-        const restored = await authApi.me().catch(() => null);
-        if (restored?.data.user.id === expectedUser && restored.data.user.activeEnvironment === environment) {
-          commit(environment);
-          return;
-        }
-      }
-      throw error;
-    } finally {
-      endEnvironmentSwitch();
-      switchingEnvironment.current = false;
-      setIsSwitchingEnvironment(false);
-    }
-  };
 
   const restoreSession = async (): Promise<void> => {
     const generation = ++requestGeneration.current;
@@ -231,7 +177,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshPermissions = useCallback(async (): Promise<void> => {
-    if (USE_MOCK_AUTH || !user?.id) return;
+    if (isLoading || authError || !user?.id) return;
+    if (USE_MOCK_AUTH) {
+      setPermissions(resolveMockPermissions(user, MOCK_ROLES));
+      setIsPermissionsLoaded(true);
+      return;
+    }
     const id = user.id;
     const generation = ++permissionGeneration.current;
     try {
@@ -242,10 +193,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch {
       if (activeUserId.current === id && permissionGeneration.current === generation) {
+        setPermissions({});
         setIsPermissionsLoaded(true);
       }
     }
-  }, [user?.id]);
+  }, [user?.id, user?.role, user?.tenantId, isLoading, authError]);
 
   useEffect(() => {
     setPermissions({});
@@ -259,9 +211,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Super roles bypass RolePermission evaluation.
   const userCan = useCallback((module: string, action: PermissionAction): boolean => {
     if (!user) return false;
-    const norm = user.role?.toLowerCase().trim() ?? '';
-    if (SUPER_ROLE_NAMES.some((r) => r.toLowerCase() === norm)) return true;
-    return permissions[module]?.[action] === true;
+    if (!isApplicablePermission(module, action)) return false;
+    if (user.role === 'Client Admin') return true;
+    return hasModulePermission(permissions, module, action);
   }, [user, permissions]);
 
   // ── Retry auth initialization after a transport failure ───────────
@@ -291,12 +243,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  useEffect(() => {
+    if (USE_MOCK_AUTH || !user?.id) return;
+    const changed = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.source === 'authorization') return;
+      void accessRefresh.current.refreshUser().catch(() => {});
+    };
+    window.addEventListener('leadcrm:groups-changed', changed);
+    return () => window.removeEventListener('leadcrm:groups-changed', changed);
+  }, [user?.id]);
+
+  const accessRefresh = useRef({ refreshUser, refreshPermissions });
+  accessRefresh.current = { refreshUser, refreshPermissions };
+  useEffect(() => {
+    if (USE_MOCK_AUTH || !user?.id || typeof EventSource === 'undefined') return;
+    // Keep observing access when a module guard unmounts the Dashboard. This
+    // allows a later permission grant to restore the module without a reload.
+    const source = new EventSource('/api/proxy/auth/events');
+    let previous: string | undefined;
+    const refresh = () => {
+      clearPageCache(true);
+      void Promise.allSettled([accessRefresh.current.refreshUser(), accessRefresh.current.refreshPermissions()]);
+    };
+    source.addEventListener('authorization-change', event => {
+      const revision = (event as MessageEvent<string>).data;
+      if (revision === previous) return;
+      // Commit refreshed grants when the server responds. Membership-only
+      // revisions keep permitted editors mounted; failed reads clear grants.
+      previous = revision;
+      refresh();
+      window.dispatchEvent(new CustomEvent('leadcrm:groups-changed', { detail: { source: 'authorization' } }));
+    });
+    source.addEventListener('open', refresh);
+    source.addEventListener('authorization-access-changed', () => {
+      requestGeneration.current += 1;
+      permissionGeneration.current += 1;
+      activeUserId.current = null;
+      setUser(null); setTenant(null); setPermissions({});
+      clearPageCache(); source.close();
+    });
+    return () => source.close();
+  }, [user?.id, user?.tenantId]);
+
   const login = async (email: string, password?: string): Promise<boolean> => {
     if (USE_MOCK_AUTH) return mockLogin(email);
     const generation = ++requestGeneration.current;
     const response = await authApi.login({ email, password: password ?? '' });
     if (generation !== requestGeneration.current) return false;
-    if ('mfaRequired' in response.data) throw new MfaRequiredError();
     applyAuthUser(response.data.user);
     return true;
   };
@@ -342,10 +335,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  /** Compatibility for old consumers; Google account authentication is retired. */
-  const loginWithGoogle = async (): Promise<void> => {
-    throw new Error('Use your employee email and password to sign in.');
-  };
 
   // ── Logout ────────────────────────────────────────────────────────
   const logout = async (): Promise<void> => {
@@ -356,7 +345,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setTenant(null);
-    setTransportEnvironment(null);
     setAuthError(null);
     activeUserId.current = null;
     permissionGeneration.current += 1;
@@ -370,26 +358,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('leadcrm_onboarding_complete');
     localStorage.removeItem('leadcrm_needs_company_setup');
     // Clear any saved post-login redirect so a new user doesn't inherit the
-    // previous session's destination (e.g. System Admin → /admin/dashboard).
+    // previous session's destination .
     sessionStorage.removeItem('leadcrm_redirect_after_login');
   };
 
   // ── Password reset ─────────────────────────────────────────────────
-  const requestPasswordReset = async (email: string): Promise<boolean> => {
+  const requestPasswordReset = async (email: string): Promise<PasswordRecoveryResponse> => {
     if (USE_MOCK_AUTH) {
-      // Mock: always succeed silently
-      return true;
+      return { success: true, message: 'Mock recovery request.', expiresInMinutes: 60, resendAfterSeconds: 60 };
     }
-    try {
-      await authApi.forgotPassword(email);
-      return true;
-    } catch (err: unknown) {
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.error('[AuthContext] requestPasswordReset failed:', err instanceof Error ? err.message : err);
-      }
-      return false;
-    }
+    // Preserve structured errors and retry guidance for the existing form/toast.
+    return authApi.forgotPassword(email);
   };
 
   const confirmPasswordReset = async (token: string, password: string): Promise<boolean> => {
@@ -441,14 +420,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (USE_MOCK_AUTH) throw new Error('Profile editing requires the connected backend.');
     const expectedUserId = user.id;
     const response = await authApi.updateProfile(profileData);
-    applyAuthUser(response.data.user, expectedUserId, true);
+    applyAuthUser(response.data.user, expectedUserId);
   };
 
   return (
     <AuthContext.Provider value={{
       user, tenant, isLoading, authError, retryAuthInit, refreshUser, applyAuthUser, applyOrganizationSettings,
-      switchEnvironment, isSwitchingEnvironment,
-      login, loginWithGoogle, logout, requestPasswordReset, confirmPasswordReset,
+      login, logout, requestPasswordReset, confirmPasswordReset,
       switchRole, updateProfile, switchDemoAccount, permissions, isPermissionsLoaded,
       userCan, refreshPermissions, restoreSession,
     }}>

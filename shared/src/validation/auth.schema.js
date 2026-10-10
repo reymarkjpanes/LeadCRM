@@ -1,8 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OnboardingProgressSchema = exports.CompanySetupSchema = exports.RegisterSchema = exports.ChangePasswordSchema = exports.StrongPasswordSchema = void 0;
+exports.OnboardingProgressSchema = exports.CompanySetupSchema = exports.RegisterSchema = exports.ChangePasswordSchema = exports.StrongPasswordSchema = exports.ForgotPasswordSchema = void 0;
 const zod_1 = require("zod");
 const security_schema_1 = require("./security.schema");
+/** Recovery uses login normalization without revealing account-access restrictions. */
+exports.ForgotPasswordSchema = zod_1.z.object({
+    email: zod_1.z.string().trim().toLowerCase().max(254).email('Valid email required'),
+}).strict();
 exports.StrongPasswordSchema = zod_1.z.string().min(8, 'Use at least 8 characters.').max(72, 'Use no more than 72 characters.').refine(value => new TextEncoder().encode(value).length <= 72, 'Password must be no more than 72 bytes.').refine(value => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9\s])/.test(value), 'Use uppercase and lowercase letters, a number, and a special character');
 exports.ChangePasswordSchema = zod_1.z.object({ password: exports.StrongPasswordSchema }).strict();
 exports.RegisterSchema = zod_1.z.object({
@@ -11,9 +15,8 @@ exports.RegisterSchema = zod_1.z.object({
     email: security_schema_1.EmployeeEmailSchema,
     password: exports.StrongPasswordSchema,
     acceptTerms: zod_1.z.boolean().optional(),
-    invitationToken: zod_1.z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
-    if (!data.invitationToken && data.acceptTerms !== true) {
+    if (data.acceptTerms !== true) {
         ctx.addIssue({
             code: zod_1.z.ZodIssueCode.custom,
             path: ['acceptTerms'],

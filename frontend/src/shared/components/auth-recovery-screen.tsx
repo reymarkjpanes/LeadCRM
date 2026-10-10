@@ -1,9 +1,10 @@
 'use client';
+import { ThemeScope } from '@/shared/components/theme-scope';
 
 import { useState } from 'react';
 import { useAuth } from '@/store/AuthContext';
 
-export function AuthRecoveryScreen({ message }: { message: string }) {
+export function AuthRecoveryScreen({ message, workspace = false }: { message: string; workspace?: boolean }) {
   const { retryAuthInit, logout } = useAuth();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,13 +18,13 @@ export function AuthRecoveryScreen({ message }: { message: string }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6 dark:bg-slate-950">
+    <ThemeScope enabled={workspace} role="main" className="flex min-h-[var(--app-viewport-height)] items-center justify-center bg-background p-6">
       <div className="max-w-md space-y-5 text-center">
         <h1 className="text-xl font-semibold">Unable to continue to your workspace</h1>
         <p role="alert" className="text-sm text-slate-500">{error || message}</p>
         <div className="flex justify-center gap-4">
           <button disabled={busy} onClick={() => void run(retryAuthInit)}
-            className="rounded-lg bg-blue-600 px-5 py-2 text-white disabled:opacity-50">
+            className="rounded-lg bg-primary px-5 py-2 text-white disabled:opacity-50">
             Try again
           </button>
           <button disabled={busy} onClick={() => void run(logout)}
@@ -32,6 +33,6 @@ export function AuthRecoveryScreen({ message }: { message: string }) {
           </button>
         </div>
       </div>
-    </main>
+    </ThemeScope>
   );
 }

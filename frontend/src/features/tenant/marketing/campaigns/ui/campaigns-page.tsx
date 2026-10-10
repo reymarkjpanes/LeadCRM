@@ -1,4 +1,7 @@
 'use client';
+import { useNotificationRecordLink } from '@/features/tenant/notifications/hooks/use-notification-record-link';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { panelBodyClass, panelFooterClass, panelInputClass, panelLabelClass, panelPrimaryActionClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 import DOMPurify from 'dompurify';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -10,36 +13,35 @@ import { campaignsApi } from '@/shared/services/campaigns.api';
 import { templatesApi } from '@/shared/services/templates.api';
 import { EMAIL_VARIABLE_TOKENS, MarketingTemplateSchema, renderEmailVariables } from '@leadcrm/shared';
 import { FieldError } from './audience-panel';
-import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
+import { TableLoadingState } from '@/shared/components/crm/table-loading-state';
 import { useAuth } from '@/store/AuthContext';
 import { toast } from 'sonner';
-import { Plus, Send, X, Mail, MessageSquare, Megaphone, BarChart2, Eye, MousePointerClick, Edit2, Trash2, Play, Pause, Search, Filter, TrendingUp, TrendingDown, Copy, Calendar, ArrowLeft, SplitSquareHorizontal, ListOrdered, Monitor, Smartphone, Tags, Wand2, LayoutTemplate, Zap, Trophy, MoreVertical, Sparkles, Users, Loader2 } from 'lucide-react';
+import { Archive, Plus, Send, X, Mail, MessageSquare, Megaphone, BarChart2, Eye, MousePointerClick, Edit2, Trash2, Play, Pause, Search, Filter, TrendingUp, TrendingDown, Copy, Calendar, ArrowLeft, SplitSquareHorizontal, ListOrdered, Monitor, Smartphone, Tags, Wand2, LayoutTemplate, Zap, Trophy, MoreVertical, Sparkles, Users, Loader2 } from 'lucide-react';
 import EmptyState from '@/shared/components/empty-state';
-import { TrelloFilter } from '@/shared/components/trello-filter';
+import { FilterButton } from '@/shared/components/crm/filter-button';
+import { ModuleFilterRail } from '@/shared/components/crm/module-filter-rail';
 import { SideSheet } from '@/shared/components/side-sheet';
+import { Dialog, DialogContent } from '@/shared/components/ui/dialog';
+import { CreateActionDropdown } from '@/shared/components/crm/module-workspace';
 import { CampaignReportView } from './campaign-report-view';
 import { CampaignBuilder } from './campaign-builder';
-import { usePagination } from '@/shared/hooks/use-pagination';
-import { Pagination } from '@/shared/components/ui/pagination';
+import { CampaignStatusBadge } from './campaign-status-badge';
+import { formatDateTime } from '@/shared/components/data-grid/cell-renderers';
+
+import { DataGrid, type DataGridColumnDef, type SortState } from '@/shared/components/data-grid';
+import { BulkSelectionBar, executeSelectedRows } from '@/shared/components/crm/bulk-selection-bar';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
+import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
+import { useModuleTableColumns } from '@/shared/hooks/use-module-table-columns';
+import { CAMPAIGNS_TABLE_COLUMNS } from '@leadcrm/shared';
+import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
 
 
 export default function CampaignsPage() {
 
 
-  // Route-scoped fetch — replaces DataContext Batch 2 startup load
-  const {
-    metrics,
-    campaigns: serverCampaigns,
-    templates: serverTemplates,
-    isInitialLoad,
-    isRefreshing,
-    error: campaignsError,
-    refetch: refetchCampaigns,
-  } = useCampaignsData();
-
-  const campaigns = serverCampaigns;
-  const templates = serverTemplates;
+  const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
   const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
   const [builderSubject, setBuilderSubject] = useState('');
   const [templateErrors, setTemplateErrors] = useState<Record<string, string>>({});
@@ -48,14 +50,46 @@ export default function CampaignsPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'all' | 'email' | 'sms'>('all');
   const [showBuilder, setShowBuilder] = useState(false);
+  const [selectedCampaignForReport, setSelectedCampaignForReport] = useState<Campaign | null>(null);
   const [builderInitialType, setBuilderInitialType] = useState<string | undefined>();
   const [builderInitialContent, setBuilderInitialContent] = useState<string | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
-  const [selectedCampaignForReport, setSelectedCampaignForReport] = useState<Campaign | null>(null);
-  const [activeMetricTab, setActiveMetricTab] = useState<'sent' | 'delivered' | 'opened' | 'clicked' | 'bounced'>('sent');
-  
+  const [currentPage, goToPage] = useState(1);
+  const [pageSize, updatePageSize] = useState(25);
+  const setPageSize = (size: number) => { updatePageSize(size); goToPage(1); };
+  // Route-scoped fetch — replaces DataContext Batch 2 startup load
+  const {
+    metrics,
+    total: totalItems,
+    campaigns: serverCampaigns,
+    templates: serverTemplates,
+    isInitialLoad,
+    isRefreshing,
+    error: campaignsError,
+    refetch: refetchCampaigns,
+  } = useCampaignsData({
+    disabled: showBuilder || !!selectedCampaignForReport,
+    intervalMs: activeTab === 'all' ? 7500 : 0,
+    query: {
+      sort: `${sort.field}:${sort.direction}`, page: currentPage, limit: pageSize, search: searchTerm,
+      status: statusFilter.map(value => value.toUpperCase()).join(','),
+      type: typeFilter.map(value => value.toUpperCase().replace('-', '_')).join(','),
+    }
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [archiving, setArchiving] = useState<Campaign | null>(null);
+  useEffect(() => { setSelected(new Set()); setArchiving(null); }, [user?.tenantId, currentPage, pageSize, searchTerm, statusFilter, typeFilter, activeTab]);
+  const campaigns = serverCampaigns;
+  const templates = serverTemplates;
+  useEffect(() => { goToPage(1); }, [searchTerm, statusFilter, typeFilter, activeTab]);
+  useEffect(() => {
+    if (!showBuilder && !selectedCampaignForReport && !isInitialLoad && !campaignsError && currentPage > Math.max(1, Math.ceil(totalItems / pageSize))) goToPage(Math.max(1, Math.ceil(totalItems / pageSize)));
+  }, [showBuilder, selectedCampaignForReport, isInitialLoad, campaignsError, currentPage, totalItems, pageSize]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [newTemplateType, setNewTemplateType] = useState<'Email' | 'SMS'>('Email');
   const [newTemplate, setNewTemplate] = useState({ name: '', subject: '', content: '', category: 'Marketing' });
@@ -64,7 +98,7 @@ export default function CampaignsPage() {
   const [showVarDropdown, setShowVarDropdown] = useState(false);
 
 
-  useEffect(() => { setShowBuilder(false); setEditingCampaign(undefined); setSelectedCampaignForReport(null); setIsTemplateModalOpen(false); setPreviewTemplate(null); setNewTemplate({ name: '', subject: '', content: '', category: 'Marketing' }); }, [user?.tenantId, user?.activeEnvironment]);
+  useEffect(() => { setShowBuilder(false); setEditingCampaign(undefined); setSelectedCampaignForReport(null); setIsTemplateModalOpen(false); setPreviewTemplate(null); setNewTemplate({ name: '', subject: '', content: '', category: 'Marketing' }); }, [user?.tenantId]);
 
   const getPreviewText = (text: string) => renderEmailVariables(text, { first_name: 'John', last_name: 'Doe', company_name: 'Example Company', sender_name: 'Configured sender', sender_email: 'sender@example.com', contact_number: '+639123456789', status: 'HOT' });
   // ── KPI computations (real data, no hardcoded numbers) ─────────────────────
@@ -72,21 +106,19 @@ export default function CampaignsPage() {
   const totalMessagesSent = metrics.sent;
   const totalOpened = metrics.opened;
   const totalClicked = metrics.clicked;
-  const avgOpenRate = totalMessagesSent ? totalOpened / totalMessagesSent * 100 : 0;
+  const emailSubmitted = metrics.emailSent ?? totalMessagesSent;
+  const avgOpenRate = emailSubmitted ? totalOpened / emailSubmitted * 100 : 0;
   const canCreateCampaign = useHasPermission('campaigns.create');
   const canEditCampaign = useHasPermission('campaigns.edit');
-  const canDeleteCampaign = useHasPermission('campaigns.delete');
+  const canDeleteCampaign = useHasPermission('campaigns.archive');
+  const canDuplicateCampaign = useHasPermission('campaigns.duplicate'), canViewReports = useHasPermission('campaigns.view_reports');
   const canSendCampaign = useHasPermission('campaigns.send');
 
   const handleDuplicate = async (camp: Campaign) => {
     try {
-      const full = (await campaignsApi.get(camp.id)).data;
-      await campaignsApi.create({ name: `${full.name.slice(0, 140)} (Copy)`, type: full.type === 'Email' ? 'EMAIL' : full.type === 'Sms' ? 'SMS' : 'MULTI_CHANNEL', subject: full.subject || '', body: full.body || '', targetAudienceId: full.targetAudienceId, audienceSource: full.audienceSource });
+      await campaignsApi.duplicate(camp.id);
       refetchCampaigns(); toast.success('Draft copy created.');
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not duplicate campaign.'); }
-  };
-  const deleteCampaign = async (id: string) => {
-    try { await campaignsApi.archive(id); refetchCampaigns(); } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not archive campaign.'); }
   };
   const handleSaveTemplate = async () => {
     if (templateLock.current) return;
@@ -118,51 +150,33 @@ export default function CampaignsPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">active</span>;
-      case 'completed':
-        return <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20">completed</span>;
-      case 'scheduled':
-        return <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">scheduled</span>;
-      case 'paused':
-        return <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20">paused</span>;
-      default:
-        return <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 border border-gray-300 dark:border-slate-600">{status}</span>;
-    }
-  };
 
   const emailTemplates = templates.filter(t => t.type === 'Email');
   const smsTemplates = templates.filter(t => t.type === 'SMS');
 
-  const filteredCampaigns = campaigns.filter(camp => {
-    if (camp.isArchived) return false;
-    const matchesSearch = !searchTerm ||
-      (camp.name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (camp.description ?? '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter.length === 0 || statusFilter.some(s => (camp.status ?? '').toLowerCase() === s.toLowerCase());
-    const matchesType = typeFilter.length === 0 || typeFilter.some(t => (camp.type ?? '').toLowerCase() === t.toLowerCase());
-    return matchesSearch && matchesStatus && matchesType;
-  });
-
-  const {
-    currentPage,
-    pageSize,
-    totalPages,
-    totalItems,
-    goToPage,
-    setPageSize,
-    paginateItems,
-  } = usePagination({
-    totalItems: filteredCampaigns.length,
-    initialPageSize: 25,
-    pageSizeOptions: [10, 25, 50, 100],
-    resetDeps: [searchTerm, statusFilter, typeFilter, activeTab],
-  });
+  const filteredCampaigns = campaigns;
+  useNotificationRecordLink('campaignId', user?.id ?? '', !!user,
+    async id => (await campaignsApi.get(id)).data,
+    campaign => { if (canViewReports && campaign.status.toLowerCase() !== 'draft') setSelectedCampaignForReport(campaign); else { setEditingCampaign(campaign); setShowBuilder(true); } });
+  const viewCampaign = (campaign: Campaign) => {
+    if (campaign.status.toLowerCase() === 'draft' || !canViewReports) { setEditingCampaign(campaign); setShowBuilder(true); }
+    else if (canViewReports) setSelectedCampaignForReport(campaign);
+  };
+  const campaignColumns: DataGridColumnDef<Campaign>[] = [
+    { id: 'name', sortable: true, header: 'Campaign', accessor: row => row.name, width: 260 },
+    { id: 'type', header: 'Type', accessor: row => row.type, width: 140, cell: (_, row) => <span className="flex items-center gap-2">{getTypeIcon(row.type)}{row.type.toUpperCase() === 'SMS' ? 'SMS' : row.type}</span> },
+    { id: 'status', header: 'Status', accessor: row => row.status, width: 140, cell: (_, row) => <CampaignStatusBadge status={row.status} /> },
+    { id: 'target', header: 'Target', accessor: row => row.targetAudience, width: 180 },
+    { id: 'submitted', header: 'Submitted', accessor: row => row.sentCount, width: 120 },
+    { id: 'opened', header: 'Opened', accessor: row => row.type.toUpperCase() === 'SMS' ? '—' : row.openedCount ?? 0, width: 110, cell: (_, row) => <span title="Unique opened recipients">{row.type.toUpperCase() === 'SMS' ? '—' : row.openedCount ?? 0}</span> },
+    { id: 'clicked', header: 'Clicked', accessor: row => row.type.toUpperCase() === 'SMS' ? '—' : row.clickedCount ?? 0, width: 110, cell: (_, row) => <span title="Unique clicking recipients">{row.type.toUpperCase() === 'SMS' ? '—' : row.clickedCount ?? 0}</span> },
+    { id: 'engagement', header: 'Engagement', accessor: row => row.type.toUpperCase() === 'SMS' ? '—' : `${row.sentCount ? Math.round((row.openedCount || 0) / row.sentCount * 100) : 0}%`, width: 130, cell: (_, row) => <span title="Unique opens / email submissions">{row.type.toUpperCase() === 'SMS' ? '—' : `${row.sentCount ? Math.round((row.openedCount || 0) / row.sentCount * 100) : 0}%`}</span> },
+    { id: 'createdAt', sortable: true, header: 'Created', accessor: row => row.createdAt, width: 210, cell: (_, row) => <span title={formatDateTime(row.createdAt)}>{formatDateTime(row.createdAt)}</span> },
+  ];
+  const tableColumns = useModuleTableColumns('campaigns', CAMPAIGNS_TABLE_COLUMNS, campaignColumns.filter(column => canViewReports || !['submitted', 'opened', 'clicked', 'engagement'].includes(column.id)));
 
   if (showBuilder) {
-    return <CampaignBuilder key={`${user?.tenantId}:${user?.activeEnvironment}`} initialCampaign={editingCampaign} initialType={builderInitialType} initialContent={builderInitialContent} initialSubject={builderSubject} canSend={canSendCampaign}
+    return <CampaignBuilder key={`${user?.tenantId}`} initialCampaign={editingCampaign} initialType={builderInitialType} initialContent={builderInitialContent} initialSubject={builderSubject} canSend={canSendCampaign}
       onBack={() => { setShowBuilder(false); setEditingCampaign(undefined); setBuilderInitialContent(undefined); setBuilderSubject(''); refetchCampaigns(); }} />;
   }
 
@@ -170,19 +184,8 @@ export default function CampaignsPage() {
     return (
       <CampaignReportView
         campaign={selectedCampaignForReport}
-        activeMetricTab={activeMetricTab}
-        onMetricTabChange={setActiveMetricTab}
         onBack={() => setSelectedCampaignForReport(null)}
       />
-    );
-  }
-
-  // ── Initial load skeleton ─────────────────────────────────────────────────
-  if (isInitialLoad) {
-    return (
-      <div className="p-4 lg:p-6">
-        <DataLoadingSkeleton rowCount={6} columnCount={5} />
-      </div>
     );
   }
 
@@ -193,7 +196,7 @@ export default function CampaignsPage() {
         <p className="text-sm text-red-500 dark:text-red-400 mb-3">{campaignsError}</p>
         <button
           onClick={refetchCampaigns}
-          className="text-xs text-blue-500 hover:text-blue-600 underline underline-offset-2 cursor-pointer"
+          className="text-xs text-blue-500 hover:text-primary underline underline-offset-2 cursor-pointer"
         >
           Try again
         </button>
@@ -202,28 +205,21 @@ export default function CampaignsPage() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="w-full space-y-4"
+      className="w-full min-w-0 space-y-4"
     >
 
       {/* 1. Standardized Header Row */}
-      <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-            Campaigns
-          </h1>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
-            {filteredCampaigns.length} total
-          </span>
-        </div>
-        {canCreateCampaign && campaigns.length > 0 && <button onClick={() => { setEditingCampaign(undefined); setBuilderInitialType('Email'); setBuilderInitialContent(undefined); setBuilderSubject(''); setShowBuilder(true); }} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"><Plus size={16} /> Create Campaign</button>}
-      </div>
+      <PageHeader title="Campaigns" subtitle="Create, send, and monitor customer marketing campaigns." badge={<span className="text-xs text-slate-500">{isInitialLoad ? '…' : totalItems} total</span>}
+        actions={canCreateCampaign && <CreateActionDropdown primaryActionLabel="Create Campaign" onPrimaryAction={() => {
+          setEditingCampaign(undefined); setBuilderInitialType('Email'); setBuilderInitialContent(undefined); setBuilderSubject(''); setShowBuilder(true);
+        }} />} />
 
       {/* 2. Overview Operational KPI Strip */}
-      <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
+      {canViewReports && <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
         <div className="flex flex-col justify-between border-r border-slate-200 dark:border-slate-800/80 pr-3 last:border-0">
           <span className="text-slate-500 dark:text-slate-400 font-medium">Active Campaigns</span>
           <div className="flex items-baseline gap-1.5 mt-1">
@@ -239,38 +235,39 @@ export default function CampaignsPage() {
         </div>
 
         <div className="flex flex-col justify-between border-r border-slate-200 dark:border-slate-800/80 pr-3 last:border-0">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Total Opened</span>
+          <span title="Unique opened recipients summed across email campaigns" className="text-slate-500 dark:text-slate-400 font-medium">Total Opened</span>
           <div className="flex items-baseline gap-1.5 mt-1">
             <span className="text-base font-bold text-slate-900 dark:text-white">{totalOpened.toLocaleString()}</span>
           </div>
         </div>
 
         <div className="flex flex-col justify-between border-r border-slate-200 dark:border-slate-800/80 pr-3 last:border-0">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Total Clicked</span>
+          <span title="Unique clicking recipients summed across email campaigns" className="text-slate-500 dark:text-slate-400 font-medium">Total Clicked</span>
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-base font-bold text-slate-900 dark:text-white">{totalClicked.toLocaleString()}</span>
           </div>
         </div>
 
         <div className="flex flex-col justify-between">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Avg Open Rate</span>
+          <span title="Weighted rate: unique opens / email submissions" className="text-slate-500 dark:text-slate-400 font-medium">Avg Open Rate</span>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-base font-bold text-slate-900 dark:text-white">{avgOpenRate.toFixed(1)}%</span>
             <div className="w-12 bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-            <div
-              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(avgOpenRate, 100)}%` }}
-              role="progressbar"
-              aria-valuenow={Math.round(avgOpenRate)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Average open rate: ${avgOpenRate.toFixed(1)}%`}
-            />
+              <div
+                className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(avgOpenRate, 100)}%` }}
+                role="progressbar"
+                aria-valuenow={Math.round(avgOpenRate)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Average open rate: ${avgOpenRate.toFixed(1)}%`}
+              />
             </div>
           </div>
         </div>
       </div>
 
+      }
       {/* Tabs + contextual action per active tab */}
       <div className="flex items-center justify-between gap-2">
         {/* Tab strip */}
@@ -324,7 +321,7 @@ export default function CampaignsPage() {
                   <button
                     onClick={() => { setNewTemplateType('Email'); setIsTemplateModalOpen(true); }}
                     aria-label="New Email Template"
-                    className="h-8 w-8 flex items-center justify-center bg-blue-600 text-white rounded-md hover:bg-blue-700 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 cursor-pointer md:hidden"
+                    className="h-8 w-8 flex items-center justify-center bg-primary text-white rounded-md hover:bg-primary/90 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer md:hidden"
                   >
                     <Plus size={14} aria-hidden="true" />
                   </button>
@@ -338,7 +335,7 @@ export default function CampaignsPage() {
                   <button
                     onClick={() => { setNewTemplateType('SMS'); setIsTemplateModalOpen(true); }}
                     aria-label="New SMS Template"
-                    className="h-8 w-8 flex items-center justify-center bg-blue-600 text-white rounded-md hover:bg-blue-700 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 cursor-pointer md:hidden"
+                    className="h-8 w-8 flex items-center justify-center bg-primary text-white rounded-md hover:bg-primary/90 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer md:hidden"
                   >
                     <Plus size={14} aria-hidden="true" />
                   </button>
@@ -350,9 +347,16 @@ export default function CampaignsPage() {
         )}
       </div>
 
+      {activeTab === 'all' && <>
+        {tableColumns.drawer}
+        <ModuleTableToolbar label="Campaigns" search={searchTerm} onSearch={setSearchTerm} placeholder="Search campaigns..."
+          filter={<FilterButton title="campaigns" open={showFilters} active={!!(statusFilter.length || typeFilter.length)} onClick={() => setShowFilters(!showFilters)} />}
+          refreshing={isInitialLoad || isRefreshing} onRefresh={refetchCampaigns} onManageColumns={tableColumns.openColumns} />
+      </>}
+
       {/* Tab Content */}
       {activeTab === 'all' && (
-        campaigns.length === 0 ? (
+        totalItems === 0 && !searchTerm && !statusFilter.length && !typeFilter.length && !isInitialLoad && !isRefreshing ? (
           <div className="py-12">
             <EmptyState
               type="campaigns"
@@ -365,182 +369,65 @@ export default function CampaignsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Filters & Search */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white dark:bg-white/2 p-3 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm mb-4">
-              <div className="flex-1 w-full relative flex items-center bg-slate-50 dark:bg-slate-900/50 hover:bg-white dark:hover:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl transition-all duration-200 focus-within:bg-white dark:focus-within:bg-slate-900 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500/80 shadow-sm max-w-md">
-                <div className="pl-3.5 flex items-center gap-2 shrink-0 py-2.5">
-                  <Search size={15} className="text-slate-400 dark:text-slate-500" />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search campaigns by name or target..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-1.5 pr-10 py-2 text-sm bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none placeholder-slate-400 dark:placeholder-slate-500"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              <div className="shrink-0 flex items-center gap-2">
-                 <TrelloFilter
-                   searchTerm={searchTerm}
-                   setSearchTerm={setSearchTerm}
-                   statuses={[
-                     { id: 'sending', label: 'Sending' },
-                     { id: 'sent', label: 'Sent to provider' },
-                     { id: 'partially_sent', label: 'Partially sent' },
-                     { id: 'failed', label: 'Failed' },
-                     { id: 'active', label: 'Active' },
-                     { id: 'scheduled', label: 'Scheduled' },
-                     { id: 'paused', label: 'Paused' },
-                     { id: 'completed', label: 'Completed' },
-                     { id: 'draft', label: 'Draft' },
-                   ]}
-                   selectedStatuses={statusFilter}
-                   setSelectedStatuses={setStatusFilter}
-                   labelsTitle="Type"
-                   labels={[
-                     { id: 'email', label: 'Email' },
-                     { id: 'sms', label: 'SMS' },
-                     { id: 'multi-channel', label: 'Multi-Channel' },
-                   ]}
-                   selectedLabels={typeFilter}
-                   setSelectedLabels={setTypeFilter}
-                 />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-white/2 rounded-xl border border-gray-200 dark:border-white/5 shadow-lg backdrop-blur-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-white dark:bg-white/2 text-slate-500 dark:text-slate-400 border-b border-gray-200 dark:border-white/5">
-                    <tr>
-                      <th className="px-6 py-4 font-medium">Campaign</th>
-                      <th className="px-6 py-4 font-medium">Type</th>
-                      <th className="px-6 py-4 font-medium">Status</th>
-                      <th className="px-6 py-4 font-medium">Target</th>
-                      <th className="px-6 py-4 font-medium">Performance</th>
-                      <th className="px-6 py-4 font-medium">Engagement</th>
-                      <th className="px-6 py-4 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {filteredCampaigns.length > 0 ? paginateItems(filteredCampaigns).map(camp => (
-                      <tr key={camp.id} className="hover:bg-white dark:bg-white/2 transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-slate-900 dark:text-white">{camp.name}</div>
-                          {camp.description && <div className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">{camp.description}</div>}
-                          <div className="text-slate-500 text-xs mt-1">Created: {camp.createdAt}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                            {getTypeIcon(camp.type)}
-                            <span>{camp.type}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          {getStatusBadge(camp.status)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                            <div className="w-5 h-5 rounded-full bg-gray-50 dark:bg-white/5 flex items-center justify-center border border-gray-200 dark:border-white/5">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                            </div>
-                            <span className="text-sm">{camp.targetAudience}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="space-y-1 text-xs">
-                            <div className="flex justify-between gap-4">
-                              <span className="text-slate-500">Submitted:</span>
-                              <span className="font-medium text-slate-700 dark:text-slate-300">{camp.sentCount}</span>
-                            </div>
-                            {camp.openedCount !== undefined && (
-                              <div className="flex justify-between gap-4">
-                                <span className="text-slate-500">Opened:</span>
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{camp.openedCount} ({camp.sentCount ? Math.round((camp.openedCount / camp.sentCount) * 100) : 0}%)</span>
-                              </div>
-                            )}
-                            {camp.clickedCount !== undefined && (
-                              <div className="flex justify-between gap-4">
-                                <span className="text-slate-500">Clicked:</span>
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{camp.clickedCount} ({camp.sentCount ? Math.round((camp.clickedCount / camp.sentCount) * 100) : 0}%)</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-24 h-2 bg-gray-50 dark:bg-white/5 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-slate-400 rounded-full" 
-                                style={{ width: `${camp.sentCount ? Math.round((camp.openedCount || 0) / camp.sentCount * 100) : 0}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{camp.sentCount ? Math.round((camp.openedCount || 0) / camp.sentCount * 100) : 0}% opened</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button 
-                              title="View Report" 
-                              onClick={() => setSelectedCampaignForReport(camp)}
-                              className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-colors"
-                            >
-                              <BarChart2 size={16} />
-                            </button>
-                            {canCreateCampaign && (
-                              <button onClick={() => handleDuplicate(camp)} title="Duplicate" className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-colors">
-                                <Copy size={16} />
-                              </button>
-                            )}
-                            {canEditCampaign && camp.status === 'Draft' && (
-                              <button onClick={() => {
-                                setEditingCampaign(camp);
-                                setShowBuilder(true);
-                              }} title="Edit" className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-colors">
-                                <Edit2 size={16} />
-                              </button>
-                            )}
-                            {canDeleteCampaign && (
-                              <button onClick={() => { if(confirm('Archive this campaign?')) deleteCampaign(camp.id); }} title="Archive" className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-md transition-colors">
-                                <Trash2 size={16} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
-                          <div className="flex flex-col items-center justify-center">
-                            <Search size={32} className="text-slate-600 mb-3" />
-                            <p>No campaigns found matching your criteria.</p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                pageSize={pageSize}
-                totalItems={totalItems}
-                pageSizeOptions={[10, 25, 50, 100]}
-                onPageChange={goToPage}
-                onPageSizeChange={setPageSize}
+            <div className="flex min-w-0 items-start gap-3">
+              <ModuleFilterRail
+                showFilters={showFilters}
+                onToggleFilters={() => setShowFilters(false)}
+                filterSearchTerm={filterSearchTerm}
+                onFilterSearch={setFilterSearchTerm}
+                totalRecords={totalItems}
+                onClearFilters={searchTerm || statusFilter.length || typeFilter.length ? () => { setSearchTerm(''); setStatusFilter([]); setTypeFilter([]); } : undefined}
+                filterGroups={[
+                  {
+                    id: 'status', label: 'Status', items: [
+                      { id: 'sent', label: 'Sent' },
+                      { id: 'partially_sent', label: 'Partially Sent' },
+                      { id: 'interrupted', label: 'Interrupted' },
+                      { id: 'delivered', label: 'Delivered' },
+                      { id: 'failed', label: 'Failed' },
+                      { id: 'draft', label: 'Draft' },
+                    ].map(item => ({ ...item, isChecked: statusFilter.includes(item.id) }))
+                  },
+                  {
+                    id: 'type', label: 'Type', items: [
+                      { id: 'email', label: 'Email' },
+                      { id: 'sms', label: 'SMS' },
+                    ].map(item => ({ ...item, isChecked: typeFilter.includes(item.id) }))
+                  },
+                ]}
+                onFilterToggle={(groupId, itemId) => {
+                  const setFilter = groupId === 'status' ? setStatusFilter : setTypeFilter;
+                  setFilter(previous => previous.includes(itemId) ? previous.filter(id => id !== itemId) : [...previous, itemId]);
+                }}
               />
+              <div className="min-w-0 flex-1">
+                {isInitialLoad ? <TableLoadingState label="Loading campaigns..." /> : <DataGrid<Campaign> sort={sort} sortingMode="external" onSortChange={next => { setSort(next ?? { field: 'createdAt', direction: 'desc' }); goToPage(1); }}
+                  columns={tableColumns.columns} data={filteredCampaigns} getRowId={row => row.id} height="auto" selectable={canDeleteCampaign} selectedIds={selected} onSelectionChange={setSelected}
+                  enableColumnMenu={false} ariaLabel="Campaigns table" summaryLabel={`${totalItems} total records`} onRowClick={viewCampaign}
+                  rowActions={campaign => [
+                    { id: 'view', label: 'View', icon: <Eye size={14} />, onClick: () => viewCampaign(campaign) },
+                    ...(canDuplicateCampaign ? [{ id: 'duplicate', label: 'Duplicate', icon: <Copy size={14} />, onClick: () => void handleDuplicate(campaign) }] : []),
+                    ...(canDeleteCampaign ? [{ id: 'archive', label: 'Archive', icon: <Archive size={14} />, separator: true, onClick: () => setArchiving(campaign) }] : []),
+                  ]} />}
+                <BulkSelectionBar selectedCount={selected.size} selectedIds={selected} onClearSelection={() => setSelected(new Set())} onRemoveIds={ids => setSelected(previous => new Set([...previous].filter(id => !ids.includes(id))))}
+                  actions={canDeleteCampaign ? [{ id: 'archive', label: 'Archive', entityName: 'campaign', destructive: true, onExecute: async ids => { const result = await executeSelectedRows(ids, campaignsApi.archive); await refetchCampaigns(); return result; } }] : []} />
+                <ConfirmActionDialog open={!!archiving} onOpenChange={open => { if (!open) setArchiving(null); }} title="Archive this campaign?" description="Campaign history and status are preserved." confirmLabel="Archive" variant="destructive" onConfirm={async () => {
+                  if (!archiving) return;
+                  try { await campaignsApi.archive(archiving.id); setArchiving(null); setSelected(new Set()); await refetchCampaigns(); toast.success('Campaign archived.'); }
+                  catch (e) { throw new Error(e instanceof Error ? e.message : 'Unable to archive campaign.'); }
+                }} />
+
+                <div className="mt-4">
+                  <LeadsPagination
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalRecords={totalItems}
+                    loading={isInitialLoad} refreshing={isRefreshing} disabled={isInitialLoad || isRefreshing}
+                    onPageChange={goToPage}
+                    onPageSizeChange={setPageSize}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )
@@ -549,7 +436,7 @@ export default function CampaignsPage() {
       {activeTab === 'email' && (
         <div>
           <div className="flex justify-end mb-4">
-            <button 
+            <button
               onClick={() => { setNewTemplateType('Email'); setIsTemplateModalOpen(true); }}
               className="hidden md:flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
             >
@@ -580,7 +467,7 @@ export default function CampaignsPage() {
                       setBuilderInitialType('Email');
                       setBuilderInitialContent(template.content); setBuilderSubject(template.subject || '');
                       setShowBuilder(true);
-                    }} className="flex-1 py-2 text-sm font-medium text-white bg-[#0A6EFF] rounded-lg hover:bg-blue-600 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]">
+                    }} className="flex-1 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]">
                       Use Template
                     </button>
                   </div>
@@ -604,7 +491,7 @@ export default function CampaignsPage() {
       {activeTab === 'sms' && (
         <div>
           <div className="flex justify-end mb-4">
-            <button 
+            <button
               onClick={() => { setNewTemplateType('SMS'); setIsTemplateModalOpen(true); }}
               className="hidden md:flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
             >
@@ -635,7 +522,7 @@ export default function CampaignsPage() {
                     <button onClick={() => {
                       setBuilderInitialType('SMS'); setBuilderInitialContent(template.content);
                       setShowBuilder(true);
-                    }} className="flex-1 py-2 text-sm font-medium text-white bg-[#0A6EFF] rounded-lg hover:bg-blue-600 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]">
+                    }} className="flex-1 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]">
                       Use Template
                     </button>
                   </div>
@@ -659,87 +546,87 @@ export default function CampaignsPage() {
       {/* Create Campaign Side Panel */}
       {/* Create Template Side Panel */}
       <SideSheet isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} title={`Create ${newTemplateType} Template`} subtitle="Save a message to reuse in future campaigns.">
-        <div className="p-6 space-y-4">
-              <div>
-                <label htmlFor="template-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Template Name <span className="text-red-500">*</span></label>
-                <input 
-                  id="template-name" className="w-full bg-white dark:bg-white/2 border border-gray-200 dark:border-white/5 rounded-lg px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
-                  placeholder="e.g. Welcome Series - Email 1" 
-                  value={newTemplate.name}
-                  onChange={(e) => setNewTemplate({...newTemplate, name: e.target.value})}
-                />
-                <FieldError message={templateErrors.name} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Category</label>
-                <select 
-                  className="w-full bg-white dark:bg-white/2 border border-gray-200 dark:border-white/5 rounded-lg px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
-                  value={newTemplate.category}
-                  onChange={(e) => setNewTemplate({...newTemplate, category: e.target.value})}
+        <div className="flex h-full min-h-0 flex-col"><div className={panelBodyClass + " space-y-4"}>
+          <div>
+            <label htmlFor="template-name" className={panelLabelClass + " mb-1.5"}>Template Name <span className="text-red-500">*</span></label>
+            <input
+              id="template-name" className={panelInputClass}
+              placeholder="e.g. Welcome Series - Email 1"
+              value={newTemplate.name}
+              onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
+            />
+            <FieldError message={templateErrors.name} />
+          </div>
+          <div>
+            <label htmlFor="template-category" className={panelLabelClass + " mb-1.5"}>Category</label>
+            <select id="template-category"
+              className={panelInputClass}
+              value={newTemplate.category}
+              onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value })}
+            >
+              <option className="bg-gray-50 dark:bg-slate-950">Marketing</option>
+              <option className="bg-gray-50 dark:bg-slate-950">Sales</option>
+              <option className="bg-gray-50 dark:bg-slate-950">Onboarding</option>
+              <option className="bg-gray-50 dark:bg-slate-950">Support</option>
+            </select>
+          </div>
+          {newTemplateType === 'Email' && (
+            <div>
+              <label htmlFor="template-subject" className={panelLabelClass + " mb-1.5"}>Subject Line <span className="text-red-500">*</span></label>
+              <input
+                id="template-subject" className={panelInputClass}
+                placeholder="Welcome to LeadCRM!"
+                value={newTemplate.subject}
+                onChange={(e) => setNewTemplate({ ...newTemplate, subject: e.target.value })}
+              />
+              <FieldError message={templateErrors.subject} />
+            </div>
+          )}
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+              <label htmlFor="template-content" className={panelLabelClass}>Message Content <span className="text-red-500">*</span></label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowVarDropdown(!showVarDropdown)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary dark:text-primary bg-primary/10 rounded-md hover:bg-primary/20 transition-colors duration-200 border border-primary/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
-                  <option className="bg-gray-50 dark:bg-slate-950">Marketing</option>
-                  <option className="bg-gray-50 dark:bg-slate-950">Sales</option>
-                  <option className="bg-gray-50 dark:bg-slate-950">Onboarding</option>
-                  <option className="bg-gray-50 dark:bg-slate-950">Support</option>
-                </select>
-              </div>
-              {newTemplateType === 'Email' && (
-                <div>
-                  <label htmlFor="template-subject" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subject Line <span className="text-red-500">*</span></label>
-                  <input 
-                    id="template-subject" className="w-full bg-white dark:bg-white/2 border border-gray-200 dark:border-white/5 rounded-lg px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="Welcome to LeadCRM!" 
-                    value={newTemplate.subject}
-                    onChange={(e) => setNewTemplate({...newTemplate, subject: e.target.value})}
-                  />
-                  <FieldError message={templateErrors.subject} />
-                </div>
-              )}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="template-content" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Content <span className="text-red-500">*</span></label>
-                  <div className="relative">
-                    <button 
-                      type="button"
-                      onClick={() => setShowVarDropdown(!showVarDropdown)} 
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 rounded-md hover:bg-blue-500/20 transition-colors duration-200 border border-blue-500/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    >
-                      <Wand2 size={14} /> Insert Variable
-                    </button>
-                    {showVarDropdown && (
-                      <div className="absolute right-0 bottom-full mb-1 w-48 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-lg shadow-xl overflow-hidden z-50 backdrop-blur-xl">
-                        {EMAIL_VARIABLE_TOKENS.map(v => (
-                          <button 
-                            key={v} 
-                            type="button"
-                            onClick={() => { 
-                              setNewTemplate({...newTemplate, content: newTemplate.content + v}); 
-                              setShowVarDropdown(false); 
-                            }} 
-                            className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-150 cursor-pointer"
-                          >
-                            {v}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <Wand2 size={14} /> Insert Variable
+                </button>
+                {showVarDropdown && (
+                  <div className="absolute right-0 bottom-full mb-1 w-48 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-lg shadow-xl overflow-hidden z-50 backdrop-blur-xl">
+                    {EMAIL_VARIABLE_TOKENS.map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => {
+                          setNewTemplate({ ...newTemplate, content: newTemplate.content + v });
+                          setShowVarDropdown(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-150 cursor-pointer"
+                      >
+                        {v}
+                      </button>
+                    ))}
                   </div>
-                </div>
-                <textarea 
-                  id="template-content" rows={8}
-                  className="w-full bg-white dark:bg-white/2 border border-gray-200 dark:border-white/5 rounded-lg px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors resize-none" 
-                  placeholder={`Hi {{first_name}},\n\n...`}
-                  value={newTemplate.content}
-                  onChange={(e) => setNewTemplate({...newTemplate, content: e.target.value})}
-                ></textarea>
-                <FieldError message={templateErrors.content} />
+                )}
               </div>
+            </div>
+            <textarea
+              id="template-content" rows={8}
+              className={panelInputClass + " resize-none"}
+              placeholder={`Hi {{first_name}},\n\n...`}
+              value={newTemplate.content}
+              onChange={(e) => setNewTemplate({ ...newTemplate, content: e.target.value })}
+            ></textarea>
+            <FieldError message={templateErrors.content} />
+          </div>
           <FieldError message={templateErrors.form} />
-          <div className="sticky bottom-0 flex justify-end gap-3 p-6 border-t border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900">
-            <button onClick={() => setIsTemplateModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-white/5 rounded-lg border border-gray-200 dark:border-white/8 transition-colors">Cancel</button>
-            <button 
+        </div><div className={panelFooterClass + " justify-end"}>
+            <button onClick={() => setIsTemplateModalOpen(false)} className={panelSecondaryActionClass}>Cancel</button>
+            <button
               onClick={handleSaveTemplate} disabled={savingTemplate}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all"
+              className={panelPrimaryActionClass}
             >
               {savingTemplate ? 'Saving...' : 'Save Template'}
             </button>
@@ -748,14 +635,14 @@ export default function CampaignsPage() {
       </SideSheet>
       {/* Preview Template Modal */}
       {previewTemplate && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-50 dark:bg-slate-950 rounded-2xl border border-gray-300 dark:border-white/10 w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <Dialog open={!!previewTemplate} onOpenChange={open => { if (!open) setPreviewTemplate(null); }}>
+          <DialogContent showClose={false} aria-label="Template Preview" className="bg-gray-50 dark:bg-slate-950 max-w-lg p-0 sm:p-0 [overflow-wrap:anywhere]">
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-white/5">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Template Preview</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{previewTemplate.name}</p>
               </div>
-              <button onClick={() => setPreviewTemplate(null)} className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/5 rounded-lg transition-colors"><X size={20} /></button>
+              <button aria-label="Close template preview" onClick={() => setPreviewTemplate(null)} className="p-2 min-h-11 min-w-11 grid place-items-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/5 rounded-lg transition-colors"><X size={20} /></button>
             </div>
             <div className="p-6 space-y-4">
               {previewTemplate.type === 'Email' && (
@@ -771,21 +658,21 @@ export default function CampaignsPage() {
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-3 p-6 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-slate-950">
+            <div className="flex flex-wrap justify-end gap-3 p-4 sm:p-6 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-slate-950">
               <button onClick={() => setPreviewTemplate(null)} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/5 rounded-lg transition-colors">Close</button>
-              <button 
+              <button
                 onClick={() => {
                   setBuilderInitialType(previewTemplate.type); setBuilderInitialContent(previewTemplate.content); setBuilderSubject(previewTemplate.subject || '');
                   setShowBuilder(true);
                   setPreviewTemplate(null);
-                }} 
-                className="px-4 py-2 bg-[#0A6EFF] text-slate-900 dark:text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]"
+                }}
+                className="px-4 py-2 bg-primary text-slate-900 dark:text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-[0_0_15px_rgba(10,110,255,0.2)]"
               >
                 Use Template
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </motion.div>
   );

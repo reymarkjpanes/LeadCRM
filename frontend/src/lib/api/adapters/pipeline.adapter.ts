@@ -1,5 +1,7 @@
 ﻿'use client';
 
+import { pipelineStageColor } from '@leadcrm/shared';
+
 /**
  * Maps a backend stage response to the frontend Stage type.
  * Handles safe defaults for null or missing fields.
@@ -15,7 +17,7 @@ export function toFrontendStage(backendStage: any): any {
     name: backendStage.name || 'Unnamed Stage',
     order: typeof backendStage.order === 'number' ? backendStage.order : 0,
     probability: typeof backendStage.probability === 'number' ? backendStage.probability : undefined,
-    color: backendStage.color || undefined,
+    color: pipelineStageColor(backendStage),
     isWon: !!backendStage.isWon,
     isLost: !!backendStage.isLost,
     isDefault: !!backendStage.isDefault,

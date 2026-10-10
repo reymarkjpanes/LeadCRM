@@ -1,18 +1,16 @@
 'use client';
 
 import { invalidateApiPageCache } from '@/shared/cache/invalidate-api-page-cache';
-import { environmentSnapshot, isEnvironmentPath, trackEnvironmentMutation } from './environment-transport';
+import type { ApiError } from '@leadcrm/shared';
+
+export type ApiRequestError = Error & Partial<Pick<ApiError['error'], 'code' | 'retryAt'>> & { status?: number; fieldErrors?: Record<string, string[]> };
 
 // LeadCRM API Client
 // Sends HttpOnly cookies (leadcrm_token) on every request via credentials: 'include'.
 // The backend auth middleware reads the cookie directly — no Bearer token needed.
 
-// In production cross-domain deployments, route through the Next.js API proxy
-// to avoid third-party cookie blocking. The proxy forwards the leadcrm_token cookie server-side.
-const IS_BROWSER = typeof window !== 'undefined';
-const DIRECT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
-const USE_PROXY = IS_BROWSER;
-const API_URL = USE_PROXY ? '/api/proxy' : DIRECT_API_URL;
+// Only the Next.js proxy resolves API_URL and forwards the HttpOnly session.
+const API_URL = '/api/proxy';
 
 async function request<T>(
   method: string,
@@ -21,13 +19,13 @@ async function request<T>(
   params?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const scoped = isEnvironmentPath(path);
-  const snapshot = environmentSnapshot();
-  if (scoped && snapshot.switching) throw new Error('Switching environment. Please wait.');
+  // Server fetch does not inherit browser cookies, even with credentials: include.
+  if (typeof window === 'undefined') {
+    throw new Error('The browser API client cannot be used during server rendering.');
+  }
   const headers: Record<string, string> = {
     'Content-Type': body instanceof Blob ? body.type : 'application/json',
   };
-  if (scoped && snapshot.environment) headers['X-CRM-Environment'] = snapshot.environment;
 
   let finalPath = path;
   if (params && Object.keys(params).length > 0) {
@@ -50,10 +48,7 @@ async function request<T>(
     signal,
     ...(body !== undefined ? { body: body instanceof Blob ? body : JSON.stringify(body) } : {}),
   });
-  const res = await (scoped && method !== 'GET' ? trackEnvironmentMutation(pending) : pending);
-  if (scoped && snapshot.generation !== environmentSnapshot().generation) {
-    throw new DOMException('Environment changed', 'AbortError');
-  }
+  const res = await pending;
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: res.statusText }));
@@ -69,18 +64,30 @@ async function request<T>(
           : (typeof errorData.message === 'string' && errorData.message)
             ? errorData.message
             : res.statusText || 'API request failed';
-    const error = new Error(errorMessage) as Error & { code?: string; status?: number; fieldErrors?: Record<string, string[]> };
+    const error = new Error(errorMessage) as ApiRequestError;
     if (typeof rawError === 'object' && rawError !== null && typeof (rawError as Record<string, unknown>).code === 'string') {
       error.code = (rawError as Record<string, unknown>).code as string;
+      if (typeof rawError.retryAt === 'string' && Number.isFinite(Date.parse(rawError.retryAt))) error.retryAt = rawError.retryAt;
     }
     error.status = res.status;
+    // Preserve HTTP rate-limit guidance as an absolute time for callers.
+    // Retry-After is emitted by the API limiter as seconds or an HTTP date.
+    if (res.status === 429 && !error.retryAt) {
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const until = Number.isFinite(seconds) && seconds >= 0
+          ? Date.now() + Math.ceil(seconds * 1000)
+          : Date.parse(retryAfter);
+        if (Number.isFinite(until) && until > Date.now()) error.retryAt = new Date(until).toISOString();
+      }
+    }
     error.fieldErrors = errorData.fieldErrors;
     throw error;
   }
 
   if (method !== 'GET') invalidateApiPageCache(path);
   const data = await res.json() as T;
-  if (scoped && snapshot.generation !== environmentSnapshot().generation) throw new DOMException('Environment changed', 'AbortError');
   return data;
 }
 

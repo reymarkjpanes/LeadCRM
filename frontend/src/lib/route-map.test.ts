@@ -12,3 +12,9 @@ it('preserves exact route precedence and existing nested help/workflow routes', 
   expect(resolveModulePath('/help/leads')).toBe('help');
   expect(resolveModulePath('/automation/workflows/id')).toBe('workflows');
 });
+it.each([
+  ['/campaigns/create', 'campaigns'], ['/marketing/forms/id', 'forms'],
+  ['/crm/companies/id', 'accounts'], ['/settings/profile', 'profile-settings'],
+])('preserves the module context for %s', (path, module) => {
+  expect(resolveModulePath(path)).toBe(module);
+});

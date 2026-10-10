@@ -1,5 +1,7 @@
 # Workflow production implementation report
 
+Current polish behavior and migration notes: [2026-10-03 workflow polish](workflow-polish-2026-10-03.md). This older report retains the earlier implementation history.
+
 Date: 2026-09-25. Implementation and verification are local. No production migration, deployment or live provider delivery was performed.
 
 ## A. Workflow architecture
@@ -85,17 +87,16 @@ Backend checks fields/operators against shared metadata, finite numbers, bounded
 
 | Action | Existing service reused |
 | --- | --- |
-| Assign owner | Lead `contacts.service.updateContact`, Contact `contacts-v2.service.updateContact`, Deal `deals.service.updateDeal` |
-| Create task | `operations/tasks/tasks.service.createTask`; linked entity, selected/current owner, priority and days until due |
+| Assign Agent | Shared Workflow assignment resolver → existing Lead, Contact, Account or Deal update service |
+| Create Task | Shared Workflow assignment resolver → `operations/tasks/tasks.service.createTask`; linked entity, one assignee, priority and days until due |
 | Move deal stage | `crm/deals/deals.service.moveDealStage` and `validateDealStageMove`; required fields/lost reason and transition side effects retained |
 | Send email | `integrations/gmail/gmail.service.sendEmail`; selected active Gmail sender, saved template or inline subject/body, actual EmailDeliveryLog receipt |
-| Send notification | `notifications/notifications.service.createNotification`; selected/current owner |
-| Update safe field | Existing CRM update services; Contact notes or Lead/Deal description only; relationship status remains protected |
-| Send campaign | `marketing/campaigns/campaigns.service.sendCampaign` → existing audience, quota, atomic campaign claim, recipient logs and centralized Brevo `sendMail` |
+| Update Fields | Existing CRM update services; fields come from the shared workflow catalog, including supported custom fields |
+| Send SMS | Existing SMS service; configured sender, validated recipient and Do Not Contact checks |
 
-Campaign means sending the selected existing draft to its **saved audience once**. It does not silently replace the audience with the triggering record or repeatedly resend a consumed campaign. Partial/failed submission produces a failed workflow action. Provider acceptance does not mean inbox delivery. See [campaign email delivery](../campaign-email-delivery.md).
+Send Campaign and Send Notification are retired Workflow actions. Saved retired steps remain readable and must be disabled or removed before activation. Notifications follow existing CRM and Task behavior.
 
-SMS has no working centralized provider in the audited implementation, so no SMS workflow action is offered. No placeholder success is returned. External workflow Gmail and campaign sending retain existing Sandbox safeguards. Variables are limited to first_name, last_name, email and company.
+The shared action catalog is authoritative. Actions run immediately and sequentially; timers, delays, parallel branches, SLA escalation and approval gates are unsupported. See [assignment and run-history refinement](workflow-assignment-history.md) for assignment policies, contract additions, migration and verification.
 
 ## G. Input security
 

@@ -15,9 +15,10 @@ it('does not require an owner or OTP for an internally provisioned admin', async
   tenant.ownerUserId = 'another-admin'; user.emailVerified = null as never;
   await expect(completeOnboarding(actor)).resolves.toHaveProperty('onboardingStep', 3);
 });
-it.each(['System Admin', 'User', 'Custom Role'])('rejects completion for %s', async role => {
+it.each(['Sales', 'Custom Role'])('allows informational onboarding for %s without changing permissions', async role => {
   user.role = role;
-  await expect(completeOnboarding(actor)).rejects.toHaveProperty('statusCode', 403);
+  await expect(completeOnboarding(actor)).resolves.toMatchObject({ role, onboardingStep: 3 });
+  expect(db.userRole.create).not.toHaveBeenCalled();
   expect(db.tenant.updateMany).not.toHaveBeenCalled();
 });
 it('blocks completion before the temporary password is changed', async () => {
@@ -26,7 +27,7 @@ it('blocks completion before the temporary password is changed', async () => {
   expect(db.tenant.updateMany).not.toHaveBeenCalled();
 });
 it('preserves the first acknowledgment timestamp on repeated completion', async () => {
-  tenant.onboardingStep = 3; tenant.onboardingCompletedAt = new Date('2026-01-01');
+  user.onboardingCompletedAt = new Date('2026-01-01');
   const result = await completeOnboarding(actor);
   expect(result.onboardingCompletedAt).toBe('2026-01-01T00:00:00.000Z');
   expect(db.auditLog.create).not.toHaveBeenCalled();

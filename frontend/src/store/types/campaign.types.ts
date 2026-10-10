@@ -6,7 +6,10 @@ export interface Campaign {
   name: string;
   description?: string;
   type: 'Email' | 'Sms' | 'Multi-Channel';
-  status: 'active' | 'completed' | 'scheduled' | 'paused' | 'Draft' | 'sending' | 'sent' | 'partially_sent' | 'failed';
+  status: 'Draft' | 'sending' | 'interrupted' | 'sent' | 'partially_sent' | 'delivered' | 'failed';
+  submissionStartedAt?: string | null;
+  submissionFinishedAt?: string | null;
+  submissionInterruptedAt?: string | null;
   targetAudience: string;
   targetAudienceId?: string | null;
   audienceSource?: 'LEADS' | 'CONTACTS' | 'ALL' | null;
@@ -22,6 +25,7 @@ export interface Campaign {
   clickedCount?: number;
   engagement: number;
   createdAt: string;
+  sentAt?: string | null;
   isArchived?: boolean;
 }
 

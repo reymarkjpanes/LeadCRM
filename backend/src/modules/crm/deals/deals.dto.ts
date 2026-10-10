@@ -1,33 +1,48 @@
 import { z } from 'zod';
+import { CustomFieldValuesSchema } from '@leadcrm/shared';
+import { recordName, recordText } from '../record-validation';
+import { ProductInterestIdSchema, ClosedWonConfirmationSchema, DealIndustrySchema } from '@leadcrm/shared';
 
 // ID field helper — accepts any non-empty string (UUID, CUID, or custom).
 // Format validation is not a business rule; referential integrity is enforced by the DB.
 const id = () => z.string().min(1);
 
 export const CreateDealSchema = z.object({
+  customFieldValues: CustomFieldValuesSchema.optional(),
+  productInterestOther: recordText(1000).nullable().optional(),
+  productInterestIds: z.array(ProductInterestIdSchema).min(1).max(100).transform(ids => [...new Set(ids)]).optional(),
+  productInterestId: ProductInterestIdSchema.optional(),
   pipelineId:        id(),
   stageId:           id(),
-  title:             z.string().min(1).max(255),
-  value:             z.number().positive().max(999_999_999_999).optional(),
+  title:             recordName(255),
+  value:             z.number().finite().nonnegative().max(999_999_999_999).optional(),
   currency:          z.string().default('PHP'),
-  billingFrequency:  z.enum(['monthly', 'one_time', 'annual', 'quarterly']).optional(),
   priority:          z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
   expectedCloseDate: z.string().datetime().optional(),
-  description:       z.string().optional(),
-  leadSource:        z.string().optional(),
+  leadSource:        recordText(255).optional(),
   accountId:         id().optional(),
   assignedUserId:    id().optional(),
   contactIds:        z.array(id()).optional(),
   leadIds:           z.array(id()).optional(),
-  industry:          z.string().optional(),
-  address:           z.string().optional(),
-  productInterests:  z.array(z.string()).optional(),
-});
+  industry:          recordText(255).optional(),
+  address:           recordText().optional(),
+  productInterests:  z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+}).strict();
+
+// Manual creation accepts catalog IDs; the singular ID remains supported for existing clients.
+export const ManualCreateDealSchema = CreateDealSchema.extend({ productInterests: z.never().optional(), industry: DealIndustrySchema.optional() }).refine(data => {
+  const ids = [...new Set(data.productInterestIds ?? (data.productInterestId ? [data.productInterestId] : []))];
+  return ids.length === 1 && (!data.productInterestId || data.productInterestId === ids[0]);
+}, { path: ['productInterestIds'], message: 'Select exactly one Product Interest per Deal.' });
 
 // DI-2 fix: stageId is explicitly excluded from updates.
 // Stage changes MUST go through PATCH /deals/:id/stage (moveDealStage) to ensure
 // history, audit, activity, and workflow triggers fire on every transition.
-export const UpdateDealSchema = CreateDealSchema.omit({ stageId: true, pipelineId: true }).partial();
+export const UpdateDealSchema = CreateDealSchema.omit({ stageId: true, pipelineId: true, productInterestId: true }).partial().extend({
+  accountId: id().nullable().optional(),
+  assignedUserId: id().nullable().optional(),
+  expectedCloseDate: z.string().datetime().nullable().optional(),
+});
 
 export const DealHandoffSchema = z.object({
   assignOwnerId:      id().optional(),
@@ -36,9 +51,10 @@ export const DealHandoffSchema = z.object({
 });
 
 export const MoveDealStageSchema = z.object({
+  confirmation: ClosedWonConfirmationSchema.optional(),
   stageId:    id(),
   note:       z.string().optional(),
-  lostReason: z.string().optional(),
+  lostReason: z.string().trim().max(2000).optional(),
   handoff:    DealHandoffSchema.optional(),
 });
 
@@ -58,7 +74,7 @@ export const BulkStageChangeSchema = z.object({
   dealIds:    z.array(z.string().min(1)).min(1).max(50),
   stageId:    z.string().min(1),
   note:       z.string().optional(),
-  lostReason: z.string().optional(),
+  lostReason: z.string().trim().max(2000).optional(),
 });
 
 // --- Inferred Types ---
@@ -81,6 +97,10 @@ export const DealsQuerySchema = z.object({
   dateTo:         z.string().datetime().optional(),
   archived:       z.enum(['true', 'false']).default('false'),
   groupByStage:   z.enum(['true', 'false']).optional(),
+}).superRefine((query, context) => {
+  if (query.accountId && query.organizationId && query.accountId !== query.organizationId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['accountId'], message: 'Account and legacy organization filters must identify the same Account.' });
+  }
 });
 
 export type DealsQueryParams = z.infer<typeof DealsQuerySchema>;

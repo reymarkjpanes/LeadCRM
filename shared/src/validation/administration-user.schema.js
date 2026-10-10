@@ -24,7 +24,7 @@ exports.CreateAdministrationUserSchema = zod_1.z.object({
     // The existing user service accepts the canonical RoleDefinition.name.
     role: (0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'Role is required.')),
     jobTitle: (0, exports.cleanText)(100).optional(),
-    department: (0, exports.cleanText)(100).optional(),
+    groupIds: zod_1.z.array(zod_1.z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
 exports.UpdateAdministrationUserSchema = exports.CreateAdministrationUserSchema.omit({ email: true }).partial()
     .extend({ status: zod_1.z.enum(['ACTIVE', 'INACTIVE']).optional() }).strict();

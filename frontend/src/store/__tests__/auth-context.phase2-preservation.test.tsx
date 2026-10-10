@@ -3,7 +3,7 @@ import { render, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
 /**
- * Preservation Tests — Phase 2 (AuthContext session/login/oauth/mock behavior)
+ * Preservation Tests — Phase 2 (AuthContext session/login/mock behavior)
  *
  * **Property 2: Preservation — Non-Buggy Auth Scenarios Unchanged by Phase 2 Fixes**
  *
@@ -16,7 +16,6 @@ import React from 'react';
  * Scenarios:
  *   5. Auth-init 401 response → authError=null, user=null (not a transport error)
  *   6. Successful login with working me() → login() returns true, user populated
- *   7. Google OAuth → loginWithGoogle() still triggers NextAuth signIn unchanged
  *   8. Mock-mode → localStorage flow unchanged, no backend calls
  *
  * **Validates: Requirements 3.1, 3.6, 3.7, 3.8**
@@ -47,8 +46,7 @@ async function loadRealApiAuthModule(mocks: {
       logout: () => logoutMock(),
     },
   }));
-  vi.doMock('next-auth/react', () => ({ signIn: vi.fn(), signOut: vi.fn() }));
-  vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [] }));
+  vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [], MOCK_ROLES: [] }));
 
   const mod = await import('../AuthContext');
   return { AuthProvider: mod.AuthProvider, useAuth: mod.useAuth };
@@ -65,8 +63,7 @@ async function loadMockAuthModule(): Promise<{
   vi.doMock('@/shared/services/auth.api', () => ({
     authApi: { me: vi.fn(), login: vi.fn(), logout: vi.fn() },
   }));
-  vi.doMock('next-auth/react', () => ({ signIn: vi.fn(), signOut: vi.fn() }));
-  vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [] }));
+  vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [], MOCK_ROLES: [] }));
   const mod = await import('../AuthContext');
   return { AuthProvider: mod.AuthProvider, useAuth: mod.useAuth };
 }
@@ -292,71 +289,6 @@ describe(
 );
 
 // ─────────────────────────────────────────────────────
-// Preservation 7 — Google OAuth flow unchanged
-// ─────────────────────────────────────────────────────
-
-describe(
-  'Feature: auth-login-blank-screen-fix, Property 2: Preservation — Google OAuth flow unchanged (real API)',
-  () => {
-    /**
-     * loginWithGoogle() must still trigger NextAuth signIn with callbackUrl: '/'.
-     * The Phase 2 fixes must not change this behavior.
-     *
-     * **Validates: Requirement 3.7**
-     */
-    afterEach(() => {
-      vi.unstubAllEnvs();
-      vi.resetModules();
-      try {
-        window.localStorage.clear();
-        window.sessionStorage.clear();
-      } catch { /* jsdom */ }
-    });
-
-    it('loginWithGoogle() calls signIn("google", { callbackUrl: "/" }) — unchanged', async () => {
-      const meMock = vi.fn().mockRejectedValue(new Error('Authentication required'));
-      const nextAuthSignIn = vi.fn().mockResolvedValue(undefined);
-
-      vi.stubEnv('NEXT_PUBLIC_USE_MOCK_AUTH', 'false');
-      vi.resetModules();
-      vi.doMock('@/shared/services/auth.api', () => ({
-        authApi: { me: () => meMock(), login: vi.fn(), logout: vi.fn() },
-      }));
-      vi.doMock('next-auth/react', () => ({
-        signIn: (...args: unknown[]) => nextAuthSignIn(...args),
-        signOut: vi.fn(),
-      }));
-      vi.doMock('@/store/mockData', () => ({ MOCK_USERS: [], MOCK_TENANTS: [] }));
-
-      const mod = await import('../AuthContext');
-      const { AuthProvider, useAuth } = mod;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let capturedAuth: any = null;
-      function Probe(): null {
-        capturedAuth = useAuth();
-        return null;
-      }
-
-      render(
-        <AuthProvider>
-          <Probe />
-        </AuthProvider>,
-      );
-
-      await waitFor(() => expect(capturedAuth?.isLoading).toBe(false));
-
-      await act(async () => {
-        await expect(capturedAuth!.loginWithGoogle()).rejects.toThrow('employee email');
-      });
-
-      // EXPECTED: unchanged — same signIn call as before Phase 2 fixes
-      expect(nextAuthSignIn).not.toHaveBeenCalled();
-    });
-  },
-);
-
-// ─────────────────────────────────────────────────────
 // Preservation 8 — Mock-mode: localStorage flow unchanged
 // ─────────────────────────────────────────────────────
 
@@ -398,7 +330,7 @@ describe(
       window.localStorage.setItem('leadcrm_user', JSON.stringify(mockUser));
       window.localStorage.setItem(
         'leadcrm_tenant',
-        JSON.stringify({ id: 'mock-t1', name: 'MockCorp', status: 'active', environment: 'production' }),
+        JSON.stringify({ id: 'mock-t1', name: 'MockCorp', status: 'active' }),
       );
 
       render(
@@ -460,7 +392,7 @@ describe(
         tenantId: 'mock-t2',
         status: 'active',
       };
-      const mockTenant = { id: 'mock-t2', name: 'Demo Corp', status: 'active', environment: 'production' };
+      const mockTenant = { id: 'mock-t2', name: 'Demo Corp', status: 'active' };
       window.localStorage.setItem('leadcrm_users', JSON.stringify([mockUser]));
       window.localStorage.setItem('leadcrm_tenants', JSON.stringify([mockTenant]));
 

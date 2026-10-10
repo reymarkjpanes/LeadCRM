@@ -2,6 +2,20 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { toBackendCreateDeal, toFrontendDeal } from '../deal.adapter';
 
+it('preserves canonical account IDs, embedded owners and legacy links without requiring loaded lookup pages', () => {
+  const person = { id: 'owner', firstName: 'Alex', lastName: 'Morgan' };
+  const deal = toFrontendDeal({ accountId: 'account', account: { id: 'account', name: 'Northstar' }, assignedUser: person,
+    leadId: 'lead', lead: { id: 'lead', firstName: 'Jordan', lastName: 'Lee' }, leadDeals: [],
+    contactId: 'contact', contact: { id: 'contact', firstName: 'Sam', lastName: 'Lee' }, contactDeals: [], value: 0 });
+  expect(deal).toMatchObject({ accountId: 'account', organizationId: 'account', companyName: 'Northstar', leadIds: ['lead'], contactIds: ['contact'], contactPerson: 'Sam Lee', value: 0, assignedUser: person });
+});
+
+it('retains product filters and the originating Lead name in board data', () => {
+  const deal = toFrontendDeal({ productInterests: ['Smart Lock'], leadDeals: [{ lead: { id: 'lead', firstName: 'Juan', lastName: 'Cruz' } }] });
+  expect(deal.productInterests).toEqual(['Smart Lock']);
+  expect(deal.contactPerson).toBe('Juan Cruz');
+});
+
 /**
  * Property-based tests for deal-linkage-unified-crud spec.
  * Tests the adapter layer's normalization of linkage fields.
@@ -219,11 +233,11 @@ describe('Feature: deal-linkage-unified-crud, Property 3: organizationId normali
           const result = toBackendCreateDeal(input);
 
           if (companyId) {
-            expect(result.organizationId).toBe(companyId);
+            expect(result.accountId).toBe(companyId);
           } else if (organizationId) {
-            expect(result.organizationId).toBe(organizationId);
+            expect(result.accountId).toBe(organizationId);
           } else {
-            expect(result.organizationId).toBeUndefined();
+            expect(result.accountId).toBeUndefined();
           }
         }
       ),

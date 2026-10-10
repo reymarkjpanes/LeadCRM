@@ -8,17 +8,16 @@ import { PATH_TO_PATHNAME } from '@/lib/route-map';
 function ResetPasswordPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const oauthError = searchParams.get('error') ?? undefined;
+  const loginError = searchParams.get('error') ?? undefined;
 
   const navigate = (path: string) => {
     if (path === 'login') return router.push('/login');
-    if (path === 'register') return router.push('/register');
     if (path === 'landing' || path === '/') return router.push('/');
     return router.push(PATH_TO_PATHNAME[path] ?? '/dashboard');
   };
   
   // ModernLoginPage detects ?token= in the URL and shows the reset-password view
-  return <ModernLoginPage onNavigate={navigate} oauthError={oauthError} />;
+  return <ModernLoginPage onNavigate={navigate} loginError={loginError} />;
 }
 
 export default function ResetPasswordPage() {

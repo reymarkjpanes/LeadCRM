@@ -17,7 +17,6 @@ export function tenantMiddleware(req: Request, _res: Response, next: NextFunctio
 export function workspaceReadyMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const user = req.authUser;
   if (!user) return next(new AppError('Authentication required', 401));
-  if (user.role === 'System Admin') return next(new AppError('Use the System Admin portal.', 403));
   if (user.mustChangePassword) return next(new AppError('Change your password first.', 403, 'PASSWORD_CHANGE_REQUIRED'));
   if (user.role === 'Client Admin' && !isOnboardingComplete(user)) {
     return next(new AppError('Complete workspace setup first.', 403, 'ONBOARDING_REQUIRED'));

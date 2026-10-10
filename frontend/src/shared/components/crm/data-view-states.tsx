@@ -177,7 +177,7 @@ export function EmptyFilteredState({
       </p>
       <button
         onClick={onClearFilters}
-        className="inline-flex items-center gap-1.5 h-8 px-3.5 text-[13px] font-medium text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border border-[#2563EB]/20 dark:border-blue-500/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+        className="inline-flex items-center gap-1.5 h-8 px-3.5 text-[13px] font-medium text-primary dark:text-primary bg-blue-50 dark:bg-primary/10 border border-primary/20 dark:border-primary/20 rounded-lg hover:bg-blue-100 dark:hover:bg-primary/20 transition-colors"
       >
         <FilterX size={14} />
         Clear Filters
@@ -219,8 +219,8 @@ export function EmptyTotalState({
         className,
       )}
     >
-      <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center mb-4">
-        <Plus size={24} className="text-[#2563EB] dark:text-blue-400" />
+      <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-primary/10 flex items-center justify-center mb-4">
+        <Plus size={24} className="text-primary dark:text-primary" />
       </div>
       <h3 className="text-[15px] font-semibold text-[#0F172A] dark:text-white mb-1.5">
         No {moduleName} yet
@@ -231,7 +231,7 @@ export function EmptyTotalState({
       {canCreate && (
         <button
           onClick={onCreateRecord}
-          className="inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg transition-colors shadow-sm"
+          className="inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors shadow-sm"
         >
           <Plus size={14} />
           Create {moduleName.charAt(0).toUpperCase() + moduleName.slice(1, -1)}
@@ -281,6 +281,6 @@ export function DataErrorState({
   );
 }
 
-export function DataLoadingSpinner({ label = 'Loading...' }: { label?: string }) {
-  return <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-slate-500"><Loader2 aria-hidden="true" size={24} className="text-blue-600 animate-spin motion-reduce:animate-none" />{label}</div>;
+export function DataLoadingSpinner({ label = 'Loading...', hideLabel = false }: { label?: string; hideLabel?: boolean }) {
+  return <div role="status" aria-label={label} className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-slate-500"><Loader2 aria-hidden="true" size={24} className="text-primary animate-spin motion-reduce:animate-none" />{!hideLabel && label}</div>;
 }

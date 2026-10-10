@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
+import { ZodError, type ZodIssue } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../shared/errors/app-error';
 
@@ -9,36 +9,51 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
+  if ('type' in err && err.type === 'entity.too.large') {
+    res.status(413).json({ success: false, error: 'Request body is too large.' });
+    return;
+  }
   // Log internally — never expose internals to client.
   // Include Prisma-specific fields when available so production logs are debuggable.
   const errAsUnknown = err as unknown as Record<string, unknown>;
   const prismaCode = errAsUnknown.code as string | undefined;
   const prismaMeta = errAsUnknown.meta as Record<string, unknown> | undefined;
+  const importRequest = /\/crm\/(leads|contacts|accounts|deals)\/imports(?:\/|$)/.test(req.path);
+  const recoveryRequest = /\/auth\/(forgot-password|reset-password)(?:\/|$)/.test(req.path);
+  const sensitiveRequest = importRequest || recoveryRequest;
 
   console.error('[Error]', {
     name: err.name,
-    message: err.message,
+    message: importRequest ? 'CRM import request failed' : recoveryRequest ? 'Password recovery request failed' : err.message,
     ...(prismaCode !== undefined && { code: prismaCode }),
-    ...(prismaMeta !== undefined && { meta: prismaMeta }),
+    ...(!sensitiveRequest && prismaMeta !== undefined && { meta: prismaMeta }),
     path: req.path,
     method: req.method,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    stack: !sensitiveRequest && process.env.NODE_ENV === 'development' ? err.stack : undefined,
   });
 
   if (err instanceof AppError) {
+    if (err.retryAt) res.setHeader('Retry-After', String(Math.max(1, Math.ceil((Date.parse(err.retryAt) - Date.now()) / 1000))));
     res.status(err.statusCode).json({
       success: false,
-      error: err.code ? { code: err.code, message: err.message } : err.message,
+      error: err.code ? { code: err.code, message: err.message, ...(err.retryAt ? { retryAt: err.retryAt } : {}) } : err.message,
     });
     return;
   }
 
-  // Zod validation errors → 400 Bad Request
-  if (err instanceof ZodError) {
+  // Shared CommonJS contracts and ESM consumers can load distinct Zod classes.
+  // Recognize their validated issue shape as well as the local constructor.
+  const issues = errAsUnknown.issues;
+  const validationError = err instanceof ZodError ? err :
+    err.name === 'ZodError' && Array.isArray(issues) && issues.every(issue =>
+      issue && typeof issue.code === 'string' && typeof issue.message === 'string' &&
+      Array.isArray(issue.path) && issue.path.every((part: unknown) => typeof part === 'string' || typeof part === 'number'))
+      ? new ZodError(issues as ZodIssue[]) : null;
+  if (validationError) {
     res.status(400).json({
       success: false,
-      error: err.errors[0]?.message ?? 'Validation failed',
-      fieldErrors: err.flatten().fieldErrors,
+      error: validationError.issues[0]?.message ?? 'Validation failed',
+      fieldErrors: validationError.flatten().fieldErrors,
     });
     return;
   }

@@ -4,8 +4,8 @@ services:
     name: leadcrm-backend
     runtime: node
     buildCommand: npx --yes npm@11.19.1 ci --include=dev && npm --prefix backend run build
-    # Apply committed migrations before accepting requests. Account seeding remains
-    # in the existing server bootstrap; do not invoke a second seeder here.
+    # Apply expansion migrations before accepting requests. Import table retirement
+    # runs separately after authenticated API verification; never use bare migrate deploy.
     startCommand: npm --prefix backend run db:deploy && npm --prefix backend start
     healthCheckPath: /health
     envVars:
@@ -14,5 +14,5 @@ services:
       - key: SKIP_DEMO_TENANTS
         value: "true"
     # Configure DATABASE_URL, DIRECT_URL, JWT_SECRET, APP_URL, ALLOWED_ORIGINS,
-    # GOOGLE_CLIENT_ID, BREVO_API_KEY, BREVO_FROM_EMAIL and system-admin credentials
+    # GMAIL_CLIENT_ID, BREVO_API_KEY and BREVO_FROM_EMAIL
     # in Render's dashboard. See docs/setup/deployment.md.

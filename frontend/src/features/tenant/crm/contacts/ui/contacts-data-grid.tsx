@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ContactsDataGrid — Contacts table implemented with the shared DataGrid component.
  *
  * This replaces the legacy flex-based inline layout for the "table" view type,
@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useMemo, useCallback } from 'react';
-import { StatusBadge } from '@/shared/components/crm';
+import { CrmStatusIndicator } from '@/shared/components/crm/crm-status';
 import {
   DataGrid,
   useDataGridColumns,
@@ -25,7 +25,6 @@ import {
   renderDate,
   renderLink,
   MODULE_ACCENT_COLORS,
-  CONTACT_STATUS_VARIANTS,
 } from '@/shared/components/data-grid';
 import type { SortState, RowActionItem } from '@/shared/components/data-grid';
 import type { CellRendererMap } from '@/shared/components/data-grid';
@@ -111,11 +110,11 @@ export function ContactsDataGrid({
 
       return (
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`w-8 h-8 rounded-full ${MODULE_ACCENT_COLORS.contacts} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
+          <div className={`w-7 h-7 rounded-full ${MODULE_ACCENT_COLORS.leads} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[#0F172A] dark:text-white truncate leading-tight">
+            <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate leading-tight hover:underline cursor-pointer">
               {row.firstName ?? name.split(' ')[0] ?? '—'}
             </p>
           </div>
@@ -124,17 +123,17 @@ export function ContactsDataGrid({
     },
 
     lastName: (_value: unknown, row: Contact) => (
-      <p className="text-[13px] text-[#0F172A] dark:text-slate-200 truncate">
+      <p className="text-[13px] text-[#3C4858] dark:text-slate-200 truncate">
         {row.lastName ?? '—'}
       </p>
     ),
 
     email: (_value: unknown, row: Contact) => (
-      <p className="text-[12px] text-[#0F172A] dark:text-slate-200 truncate">{row.email ?? '—'}</p>
+      <p className="text-[12px] text-[#3C4858] dark:text-slate-200 truncate">{row.email ?? '—'}</p>
     ),
 
     phone: (_value: unknown, row: Contact) => (
-      <p className="text-[12px] text-[#0F172A] dark:text-slate-200 truncate">{row.phone ?? '—'}</p>
+      <p className="text-[12px] text-[#3C4858] dark:text-slate-200 truncate">{row.phone ?? '—'}</p>
     ),
 
     companyName: (_value: unknown, row: Contact) => {
@@ -142,12 +141,7 @@ export function ContactsDataGrid({
       return renderLink(accountName || null);
     },
 
-    status: (_value: unknown, row: Contact) => (
-      <StatusBadge
-        label={row.status ?? 'Active'}
-        variant={CONTACT_STATUS_VARIANTS[row.status ?? 'Active'] ?? 'neutral'}
-      />
-    ),
+    status: (_value: unknown, row: Contact) => <CrmStatusIndicator status={row.status} />,
 
     source: (_value: unknown, row: Contact) => (
       <p className="text-[12px] text-[#5A6B85] dark:text-slate-400 truncate">
@@ -157,7 +151,9 @@ export function ContactsDataGrid({
 
     assignedUserId: (_value: unknown, row: Contact) => (
       <p className="text-[12px] text-[#5A6B85] dark:text-slate-400 truncate">
-        {getAssignedUserName(row.assignedUserId)}
+        {row.assignedUser
+          ? `${row.assignedUser.firstName} ${row.assignedUser.lastName}`.trim() || getAssignedUserName(row.assignedUserId)
+          : getAssignedUserName(row.assignedUserId)}
       </p>
     ),
 
@@ -222,7 +218,7 @@ export function ContactsDataGrid({
       columns={gridColumns}
       data={contacts}
       getRowId={getRowId}
-      height={600}
+      height="auto"
       selectable
       selectedIds={selectedIds}
       onSelectionChange={onSelectionChange}

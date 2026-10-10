@@ -1,29 +1,33 @@
 import { z } from 'zod';
-import { OptionalTaxIdSchema } from '@leadcrm/shared';
+import { CustomFieldValuesSchema, COMPANY_SIZE_OPTIONS } from '@leadcrm/shared';
+import { recordText, recordName } from '../record-validation';
 
 const id = () => z.string().min(1);
 
 export const CreateCompanySchema = z.object({
-  name:           z.string().min(1).max(255),
-  industry:       z.string().optional(),
-  size:           z.enum(['1-10', '11-50', '51-200', '200+']).optional(),
+  customFieldValues: CustomFieldValuesSchema.optional(),
+  productInterestOther: recordText(1000).nullable().optional(),
+  name:           recordName(255),
+  industry:       recordText().optional(),
+  size:           z.enum(COMPANY_SIZE_OPTIONS).optional(),
   website:        z.string().url().optional().or(z.literal('')),
-  taxId:          OptionalTaxIdSchema,
-  tags:           z.array(z.string()).default([]),
-  address:        z.string().optional(),
-  city:           z.string().optional(),
-  province:       z.string().optional(),
+  tags:           z.array(recordText(200)).max(100).default([]),
+  address:        recordText().optional(),
+  city:           recordText().optional(),
+  province:       recordText().optional(),
   country:        z.string().default('Philippines'),
   assignedUserId: id().optional(),
-  notes:          z.string().optional(),
-  internalNotes:  z.string().optional(),
-  productInterests: z.array(z.string()).optional(),
-  customerType:   z.enum(['Prospect', 'Active Customer', 'Inactive Customer', 'Former Customer']).optional(),
-  customerSince:  z.string().datetime().optional(),
-  activeProducts: z.array(z.string()).optional(),
+  notes:          recordText().optional(),
+  internalNotes:  recordText().optional(),
+  productInterests: z.array(recordText(200)).max(100).optional(),
+  activeProducts: z.array(recordText(200)).max(100).optional(),
 });
 
-export const UpdateCompanySchema = CreateCompanySchema.partial();
+export const UpdateCompanySchema = CreateCompanySchema.partial().extend({
+  assignedUserId: id().nullable().optional(),
+  productInterestIds: z.array(z.string().uuid()).max(100).optional(),
+  activeProductIds: z.array(z.string().uuid()).max(100).optional(),
+});
 
 export type CreateCompanyDto = z.infer<typeof CreateCompanySchema>;
 export type UpdateCompanyDto = z.infer<typeof UpdateCompanySchema>;

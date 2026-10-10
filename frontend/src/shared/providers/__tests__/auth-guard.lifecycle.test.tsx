@@ -11,7 +11,7 @@ import { AuthGuard } from '../auth-guard';
 import { getAccountDestination } from '@/shared/auth/auth-routing';
 const user = { id: 'u', role: 'Client Admin', email: 'employee@camxian.com', status: 'ACTIVE', mustChangePassword: false, onboardingStep: 0, onboardingCompletedAt: null } as User;
 beforeEach(() => { cleanup(); vi.clearAllMocks(); pathname = '/dashboard'; auth = { user: { ...user }, isLoading: false }; });
-it.each(['/dashboard', '/settings', '/admin/dashboard', '/billing/client'])('blocks manual navigation to %s before password change', path => {
+it.each(['/dashboard', '/settings', '/crm/leads', '/inbox'])('blocks manual navigation to %s before password change', path => {
   pathname = path; auth.user.mustChangePassword = true;
   render(<AuthGuard>Protected content</AuthGuard>);
   expect(replace).toHaveBeenCalledWith('/change-password');
@@ -25,11 +25,9 @@ it('uses persisted onboarding despite a localStorage completion flag', () => {
 it('sends returning admins to the dashboard', () => {
   expect(getAccountDestination({ ...user, onboardingStep: 3, onboardingCompletedAt: '2026-01-01' })).toBe('/dashboard');
 });
-it('sends System Admin directly to its dashboard regardless of tenant setup', () => {
-  expect(getAccountDestination({ ...user, role: 'System Admin', mustChangePassword: true })).toBe('/admin/dashboard');
-});
-it('preserves normal and custom role access without Client Admin onboarding', () => {
-  expect(getAccountDestination({ ...user, role: 'Sales' })).toBe('/dashboard');
+it.each(['Sales', 'Custom Role'])('requires per-user onboarding for %s and allows completed users', role => {
+  expect(getAccountDestination({ ...user, role })).toBe('/onboarding');
+  expect(getAccountDestination({ ...user, role, onboardingCompletedAt: '2026-01-01' })).toBe('/dashboard');
 });
 it('requires authentication', () => {
   auth.user = null; render(<AuthGuard>Protected content</AuthGuard>);

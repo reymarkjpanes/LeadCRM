@@ -33,7 +33,6 @@ cp backend/.env.example backend/.env
 # Edit backend/.env with your actual values:
 # - DATABASE_URL: your PostgreSQL connection string
 # - JWT_SECRET: any strong random string (min 32 chars)
-# - NEXTAUTH_SECRET: any strong random string
 
 # Frontend
 cp frontend/.env.local.example frontend/.env.local
@@ -80,7 +79,7 @@ cd backend
 npx ts-node prisma/seed.ts
 ```
 
-Sets up the system admin tenant. Set `SYSTEM_ADMIN_EMAIL` and `SYSTEM_ADMIN_PASSWORD` in `backend/.env` before seeding.
+Runs role repairs, the optional configured Gmail sender setup, and sample tenant generation in development. Set `SKIP_DEMO_TENANTS=true` to skip sample data. See [database seeders](../../backend/src/database/seeders/README.md).
 
 ## Step 6 — Start development servers
 

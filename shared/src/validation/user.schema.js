@@ -10,5 +10,5 @@ exports.LoginSchema = zod_1.z.object({
     password: zod_1.z.string().min(1, 'Password is required'),
 });
 exports.CreateUserSchema = auth_schema_1.RegisterSchema.innerType()
-    .omit({ acceptTerms: true, invitationToken: true })
+    .omit({ acceptTerms: true })
     .extend({ role: zod_1.z.string().min(1, 'Role is required') });

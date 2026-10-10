@@ -185,12 +185,14 @@ export function invalidatePageCache(module: string, tenantId?: string, notify = 
 
 /**
  * Clear all cached data across all modules and tenants.
- * Called on logout to prevent cross-session data leakage.
+ * Called on logout to prevent cross-session data leakage. Auth refreshes can
+ * notify mounted pages to discard old data and request the current scope again.
  */
-export function clearPageCache(): void {
+export function clearPageCache(notify = false): void {
   generation++;
   moduleVersions.clear();
   pageCache.clear();
+  if (notify) invalidationListeners.forEach(listener => listener('*'));
 }
 
 /** Diagnostic helper — used in tests only. */

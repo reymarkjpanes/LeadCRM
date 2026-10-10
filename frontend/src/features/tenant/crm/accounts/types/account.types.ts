@@ -1,4 +1,5 @@
 export interface Account {
+  customFieldValues?: import('@leadcrm/shared').ClosingValues;
   id: string;
   tenantId: string;
   name: string;
@@ -11,14 +12,12 @@ export interface Account {
   city?: string;
   province?: string;
   country?: string;
-  taxId?: string;
   assignedUserId?: string;
+  assignedUser?: { id: string; firstName: string; lastName: string };
   tags?: string[];
   notes?: string;
   internalNotes?: string;
   productInterests?: string[];
-  customerType?: string;
-  customerSince?: string;
   activeProducts?: string[];
   createdAt: string;
   isArchived?: boolean;

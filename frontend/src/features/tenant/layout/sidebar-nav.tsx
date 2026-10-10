@@ -1,7 +1,9 @@
 'use client';
 
 import { UserAvatar } from '@/shared/components/user-avatar';
-import React, { useMemo } from 'react';
+import React, { useId, useMemo, useRef } from 'react';
+import { useModalInteraction } from '@/shared/hooks/use-modal-interaction';
+import type { NavigationMode } from './use-responsive-navigation';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
@@ -20,6 +22,8 @@ interface SidebarNavProps {
   onToggleAccountDropdown: () => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  mode?: NavigationMode;
+  hidden?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -30,9 +34,16 @@ export default function SidebarNav({
   navigate,
   isCollapsed,
   onToggleCollapse,
+  mode = 'desktop',
+  hidden = false,
 }: SidebarNavProps): React.ReactElement {
   const { currentPath, filteredNav } = useLayout();
   const { user, tenant } = useAuth();
+  const panelRef = useRef<HTMLElement>(null);
+  const owner = useId();
+  const swipe = useRef<{ x: number; y: number; time: number } | null>(null);
+  const inaccessible = hidden || (mode === 'mobile' && !sidebarOpen);
+  useModalInteraction({ open: sidebarOpen && !hidden, panelRef, owner, onClose: onCloseSidebar, kind: 'navigation' });
 
   // ── Badge counts ────────────────────────────────────────────────────────
   // Real-API mode: fetch lightweight counts (page=1&pageSize=1) independently.
@@ -74,25 +85,37 @@ export default function SidebarNav({
 
   return (
     <aside
+      ref={panelRef}
+      id="crm-navigation"
+      data-overlay={sidebarOpen}
+      data-hidden={hidden}
+      role={sidebarOpen ? 'dialog' : undefined}
+      aria-modal={sidebarOpen ? true : undefined}
+      aria-label="Main navigation"
+      aria-hidden={inaccessible ? true : undefined}
+      inert={inaccessible}
+      tabIndex={sidebarOpen ? -1 : undefined}
+      onPointerDown={event => { if (sidebarOpen && event.pointerType === 'touch') swipe.current = { x: event.clientX, y: event.clientY, time: Date.now() }; }}
+      onPointerCancel={() => { swipe.current = null; }}
+      onPointerUp={event => {
+        const start = swipe.current;
+        swipe.current = null;
+        if (start && start.x - event.clientX > 60 && Math.abs(start.y - event.clientY) < 40 && Date.now() - start.time < 700) onCloseSidebar();
+      }}
       className={cn(
-        'fixed lg:static inset-y-0 left-0 z-50',
+        'navigation-sidebar z-50',
         'bg-[var(--sidebar-bg)] border-r border-[var(--sidebar-border)]',
-        'transform transition-all duration-200 ease-in-out',
+        'transition-[width,transform] duration-200 ease-in-out motion-reduce:transition-none',
         'flex flex-col',
-        // Mobile: slide in/out
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-        // Width
-        'w-[220px]',
-        isCollapsed && 'lg:w-[56px]',
       )}
     >
       {/* ── Logo area ─────────────────────────────────────────── */}
       <div className={cn(
         'shrink-0 flex items-center border-b border-[var(--sidebar-border)]',
-        isCollapsed ? 'lg:justify-center px-2 py-4' : 'justify-between px-4 py-4',
+        isCollapsed ? 'justify-center px-2 py-4' : 'justify-between px-4 py-4',
       )}>
         <div
-          className={cn('flex items-center gap-2.5', isCollapsed && 'lg:justify-center')}
+          className={cn('flex items-center gap-2.5', isCollapsed && 'justify-center')}
           title={isCollapsed ? (tenant?.name ? `LeadCRM — ${tenant.name}` : 'LeadCRM') : undefined}
         >
           <div className="flex h-7 w-7 items-center justify-center rounded-lg overflow-hidden shrink-0">
@@ -101,7 +124,7 @@ export default function SidebarNav({
           {!isCollapsed && (
             <div className="flex flex-col min-w-0">
               <span className="text-[14px] font-bold text-[var(--sidebar-text)] tracking-tight leading-tight">
-                Lead<span className="text-[#3B82F6]">CRM</span>
+                Lead<span className="text-primary">CRM</span>
               </span>
               {tenant?.name && (
                 <span className="text-[10px] text-[var(--sidebar-text-muted)] truncate leading-tight max-w-[140px]">
@@ -113,17 +136,18 @@ export default function SidebarNav({
         </div>
 
         {/* Mobile close */}
-        <button
-          className="lg:hidden text-[var(--sidebar-text-muted)] hover:text-[var(--sidebar-text)] p-1.5 rounded-md transition-colors"
+        {sidebarOpen && <button
+          type="button"
+          className="grid min-h-11 min-w-11 place-items-center text-[var(--sidebar-text-muted)] hover:text-[var(--sidebar-text)] rounded-md transition-colors"
           onClick={onCloseSidebar}
           aria-label="Close sidebar"
         >
           <X size={16} />
-        </button>
+        </button>}
       </div>
 
       {/* ── Navigation ────────────────────────────────────────── */}
-      <nav className="flex-1 flex flex-col gap-0.5 px-2 py-3 overflow-y-auto custom-scrollbar">
+      <nav aria-label="Workspace" className="min-h-0 flex-1 flex flex-col gap-0.5 px-2 py-3 overflow-y-auto custom-scrollbar">
         {(() => {
           const groups: Record<string, typeof filteredNav> = {};
           const ungrouped: typeof filteredNav = [];
@@ -211,7 +235,7 @@ export default function SidebarNav({
       <div className="shrink-0 border-t border-[var(--sidebar-border)]">
 
         {/* User card + Collapse control */}
-        <div className="px-3 py-3 flex items-center gap-2">
+        <div className={cn('py-3 flex items-center gap-2', isCollapsed ? 'px-1' : 'px-3')}>
           {!isCollapsed && (
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] flex items-center justify-center text-white font-bold text-[10px] shrink-0">
@@ -231,9 +255,10 @@ export default function SidebarNav({
           {/* Collapse toggle */}
           <button
             onClick={onToggleCollapse}
+            type="button"
             className={cn(
-              'hidden lg:flex items-center justify-center rounded-md text-[var(--sidebar-text-muted)] hover:text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)] transition-all',
-              isCollapsed ? 'w-8 h-8 mx-auto' : 'w-7 h-7 shrink-0',
+              'navigation-collapse items-center justify-center min-h-11 min-w-11 rounded-md text-[var(--sidebar-text-muted)] hover:text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)] transition-colors',
+              isCollapsed ? 'mx-auto' : 'shrink-0',
             )}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             title={isCollapsed ? 'Expand' : 'Collapse'}
@@ -262,10 +287,13 @@ function NavButton({ item, isActive, isCollapsed, badgeCount, onClick }: NavButt
   return (
     <button
       onClick={onClick}
+      type="button"
+      aria-label={item.name}
+      aria-current={isActive ? 'page' : undefined}
       title={isCollapsed ? item.name : undefined}
       className={cn(
-        'relative w-full flex items-center rounded-lg text-[12.5px] font-medium transition-all cursor-pointer',
-        isCollapsed ? 'lg:justify-center px-2 py-2.5' : 'gap-2.5 px-3 py-2',
+        'relative min-h-11 w-full flex items-center rounded-lg text-[12.5px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-2.5 px-3 py-2',
         isActive
           ? 'bg-[var(--sidebar-active-bg)] text-[var(--sidebar-active-text)]'
           : 'text-[var(--sidebar-text-muted)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--sidebar-text)]',
@@ -273,7 +301,7 @@ function NavButton({ item, isActive, isCollapsed, badgeCount, onClick }: NavButt
     >
       {/* 3px left brand bar for active state */}
       {isActive && !isCollapsed && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#3B82F6] rounded-r-full" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-primary rounded-r-full" />
       )}
 
       <Icon className="h-[16px] w-[16px] shrink-0" />

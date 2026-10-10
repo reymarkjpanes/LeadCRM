@@ -1,23 +1,5 @@
-'use client';
+import LegalDocumentPage, { legalMetadata } from '@/features/tenant/legal/legal-document-page';
+import { privacyPolicy } from '@/features/tenant/legal/legal-documents';
 
-import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
-
-const PrivacyPolicyPage = dynamic(
-  () => import('../../src/features/tenant/pages/privacy-policy'),
-  { ssr: false }
-);
-
-export default function PrivacyPolicy() {
-  const router = useRouter();
-
-  const handleNavigate = (path: string) => {
-    if (path === '/') {
-      router.push('/');
-    } else {
-      router.push(`/${path}`);
-    }
-  };
-
-  return <PrivacyPolicyPage onNavigate={handleNavigate} />;
-}
+export const metadata = legalMetadata(privacyPolicy);
+export default function Page() { return <LegalDocumentPage document={privacyPolicy} />; }

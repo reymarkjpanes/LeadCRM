@@ -27,4 +27,3 @@ export async function completeOnboarding(req: Request, res: Response, next: Next
 
 // Temporary compatibility routes share the same authorization and final-step rules.
 export const saveOnboardingWorkspace = completeOnboarding;
-export const completeOAuthProfile = completeOnboarding;

@@ -3,29 +3,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { forwardAuthCookies } from '@/lib/auth/cookies';
-
-// Prefer the server-only API_URL env var (set in Vercel dashboard, never
-// exposed to the browser bundle). Fall back to NEXT_PUBLIC_API_URL for
-// environments that only configure the public var. Final fallback to
-// localhost for local dev only.
-const BACKEND_URL =
-  process.env.API_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  'http://localhost:4000/api/v1';
-
-// Warn at cold-start when the proxy would route to localhost — that address
-// is unreachable from Vercel serverless and every request returns 502.
-// The message surfaces in Vercel function logs so the misconfiguration is
-// immediately visible instead of silently producing "incorrect credentials".
-if (BACKEND_URL.includes('localhost')) {
-  console.warn(
-    '[Proxy] WARNING: BACKEND_URL resolved to localhost (%s). ' +
-    'Set API_URL (or NEXT_PUBLIC_API_URL) in your Vercel environment variables ' +
-    'to point at the production backend (e.g. https://your-app.onrender.com/api/v1). ' +
-    'All proxied requests will fail until this is corrected.',
-    BACKEND_URL,
-  );
-}
+import { getBackendUrl } from '@/lib/server/backend-url';
 
 async function proxyRequest(
   req: NextRequest,
@@ -34,33 +12,54 @@ async function proxyRequest(
   const path = '/' + params.path.join('/');
   if (!['GET', 'HEAD'].includes(req.method)) {
     const origin = req.headers.get('origin');
-    if (req.headers.get('sec-fetch-site') === 'cross-site' || (origin && origin !== req.nextUrl.origin)) {
+    // Next's URL can use the internal HTTP container address behind TLS ingress.
+    // Host is the request authority routed by ingress; never trust a caller's
+    // X-Forwarded-Host to authorize a cross-origin mutation.
+    const host = (req.headers.get('host') ?? req.nextUrl.host).toLowerCase();
+    const protocol = process.env.NODE_ENV === 'production' ? 'https:' : req.nextUrl.protocol;
+    let invalidOrigin = false;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        invalidOrigin = origin !== parsed.origin || parsed.host !== host || parsed.protocol !== protocol;
+      } catch {
+        invalidOrigin = true;
+      }
+    }
+    if (req.headers.get('sec-fetch-site') === 'cross-site' || invalidOrigin) {
       return NextResponse.json({ success: false, error: 'Forbidden origin.' }, { status: 403 });
     }
   }
-  const url = BACKEND_URL + path + req.nextUrl.search;
+  let backendUrl: string;
+  try { backendUrl = getBackendUrl(); } catch {
+    console.error('[Proxy] Invalid API_URL configuration.');
+    return NextResponse.json(
+      { success: false, error: { code: 'PROXY_CONFIGURATION_ERROR', message: 'Backend is not configured. Set a valid server-only API_URL.' } },
+      { status: 503 },
+    );
+  }
+  const url = backendUrl + path + req.nextUrl.search;
 
   const token = req.cookies.get('leadcrm_token')?.value;
   const headers: Record<string, string> = {
     'Content-Type': req.headers.get('content-type') ?? 'application/json',
     'Accept': 'application/json',
   };
-  const environment = req.headers.get('x-crm-environment');
-  if (environment) headers['X-CRM-Environment'] = environment;
+  const mailboxStream = req.method === 'GET' && ['/integrations/gmail/events', '/reporting/dashboard/events', '/auth/events', '/crm/pipelines/events'].includes(path);
+  if (mailboxStream) headers.Accept = 'text/event-stream';
 
   // Forward the HttpOnly cookie server-side — this is the whole reason the
   // proxy exists. Browsers block third-party cookies on cross-origin fetches,
   // so the browser sends the cookie to same-origin /api/proxy, and this
-  // serverless function forwards it to the Render backend via a server-to-server
+  // route handler forwards it to the backend via a server-to-server
   // request that is never subject to third-party cookie restrictions.
   if (token) {
     headers['Cookie'] = `leadcrm_token=${token}`;
   }
-  const challenge = req.cookies.get('leadcrm_mfa_challenge')?.value;
-  if (challenge && /^[a-f0-9]{64}$/.test(challenge)) headers['Cookie'] = [headers['Cookie'], `leadcrm_mfa_challenge=${challenge}`].filter(Boolean).join('; ');
 
   // Forward the real client IP so the backend rate limiter sees the actual
-  // user address rather than the Vercel edge node IP.
+  // user address rather than the hosting proxy IP. The backend trusts only
+  // ingress addresses configured in TRUSTED_PROXIES.
   const clientIp =
     req.headers.get('x-forwarded-for') ??
     req.headers.get('x-real-ip') ??
@@ -70,7 +69,7 @@ async function proxyRequest(
   let body: string | ArrayBuffer | undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const ct = req.headers.get('content-type') ?? '';
-    if (ct.startsWith('multipart/form-data') || ct.startsWith('image/')) {
+    if (ct.startsWith('multipart/form-data') || ct.startsWith('image/') || ct.startsWith('application/octet-stream')) {
       body = await req.arrayBuffer();
     } else {
       body = await req.text();
@@ -81,11 +80,18 @@ async function proxyRequest(
   // Longer cold starts return an explicit retryable error.
   // When the signal fires, fetch throws AbortError, caught below and returned as 503.
   const controller = new AbortController();
+  const abortStream = () => controller.abort();
+  if (mailboxStream) req.signal.addEventListener('abort', abortStream, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   try {
     const backendRes = await fetch(url, { method: req.method, headers, body, signal: controller.signal, cache: 'no-store', redirect: 'manual' });
     clearTimeout(timeoutId);
+    if (mailboxStream && backendRes.ok && backendRes.body) {
+      return new NextResponse(backendRes.body, { status: 200, headers: {
+        'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no',
+      } });
+    }
     const data = await backendRes.arrayBuffer();
 
     const response = new NextResponse(data, {
@@ -95,6 +101,12 @@ async function proxyRequest(
           backendRes.headers.get('content-type') ?? 'application/json',
       },
     });
+
+    const disposition = backendRes.headers.get('content-disposition');
+    if (disposition) response.headers.set('Content-Disposition', disposition);
+    const retryAfter = backendRes.headers.get('retry-after');
+    if (retryAfter) response.headers.set('Retry-After', retryAfter);
+    response.headers.set('X-Content-Type-Options', 'nosniff');
 
     // Forward and rewrite Set-Cookie headers from the backend to the browser.
     // Critical for auth — the login endpoint sets the HttpOnly leadcrm_token
@@ -112,7 +124,7 @@ async function proxyRequest(
     console.error('[Proxy] Backend fetch failed for %s %s: %s', req.method, path, message);
 
     if (isTimeout) {
-      // Render Free tier cold start exceeded the 25s proxy timeout.
+      // The backend exceeded the 25s proxy timeout.
       // Return 503 so the frontend can show a "server waking up" message.
       return NextResponse.json(
         { success: false, error: { message: 'The server is warming up. Please wait a moment and try again.' } },
@@ -124,9 +136,8 @@ async function proxyRequest(
       {
         success: false,
         error: {
-          message: BACKEND_URL.includes('localhost')
-            ? 'Backend is not configured. Set API_URL in your Vercel environment variables.'
-            : 'Unable to reach the server. Please try again in a moment.',
+          code: 'PROXY_UPSTREAM_UNREACHABLE',
+          message: 'Unable to reach the server. Please try again in a moment.',
         },
       },
       { status: 502 },

@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import { League_Spartan, Poppins } from 'next/font/google';
 import '../src/index.css';
 import { AppProviders } from '../src/shared/providers/app-providers';
+import { APPEARANCE_INIT_SCRIPT } from '../src/lib/appearance-script';
 import { ThemeProvider } from '../src/shared/providers/theme-provider';
 import { ServiceWorkerRegistration } from '../src/shared/components/service-worker-registration';
+import { PwaInstallProvider } from '../src/shared/providers/pwa-install-provider';
 
 // Configure Google Fonts using Next.js font optimization
 const leagueSpartan = League_Spartan({
@@ -35,8 +37,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${leagueSpartan.variable} ${poppins.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${leagueSpartan.variable} ${poppins.variable}`}>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_INIT_SCRIPT }} />
         <link rel="manifest" href="/manifest.json" />
         {/* Neue Machina from Fontshare */}
         <link rel="preconnect" href="https://api.fontshare.com" />
@@ -53,7 +56,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={poppins.className} suppressHydrationWarning>
         <AppProviders>
           <ThemeProvider>
-            {children}
+            <PwaInstallProvider>
+              {children}
+            </PwaInstallProvider>
           </ThemeProvider>
         </AppProviders>
         <ServiceWorkerRegistration />

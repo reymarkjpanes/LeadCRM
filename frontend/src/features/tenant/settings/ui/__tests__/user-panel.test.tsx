@@ -1,15 +1,17 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), reset: vi.fn(), success: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), reset: vi.fn(), success: vi.fn(), error: vi.fn(), getGroups: vi.fn(), actor: { role: 'User', tenantId: 't' } }));
 vi.mock('@/features/tenant/administration/users/services/users.service', () => ({ usersService: { create: mocks.create, update: mocks.update, sendPasswordReset: mocks.reset } }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ userCan: () => true, user: mocks.actor }) }));
 vi.mock('sonner', () => ({ toast: { success: mocks.success, error: mocks.error } }));
+vi.mock('@/shared/services/groups.api', () => ({ groupsApi: { getAll: mocks.getGroups } }));
 import { UserPanel } from '../user-panel';
 import type { User } from '@/store/types';
 const user: User = { id: 'u', tenantId: 't', firstName: 'Juan', lastName: 'Dela Cruz', email: 'juan@camxian.com', role: 'Sales', status: 'active', phone: '+639171234567', jobTitle: 'Agent' };
 const roles = [{ id: 'r', name: 'Sales' }];
 const renderPanel = (saved?: User) => { const onSaved = vi.fn(), onClose = vi.fn(); render(<UserPanel user={saved} roles={roles} canEdit onSaved={onSaved} onClose={onClose} />); return { onSaved, onClose }; };
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => { vi.resetAllMocks(); mocks.actor.role = 'User'; mocks.getGroups.mockResolvedValue({ data: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Sales', members: [] }] }); });
 afterEach(cleanup);
 const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label, { exact: false }), { target: { value } });
 
@@ -80,7 +82,7 @@ it('opens readonly, cancels to persisted values and keeps edit mode on failed sa
 
 it('shows placeholders and a locked domain and rejects invalid usernames', () => {
   renderPanel();
-  for (const placeholder of ['e.g. Juan', 'e.g. Dela Cruz', 'e.g. juan.delacruz', '9xxxxxxxxx', 'e.g. Sales Representative', 'e.g. Sales']) expect(screen.getByPlaceholderText(placeholder)).toBeTruthy();
+  for (const placeholder of ['e.g. Juan', 'e.g. Dela Cruz', 'e.g. juan.delacruz', '9xxxxxxxxx', 'e.g. Sales Representative']) expect(screen.getByPlaceholderText(placeholder)).toBeTruthy();
   const suffix = screen.getByText('@camxian.com');
   expect(suffix.tagName).toBe('SPAN');
   const email = screen.getByLabelText('Email', { exact: false }) as HTMLInputElement;
@@ -92,4 +94,19 @@ it('shows placeholders and a locked domain and rejects invalid usernames', () =>
   change('Email', ' Juan.Dela_Cruz+sales-2 '); fireEvent.blur(email);
   expect(email.getAttribute('aria-invalid')).toBe('false');
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('admin edits existing Groups while ordinary staff cannot grant themselves membership', async () => {
+  mocks.actor.role = 'Client Admin'; renderPanel(user); fireEvent.click(screen.getByText('Edit User'));
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Sales' }));
+  mocks.update.mockResolvedValue({ data: { ...user, groups: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Sales' }] } });
+  fireEvent.click(screen.getByText('Save Changes'));
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('u', expect.objectContaining({ groupIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] })));
+  expect(screen.queryByLabelText('Department')).toBeNull();
+});
+it('clearing all Groups submits an explicit empty membership list', async () => {
+  mocks.actor.role = 'Client Admin'; renderPanel({ ...user, groups: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Sales' }] });
+  fireEvent.click(screen.getByText('Edit User')); fireEvent.click(await screen.findByRole('checkbox', { name: 'Sales' }));
+  mocks.update.mockResolvedValue({ data: { ...user, groups: [] } }); fireEvent.click(screen.getByText('Save Changes'));
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('u', expect.objectContaining({ groupIds: [] })));
 });

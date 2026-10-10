@@ -1,23 +1,15 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import type { ConfirmActionDialogProps, ConfirmActionOptions } from '@/shared/components/crm/confirm-action-dialog';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-interface ConfirmDialogState {
-  open: boolean;
-  title: string;
-  description?: string;
-  items?: string[];
-  warning?: string;
-  confirmLabel?: string;
-  variant?: 'default' | 'destructive';
-  onConfirm: () => void | Promise<void>;
-}
+type ConfirmDialogState = ConfirmActionOptions & { open: boolean };
 
 interface UseConfirmDialogResult {
-  dialogProps: ConfirmDialogState & { onOpenChange: (open: boolean) => void };
-  confirm: (options: Omit<ConfirmDialogState, 'open'>) => void;
+  dialogProps: ConfirmActionDialogProps;
+  confirm: (options: ConfirmActionOptions) => void;
   close: () => void;
 }
 
@@ -42,7 +34,7 @@ const DEFAULT_STATE: ConfirmDialogState = {
  *   title: 'Archive Lead?',
  *   description: 'This will archive the lead.',
  *   warning: 'You can restore this record from Archived Data.',
- *   variant: 'default',
+ *   variant: 'destructive',
  *   confirmLabel: 'Archive',
  *   onConfirm: async () => { await archiveLead(id); },
  * })
@@ -54,7 +46,7 @@ const DEFAULT_STATE: ConfirmDialogState = {
 export function useConfirmDialog(): UseConfirmDialogResult {
   const [state, setState] = useState<ConfirmDialogState>(DEFAULT_STATE);
 
-  const confirm = useCallback((options: Omit<ConfirmDialogState, 'open'>): void => {
+  const confirm = useCallback((options: ConfirmActionOptions): void => {
     setState({ ...options, open: true });
   }, []);
 

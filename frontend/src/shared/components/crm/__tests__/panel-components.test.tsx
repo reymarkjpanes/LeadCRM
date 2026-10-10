@@ -1,3 +1,4 @@
+vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [], loading: false, error: '' }) }));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -12,7 +13,7 @@ vi.mock('@/store/DataContext', () => ({
         id: 'pipe-1',
         name: 'Sales Pipeline',
         stages: [
-          { id: 'stg-1', name: 'Prospect', order: 1 },
+          { id: 'stg-1', name: 'Lead', order: 1 },
           { id: 'stg-2', name: 'Proposal', order: 2 },
           { id: 'stg-3', name: 'Negotiation', order: 3 },
         ],
@@ -156,14 +157,17 @@ describe('InlineDealForm', () => {
     mockOnSubmit.mockClear();
   });
 
-  it('renders pipeline and stage select fields', () => {
+  it('hides the fixed pipeline and shows its read-only Lead starting stage', () => {
     render(
       <InlineDealForm onSubmit={mockOnSubmit} />
     );
 
-    expect(screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent === 'Pipeline *')).toBeDefined();
-    expect(screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent === 'Stage *')).toBeDefined();
-    expect(screen.getByText('Select pipeline')).toBeDefined();
+    expect(screen.queryByText('Pipeline')).toBeNull();
+    const startingStage = screen.getByLabelText('Starting stage') as HTMLInputElement;
+    expect(startingStage.value).toBe('Lead');
+    expect(startingStage.readOnly).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('input[name="stageId"]')?.value).toBe('stg-1');
+    expect(screen.queryByText('Sales Pipeline')).toBeNull();
   });
 
   it('renders title field with required label', () => {
@@ -193,15 +197,16 @@ describe('InlineDealForm', () => {
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
-  it('renders value, expected close, confidence and description fields', () => {
+  it('renders value, expected close and priority without retired fields', () => {
     render(
       <InlineDealForm onSubmit={mockOnSubmit} />
     );
 
     expect(screen.getByText('Value')).toBeDefined();
-    expect(screen.getByText('Expected Close')).toBeDefined();
-    expect(screen.getByText('Confidence (%)')).toBeDefined();
-    expect(screen.getByText('Description')).toBeDefined();
+    expect(screen.getByText('Expected Close Date')).toBeDefined();
+    expect(screen.queryByText('Confidence (%)')).toBeNull();
+    expect(screen.getByLabelText('Priority')).toBeDefined();
+    expect(screen.queryByText('Description')).toBeNull();
   });
 });
 

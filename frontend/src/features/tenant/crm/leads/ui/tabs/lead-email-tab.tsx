@@ -48,7 +48,7 @@ export function LeadEmailTab({
               onClick={() => onApplyTemplate(t.id)}
               className={`text-[10px] px-2.5 py-1 rounded border transition-colors ${
                 selectedTemplateId === t.id
-                  ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                  ? 'bg-primary/10 border-primary/30 text-blue-400'
                   : 'bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 border-gray-200 dark:border-white/5 text-slate-700 dark:text-slate-300'
               }`}
             >
@@ -101,7 +101,7 @@ export function LeadEmailTab({
           <button
             type="submit"
             disabled={isSending}
-            className="bg-blue-600 hover:bg-blue-500 font-semibold text-white px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50"
+            className="bg-primary hover:bg-primary/90 font-semibold text-white px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50"
           >
             <Send size={13} />
             {isSending ? 'Sending Dispatch...' : 'Dispatch Email'}

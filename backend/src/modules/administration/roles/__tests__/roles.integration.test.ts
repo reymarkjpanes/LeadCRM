@@ -8,12 +8,12 @@ import { issueAuthSession } from '../../../../core/auth/auth-session';
 import app from '../../../../app';
 import * as repo from '../roles.repository';
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
-const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_environment_test_\d+$/.test(url.pathname);
+const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_(?:polish_test|environment_test_\d+)$/.test(url.pathname);
 describe.skipIf(!disposable)('custom roles: authenticated HTTP and database persistence', () => {
   let server: Server, base: string, tenantId: string, otherTenantId: string, token: string, readerToken: string, otherToken: string;
   const password = 'Role-Test-Password-123!';
   const email = `roles-admin-${Date.now()}@camxian.com`;
-  const permissions = ['contacts', 'accounts', 'deals'].map(module => ({ module, canView: true, canCreate: true, canEdit: true, canDelete: true }));
+  const permissions = ['contacts', 'accounts', 'deals'].map(module => ({ module, canView: true, canCreate: true, canEdit: true, canDelete: false, canArchive: true }));
   async function call(path: string, method = 'GET', body?: unknown, bearer = token) {
     const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, body: await response.json(), token: response.headers.get('set-cookie')?.match(/leadcrm_token=([^;]+)/)?.[1] };
@@ -22,10 +22,10 @@ describe.skipIf(!disposable)('custom roles: authenticated HTTP and database pers
     const tenant = await prisma.tenant.create({ data: { name: 'Role test', slug: `roles-${Date.now()}`, onboardingStep: 3, onboardingCompletedAt: new Date() } });
     tenantId = tenant.id;
     otherTenantId = (await prisma.tenant.create({ data: { name: 'Other role test', slug: `roles-other-${Date.now()}`, onboardingStep: 3, onboardingCompletedAt: new Date() } })).id;
-    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email, firstName: 'Role', lastName: 'Admin', mustChangePassword: false, passwordHash: await bcrypt.hash(password, 10) } });
+    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email, firstName: 'Role', lastName: 'Admin', mustChangePassword: false, onboardingCompletedAt: new Date(), passwordHash: await bcrypt.hash(password, 10) } });
     token = (await issueAuthSession(admin)).token;
-    readerToken = (await issueAuthSession(await prisma.user.create({ data: { tenantId, role: 'Reader', email: `roles-reader-${Date.now()}@camxian.com`, firstName: 'Role', lastName: 'Reader', mustChangePassword: false } }))).token;
-    otherToken = (await issueAuthSession(await prisma.user.create({ data: { tenantId: otherTenantId, role: 'Client Admin', email: `roles-other-${Date.now()}@camxian.com`, firstName: 'Other', lastName: 'Admin', mustChangePassword: false } }))).token;
+    readerToken = (await issueAuthSession(await prisma.user.create({ data: { tenantId, role: 'Reader', email: `roles-reader-${Date.now()}@camxian.com`, firstName: 'Role', lastName: 'Reader', mustChangePassword: false, onboardingCompletedAt: new Date() } }))).token;
+    otherToken = (await issueAuthSession(await prisma.user.create({ data: { tenantId: otherTenantId, role: 'Client Admin', email: `roles-other-${Date.now()}@camxian.com`, firstName: 'Other', lastName: 'Admin', mustChangePassword: false, onboardingCompletedAt: new Date() } }))).token;
     server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1`;
   });
@@ -83,9 +83,31 @@ describe.skipIf(!disposable)('custom roles: authenticated HTTP and database pers
     finally { failure.mockRestore(); }
     expect(await prisma.roleDefinition.count({ where: { tenantId, name: { in: ['Anonymous', 'Forbidden', 'Failure'] } } })).toBe(0);
   });
-  it('rolls back the RoleDefinition if a RolePermission write fails', async () => {
-    await expect(repo.createRole(tenantId, { name: 'Rollback' }, [permissions[0], permissions[0]])).rejects.toThrow();
+  it('rolls back the RoleDefinition after a simulated RolePermission write failure', async () => {
+    const transaction = prisma.$transaction.bind(prisma);
+    const failure = vi.spyOn(prisma, '$transaction').mockImplementationOnce((async (work: (tx: any) => Promise<unknown>) => transaction(async tx => {
+      const write = vi.spyOn(tx.rolePermission, 'createMany').mockRejectedValueOnce(new Error('Simulated permission write failure'));
+      try { return await work(tx); } finally { write.mockRestore(); }
+    })) as never);
+    try { await expect(repo.createRole(tenantId, { name: 'Rollback' }, [permissions[0]])).rejects.toThrow('Simulated permission write failure'); }
+    finally { failure.mockRestore(); }
     expect(await prisma.roleDefinition.count({ where: { tenantId, name: 'Rollback' } })).toBe(0);
     expect(await prisma.rolePermission.count({ where: { tenantId, role: { name: 'Rollback' } } })).toBe(0);
+  });
+  it('rolls back a role rename, staff role label and permission replacement on an update failure', async () => {
+    const created = await call('/administration/roles', 'POST', { name: 'Atomic rename', permissions: [permissions[0]] });
+    const roleId = created.body.data.id;
+    const staff = await prisma.user.create({ data: { tenantId, role: 'Atomic rename', email: `atomic-${Date.now()}@camxian.com`, firstName: 'Atomic', lastName: 'Staff', mustChangePassword: false, onboardingCompletedAt: new Date() } });
+    await prisma.userRole.create({ data: { tenantId, userId: staff.id, roleId } });
+    const transaction = prisma.$transaction.bind(prisma);
+    const failure = vi.spyOn(prisma, '$transaction').mockImplementationOnce((async (work: (tx: any) => Promise<unknown>, options: any) => transaction(async tx => {
+      const write = vi.spyOn(tx.rolePermission, 'upsert').mockRejectedValueOnce(new Error('Simulated permission update failure'));
+      try { return await work(tx); } finally { write.mockRestore(); }
+    }, options)) as never);
+    try { await expect(repo.updateRoleAndPermissions(roleId, tenantId, { name: 'Renamed after failure' }, [permissions[1]])).rejects.toThrow('Simulated permission update failure'); }
+    finally { failure.mockRestore(); }
+    expect((await prisma.roleDefinition.findUniqueOrThrow({ where: { id: roleId } })).name).toBe('Atomic rename');
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: staff.id } })).role).toBe('Atomic rename');
+    expect((await prisma.rolePermission.findMany({ where: { tenantId, roleId } })).map(permission => permission.module)).toEqual([permissions[0].module]);
   });
 });

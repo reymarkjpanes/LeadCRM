@@ -14,6 +14,7 @@ export type DealPriority = 'LOW' | 'MEDIUM' | 'HIGH';
  * Maps to the Prisma `Deal` model in the backend.
  */
 export interface Deal {
+  productInterestIds?: string[];
   id: string;
   tenantId: string;
   pipelineId: string;
@@ -21,10 +22,8 @@ export interface Deal {
   title: string;
   value?: number;
   currency?: string;
-  billingFrequency?: 'monthly' | 'one_time' | 'annual' | 'quarterly';
   priority: DealPriority;
   expectedCloseDate?: string;
-  description?: string;
   leadSource?: string;
   organizationId?: string;
   assignedUserId?: string;
@@ -33,6 +32,8 @@ export interface Deal {
   industry?: string;
   address?: string;
   productInterests?: string[];
+  productInterestId?: string;
+  productInterestRecord?: { id: string; name: string } | null;
   order?: number;
   lostReason?: string;
   isArchived?: boolean;
@@ -51,6 +52,7 @@ export interface Deal {
  * Mirrors the backend `CreateDealSchema` Zod DTO.
  */
 export interface CreateDealRequest {
+  productInterestId: string;
   pipelineId: string;
   stageId: string;
   title: string;
@@ -58,7 +60,6 @@ export interface CreateDealRequest {
   currency?: string;
   priority?: DealPriority;
   expectedCloseDate?: string;
-  description?: string;
   leadSource?: string;
   organizationId?: string;
   assignedUserId?: string;
@@ -79,7 +80,6 @@ export interface UpdateDealRequest {
   currency?: string;
   priority?: DealPriority;
   expectedCloseDate?: string;
-  description?: string;
   leadSource?: string;
   organizationId?: string;
   assignedUserId?: string;

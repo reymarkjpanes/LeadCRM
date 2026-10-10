@@ -17,7 +17,6 @@ const INDUSTRIES = [
   'Financial Services'
 ];
 
-export { seedDemoAccounts as seedSystemAdmin } from './demo.seed';
 
 export async function generateTenants(count: number = 10) {
   console.log(`[Seed] Generating ${count} Realistic Tenants...`);
@@ -62,7 +61,7 @@ export async function generateTenants(count: number = 10) {
     ];
 
     const roleEntities: Record<string, { id: string }> = {};
-    const modules = ['contacts', 'deals', 'organizations', 'campaigns', 'tasks', 'users', 'reports'];
+    const modules = ['leads', 'contacts', 'accounts', 'deals', 'campaigns', 'tasks', 'users'];
 
     for (const rd of rolesData) {
       const roleDef = await prisma.roleDefinition.upsert({
@@ -74,7 +73,6 @@ export async function generateTenants(count: number = 10) {
           isSystemRole: rd.isSystemRole,
           permissions: {
             create: modules.map(m => ({
-              tenantId: tenant.id,
               module: m,
               ...rd.perms
             }))
@@ -104,7 +102,6 @@ export async function generateTenants(count: number = 10) {
           userRoles: {
             create: {
               roleId: roleEntities[roleName].id,
-              tenantId: tenant.id,
             }
           }
         }
@@ -134,7 +131,7 @@ export async function generateTenants(count: number = 10) {
           passwordHash: defaultPassword,
           role: 'Client Admin',
           status: 'ACTIVE',
-          userRoles: { create: { roleId: clientAdminRoleDef.id, tenantId: tenant.id } },
+          userRoles: { create: { roleId: clientAdminRoleDef.id } },
         },
       });
       usersList.push(user);
@@ -206,12 +203,12 @@ export async function generateTenants(count: number = 10) {
         type: 'Sales',
         stages: {
           create: [
-            { name: 'Lead', order: 1, probability: 10, isDefault: true, color: '#6b7280', tenantId: tenant.id },
-            { name: 'Meeting Scheduled', order: 2, probability: 30, color: '#3b82f6', tenantId: tenant.id },
-            { name: 'Qualified', order: 3, probability: 50, color: '#8b5cf6', tenantId: tenant.id },
-            { name: 'Proposal Sent', order: 4, probability: 75, color: '#f59e0b', tenantId: tenant.id },
-            { name: 'Won', order: 5, probability: 100, isWon: true, color: '#10b981', tenantId: tenant.id },
-            { name: 'Lost', order: 6, probability: 0, isLost: true, color: '#ef4444', tenantId: tenant.id },
+            { name: 'Lead', order: 1, probability: 10, isDefault: true, color: '#6b7280' },
+            { name: 'Meeting Scheduled', order: 2, probability: 30, color: '#3b82f6' },
+            { name: 'Qualified', order: 3, probability: 50, color: '#8b5cf6' },
+            { name: 'Proposal Sent', order: 4, probability: 75, color: '#f59e0b' },
+            { name: 'Won', order: 5, probability: 100, isWon: true, color: '#10b981' },
+            { name: 'Lost', order: 6, probability: 0, isLost: true, color: '#ef4444' },
           ]
         }
       },
@@ -237,7 +234,6 @@ export async function generateTenants(count: number = 10) {
           pipelineId:        salesPipeline.id,
           stageId:           stage.id,
           accountId:         account?.id ?? null,
-          leadId:            lead.id,
           assignedUserId:    assigned.id,
           ownerId:           assigned.id,
           title:             `${lead.lastName ?? account?.id ?? 'Client'} - ${faker.commerce.productName()} Opportunity`,
@@ -251,7 +247,7 @@ export async function generateTenants(count: number = 10) {
           leadDeals: {
             create: {
               leadId:    lead.id,
-              tenantId:  tenant.id,
+              position:  0,
               role:      'Decision Maker',
               addedById: assigned.id,
             },
@@ -277,8 +273,8 @@ export async function generateTenants(count: number = 10) {
         await prisma.task.create({
           data: {
             tenantId:       tenant.id,
-            dealId:         deal.id,
-            leadId:         lead.id,
+            dealLinks: { create: { dealId: deal.id, position: 0 } },
+            leadLinks: { create: { leadId: lead.id, position: 0 } },
             assignedUserId: assigned.id,
             assignedById:   assigned.id,
             title:          faker.helpers.arrayElement(['Follow up call', 'Send Proposal', 'Schedule Demo', 'Review Requirements']),

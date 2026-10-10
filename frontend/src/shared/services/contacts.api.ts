@@ -1,5 +1,6 @@
 'use client';
 
+import { LEAD_STATUSES } from '@leadcrm/shared';
 import { apiClient } from '@/lib/api/client';
 import type { Contact } from '@/store/types';
 
@@ -32,6 +33,8 @@ function buildQuery(params: ContactListQuery): string {
   return s ? `?${s}` : '';
 }
 
+const leadPayload = (data: Partial<Contact>) => ({ ...data, ...(data.status ? { status: LEAD_STATUSES.find(status => status.toUpperCase() === data.status?.toUpperCase()) ?? data.status } : {}) });
+
 export const contactsApi = {
   list: (query: ContactListQuery = {}) =>
     apiClient.get<ContactsResponse>(`/crm/leads${buildQuery(query)}`),
@@ -40,10 +43,10 @@ export const contactsApi = {
     apiClient.get<ContactResponse>(`/crm/leads/${id}`),
 
   create: (data: Partial<Contact>) =>
-    apiClient.post<ContactResponse>('/crm/leads', data),
+    apiClient.post<ContactResponse>('/crm/leads', leadPayload(data)),
 
   update: (id: string, data: Partial<Contact>) =>
-    apiClient.put<ContactResponse>(`/crm/leads/${id}`, data),
+    apiClient.put<ContactResponse>(`/crm/leads/${id}`, leadPayload(data)),
 
   archive: (id: string) =>
     apiClient.patch<{ success: boolean }>(`/crm/leads/${id}/archive`),

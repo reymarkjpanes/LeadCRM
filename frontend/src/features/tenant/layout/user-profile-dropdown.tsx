@@ -118,7 +118,7 @@ export function UserProfileDropdown(): React.ReactElement {
             transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
             role="menu"
             aria-orientation="vertical"
-            className="absolute right-0 top-full mt-2 w-[310px] bg-white dark:bg-[#1E293B] border border-slate-200/90 dark:border-slate-700/80 rounded-2xl shadow-xl shadow-slate-900/10 dark:shadow-black/40 py-1.5 z-50 overflow-hidden backdrop-blur-md focus:outline-none"
+            className="absolute right-0 top-full mt-2 w-[310px] max-w-[calc(100vw-1rem)] max-h-[calc(var(--app-viewport-height)-4rem)] overflow-y-auto overscroll-contain bg-white dark:bg-[#1E293B] border border-slate-200/90 dark:border-slate-700/80 rounded-2xl shadow-xl shadow-slate-900/10 dark:shadow-black/40 py-1.5 z-50 backdrop-blur-md focus:outline-none"
           >
             {/* Section 1: User Identity */}
             <div className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-700/70">

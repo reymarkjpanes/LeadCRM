@@ -30,7 +30,7 @@ export const MOCK_TASKS: Task[] = [
     tenantId: 'tenant_demo',
     title: 'Hardware Order Placement',
     description: 'Execute procurement order for fiber switches, network cables, and router modules.',
-    status: 'in-progress',
+    status: 'in_progress',
     dueDate: '2026-06-15',
     assignedUserId: 'user_sales_2',
     createdAt: '2026-05-25T11:00:00.000Z',
@@ -48,5 +48,3 @@ export const MOCK_TASKS: Task[] = [
     priority: 'Low',
   },
 ];
-
-

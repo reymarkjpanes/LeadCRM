@@ -1,4 +1,10 @@
 'use client';
+import { LEAD_SOURCES } from '@leadcrm/shared';
+import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
+import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelInputClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { CRM_STATUSES, normalizeCrmStatus } from '@leadcrm/shared';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
@@ -6,6 +12,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useData } from '@/store/DataContext';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { EntityCombobox } from '@/shared/components/entity-combobox';
+import { AssignedAgentSelect } from '@/shared/components/crm/assigned-agent-select';
 import { useScrollToError } from '@/shared/hooks/use-scroll-to-error';
 import { toast } from 'sonner';
 import { PhilippinePhoneInput } from '@/shared/components/philippine-phone-input';
@@ -27,44 +34,11 @@ import type { Contact } from '@/store/types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const PRODUCTS = [
-  'CCTV',
-  'Biometrics',
-  'Door Access',
-  'Door access/Biometrics',
-  'Network/Structured Cabling',
-  'FDAS',
-  'PABX',
-  'PC/Laptop/Server Assembly',
-  'Software/Web Development',
-  'Others',
-];
 
-const SOURCES = [
-  'Google Ads',
-  'Referral',
-  'Email Campaign',
-  'Website',
-  'LinkedIn Ads',
-  'Webinar',
-  'Social Media Advertisement',
-  'Partner Referral',
-  'Direct Mail',
-  'Cold Call',
-  'Content Marketing',
-  'YouTube Ads',
-  'SEO / Organic Search',
-  'Others',
-];
 
-const STATUS_OPTIONS = [
-  { value: 'Inquiry', label: 'Inquiry' },
-  { value: 'Active', label: 'Active' },
-  { value: 'Inactive', label: 'Inactive' },
-  { value: 'Hot', label: 'Hot' },
-  { value: 'Warm', label: 'Warm' },
-  { value: 'Cold', label: 'Cold' },
-];
+const SOURCES = LEAD_SOURCES;
+
+const STATUS_OPTIONS = CRM_STATUSES.map(value => ({ value, label: value }));
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
@@ -72,18 +46,20 @@ interface ContactFormProps {
   initialData?: Contact;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (data: Partial<Contact>) => void;
+  onSave: (data: Partial<Contact>) => void | Promise<void>;
 }
 
 interface ContactFormInnerProps {
   initialData?: Contact;
-  onSave: (data: Partial<Contact>) => void;
+  onSave: (data: Partial<Contact>) => void | Promise<void>;
   onCancel: () => void;
 }
 
 // ─── Form Component ────────────────────────────────────────────────────────
 
 export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormInnerProps): React.ReactElement {
+  const customFields = useRecordCustomFields('contacts', initialData?.id);
+  const { products: productRecords, loading: productsLoading, error: productError } = useProductInterests();
   const { users } = useData();
   const isEdit = !!initialData;
 
@@ -94,17 +70,15 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     email: initialData?.email || '',
     phone: initialData?.phone || '',
     companyName: initialData?.companyName || '',
-    status: initialData?.status || 'Inquiry',
+    status: normalizeCrmStatus(initialData?.status),
     source: initialData?.leadSource || '',
-    accountId: initialData?.organizationId || '',
+    accountId: initialData?.accountId || initialData?.organizationId || '',
     assignedUserId: initialData?.assignedUserId || '',
     productInterest: initialData?.productInterests || initialData?.productInterest || [],
     address: initialData?.address || '',
   }), [initialData]);
 
-  // UpdateContactFormSchema makes firstName/lastName optional; the form still uses
-  // CreateContactFormValues shape for field registration. Cast is safe because both
-  // schemas share the same field keys — only required/optional differs.
+  // Create and edit both require trimmed names and a valid email.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const schema = isEdit ? UpdateContactFormSchema : CreateContactFormSchema;
 
@@ -140,66 +114,49 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
 
   const selectedProducts = watch('productInterest') || [];
 
-  const onSubmit = (data: CreateContactFormValues | UpdateContactFormValues): void => {
-    // Build payload using frontend Contact type field names.
-    // The adapter (toBackendCreateContact/toBackendUpdateContact) handles
-    // mapping to backend DTO names (e.g. leadSource → source, productInterest → productInterest).
+  const [saveError, setSaveError] = useState('');
+  const onSubmit = async (data: CreateContactFormValues | UpdateContactFormValues): Promise<void> => {
+    if (!customFields.validate()) return;
+    setSaveError('');
+    // contactsV2Api translates the display aliases to Contact API columns.
     const cleaned: Partial<Contact> = {
+      customFieldValues: customFields.payload(),
       firstName: data.firstName || undefined,
       lastName: data.lastName || undefined,
       email: data.email || undefined,
-      phone: phoneLocal ? toE164(phoneLocal) : undefined,
-      companyName: data.companyName || undefined,
-      status: data.status || 'Inquiry',
-      leadSource: data.source || undefined,
+      phone: phoneLocal ? toE164(phoneLocal) : isEdit ? '' : undefined,
+      companyName: data.companyName || (isEdit ? '' : undefined),
+      status: data.status || 'Warm',
+      leadSource: data.source || (isEdit ? '' : undefined),
       assignedUserId: data.assignedUserId || undefined,
       productInterest: data.productInterest || [],
-      address: data.address || undefined,
+      address: data.address || (isEdit ? '' : undefined),
     };
 
     // Pass accountId through directly — adapter maps it correctly
-    if (data.accountId) {
-      (cleaned as Record<string, unknown>).accountId = data.accountId;
-    }
+    if (data.accountId || isEdit) (cleaned as Record<string, unknown>).accountId = data.accountId || null;
+    if (isEdit && !data.assignedUserId) (cleaned as Record<string, unknown>).assignedUserId = null;
 
-    onSave(cleaned);
-  };
-
-  // Product interest management
-  const toggleProduct = (product: string): void => {
-    const current = selectedProducts;
-    if (current.includes(product)) {
-      setValue('productInterest', current.filter((p) => p !== product), { shouldValidate: true });
-    } else {
-      setValue('productInterest', [...current, product], { shouldValidate: true });
-    }
-  };
-
-  const removeProduct = (product: string): void => {
-    setValue(
-      'productInterest',
-      selectedProducts.filter((p) => p !== product),
-      { shouldValidate: true },
-    );
+    try { await onSave(cleaned); }
+    catch (error) { setSaveError(error instanceof Error ? error.message : 'Unable to save Contact. Please try again.'); }
   };
 
   // Style classes
-  const inputCls =
-    'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none transition-all focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
+  const inputCls = panelInputClass;
   const inputErrorCls = '!border-red-500 focus:!ring-red-500/20';
-  const selectCls =
-    'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl pl-3.5 pr-8 py-2.5 text-sm text-slate-900 dark:text-white outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all [&>option]:bg-white dark:[&>option]:bg-slate-900';
+  const selectCls = panelInputClass + ' appearance-none pr-8 cursor-pointer';
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full" noValidate>
+    <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="flex h-full min-h-0 flex-col" noValidate>
       {/* Scrollable Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+      <div className={panelBodyClass + " space-y-6"}>
+        {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
         {/* Section 1: Basic Information */}
         <div className="space-y-4">
           <SectionHeader num={1} title="Basic Information" />
 
           {/* First & Last Name (required) */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap label="First Name *" htmlFor={`${fieldId}-firstName`} error={errors.firstName?.message}>
               <input
                 {...register('firstName')}
@@ -223,13 +180,13 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
           </div>
 
           {/* Email & Phone */}
-          <div className="grid grid-cols-2 gap-4">
-            <FieldWrap label="Email" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FieldWrap label="Email *" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="email"
-                  {...register('email')}
+                  {...register('email')} required aria-required="true" maxLength={254}
                   id={`${fieldId}-email`}
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? `${fieldId}-email-error` : undefined}
@@ -258,13 +215,14 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
               placeholder="Company or organization name"
             />
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Basic Information" />
         </div>
 
         {/* Section 2: Status & Classification */}
         <div className="space-y-4">
           <SectionHeader num={2} title="Status & Classification" />
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Status */}
             <FieldWrap label="Status" htmlFor={`${fieldId}-status`} error={errors.status?.message}>
               <div className="relative">
@@ -285,27 +243,12 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
               </div>
             </FieldWrap>
 
-            {/* Source */}
-            <FieldWrap label="Source" htmlFor={`${fieldId}-source`} error={errors.source?.message}>
-              <div className="relative">
-                <select
-                  {...register('source')}
-                  id={`${fieldId}-source`}
-                  aria-invalid={!!errors.source}
-                  aria-describedby={errors.source ? `${fieldId}-source-error` : undefined}
-                  className={`${selectCls} ${errors.source ? inputErrorCls : ''}`}
-                >
-                  <option value="">Select source...</option>
-                  {SOURCES.map((src) => (
-                    <option key={src} value={src}>
-                      {src}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
+            <FieldWrap label="Product Interest">
+              <ProductInterestSelect products={productRecords} valueMode="name" values={selectedProducts} onChange={values => setValue('productInterest', values, { shouldValidate: true })} disabled={productsLoading || !!productError} />
+              {productError && <p role="alert" className="text-xs text-destructive">{productError}</p>}
             </FieldWrap>
           </div>
+          <CustomFieldGroup form={customFields} group="Status & Classification" />
         </div>
 
         {/* Section 3: Relationships */}
@@ -331,80 +274,50 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
 
           {/* Assigned User */}
           <FieldWrap label="Assigned Agent" htmlFor={`${fieldId}-assignedUserId`} error={errors.assignedUserId?.message}>
+            <Controller
+              name="assignedUserId"
+              control={control}
+              render={({ field }) => (
+                <AssignedAgentSelect
+                  id={`${fieldId}-assignedUserId`}
+                  value={field.value ?? ''}
+                  name={field.name}
+                  onBlur={field.onBlur}
+                  onChange={field.onChange}
+                  users={users}
+                  placeholder={isEdit ? 'Unassigned' : 'Assign automatically'}
+                  className={`${selectCls} ${errors.assignedUserId ? inputErrorCls : ''}`}
+                  invalid={!!errors.assignedUserId}
+                  describedBy={errors.assignedUserId ? `${fieldId}-assignedUserId-error` : undefined}
+                />
+              )}
+            />
+          </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Relationships" />
+        </div>
+
+        {/* Section 4: Additional Information */}
+        <div className="space-y-4">
+          <SectionHeader num={4} title="Additional Information" />
+
+          <FieldWrap label="Source" htmlFor={`${fieldId}-source`} error={errors.source?.message}>
             <div className="relative">
               <select
-                {...register('assignedUserId')}
-                id={`${fieldId}-assignedUserId`}
-                aria-invalid={!!errors.assignedUserId}
-                aria-describedby={errors.assignedUserId ? `${fieldId}-assignedUserId-error` : undefined}
-                className={`${selectCls} ${errors.assignedUserId ? inputErrorCls : ''}`}
+                {...register('source')}
+                id={`${fieldId}-source`}
+                aria-invalid={!!errors.source}
+                aria-describedby={errors.source ? `${fieldId}-source-error` : undefined}
+                className={`${selectCls} ${errors.source ? inputErrorCls : ''}`}
               >
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.firstName} {u.lastName}
-                  </option>
-                ))}
+                <option value="">Select source...</option>
+                {SOURCES.map((src) => <option key={src} value={src}>{src}</option>)}
               </select>
               <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
             </div>
           </FieldWrap>
-        </div>
-
-        {/* Section 4: Product Interest & Address */}
-        <div className="space-y-4">
-          <SectionHeader num={4} title="Additional Information" />
-
-          {/* Product Interest (multi-select chips) */}
-          <FieldWrap label="Product Interest">
-            <div className="space-y-2">
-              {/* Selected chips */}
-              {selectedProducts.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedProducts.map((product) => (
-                    <span
-                      key={product}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-500/20"
-                    >
-                      {product}
-                      <button
-                        type="button"
-                        onClick={() => removeProduct(product)}
-                        className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 rounded-sm p-0.5 transition-colors"
-                        aria-label={`Remove ${product}`}
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Product dropdown */}
-              <div className="relative">
-                <select
-                  className={selectCls}
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      toggleProduct(e.target.value);
-                    }
-                  }}
-                >
-                  <option value="">Add a product interest...</option>
-                  {PRODUCTS.filter((p) => !selectedProducts.includes(p)).map((product) => (
-                    <option key={product} value={product}>
-                      {product}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
-            </div>
-          </FieldWrap>
 
           {/* Address */}
-          <FieldWrap label="Address" htmlFor={`${fieldId}-address`} error={errors.address?.message}>
+              <FieldWrap label="Full Address" htmlFor={`${fieldId}-address`} error={errors.address?.message}>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-3 text-slate-400" size={14} />
               <textarea
@@ -413,27 +326,29 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
                 aria-invalid={!!errors.address}
                 aria-describedby={errors.address ? `${fieldId}-address-error` : undefined}
                 rows={3}
-                className={`w-full pl-9 pr-4 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none ${errors.address ? inputErrorCls : ''}`}
+                className={`w-full pl-9 pr-4 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-none ${errors.address ? inputErrorCls : ''}`}
                 placeholder="123 Main St, City, State, Zip Code"
               />
             </div>
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Additional Information" />
         </div>
+        <CustomFieldExtraGroups form={customFields} startNumber={5} />
       </div>
 
       {/* Sticky Footer */}
-      <div className="shrink-0 px-6 py-4 border-t border-gray-200 dark:border-white/[0.06] bg-white dark:bg-slate-900 flex items-center justify-end gap-3">
+      <div className={panelFooterClass + " justify-end"}>
         <button
           type="button"
           onClick={onCancel}
-          className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.08] border border-gray-200 dark:border-white/[0.08] rounded-xl transition-colors"
+          className={panelSecondaryActionClass}
         >
           Cancel
         </button>
         <button
           type="submit"
-          disabled={isSubmitting}
-          className="px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={customFields.blocked || isSubmitting}
+          className="h-[42px] px-6 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary/90 active:scale-95 rounded-xl transition-all shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSubmitting ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Contact'}
         </button>
@@ -460,15 +375,7 @@ export function ContactFormSheet({ initialData, isOpen, onClose, onSave }: Conta
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function SectionHeader({ num, title }: { num: number; title: string }): React.ReactElement {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-500 text-white text-[11px] font-bold shrink-0">
-        {num}
-      </div>
-      <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-wide">{title}</h3>
-      <div className="flex-1 h-px bg-gray-200 dark:bg-white/[0.06]" />
-    </div>
-  );
+  return <PanelSectionHeading number={num}>{title}</PanelSectionHeading>;
 }
 
 function FieldWrap({ label, error, htmlFor, children }: { label: string; error?: string; htmlFor?: string; children: React.ReactNode }): React.ReactElement {

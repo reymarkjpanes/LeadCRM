@@ -4,6 +4,7 @@ import React from 'react';
 import { Calendar, User as UserIcon, CheckCircle2, Clock, AlertCircle, Briefcase, FileText, Tag } from 'lucide-react';
 import { Task, Deal, User } from '@/store/types';
 import { ModalCloseButton } from '@/shared/components/ui/modal-close-button';
+import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 
 interface TaskDetailsDrawerProps {
   task: Task | null;
@@ -25,8 +26,8 @@ export const TaskDetailsDrawer: React.FC<TaskDetailsDrawerProps> = ({
   const isCompleted = task.status === 'completed';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-950 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-white/10 overflow-y-auto">
+    <Sheet open={!!task} onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent showClose={false} aria-label="Task details" className="max-w-md sm:max-w-md bg-white dark:bg-slate-950 shadow-2xl flex flex-col border-l border-slate-200 dark:border-white/10 overflow-y-auto">
         {/* Header */}
         <div className="relative p-6 border-b border-slate-200 dark:border-white/10 flex items-start justify-between bg-slate-50 dark:bg-white/[0.02]">
           <div className="pr-6">
@@ -47,7 +48,7 @@ export const TaskDetailsDrawer: React.FC<TaskDetailsDrawerProps> = ({
                 {task.status}
               </span>
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug [overflow-wrap:anywhere]">
               {task.title}
             </h3>
           </div>
@@ -125,7 +126,7 @@ export const TaskDetailsDrawer: React.FC<TaskDetailsDrawerProps> = ({
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 };

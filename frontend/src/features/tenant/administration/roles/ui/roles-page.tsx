@@ -1,5 +1,7 @@
 'use client';
 
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
+import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
 import React, { useState } from 'react';
 import { Plus, Search, RefreshCw, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,13 +12,17 @@ import { RoleCard } from './role-card';
 import { RoleBuilderModal } from './role-builder-modal';
 import { RoleDetailDrawer } from './role-detail-drawer';
 import { PermissionsTab } from './permissions-tab';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { CreateButton } from '@/shared/components/ui/button';
+import { RefreshButton } from '@/shared/components/crm/refresh-button';
 import type { RoleListItem } from '@/store/types/roles.types';
 
 type Tab = 'roles' | 'permissions';
 
 export default function RolesPage(): React.ReactElement {
-  const canManage = useHasPermission('roles.manage');
+  const canManage = useHasPermission('roles.edit'), canCreate = useHasPermission('roles.create'), canArchive = useHasPermission('roles.archive');
   const [activeTab, setActiveTab] = useState<Tab>('roles');
+  const { confirm, dialogProps } = useConfirmDialog();
 
   const {
     isLoading, error,
@@ -29,14 +35,18 @@ export default function RolesPage(): React.ReactElement {
     refetch, handleArchive,
   } = useRoles();
 
-  const onArchive = async (role: RoleListItem) => {
-    if (!confirm(`Archive role "${role.name}"? Users assigned to this role will lose its permissions.`)) return;
-    try {
-      await handleArchive(role.id);
-      toast.success(`Role "${role.name}" archived`);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to archive role');
-    }
+  const onArchive = (role: RoleListItem) => {
+    if (!canArchive || role.isSystemRole) return;
+    confirm({
+      title: 'Archive Role?',
+      description: `Archive "${role.name}"? Reassign its users first. Archived roles can be recovered from Archived Data.`,
+      confirmLabel: 'Archive Role',
+      variant: 'destructive',
+      onConfirm: async () => {
+        await handleArchive(role.id);
+        toast.success(`Role "${role.name}" archived`);
+      },
+    });
   };
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -52,34 +62,7 @@ export default function RolesPage(): React.ReactElement {
       className="p-4 lg:p-6 space-y-5"
     >
       {/* Page header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-[17px] font-semibold text-slate-900 dark:text-white">Roles & Permissions</h1>
-          <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Define access levels and assign them to your team.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => refetch()}
-            title="Refresh"
-            className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-          >
-            <RefreshCw size={14} />
-          </button>
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => openBuilder()}
-              className="h-9 px-4 flex items-center gap-1.5 text-[13px] font-medium rounded-lg bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={14} />
-              New Role
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader title="Roles & Permissions" subtitle="Manage team access and control what users can see and do." actions={<><RefreshButton refreshing={isLoading} onClick={refetch} />{canCreate && <CreateButton label="Create Custom Role" onClick={() => openBuilder()} />}</>} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
@@ -90,7 +73,7 @@ export default function RolesPage(): React.ReactElement {
             onClick={() => setActiveTab(t.id)}
             className={`px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-[1px] transition-colors ${
               activeTab === t.id
-                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                ? 'border-primary dark:border-primary text-primary dark:text-primary'
                 : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
@@ -110,7 +93,7 @@ export default function RolesPage(): React.ReactElement {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search roles…"
-              className="w-full h-9 pl-9 pr-3 text-[13px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+              className="w-full h-9 pl-9 pr-3 text-[13px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-primary"
             />
           </div>
 
@@ -138,8 +121,8 @@ export default function RolesPage(): React.ReactElement {
               <p className="text-[13px]">
                 {searchQuery ? `No roles match "${searchQuery}"` : 'No roles created yet.'}
               </p>
-              {canManage && !searchQuery && (
-                <button type="button" onClick={() => openBuilder()} className="mt-3 text-[12px] text-blue-600 dark:text-blue-400 underline">
+              {canCreate && !searchQuery && (
+                <button type="button" onClick={() => openBuilder()} className="mt-3 text-[12px] text-primary dark:text-primary underline">
                   Create your first role
                 </button>
               )}
@@ -154,6 +137,7 @@ export default function RolesPage(): React.ReactElement {
                   key={role.id}
                   role={role}
                   canEdit={canManage}
+                  canArchive={canArchive}
                   onEdit={r => openBuilder(r)}
                   onArchive={onArchive}
                   onViewDetail={openDetail}
@@ -163,6 +147,8 @@ export default function RolesPage(): React.ReactElement {
           )}
         </div>
       )}
+
+      <ConfirmActionDialog {...dialogProps} />
 
       {/* Permissions reference tab */}
       {activeTab === 'permissions' && <PermissionsTab />}

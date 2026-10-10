@@ -91,11 +91,11 @@ function MenuItem({
       aria-disabled={disabled}
       className={cn(
         'flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-left transition-colors rounded-md',
-        'outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1',
+        'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
         disabled && 'opacity-40 cursor-not-allowed',
         !disabled && !destructive && 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60',
         !disabled && destructive && 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10',
-        active && 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400',
+        active && 'bg-blue-50 dark:bg-primary/10 text-primary dark:text-primary',
         isFocused && !active && !disabled && 'bg-slate-100 dark:bg-slate-700/60',
       )}
     >
@@ -270,7 +270,7 @@ export function ColumnHeaderMenu({
           'w-5 h-5 flex items-center justify-center rounded transition-colors',
           'text-slate-400 dark:text-slate-500',
           'hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-600/40',
-          'focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none',
+          'focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none',
           isOpen && 'text-slate-600 dark:text-slate-300 bg-slate-200/60 dark:bg-slate-600/40',
         )}
         aria-label={`Column options for ${columnLabel}`}

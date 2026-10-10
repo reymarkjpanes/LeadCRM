@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   FileText,
   Phone,
@@ -13,10 +13,12 @@ import {
   Send,
   Search,
   Plus,
+  Activity,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/shared/components/ui/button';
+import { DataLoadingSkeleton } from './data-view-states';
 import { Input } from '@/shared/components/ui/input';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { activitiesService } from '@/features/tenant/crm/activities/services/activities.service';
@@ -26,10 +28,14 @@ import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { USE_MOCK_DATA } from '@/lib/config';
 import type { RecordModule } from '@/shared/hooks/use-record-detail';
+import { activityEmail, EmailActivity, EmailThread, groupEmailActivities } from './email-activity';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface RecordTimelineTabProps {
+  /** Compact layout shared by the CRM record panels. */
+  compact?: boolean;
+  tasks?: React.ReactNode;
   /** Activities from the useRecordDetail hook */
   activities: TimelineActivity[];
   loading?: boolean;
@@ -42,8 +48,9 @@ export interface RecordTimelineTabProps {
   onActivityCreated?: () => void;
 }
 
-type FilterType = 'All' | 'Notes' | 'Calls & Emails' | 'Tasks' | 'Status';
-type ComposerMode = 'note' | 'call' | 'email' | 'task';
+const ACTIVITY_FILTERS = ['All', 'Emails', 'Tasks', 'Status'] as const;
+type FilterType = typeof ACTIVITY_FILTERS[number];
+type ComposerMode = 'note' | 'email' | 'task';
 
 // ─── Activity icon/color mapping ─────────────────────────────────────────────
 
@@ -64,10 +71,9 @@ const ACTIVITY_ICON_MAP: Record<string, { icon: React.ComponentType<{ className?
 
 const FILTER_MAPPING: Record<FilterType, string[]> = {
   All: [],
-  Notes: ['note'],
-  'Calls & Emails': ['call', 'email', 'sms'],
+  Emails: ['email'],
   Tasks: ['task'],
-  Status: ['stage_change', 'stage-change', 'deal_action'],
+  Status: ['stage_change', 'stage-change', 'status_change', 'deal_action'],
 };
 
 
@@ -105,7 +111,6 @@ function QuickComposer({ module, recordId, onCreated }: QuickComposerProps): Rea
 
   const modes: { id: ComposerMode; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'note', label: 'Note', icon: FileText },
-    { id: 'call', label: 'Call', icon: Phone },
     { id: 'task', label: 'Task', icon: CheckCircle2 },
     { id: 'email', label: 'Email', icon: Mail },
   ];
@@ -122,8 +127,7 @@ function QuickComposer({ module, recordId, onCreated }: QuickComposerProps): Rea
       } else {
         // The current API supports these record links. Never send a stripped or
         // unknown field, which would create an unlinked activity.
-        if (module !== 'accounts' && module !== 'deals') throw new Error('Activity logging is unavailable for this record');
-        await activitiesService.create({ type: mode, title: text.trim(), ...(module === 'accounts' ? { accountId: recordId } : { dealId: recordId }) });
+        await activitiesService.create({ type: mode, title: text.trim(), ...(module === 'leads' ? { leadId: recordId } : module === 'contacts' ? { contactId: recordId } : module === 'accounts' ? { accountId: recordId } : { dealId: recordId }) });
       }
       setText('');
       toast.success(`${mode.charAt(0).toUpperCase() + mode.slice(1)} logged`);
@@ -172,7 +176,7 @@ function QuickComposer({ module, recordId, onCreated }: QuickComposerProps): Rea
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3">
         <span className="text-xs text-muted-foreground">Will be timestamped now</span>
         <Button
           type="submit"
@@ -192,30 +196,33 @@ function QuickComposer({ module, recordId, onCreated }: QuickComposerProps): Rea
 
 interface TimelineEntryProps {
   activity: TimelineActivity;
+  compact?: boolean;
 }
 
-function TimelineEntry({ activity }: TimelineEntryProps): React.ReactElement {
+function TimelineEntry({ activity, compact = false }: TimelineEntryProps): React.ReactElement {
+  const email = activityEmail(activity);
   const config = ACTIVITY_ICON_MAP[activity.type] ?? ACTIVITY_ICON_MAP.note;
   const Icon = config.icon;
+  if (email) return <EmailActivity email={email} />;
 
   return (
-    <div className="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-3 p-4 hover:bg-accent/30 transition-colors group">
+    <div className={cn('grid items-start hover:bg-accent/30 transition-colors group', compact ? 'grid-cols-[1.75rem_minmax(0,1fr)] gap-2 p-3 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-3 sm:p-4' : 'grid-cols-[2rem_minmax(0,1fr)] gap-3 p-4')}>
       {/* Icon */}
-      <div className={cn('h-8 w-8 rounded-full flex items-center justify-center shrink-0', config.color)}>
-        <Icon className="h-4 w-4" />
+      <div className={cn('rounded-full flex items-center justify-center shrink-0', compact ? 'h-7 w-7 sm:h-8 sm:w-8' : 'h-8 w-8', config.color)}>
+        <Icon className={cn('h-3.5 w-3.5 sm:h-4 sm:w-4', !compact && 'h-4 w-4')} />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground leading-snug break-words [overflow-wrap:anywhere]">
+        <p className={cn('text-foreground leading-snug break-words [overflow-wrap:anywhere]', compact ? 'text-[13px] sm:text-sm' : 'text-sm')}>
           {activity.title}
         </p>
         {activity.description && (
-          <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          <p className={cn('text-muted-foreground mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]', compact ? 'text-[11px] sm:text-xs' : 'text-xs')}>
             {activity.description}
           </p>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <div className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground', compact ? 'text-[11px] sm:text-xs' : 'text-xs')}>
           {activity.createdBy && <span className="break-words [overflow-wrap:anywhere]">{[activity.createdBy.firstName, activity.createdBy.lastName].filter(Boolean).join(' ')}</span>}
           <time dateTime={activity.createdAt} title={new Date(activity.createdAt).toLocaleString()}>{formatRelativeTime(activity.createdAt)}</time>
         </div>
@@ -233,14 +240,26 @@ export function RecordTimelineTab({
   onActivityCreated,
   loading = false,
   error,
+  compact = false,
+  tasks,
 }: RecordTimelineTabProps): React.ReactElement {
-  const canCreate = useHasPermission('contacts.create');
-  const canLog = canCreate && (USE_MOCK_DATA || module === 'accounts' || module === 'deals');
+  const canCreate = useHasPermission(`${module}.edit` as import('@leadcrm/shared').PermissionKey);
+  const canLog = canCreate;
   const [filter, setFilter] = useState<FilterType>('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleCount, setVisibleCount] = useState(20);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const composerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!composerOpen) return;
+    const composer = composerRef.current;
+    const container = composer?.closest<HTMLElement>('[data-record-scroll]');
+    if (!composer || !container) return;
+    container.scrollTo({ top: container.scrollTop + composer.getBoundingClientRect().top - container.getBoundingClientRect().top, behavior: 'smooth' });
+    composer.querySelector<HTMLElement>('textarea, input, button')?.focus({ preventScroll: true });
+  }, [composerOpen]);
 
-  const filters: FilterType[] = ['All', 'Notes', 'Calls & Emails', 'Tasks', 'Status'];
+  const filters = ACTIVITY_FILTERS;
 
   // Filter + search activities
   const filteredActivities = useMemo(() => {
@@ -258,6 +277,7 @@ export function RecordTimelineTab({
       result = result.filter(
         (a) =>
           a.title.toLowerCase().includes(query) ||
+          ([activityEmail(a)?.body, activityEmail(a)?.subject, activityEmail(a)?.from, ...(activityEmail(a)?.to ?? [])].filter(Boolean).join(' ').toLowerCase().includes(query)) ||
           (a.description?.toLowerCase().includes(query) ?? false) ||
           ([a.createdBy?.firstName, a.createdBy?.lastName].filter(Boolean).join(' ').toLowerCase().includes(query))
       );
@@ -266,20 +286,23 @@ export function RecordTimelineTab({
     return result;
   }, [activities, filter, searchTerm]);
 
-  const visibleActivities = filteredActivities.slice(0, visibleCount);
-  const hasMore = filteredActivities.length > visibleCount;
+  const entries = [
+    ...groupEmailActivities(filteredActivities.filter(a => a.type === 'email')).map(thread => ({ id: `thread:${thread.key}`, createdAt: thread.createdAt, content: <EmailThread thread={thread} /> })),
+    ...filteredActivities.filter(a => a.type !== 'email').map(activity => ({ id: activity.id, createdAt: activity.createdAt, content: <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card"><TimelineEntry activity={activity} compact={compact} /></div> })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  const visibleEntries = entries.slice(0, visibleCount);
+  const hasMore = entries.length > visibleCount;
 
   const handleLoadMore = useCallback((): void => {
     setVisibleCount((prev) => prev + 20);
   }, []);
 
   return (
-    <div className="w-full min-w-0 px-[var(--panel-gutter,1.5rem)] py-5 space-y-4">
+    <div className={cn('w-full min-w-0', compact ? 'space-y-3 px-3 py-4 sm:space-y-4 sm:px-4 sm:py-5' : 'space-y-4 px-[var(--panel-gutter,1.5rem)] py-5')}>
       {/* Quick Composer */}
-      {canLog ? <QuickComposer key={recordId} module={module} recordId={recordId} onCreated={onActivityCreated} /> : canCreate ? <p className="rounded-lg border border-border p-3 text-sm text-muted-foreground">Activity history is available below. Quick Log is currently unavailable for this record.</p> : null}
-      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Activity Timeline ({activities.length})</h3>
+      {canLog && (!compact || composerOpen) ? <div ref={composerRef}><QuickComposer key={recordId} module={module} recordId={recordId} onCreated={() => { setComposerOpen(false); onActivityCreated?.(); }} /></div> : !compact && canCreate ? <p className="rounded-lg border border-border p-3 text-sm text-muted-foreground">Activity history is available below. Quick Log is currently unavailable for this record.</p> : null}
+      <h3 className={cn('font-semibold uppercase tracking-[0.14em] text-muted-foreground', compact ? 'text-[11px] sm:text-xs' : 'text-xs')}>Activity Timeline{!loading && !error ? ` (${activities.length})` : ''}</h3>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {loading && <p role="status" className="text-sm text-muted-foreground">Loading activity history…</p>}
 
       {/* Filter bar */}
       <div className="flex min-w-0 flex-col gap-3">
@@ -291,8 +314,9 @@ export function RecordTimelineTab({
               aria-pressed={filter === f}
               onClick={() => { setFilter(f); setVisibleCount(20); }}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors',
-                filter === f
+                'px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                compact && 'min-h-8 border border-border bg-card px-1.5 text-[11px] sm:min-h-9 sm:px-2 sm:text-xs',
+                compact && filter === f ? 'bg-[var(--primary)] text-white border-transparent' : filter === f
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
@@ -310,18 +334,18 @@ export function RecordTimelineTab({
             onChange={(e) => { setSearchTerm(e.target.value); setVisibleCount(20); }}
             aria-label="Search activities"
             placeholder="Search activities..."
-            className="pl-8 h-9 text-xs w-full"
+            className={cn('pl-8 w-full', compact ? 'h-8 text-[11px] sm:h-9 sm:text-xs' : 'h-9 text-xs')}
           />
         </div>
       </div>
 
+      {tasks && (filter === 'All' || filter === 'Tasks') && tasks}
+      {loading && !activities.length && <div role="status" aria-label="Loading activity history" className="rounded-xl border border-border bg-card"><DataLoadingSkeleton rowCount={3} columnCount={1} rowHeight={104} /></div>}
       {/* Timeline list */}
-      <div className="border border-border rounded-xl bg-card overflow-hidden divide-y divide-border/50">
-        {visibleActivities.length > 0 ? (
+      {(!loading && !error || activities.length > 0) && <div className="min-w-0 space-y-3">
+        {visibleEntries.length > 0 ? (
           <>
-            {visibleActivities.map((activity) => (
-              <TimelineEntry key={activity.id} activity={activity} />
-            ))}
+            {visibleEntries.map(entry => <React.Fragment key={entry.id}>{entry.content}</React.Fragment>)}
 
             {/* Load more */}
             {hasMore && (
@@ -331,22 +355,24 @@ export function RecordTimelineTab({
                   onClick={handleLoadMore}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Load more ({filteredActivities.length - visibleCount} remaining)
+                  Load more ({entries.length - visibleCount} remaining)
                 </button>
               </div>
             )}
           </>
         ) : (
           <div className="px-4 py-12 text-center">
-            <Plus className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+            {compact ? <Activity className="mx-auto mb-3 h-9 w-9 rounded-full bg-[var(--primary)]/10 p-2 text-[var(--primary)]" /> : <Plus className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />}
             <p className="text-sm text-muted-foreground">
               {activities.length === 0
                 ? 'No activity recorded for this record.'
                 : 'No activities match your filter.'}
             </p>
+            {compact && canLog && !composerOpen && <Button variant="ghost" size="sm" className="mt-2 gap-1 text-[var(--primary)]" onClick={() => setComposerOpen(true)}><Plus size={13} />Log an activity</Button>}
           </div>
         )}
-      </div>
+      </div>}
+      {compact && canLog && activities.length > 0 && !composerOpen && <Button variant="ghost" size="sm" className="gap-1 text-[var(--primary)]" onClick={() => setComposerOpen(true)}><Plus size={13} />Log an activity</Button>}
     </div>
   );
 }

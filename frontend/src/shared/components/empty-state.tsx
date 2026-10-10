@@ -39,7 +39,7 @@ export default function EmptyState({
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 25, repeat: Infinity, ease: "linear" } as const}
-              className="absolute w-48 h-48 rounded-full border border-dashed border-blue-500/10 dark:border-blue-500/5 flex items-center justify-center"
+              className="absolute w-48 h-48 rounded-full border border-dashed border-primary/10 dark:border-primary/5 flex items-center justify-center"
             >
               <div className="w-36 h-36 rounded-full border border-dashed border-purple-500/15 dark:border-purple-500/10" />
             </motion.div>
@@ -53,7 +53,7 @@ export default function EmptyState({
               transition={floatTransition}
               className="relative z-10 p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/[0.06] rounded-2xl shadow-xl flex items-center justify-center w-24 h-24"
             >
-              <div className="p-3 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 rounded-xl border border-blue-500/20 text-blue-500">
+              <div className="p-3 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 rounded-xl border border-primary/20 text-blue-500">
                 <Send size={32} className="transform rotate-12" />
               </div>
             </motion.div>
@@ -192,7 +192,7 @@ export default function EmptyState({
               transition={{ ...floatTransition, duration: 4 }}
               className="absolute left-6 top-1/2 -translate-y-1/2 p-3 bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/[0.06] rounded-xl shadow-lg z-10 flex flex-col items-center gap-1 w-20"
             >
-              <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
+              <div className="p-2 bg-primary/10 text-blue-400 rounded-lg border border-primary/20">
                 <Zap size={18} className="animate-pulse" />
               </div>
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Trigger</span>
@@ -208,7 +208,7 @@ export default function EmptyState({
                 repeat: Infinity,
                 ease: "easeInOut"
               } as const}
-              className="absolute w-2 h-2 rounded-full bg-[#0A6EFF] shadow-[0_0_10px_rgba(10,110,255,1)] z-10"
+              className="absolute w-2 h-2 rounded-full bg-primary shadow-[0_0_10px_rgba(10,110,255,1)] z-10"
               style={{
                 // Custom CSS path helper
                 motionPath: "path('M 48 120 Q 160 50 244 120')"
@@ -247,7 +247,7 @@ export default function EmptyState({
               transition={{ duration: 30, repeat: Infinity, ease: "linear" } as const}
               className="absolute w-44 h-44 rounded-full border border-dashed border-gray-150 dark:border-white/[0.04] flex items-center justify-center"
             >
-              <div className="w-32 h-32 rounded-full border border-dashed border-blue-500/10 dark:border-blue-500/5" />
+              <div className="w-32 h-32 rounded-full border border-dashed border-primary/10 dark:border-primary/5" />
             </motion.div>
 
             {/* Glowing background blob */}
@@ -259,7 +259,7 @@ export default function EmptyState({
               transition={floatTransition}
               className="relative z-10 p-4 bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/[0.06] rounded-2xl shadow-xl flex flex-col justify-between w-28 h-28"
             >
-              <div className="w-9 h-9 bg-blue-500/10 text-blue-500 rounded-xl border border-blue-500/20 flex items-center justify-center">
+              <div className="w-9 h-9 bg-primary/10 text-blue-500 rounded-xl border border-primary/20 flex items-center justify-center">
                 <Search size={18} />
               </div>
               <div className="space-y-1.5 pt-4">
@@ -336,13 +336,13 @@ export default function EmptyState({
                 className="w-20 h-full bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/[0.08] rounded-xl shadow-xl p-2 space-y-2 relative z-20 scale-110"
               >
                 <div className="w-full flex items-center justify-between mb-2">
-                   <div className="w-8 h-2 bg-blue-200 dark:bg-blue-500/40 rounded-full" />
+                   <div className="w-8 h-2 bg-blue-200 dark:bg-primary/40 rounded-full" />
                    <div className="w-3 h-3 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center">
                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                    </div>
                 </div>
                 <div className="w-full h-10 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-500/20 rounded-lg shadow-sm" />
-                <div className="w-full h-10 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500/20 rounded-lg shadow-sm" />
+                <div className="w-full h-10 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-primary/20 rounded-lg shadow-sm" />
               </motion.div>
               
               <motion.div
@@ -401,7 +401,7 @@ export default function EmptyState({
         {onAction && actionLabel && (
           <button
             onClick={onAction}
-            className="w-full sm:w-auto h-9 px-4 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full sm:w-auto h-9 px-4 text-xs font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Plus size={14} />
             <span>{actionLabel}</span>
@@ -411,7 +411,7 @@ export default function EmptyState({
         {onSecondaryAction && secondaryActionLabel && (
           <button
             onClick={onSecondaryAction}
-            className="w-full sm:w-auto h-9 px-4 text-xs font-medium bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full sm:w-auto h-9 px-4 text-xs font-medium bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <span>{secondaryActionLabel}</span>
           </button>

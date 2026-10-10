@@ -29,3 +29,15 @@ it('rejects reuse of the temporary password', async () => {
 it('uses the shared password-strength policy', () => {
   expect(ChangePasswordSchema.safeParse({ ...input, password: 'weak' }).success).toBe(false);
 });
+it('compares a lowercase temporary password before permanent password strength checks', async () => {
+  vi.mocked(comparePassword).mockResolvedValue(true);
+  await expect(changePassword(actor, { password: 'first.last42' })).rejects.toMatchObject({
+    code: 'PASSWORD_REUSE', message: 'You cannot reuse your temporary password. Please choose a new password.',
+  });
+  expect(db.user.update).not.toHaveBeenCalled();
+});
+it('rejects weak different passwords on the backend', async () => {
+  vi.mocked(comparePassword).mockResolvedValue(false);
+  await expect(changePassword(actor, { password: 'different42' })).rejects.toHaveProperty('issues');
+  expect(db.user.update).not.toHaveBeenCalled();
+});

@@ -32,9 +32,52 @@ it('does not offer mutations without the existing create permission', () => {
   render(<RecordTimelineTab activities={[]} module="deals" recordId="deal-1" />);
   expect(screen.queryByLabelText('Activity description')).toBeNull();
 });
-it.each(['leads', 'contacts'] as const)('never creates an unlinked live %s activity', module => {
+it.each(['leads', 'contacts'] as const)('creates live %s activities linked to their record', async module => {
   render(<RecordTimelineTab activities={[]} module={module} recordId="record-1" />);
-  expect(screen.queryByLabelText('Activity description')).toBeNull();
-  expect(screen.getByText(/Quick Log is currently unavailable/)).toBeTruthy();
-  expect(mocks.create).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Activity description')).toBeTruthy();
+  mocks.create.mockResolvedValue({ data: { id: 'saved' } });
+  fireEvent.change(screen.getByLabelText('Activity description'), { target: { value: 'Record update' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Note' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({ type: 'note', title: 'Record update', [module === 'leads' ? 'leadId' : 'contactId']: 'record-1' }));
+});
+
+it.each(['leads', 'contacts', 'accounts'] as const)('%s exposes only Activity filters and keeps the existing task view inside Activity', module => {
+  render(<RecordTimelineTab activities={[]} module={module} recordId="record-1" tasks={<div>Related task records</div>} />);
+  const filterButtons = screen.getAllByRole('button').filter(button => ['All', 'Emails', 'Tasks', 'Status', 'Notes', 'Calls & Emails', 'Calls'].includes(button.textContent ?? ''));
+  expect(filterButtons.map(button => button.textContent)).toEqual(['All', 'Emails', 'Tasks', 'Status']);
+  expect(screen.getByText('Related task records')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Emails' }));
+  expect(screen.queryByText('Related task records')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Tasks' }));
+  expect(screen.getByText('Related task records')).toBeTruthy();
+});
+
+it.each(['leads', 'contacts', 'accounts', 'deals'] as const)('filters %s by email, task, status, and all activity', module => {
+  const activities = [
+    { id: 'email', type: 'email', title: 'Sent welcome email', createdAt: '2026-09-01T10:00:00.000Z' },
+    { id: 'note', type: 'note', title: 'Internal note', createdAt: '2026-09-01T10:01:00.000Z' },
+    { id: 'call', type: 'call', title: 'Called prospect', createdAt: '2026-09-01T10:02:00.000Z' },
+    { id: 'task', type: 'task', title: 'Follow up task activity', createdAt: '2026-09-01T10:03:00.000Z' },
+    { id: 'status', type: 'stage_change', title: 'Status changed to Hot', createdAt: '2026-09-01T10:04:00.000Z' },
+  ];
+  render(<RecordTimelineTab activities={activities} module={module} recordId="record-1" />);
+  expect(screen.getByText('Internal note')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Emails' }));
+  expect(screen.getAllByText('Sent welcome email').length).toBeGreaterThan(0);
+  expect(screen.queryByText('Called prospect')).toBeNull();
+  expect(screen.queryByText('Internal note')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Tasks' }));
+  expect(screen.getByText('Follow up task activity')).toBeTruthy();
+  expect(screen.queryByText('Sent welcome email')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+  expect(screen.getByText('Status changed to Hot')).toBeTruthy();
+  expect(screen.queryByText('Follow up task activity')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'All' }));
+  for (const title of ['Internal note', 'Follow up task activity', 'Status changed to Hot']) expect(screen.getByText(title)).toBeTruthy();
+});
+
+it.each(['leads', 'contacts', 'accounts', 'deals'] as const)('removes the %s Call quick action while preserving historical calls', module => {
+  render(<RecordTimelineTab activities={[{ id: 'call', type: 'call', title: 'Historical call', createdAt: '2026-10-01T10:00:00Z' }]} module={module} recordId="record" />);
+  expect(screen.queryByRole('button', { name: /^Call$/ })).toBeNull();
+  expect(screen.getByText('Historical call')).toBeTruthy();
 });

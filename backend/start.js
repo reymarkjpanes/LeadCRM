@@ -25,4 +25,6 @@ Module._resolveFilename = function (request, parent, isMain, options) {
 };
 
 // --- Boot server ---
-require('./backend/src/server.js');
+require(process.argv.includes('--notifications-worker')
+  ? './backend/src/modules/notifications/notification-worker.js'
+  : './backend/src/server.js');

@@ -6,3 +6,4 @@ export * from './workflow.contracts';
 export * from './preferences.contracts';
 export * from './workflow-catalog';
 export * from './organization-settings.contract';
+export * from './task.contract';

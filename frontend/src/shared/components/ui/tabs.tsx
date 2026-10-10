@@ -194,7 +194,7 @@ export function TabsContent({
       }}
       transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
       className={cn(
-        'mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-lg',
+        'mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg',
         !isActive && 'pointer-events-none',
         className
       )}
@@ -234,10 +234,10 @@ export function UnderlineTabTrigger({
       disabled={disabled}
       className={cn(
         'relative px-4 py-3 text-sm font-medium transition-all whitespace-nowrap border-b-2',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         isActive
-          ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+          ? 'border-primary text-primary dark:text-primary'
           : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-300 dark:hover:border-white/10',
         className
       )}
@@ -252,7 +252,7 @@ export function UnderlineTabTrigger({
             className={cn(
               'inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold rounded-full',
               isActive
-                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                ? 'bg-primary/10 text-primary dark:text-primary'
                 : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400'
             )}
           >
@@ -295,11 +295,11 @@ export function PillTabTrigger({
       whileTap={shouldReduceMotion ? {} : { scale: 0.98 }}
       className={cn(
         'relative px-4 py-2 text-sm font-medium rounded-full transition-all whitespace-nowrap',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         isActive
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-          : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/8 hover:border-blue-300 dark:hover:border-blue-500/30 shadow-sm',
+          ? 'bg-primary text-white shadow-lg shadow-primary/30'
+          : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/8 hover:border-blue-300 dark:hover:border-primary/30 shadow-sm',
         className
       )}
     >
@@ -314,7 +314,7 @@ export function PillTabTrigger({
               'inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold rounded-full',
               isActive
                 ? 'bg-white/20 text-white'
-                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                : 'bg-primary/10 text-primary dark:text-primary'
             )}
           >
             {badge}

@@ -118,7 +118,7 @@ export default function EmojiPicker({ onSelect }: EmojiPickerProps): React.React
   const displayCategories = searchQuery ? filteredCategories : [CATEGORIES[activeCategory]];
 
   return (
-    <div className="flex flex-col w-[320px] h-[360px]">
+    <div className="flex min-w-0 flex-col w-full h-[min(360px,calc(100dvh-8rem))]">
       {/* Search */}
       <div className="px-3 pt-3 pb-2 shrink-0">
         <div className="relative">
@@ -140,7 +140,7 @@ export default function EmojiPicker({ onSelect }: EmojiPickerProps): React.React
             <button
               key={cat.name}
               onClick={() => setActiveCategory(index)}
-              className={`p-1.5 rounded-md text-base transition-colors cursor-pointer shrink-0 ${
+              className={`min-w-11 min-h-11 p-1.5 rounded-md text-base transition-colors cursor-pointer shrink-0 ${
                 activeCategory === index
                   ? 'bg-blue-50 dark:bg-blue-950/40'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -155,18 +155,18 @@ export default function EmojiPicker({ onSelect }: EmojiPickerProps): React.React
       )}
 
       {/* Emoji grid */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
         {displayCategories.map((cat) => (
           <div key={cat.name}>
             <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5 mt-1">
               {cat.name}
             </p>
-            <div className="grid grid-cols-8 gap-0.5 mb-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(36px,1fr))] gap-0.5 mb-3">
               {cat.emojis.map((emoji, idx) => (
                 <button
                   key={`${emoji}-${idx}`}
                   onClick={() => onSelect(emoji)}
-                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-xl cursor-pointer transition-colors"
+                  className="w-full min-h-11 flex items-center justify-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-xl cursor-pointer transition-colors"
                   aria-label={`Insert ${emoji}`}
                 >
                   {emoji}

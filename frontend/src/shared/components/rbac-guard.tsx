@@ -24,7 +24,7 @@ interface RbacGuardProps {
  *     <Button>New Contact</Button>
  *   </RbacGuard>
  *
- *   <RbacGuard anyOf={['contacts.edit', 'contacts.delete']}>
+ *   <RbacGuard anyOf={['contacts.edit', 'contacts.archive']}>
  *     <ActionMenu />
  *   </RbacGuard>
  */

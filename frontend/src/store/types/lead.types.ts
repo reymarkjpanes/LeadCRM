@@ -2,9 +2,9 @@
 // Extends the shared Contact type with additional UI/display fields.
 // Core API response fields are defined in @leadcrm/shared to ensure
 // compile-time detection of field name mismatches between FE and BE.
-// The backend Lead model maps to the same Prisma model as Contact.
+// Lead and Contact are distinct database entities; legacy display aliases remain below.
 
-import type { Contact as SharedContact, CreateContactRequest, UpdateContactRequest } from '@leadcrm/shared';
+import type { Contact as SharedContact, CreateLeadInput, UpdateLeadInput } from '@leadcrm/shared';
 
 /**
  * Lead — extends the shared Contact type with additional
@@ -12,6 +12,7 @@ import type { Contact as SharedContact, CreateContactRequest, UpdateContactReque
  * firstName/lastName are optional to stay assignable from Contact (which has them optional).
  */
 export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
+  customFieldValues?: import('@leadcrm/shared').ClosingValues;
   firstName?: string;
   lastName?: string;
 
@@ -53,6 +54,7 @@ export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
   lastUpdated?: string;
   tags?: string;
   productInterests?: string[];
+  productInterestIds?: string[];
 
   // ── Address breakdown fields ────────────────────────────────────────────
   streetAddress?: string;
@@ -68,7 +70,6 @@ export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
 
   // ── Extended org fields ────────────────────────────────────────────────
   size?: string;
-  taxId?: string;
   orgWebsite?: string;
   companySize?: string;
   businessType?: string;
@@ -83,21 +84,6 @@ export interface Lead extends Omit<SharedContact, 'firstName' | 'lastName'> {
   suffix?: string;
 }
 
-/**
- * Create lead request — re-exported from shared with additional UI fields.
- */
-export interface CreateLeadRequest extends CreateContactRequest {
-  recordType?: string;
-  leadSource?: string;
-  estimatedValue?: number;
-  expectedCloseDate?: string;
-  jobTitle?: string;
-  notes?: string;
-  organizationId?: string;
-  productInterests?: string[];
-}
-
-/**
- * Update lead request.
- */
-export interface UpdateLeadRequest extends Partial<CreateLeadRequest> {}
+/** Manual API requests use the final shared Lead form contract. */
+export type CreateLeadRequest = CreateLeadInput;
+export type UpdateLeadRequest = UpdateLeadInput;

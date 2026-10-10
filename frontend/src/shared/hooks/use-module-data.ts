@@ -51,6 +51,7 @@ export function useModuleData({ moduleId, page, pageSize, sort, filter, search, 
   });
   return {
     data: result.data?.data ?? EMPTY_DATA,
+    facets: (result.data as { facets?: Record<string, number> } | null)?.facets,
     meta: result.data?.meta ? {
       ...result.data.meta,
       pageSize: result.data.meta.pageSize ?? (result.data.meta as unknown as { limit: number }).limit,

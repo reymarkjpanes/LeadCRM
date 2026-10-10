@@ -27,6 +27,7 @@ export interface UseLeadsDataMeta {
 
 export interface UseLeadsDataReturn {
   leads: Contact[];
+  facets?: Record<string, number>;
   meta: UseLeadsDataMeta | null;
   isInitialLoad: boolean;
   isRefreshing: boolean;
@@ -44,6 +45,7 @@ export function useLeadsData(params: UseLeadsDataParams): UseLeadsDataReturn {
   }, [tenant?.id]);
   return {
     leads,
+    facets: result.facets,
     meta: result.meta,
     isInitialLoad: result.isInitialLoad,
     isRefreshing: result.isRefreshing,

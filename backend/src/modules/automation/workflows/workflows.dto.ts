@@ -1,6 +1,7 @@
-import { WorkflowDraftSchema } from '@leadcrm/shared';
+import { WorkflowDraftSchema, WorkflowValidationSchema } from '@leadcrm/shared';
 import { z } from 'zod';
 export const CreateWorkflowSchema = WorkflowDraftSchema;
+export const ValidateWorkflowSchema = WorkflowValidationSchema;
 export const UpdateWorkflowSchema = WorkflowDraftSchema.partial();
 export const TestWorkflowSchema = z.object({ entityId: z.string().uuid() }).strict();
 export type CreateWorkflowDto = z.infer<typeof CreateWorkflowSchema>;

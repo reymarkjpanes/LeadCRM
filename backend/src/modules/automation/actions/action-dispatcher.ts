@@ -1,74 +1,91 @@
-import { EmailSubjectSchema, type WorkflowAction } from '@leadcrm/shared';
-import { environmentContext } from '../../../core/environment/environment-context';
+import { resolveDealTargets } from './action-deal-targets';
+import { WORKFLOW_MESSAGE_VARIABLES, EmailSubjectSchema, type WorkflowAction } from '@leadcrm/shared';
 import { AppError } from '../../../shared/errors/app-error';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { sendEmail } from '../../../integrations/gmail/gmail.service';
 import * as repo from './actions.repository';
-import { actionEntity, actionUser, validateAction } from './action-validation';
+import { actionEntity, validateAction } from './action-validation';
+import { assignmentPurpose, parseAssignment, resolveWorkflowAssignee, completeWorkflowAssignment, assignmentOutput } from '../assignment/workflow-assignment.service';
 import { createTask } from '../../operations/tasks/tasks.service';
-import { createNotification } from '../../notifications/notifications.service';
+import { sendSms } from '../../../shared/services/sms.service';
+import { smsRecipient } from './action-sms';
+import { fieldUpdatePatch } from './action-fields';
+import { updateCompany } from '../../crm/companies/companies.service';
 import { createActivity } from '../../crm/activities/activities.service';
 import { moveDealStage, updateDeal } from '../../crm/deals/deals.service';
 import { updateContact as updateLead } from '../../crm/contacts/contacts.service';
 import { updateContact as updateClientProfile } from '../../crm/contacts-v2/contacts-v2.service';
 
-import { sendCampaign } from '../../marketing/campaigns/campaigns.service';
 import { sanitizeCampaignHtml } from '../../marketing/campaigns/campaign-content';
 
 type ActionResult = { success: boolean; output?: Record<string, unknown>; error?: string };
 export function safeWorkflowError(error: unknown): string {
   return error instanceof AppError ? error.message : 'The action could not complete. Check the record and integration, then try again.';
 }
-export async function dispatchAction(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, actorId: string): Promise<ActionResult> {
+export async function dispatchAction(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, actorId: string, execution?: { workflowId: string; actionIndex: number }): Promise<ActionResult> {
+  let assignment: Awaited<ReturnType<typeof resolveWorkflowAssignee>> | undefined;
+  let assignmentCommitted = false;
   try {
     const entity = actionEntity(context);
     await validateAction(action, entity, tenantId, context);
     const config = action.config;
     const entityId = String(context[`${entity}.id`]);
+    assignment = ['create_task', 'assign_owner'].includes(action.type) ? await resolveWorkflowAssignee({
+      tenantId, target: parseAssignment(action), purpose: assignmentPurpose(action),
+      recordOwnerId: context[`${entity}.assignedUserId`] as string | undefined, entity, entityId, ...execution,
+    }) : undefined;
     if (action.type === 'create_task') {
       const task = await createTask(tenantId, actorId, { title: render(String(config.title).trim(), context, entity, false), description: config.description ? render(String(config.description).trim(), context, entity, false) : undefined,
         priority: (config.priority || 'Medium') as 'Low' | 'Medium' | 'High', status: 'pending',
         dueDate: new Date(Date.now() + (typeof config.dueDaysFromNow === 'number' ? config.dueDaysFromNow : 3) * 86400000).toISOString(),
-        assignedUserId: actionUser(config, 'assignedUserId', entity, context),
-        ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : { dealId: entityId }) });
-      return { success: true, output: { taskId: task.id } };
+        assignedUserId: assignment!.resolvedUserId,
+        ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : entity === 'account' ? { accountId: entityId } : { dealId: entityId }) });
+      assignmentCommitted = true;
+      return { success: true, output: { taskId: task.id, ...assignmentOutput(assignment!) } };
     }
-    if (action.type === 'create_notification') {
-      await createNotification({ tenantId, userId: actionUser(config, 'userId', entity, context), type: 'workflow_triggered',
-        title: render(String(config.title).trim(), context, entity, false), body: config.body ? render(String(config.body).trim(), context, entity, false) : undefined, entityType: entity, entityId });
-      return { success: true, output: { notified: true } };
-    }
-    if (action.type === 'send_campaign') {
-      const result = await sendCampaign(String(config.campaignId), tenantId, actorId);
-      return { success: result.status === 'SENT', output: { ...result },
-        ...(result.status !== 'SENT' ? { error: 'Campaign submission was incomplete. Review campaign delivery history before taking further action.' } : {}) };
+    if (action.type === 'send_sms') {
+      const recipient = await smsRecipient(action, entity, tenantId, context);
+      const receipt = await sendSms(recipient.phone, render(String(config.message), { ...context, ...recipient.context }, entity, false));
+      return { success: true, output: { ...receipt, recipientId: recipient.id, status: 'submitted' } };
     }
     if (action.type === 'send_email') return { success: true, output: await deliverEmail(action, context, tenantId) };
     if (action.type === 'move_deal_stage') {
-      if (context['deal.stageId'] === config.stageId) return { success: true, output: { unchanged: true, stageId: config.stageId } };
-      const result = await moveDealStage(entityId, tenantId, actorId, { stageId: String(config.stageId), lostReason: config.lostReason ? String(config.lostReason) : undefined });
-      return { success: true, output: { historyId: result.stageHistory.id, stageId: config.stageId } };
+      const ids = await resolveDealTargets(action, entity, tenantId, context);
+      const movedDealIds: string[] = [];
+      for (const id of ids) {
+        try {
+          const result = await moveDealStage(id, tenantId, actorId, { stageId: String(config.stageId), lostReason: config.lostReason ? String(config.lostReason) : undefined });
+          if (result.stageHistory) movedDealIds.push(id);
+        } catch (error) {
+          return { success: false, error: safeWorkflowError(error), output: { movedDealIds, failedDealId: id, matchedDealIds: ids } };
+        }
+      }
+      return { success: true, output: { matchedDealIds: ids, movedDealIds, stageId: config.stageId, unchanged: !movedDealIds.length, ...(ids.length ? {} : { reason: 'No related Deals matched.' }) } };
     }
-    const update = action.type === 'assign_owner' ? { assignedUserId: String(config.userId) } : { [String(config.field)]: String(config.value) };
+    if (!['assign_owner', 'update_field'].includes(action.type)) throw new ValidationError('This action is no longer available.');
+    const update = action.type === 'assign_owner' ? { assignedUserId: assignment!.resolvedUserId } : await fieldUpdatePatch(action, entity, tenantId);
     if (entity === 'deal') {
       await updateDeal(entityId, tenantId, actorId, update);
     } else if (entity === 'lead') {
       await updateLead(entityId, tenantId, actorId, update);
-    } else {
+    } else if (entity === 'contact') {
       await updateClientProfile(entityId, tenantId, update, actorId);
+    } else {
+      await updateCompany(entityId, tenantId, actorId, update);
     }
-    await createActivity(tenantId, actorId, { type: 'workflow', title: action.type === 'assign_owner' ? 'Workflow assigned record owner' : 'Workflow updated record notes',
-      ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : { dealId: entityId }) });
-    return { success: true, output: { entityId, updatedFields: Object.keys(update) } };
-  } catch (error) { return { success: false, error: safeWorkflowError(error) }; }
+    assignmentCommitted = action.type === 'assign_owner';
+    await createActivity(tenantId, actorId, { type: 'workflow', title: action.type === 'assign_owner' ? 'Workflow assigned agent' : 'Workflow updated record fields',
+      ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : entity === 'account' ? { accountId: entityId } : { dealId: entityId }) });
+    return { success: true, output: { entityId, updatedFields: Object.keys(update), ...(assignment ? assignmentOutput(assignment) : {}) } };
+  } catch (error) { return { success: false, error: safeWorkflowError(error), ...(assignment ? { output: assignmentOutput(assignment) } : {}) }; }
+  finally { if (assignment) await completeWorkflowAssignment(tenantId, assignment, assignmentCommitted); }
 }
 function render(content: string, context: Record<string, unknown>, entity: string, html = true): string {
-  const values: Record<string, unknown> = { first_name: context[`${entity}.firstName`], last_name: context[`${entity}.lastName`],
-    email: context[`${entity}.email`], company: context[`${entity}.company`] ?? context[`${entity}.companyName`] };
+  const values: Record<string, unknown> = Object.fromEntries(WORKFLOW_MESSAGE_VARIABLES.map(variable => [variable.token,
+    variable.fields.map(field => context[`${entity}.${field}`]).find(value => typeof value === 'string' || typeof value === 'number') ?? '']));
   return content.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, key: string) => (html ? String(values[key] ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!)) : String(values[key] ?? '').replace(/[\x00-\x1f\x7f]/g, ' ')));
 }
 async function deliverEmail(action: WorkflowAction, context: Record<string, unknown>, tenantId: string): Promise<Record<string, unknown>> {
-  if (environmentContext.getStore()?.environment !== 'PRODUCTION') throw new ValidationError('External workflow email is disabled in Sandbox. Use Test workflow to validate safely.');
   const entity = actionEntity(context);
   const senderId = String(action.config.senderUserId);
   const [template, sender] = await Promise.all([action.config.templateId ? repo.findTemplate(String(action.config.templateId), tenantId) : Promise.resolve(null), repo.findSender(senderId, tenantId)]);

@@ -23,7 +23,7 @@ import type { AuthUserSource, AuthUserResponse } from '../auth-user';
 // This is the source of truth. If a field is added to AuthUserResponse,
 // add it here too. If it's not here, it must not appear in the output.
 const CANONICAL_USER_KEYS: Array<keyof AuthUserResponse> = [
-  'phone', 'jobTitle', 'department', 'activeEnvironment', 'mustChangePassword', 'avatarUrl', 'website', 'isTenantOwner', 'hasPassword',
+  'phone', 'jobTitle', 'groups', 'mustChangePassword', 'avatarUrl', 'website', 'isTenantOwner', 'hasPassword', 'passwordChangedAt',
   'id',
   'email',
   'role',
@@ -146,14 +146,17 @@ describe('buildAuthUserResponse — tenant field flattening', () => {
     expect(result.currency).toBe('USD');
   });
 
-  it('flattens tenant.onboardingStep', () => {
-    const result = buildAuthUserResponse(makeUser());
+  it('derives the legacy completion step from the user timestamp', () => {
+    const result = buildAuthUserResponse(makeUser({ onboardingCompletedAt: new Date() }));
     expect(result.onboardingStep).toBe(3);
   });
 
-  it('flattens tenant.onboardingCompletedAt', () => {
-    const result = buildAuthUserResponse(makeUser());
+  it('returns the user onboarding timestamp', () => {
+    const result = buildAuthUserResponse(makeUser({ onboardingCompletedAt: new Date('2026-01-02') }));
     expect(result.onboardingCompletedAt).toEqual('2026-01-02T00:00:00.000Z');
+  });
+  it('does not let a completed workspace bypass a new user tour', () => {
+    expect(buildAuthUserResponse(makeUser())).toMatchObject({ onboardingStep: 0, onboardingCompletedAt: null });
   });
 });
 

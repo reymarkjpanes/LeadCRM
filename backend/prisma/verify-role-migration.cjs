@@ -31,7 +31,11 @@ async function main() {
   await db.userRole.createMany({ data: [{ userId: owner.id, tenantId: tenant.id, roleId: guest.id }, { userId: staff.id, tenantId: tenant.id, roleId: custom.id }] });
   await db.tenant.update({ where: { id: tenant.id }, data: { ownerUserId: owner.id } });
   const session = await db.session.create({ data: { userId: owner.id, tenantId: tenant.id, tokenHash: `fixture-${Date.now()}`, expiresAt: new Date(Date.now() + 60000) } });
-  const invitation = await db.tenantInvitation.create({ data: { tenantId: tenant.id, invitedById: owner.id, email: 'invite@camxian.com', roleId: guest.id, tokenHash: `invite-${Date.now()}`, expiresAt: new Date(Date.now() + 60000) } });
+  // The historical migration revokes pending invitations. Build a minimal legacy
+  // table here because the current Prisma model intentionally no longer exposes it.
+  await db.$executeRawUnsafe('CREATE TABLE "TenantInvitation" ("id" TEXT PRIMARY KEY, "tenantId" TEXT NOT NULL, "email" TEXT NOT NULL, "roleId" TEXT NOT NULL, "tokenHash" TEXT NOT NULL, "invitedById" TEXT NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL, "acceptedAt" TIMESTAMP(3), "revokedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+  const invitationId = `legacy-invite-${Date.now()}`;
+  await db.$executeRaw`INSERT INTO "TenantInvitation" ("id", "tenantId", "email", "roleId", "tokenHash", "invitedById", "expiresAt") VALUES (${invitationId}, ${tenant.id}, 'invite@camxian.com', ${guest.id}, ${`invite-${Date.now()}`}, ${owner.id}, ${new Date(Date.now() + 60000)})`;
   await db.tenantDomainSettings.create({ data: { tenantId: tenant.id, defaultRole: 'Guest' } });
   run(['db', 'execute', '--schema', schema, '--file', path.join(__dirname, 'migrations/20261001000000_retire_guest_role/migration.sql')]);
   assert.equal((await db.user.findUniqueOrThrow({ where: { id: owner.id } })).status, 'INACTIVE');
@@ -42,7 +46,8 @@ async function main() {
   assert.equal((await db.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).ownerUserId, owner.id);
   assert.equal(await db.userRole.count({ where: { tenantId: tenant.id } }), 2);
   assert.ok((await db.session.findUniqueOrThrow({ where: { id: session.id } })).revokedAt);
-  assert.ok((await db.tenantInvitation.findUniqueOrThrow({ where: { id: invitation.id } })).revokedAt);
+  const [revokedInvitation] = await db.$queryRaw`SELECT "revokedAt" FROM "TenantInvitation" WHERE "id" = ${invitationId}`;
+  assert.ok(revokedInvitation.revokedAt);
   assert.equal((await db.tenantDomainSettings.findUniqueOrThrow({ where: { tenantId: tenant.id } })).defaultRole, '');
   await assert.rejects(db.user.update({ where: { id: owner.id }, data: { status: 'ACTIVE' } }));
   await assert.rejects(db.roleDefinition.update({ where: { id: guest.id }, data: { isArchived: false } }));

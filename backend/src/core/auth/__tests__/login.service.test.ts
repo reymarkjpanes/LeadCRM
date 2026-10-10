@@ -7,7 +7,7 @@ vi.mock('../../../shared/helpers/crypto', () => ({
 }));
 vi.mock('../session.service', () => ({ createSession: vi.fn(), revokeSession: vi.fn() }));
 vi.mock('../jwt.service', () => ({ signToken: vi.fn().mockReturnValue('server-only-token') }));
-import { db, user, resetDb } from './auth-test-db';
+import { db, user, tenant, resetDb } from './auth-test-db';
 import { loginUser } from '../auth.service';
 
 it.each(['Guest', 'GUEST', ' guest '])('rejects legacy %s login even with a valid employee email/password', async role => {
@@ -26,6 +26,7 @@ beforeEach(() => {
   resetDb();
   vi.mocked(signToken).mockReturnValue('server-only-token');
   vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('LEADCRM_PRODUCTION_AUTH_ENABLED', 'false');
   vi.mocked(comparePassword).mockResolvedValue(true);
 });
 it('login and session restore return the same Sales onboarding state', async () => {
@@ -36,9 +37,9 @@ it('login and session restore return the same Sales onboarding state', async () 
   });
   expect(createSession).toHaveBeenCalledOnce();
 });
-it.each(['missing', 'oauth-only', 'wrong-password'])('rejects %s without issuing a session', async mode => {
+it.each(['missing', 'passwordless', 'wrong-password'])('rejects %s without issuing a session', async mode => {
   if (mode === 'missing') db.user.findMany.mockResolvedValue([]);
-  if (mode === 'oauth-only') db.user.findMany.mockResolvedValue([{ ...user, passwordHash: null }]);
+  if (mode === 'passwordless') db.user.findMany.mockResolvedValue([{ ...user, passwordHash: null }]);
   if (mode === 'wrong-password') vi.mocked(comparePassword).mockResolvedValue(false);
   await expect(loginUser({ email: user.email, password: 'incorrect' }))
     .rejects.toMatchObject({ statusCode: 401 });
@@ -68,13 +69,59 @@ it.each(['employee@example.com', 'employee@camxian.com.attacker.test', 'employee
   await expect(loginUser({ email, password: 'secret' })).rejects.toHaveProperty('code', 'EMPLOYEE_ACCOUNT_REQUIRED');
   expect(createSession).not.toHaveBeenCalled();
 });
+it.each(['tironjulieann10@gmail.com', 'reymarkjpanes@gmail.com'])('accepts the configured development test account %s through normal password login', async email => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('LEADCRM_TEST_AUTH_ENABLED', 'true');
+  vi.stubEnv('LEADCRM_TEST_EMAIL_ALLOWLIST', 'tironjulieann10@gmail.com,reymarkjpanes@gmail.com');
+  user.role = 'Client Admin'; user.email = email;
+
+  const result = await loginUser({ email, password: 'secret' });
+
+  expect(result.user.email).toBe(email);
+  expect(createSession).toHaveBeenCalledOnce();
+});
+it('rejects non-allowlisted Gmail accounts in development', async () => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('LEADCRM_TEST_AUTH_ENABLED', 'true');
+  vi.stubEnv('LEADCRM_TEST_EMAIL_ALLOWLIST', 'tironjulieann10@gmail.com,reymarkjpanes@gmail.com');
+  user.role = 'Client Admin'; user.email = 'other@gmail.com';
+
+  await expect(loginUser({ email: user.email, password: 'secret' })).rejects.toHaveProperty('code', 'EMPLOYEE_ACCOUNT_REQUIRED');
+  expect(createSession).not.toHaveBeenCalled();
+});
+it.each(['tironjulieann10@gmail.com', 'reymarkjpanes@gmail.com'])('rejects %s when the exception flag is disabled', async email => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('LEADCRM_TEST_AUTH_ENABLED', 'false');
+  vi.stubEnv('LEADCRM_TEST_EMAIL_ALLOWLIST', 'tironjulieann10@gmail.com,reymarkjpanes@gmail.com');
+  user.role = 'Client Admin'; user.email = email;
+
+  await expect(loginUser({ email: user.email, password: 'secret' })).rejects.toHaveProperty('code', 'EMPLOYEE_ACCOUNT_REQUIRED');
+  expect(createSession).not.toHaveBeenCalled();
+});
+it.each(['tironjulieann10@gmail.com', 'reymarkjpanes@gmail.com'])('rejects %s in production when only the development exception is enabled', async email => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('LEADCRM_TEST_AUTH_ENABLED', 'true');
+  vi.stubEnv('LEADCRM_TEST_EMAIL_ALLOWLIST', 'tironjulieann10@gmail.com,reymarkjpanes@gmail.com');
+  user.role = 'Client Admin'; user.email = email;
+
+  await expect(loginUser({ email: user.email, password: 'secret' })).rejects.toHaveProperty('code', 'EMPLOYEE_ACCOUNT_REQUIRED');
+  expect(createSession).not.toHaveBeenCalled();
+});
 it('accepts an unverified internally provisioned employee without OTP and returns the password gate', async () => {
   user.role = 'Client Admin'; user.email = 'employee@camxian.com'; user.emailVerified = null as never; user.mustChangePassword = true;
   const result = await loginUser({ email: 'EMPLOYEE@CAMXIAN.COM', password: 'secret' });
   expect(result.user.mustChangePassword).toBe(true);
   expect(createSession).toHaveBeenCalledOnce();
 });
-it('allows the separately provisioned System Admin without employee-domain or OTP onboarding', async () => {
-  user.role = 'System Admin'; user.email = 'operator@example.com'; user.emailVerified = null as never;
-  await expect(loginUser({ email: user.email, password: 'secret' })).resolves.toHaveProperty('user.role', 'System Admin');
+
+it.each(['SUSPENDED', 'CANCELLED', 'DELETED', 'REJECTED', 'unknown'])('rejects valid credentials for an unavailable %s workspace', async status => {
+  tenant.status = status;
+  await expect(loginUser({ email: user.email, password: 'secret' })).rejects.toMatchObject({ statusCode: 403 });
+  expect(createSession).not.toHaveBeenCalled();
+});
+
+it('rechecks workspace access inside the session transaction', async () => {
+  db.user.findFirst.mockResolvedValueOnce({ ...user, tenant: { ...tenant, status: 'CANCELLED' } });
+  await expect(loginUser({ email: user.email, password: 'secret' })).rejects.toMatchObject({ statusCode: 403 });
+  expect(createSession).not.toHaveBeenCalled();
 });

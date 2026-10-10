@@ -9,7 +9,7 @@ import * as service from './contacts-v2.service';
 
 export async function getContacts(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await service.getContacts(req.user!.tenantId, req.query as Record<string, unknown>);
+    const result = await service.getContacts(req.user!.tenantId, { ...req.query, currentUserId: req.user!.userId });
     res.json({ success: true, ...result });
   } catch (err) { next(err); }
 }

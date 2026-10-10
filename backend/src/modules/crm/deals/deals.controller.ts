@@ -1,7 +1,9 @@
+import { createDealBatch } from './deal-batch.service';
 ﻿import { Request, Response, NextFunction } from 'express';
 import * as service from './deals.service';
 import * as forecastService from './forecast.service';
 import { DealsQuerySchema } from './deals.dto';
+import { z } from 'zod';
 
 export async function getDeals(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -79,7 +81,7 @@ export async function getForecast(req: Request, res: Response, next: NextFunctio
 
 export async function restoreDeal(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const deal = await service.restoreDeal(String(req.params.id), req.user!.tenantId, req.user!.userId);
+    const deal = await service.restoreDeal(z.string().uuid().parse(req.params.id), req.user!.tenantId, req.user!.userId);
     res.json({ success: true, data: deal });
   } catch (err) { next(err); }
 }
@@ -89,4 +91,11 @@ export async function duplicateDeal(req: Request, res: Response, next: NextFunct
     const deal = await service.duplicateDeal(String(req.params.id), req.user!.tenantId, req.user!.userId);
     res.status(201).json({ success: true, data: deal });
   } catch (err) { next(err); }
+}
+
+export async function createBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await createDealBatch(req.user!.tenantId, req.user!.userId, req.body);
+    res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
+  } catch (error) { next(error); }
 }

@@ -36,7 +36,7 @@ export const ModalCloseButton: React.FC<ModalCloseButtonProps> = ({
       onClick={onClose}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={`p-2 rounded-xl transition-all duration-150 active:scale-95 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${getVariantStyles()} ${className}`}
+      className={`p-2 rounded-xl transition-all duration-150 active:scale-95 outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer ${getVariantStyles()} ${className}`}
     >
       <X size={size} className="shrink-0" />
     </button>

@@ -6,6 +6,7 @@ import type { SortState } from '../types';
 import { LeadsDataGrid } from '@/features/tenant/crm/leads/ui/leads-data-grid';
 import { LEADS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 import { compareSortValues, normalizeLeadColumns } from '@leadcrm/shared';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });

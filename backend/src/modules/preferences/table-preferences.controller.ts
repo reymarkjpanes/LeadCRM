@@ -14,12 +14,15 @@ import { isSuperRole } from '../../shared/utils/is-super-role';
 // ─────────────────────────────────────────────────────
 
 // Map module IDs to their view permission key
-// "leads" maps to "contacts.view" since they share the same permission surface
 const MODULE_VIEW_PERMISSIONS: Record<string, string> = {
-  leads: 'contacts.view',
+  leads: 'leads.view',
   contacts: 'contacts.view',
   accounts: 'accounts.view',
   deals: 'deals.view',
+  tasks: 'tasks.view',
+  campaigns: 'campaigns.view',
+  workflows: 'workflows.view',
+  users: 'users.view',
 };
 
 /**
@@ -34,7 +37,7 @@ async function hasModuleViewPermission(req: Request, module: string): Promise<bo
   if (isSuperRole(role)) return true;
 
   const requiredPermission = MODULE_VIEW_PERMISSIONS[module];
-  if (!requiredPermission) return true; // Unknown module — let isValidModule catch it
+  if (!requiredPermission) return false;
 
   const permissions = await findUserEffectivePermissions(req.user!.userId, req.user!.tenantId);
   return permissions[requiredPermission.split('.')[0]]?.canView === true;

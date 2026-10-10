@@ -1,3 +1,4 @@
+import type { TaskRecord as importTaskRecord } from '@leadcrm/shared';
 // ─── Task, AuditLog ───────────────────────────────────────────────────────
 
 // ─── Activity — universal event record for all business objects ─────────────
@@ -12,7 +13,6 @@ export type ActivityType =
   | 'deal_action' | 'file_upload';
 
 export interface Activity {
-  environment?: import('@leadcrm/shared').CrmEnvironment;
   id: string;
   tenantId: string;
   type: ActivityType;
@@ -39,12 +39,7 @@ export interface AuditLog {
   operatorRole?: string;
 }
 
-export type TaskStatus =
-  | 'pending'
-  | 'in-progress'
-  | 'blocked'
-  | 'completed'
-  | 'cancelled';
+export type { TaskStatus } from '@leadcrm/shared';
 
 export interface TaskAssignmentRecord {
   assignedTo: string;       // userId
@@ -54,17 +49,8 @@ export interface TaskAssignmentRecord {
   reason?: string;           // e.g. "Territory Transfer", "Capacity"
 }
 
-export interface Task {
-  id: string;
-  tenantId: string;
-  dealId?: string;
-  title: string;
-  description: string;
-  status: TaskStatus;
-  dueDate: string;
-  assignedUserId: string;
-  assignedBy?: string;              // userId of whoever made the assignment
+export interface Task extends importTaskRecord {
+  /** Legacy demo-only attribution; live data uses assignedById and assignedByUser. */
+  assignedBy?: string;
   assignmentHistory?: TaskAssignmentRecord[];
-  createdAt: string;
-  priority?: 'Low' | 'Medium' | 'High';
 }

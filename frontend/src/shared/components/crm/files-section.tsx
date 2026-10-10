@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ConfirmActionDialog } from './confirm-action-dialog';
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
@@ -25,7 +26,7 @@ export interface FilesSectionProps {
   canUpload: boolean;
   canDelete: boolean;
   onUpload: (file: File) => Promise<void>;
-  onDelete: (fileId: string) => void;
+  onDelete: (fileId: string) => void | Promise<void>;
   maxFileSize?: number; // bytes, default 10MB
   acceptedTypes?: string[]; // MIME types
 }
@@ -144,8 +145,8 @@ export function FilesSection({
   );
 
   const handleDelete = useCallback(
-    (fileId: string) => {
-      onDelete(fileId);
+    async (fileId: string) => {
+      await onDelete(fileId);
       setDeleteConfirmId(null);
       toast.success('File deleted');
     },
@@ -266,40 +267,23 @@ export function FilesSection({
               </button>
 
               {canDelete && (
-                <>
-                  {deleteConfirmId === file.id ? (
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(file.id)}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirmId(null)}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmId(file.id)}
-                      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(file.id)}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Delete ${file.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
           </div>
         ))}
       </div>
+      <ConfirmActionDialog open={!!deleteConfirmId} onOpenChange={open => { if (!open) setDeleteConfirmId(null); }}
+        title="Delete file?" description={`Delete “${files.find(file => file.id === deleteConfirmId)?.name ?? ''}”?`}
+        variant="destructive" confirmLabel="Delete" confirmDisabled={!canDelete}
+        onConfirm={async () => { if (deleteConfirmId) await handleDelete(deleteConfirmId); }} />
     </div>
   );
 }

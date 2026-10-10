@@ -10,6 +10,7 @@ import type { Contact as SharedContact, Company as SharedCompany } from '@leadcr
  * frontend-specific display fields.
  */
 export interface Organization extends SharedCompany {
+  customFieldValues?: import('@leadcrm/shared').ClosingValues;
   isArchived?: boolean;
   postalCode?: string;
 }
@@ -21,6 +22,7 @@ export interface Organization extends SharedCompany {
  * companyName, status, etc.) come from @leadcrm/shared.
  */
 export interface Contact extends SharedContact {
+  customFieldValues?: import('@leadcrm/shared').ClosingValues;
   organizationId?: string;
   contactPerson?: string;
   leadPerson?: string;
@@ -40,8 +42,6 @@ export interface Contact extends SharedContact {
   customerType?: string;
   customerSince?: string;
   activeProducts?: string[];
-  qualifiedAt?: string;
-  disqualifiedReason?: string;
   callStatus?: string;
   updateStatus?: string;
   contactNumbers?: { id: string; type: string; countryCode?: string; number: string; notes?: string }[];
@@ -53,7 +53,6 @@ export interface Contact extends SharedContact {
   suffix?: string;
   displayName?: string;
   preferredName?: string;
-  department?: string;
   profilePhoto?: string;
   gender?: string;
   dateOfBirth?: string;
@@ -71,7 +70,6 @@ export interface Contact extends SharedContact {
   orgOwner?: string;
   orgWebsite?: string;
   orgAddress?: string;
-  taxId?: string;
   country?: string;
   region?: string;
   province?: string;

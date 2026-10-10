@@ -1,0 +1,656 @@
+[
+  {
+    "number": 1,
+    "title": "Introduction",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Welcome to LeadCRM, a customer relationship management system operated by Camxian Technologies (\"Camxian,\" \"we,\" \"our,\" or \"us\")."
+      },
+      {
+        "type": "paragraph",
+        "text": "We recognize the importance of protecting personal information entrusted to us by our employees, customers, prospective customers, business partners, and other individuals."
+      },
+      {
+        "type": "paragraph",
+        "text": "This Privacy Policy explains how personal information may be collected, used, stored, accessed, shared, retained, and protected through LeadCRM."
+      },
+      {
+        "type": "paragraph",
+        "text": "We process personal information in accordance with applicable Philippine data protection laws, including Republic Act No. 10173, otherwise known as the Data Privacy Act of 2012, its Implementing Rules and Regulations, and applicable issuances of the National Privacy Commission."
+      },
+      {
+        "type": "paragraph",
+        "text": "This Policy applies to:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Authorized LeadCRM users and administrators.",
+          "Employees and authorized personnel using the system.",
+          "Prospective customers and leads.",
+          "Existing customers and business contacts.",
+          "Individuals submitting information through LeadCRM-powered forms.",
+          "Individuals communicating with Camxian Technologies through connected communication channels.",
+          "Campaign recipients and other individuals whose personal information is lawfully processed within LeadCRM."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM is primarily an internally managed business platform and is not currently represented by this Policy as an open public-registration CRM service."
+      }
+    ]
+  },
+  {
+    "number": 2,
+    "title": "Personal Information We Collect",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Depending on your relationship with Camxian Technologies and how LeadCRM is used, we may process the following categories of information."
+      },
+      {
+        "type": "heading",
+        "text": "2.1 Personal and Contact Information"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "First and last name.",
+          "Email address.",
+          "Telephone or mobile number.",
+          "Job title or professional designation.",
+          "Company or organization name.",
+          "Business or office address.",
+          "Other information voluntarily supplied through forms or communications."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "2.2 Customer Relationship Information"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Lead and contact records.",
+          "Customer inquiries.",
+          "Product or service interests.",
+          "Sales opportunity details.",
+          "Account and business relationship information.",
+          "Deal stages and sales activity history.",
+          "Follow-up schedules and task records.",
+          "Notes and correspondence relating to legitimate business activities."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "2.3 Communications and Marketing Information"
+      },
+      {
+        "type": "paragraph",
+        "text": "Where applicable, LeadCRM may process:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Email sender and recipient information.",
+          "Email subject lines and message content.",
+          "Relevant correspondence and attachments.",
+          "Campaign delivery status.",
+          "Email opening information where tracking is enabled.",
+          "Tracked email-link clicks.",
+          "Marketing communication preferences.",
+          "Subscription, opt-out, or suppression information.",
+          "SMS delivery information where an SMS integration is used."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Email opening and click data may be affected by email-client privacy tools, security scanners, automated activity, and service-provider reporting limitations."
+      },
+      {
+        "type": "heading",
+        "text": "2.4 User Account and Security Information"
+      },
+      {
+        "type": "paragraph",
+        "text": "For authorized LeadCRM users, we may process:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Employee or authorized user identity.",
+          "Account email address.",
+          "Assigned roles and permissions.",
+          "Account status.",
+          "Login and session information.",
+          "Password-related security metadata.",
+          "Account creation and password-change timestamps.",
+          "Audit and security logs.",
+          "User preferences and profile information."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Passwords are not intended to be stored in readable plaintext in the application database."
+      },
+      {
+        "type": "heading",
+        "text": "2.5 Technical and Usage Information"
+      },
+      {
+        "type": "paragraph",
+        "text": "Depending on the configured logging and security systems, information may include:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "IP address.",
+          "Browser or device information.",
+          "Login timestamps.",
+          "API request and error records.",
+          "Security events.",
+          "Session-related identifiers.",
+          "Application activity and audit history."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "We seek to limit technical data collection to information reasonably necessary for legitimate operational, security, and compliance purposes."
+      }
+    ]
+  },
+  {
+    "number": 3,
+    "title": "How We Collect Personal Information",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "We may obtain personal information through:"
+      },
+      {
+        "type": "list",
+        "ordered": true,
+        "items": [
+          "Direct communications with Camxian Technologies.",
+          "LeadCRM forms submitted by individuals.",
+          "Customer inquiries and business transactions.",
+          "Authorized employees entering business records.",
+          "Connected email or communication accounts.",
+          "Campaign interactions and delivery information.",
+          "Existing business records lawfully transferred or imported into LeadCRM.",
+          "Information generated through legitimate CRM operations."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "When personal information is received from another source, Camxian Technologies remains responsible for evaluating whether its collection and intended use are lawful and appropriately disclosed."
+      }
+    ]
+  },
+  {
+    "number": 4,
+    "title": "Purposes of Processing",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "We process personal information for legitimate and specified business purposes, including:"
+      },
+      {
+        "type": "heading",
+        "text": "4.1 Customer Relationship Management"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Managing inquiries and potential customers.",
+          "Maintaining customer and contact records.",
+          "Organizing sales opportunities.",
+          "Recording business correspondence.",
+          "Managing customer relationships.",
+          "Providing requested product or service information."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "4.2 Sales and Business Operations"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Assigning leads to authorized staff.",
+          "Tracking sales pipelines.",
+          "Managing deals and related tasks.",
+          "Coordinating follow-ups.",
+          "Reviewing sales and organizational performance.",
+          "Maintaining relevant business records."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "4.3 Communications"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Responding to customer inquiries.",
+          "Sending requested information.",
+          "Coordinating meetings and follow-ups.",
+          "Communicating with existing customers and relevant business contacts."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "4.4 Marketing Activities"
+      },
+      {
+        "type": "paragraph",
+        "text": "Where permitted by applicable law and the relevant lawful basis:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Sending email or SMS campaigns.",
+          "Managing campaign audiences.",
+          "Tracking delivery and engagement.",
+          "Measuring communication effectiveness.",
+          "Honoring opt-out preferences.",
+          "Preventing communications to suppressed recipients."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "4.5 Workflow Automation"
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM may automate certain administrative or sales-related processes, such as record assignment, task creation, notifications, and deal-stage updates."
+      },
+      {
+        "type": "paragraph",
+        "text": "Where automated processing or profiling has significant implications for an individual, additional notices, safeguards, and human review may be required."
+      },
+      {
+        "type": "heading",
+        "text": "4.6 Security and Administration"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Managing access and permissions.",
+          "Authenticating authorized users.",
+          "Maintaining security logs.",
+          "Investigating unauthorized activity.",
+          "Preventing misuse.",
+          "Supporting system reliability.",
+          "Complying with applicable legal obligations."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "We will not intentionally use collected personal information for unrelated purposes without an appropriate lawful basis and any notice or consent required by law."
+      }
+    ]
+  },
+  {
+    "number": 5,
+    "title": "Legal Bases for Processing",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Depending on the circumstances, personal information may be processed on one or more lawful bases recognized under Philippine law, including:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Consent, where validly obtained and required.",
+          "Necessity for the performance of a contract or steps requested before entering a contract.",
+          "Compliance with applicable legal obligations.",
+          "Legitimate interests pursued by the relevant controller or a third party, subject to applicable legal requirements and the rights of individuals.",
+          "Other grounds expressly permitted by law."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies must determine and document the applicable lawful basis for each relevant processing activity."
+      },
+      {
+        "type": "paragraph",
+        "text": "Consent will not be described as the basis for every processing activity where another lawful basis properly applies."
+      },
+      {
+        "type": "paragraph",
+        "text": "Where processing requires consent, individuals should be provided an appropriate opportunity to make an informed choice and withdraw that consent as permitted by law."
+      }
+    ]
+  },
+  {
+    "number": 6,
+    "title": "Disclosure of Personal Information",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Personal information may be accessible to:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Authorized Camxian Technologies personnel.",
+          "Designated administrators.",
+          "Assigned sales or operational staff.",
+          "Authorized technical support personnel.",
+          "Contracted service providers acting on appropriate instructions.",
+          "Email, messaging, infrastructure, or storage providers necessary for the stated processing purposes.",
+          "Government authorities or other recipients when disclosure is required or permitted by law."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Access within LeadCRM is intended to be controlled through user roles, permissions, and organizational access restrictions."
+      },
+      {
+        "type": "paragraph",
+        "text": "We do not authorize employees to access personal information merely out of curiosity or for unrelated purposes."
+      },
+      {
+        "type": "heading",
+        "text": "External Service Providers"
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM's documented integrations include email delivery, connected email accounts, messaging, database infrastructure, and file storage."
+      },
+      {
+        "type": "paragraph",
+        "text": "Before publication, Camxian Technologies will verify and disclose the applicable service-provider categories, cross-border processing arrangements, and relevant safeguards."
+      },
+      {
+        "type": "paragraph",
+        "text": "We do not sell personal information as part of LeadCRM's intended internal CRM operations."
+      }
+    ]
+  },
+  {
+    "number": 7,
+    "title": "International Transfers and External Processing",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Some technology providers may store, access, or process information outside the Philippines."
+      },
+      {
+        "type": "paragraph",
+        "text": "Where international processing occurs, Camxian Technologies will assess the applicable contractual, technical, organizational, and legal safeguards."
+      },
+      {
+        "type": "paragraph",
+        "text": "This includes reviewing the location and responsibilities of relevant processors and service providers."
+      },
+      {
+        "type": "paragraph",
+        "text": "Specific provider locations and transfer arrangements must be confirmed against the production environment and applicable service agreements."
+      }
+    ]
+  },
+  {
+    "number": 8,
+    "title": "Data Retention",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Personal information will be retained only for as long as reasonably necessary for the purposes for which it was collected, subject to applicable legal obligations, legitimate business requirements, recordkeeping needs, and the establishment, exercise, or defense of legal claims."
+      },
+      {
+        "type": "paragraph",
+        "text": "Different categories of data may have different retention periods, including:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Lead and prospect records.",
+          "Active customer records.",
+          "Business communications.",
+          "Campaign engagement records.",
+          "User account information.",
+          "Security and audit logs.",
+          "Archived CRM records.",
+          "Backup copies."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "**Before publication, Camxian Technologies must approve a retention schedule stating the applicable periods or objective retention criteria for these categories.**"
+      },
+      {
+        "type": "paragraph",
+        "text": "When information is no longer required, we will apply appropriate deletion, anonymization, or other lawful disposal procedures."
+      },
+      {
+        "type": "paragraph",
+        "text": "Archiving a CRM record does not necessarily mean that its underlying data has been permanently deleted."
+      }
+    ]
+  },
+  {
+    "number": 9,
+    "title": "Data Security",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies seeks to use appropriate technical, organizational, and administrative measures to protect personal information."
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM's documented architecture includes controls such as:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Authentication and account management.",
+          "Role-based permissions.",
+          "Organization-based data separation.",
+          "Session management.",
+          "Password hashing.",
+          "Access restrictions.",
+          "Security and audit logs.",
+          "Protected backend APIs.",
+          "Controlled account provisioning."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Security safeguards are subject to continued maintenance, review, and operational verification."
+      },
+      {
+        "type": "paragraph",
+        "text": "No internet-connected system can guarantee absolute security."
+      },
+      {
+        "type": "paragraph",
+        "text": "Authorized users must protect their credentials, avoid unauthorized disclosure, and report suspected security incidents promptly."
+      }
+    ]
+  },
+  {
+    "number": 10,
+    "title": "Individual Privacy Rights",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Subject to the Data Privacy Act, its implementing rules, and other applicable laws, individuals may have rights to:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Be informed about the processing of their personal information.",
+          "Access personal information concerning them.",
+          "Request correction of inaccurate information.",
+          "Object to certain processing.",
+          "Request blocking, removal, or destruction where legally appropriate.",
+          "Withdraw consent where processing is based on consent.",
+          "Obtain data portability where applicable.",
+          "Seek damages where provided by law.",
+          "Lodge a complaint with the National Privacy Commission."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "The exercise of these rights may be subject to lawful limitations, identity verification, and applicable procedural requirements."
+      }
+    ]
+  },
+  {
+    "number": 11,
+    "title": "Exercising Your Privacy Rights",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "For privacy concerns or requests concerning personal information processed through LeadCRM, contact:"
+      },
+      {
+        "type": "paragraph",
+        "text": "**Camxian Technologies**  \nGeneral Contact: leadcrm.tech@gmail.com  \nPrivacy Requests: leadcrm.tech@gmail.com   \nBusiness Address: 180 Dr. Sixto Ave. Bgy Caniogan, Pasig City, Metro Manila"
+      },
+      {
+        "type": "paragraph",
+        "text": "Please describe the nature of your request and provide sufficient information for us to identify the relevant records."
+      },
+      {
+        "type": "paragraph",
+        "text": "We may request reasonable verification of identity before releasing or changing personal information."
+      },
+      {
+        "type": "paragraph",
+        "text": "We will review and respond to requests in accordance with applicable legal requirements."
+      }
+    ]
+  },
+  {
+    "number": 12,
+    "title": "Marketing Communications and Opt-Outs",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Where LeadCRM is used to send marketing communications, recipients may be provided with applicable opt-out or unsubscribe mechanisms."
+      },
+      {
+        "type": "paragraph",
+        "text": "Individuals may also contact the organization using the published privacy contact channel to express relevant marketing preferences or objections."
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies will seek to honor valid opt-out requests in accordance with applicable laws and the supported communication systems."
+      },
+      {
+        "type": "paragraph",
+        "text": "Service-related communications and legally required notices may be treated differently where a lawful basis permits them."
+      }
+    ]
+  },
+  {
+    "number": 13,
+    "title": "Cookies and Session Technologies",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM may use cookies or comparable technologies necessary for authentication, session management, security, and user preferences."
+      },
+      {
+        "type": "paragraph",
+        "text": "Any additional tracking technologies used on public pages or forms must be reviewed and disclosed as appropriate before publication."
+      },
+      {
+        "type": "paragraph",
+        "text": "This Policy does not assert that LeadCRM uses advertising cookies or third-party behavioral advertising technologies unless such use is separately verified."
+      }
+    ]
+  },
+  {
+    "number": 14,
+    "title": "Personal Data Breaches",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "If a personal data breach occurs, Camxian Technologies will evaluate the incident and take appropriate containment, investigation, remediation, and notification actions."
+      },
+      {
+        "type": "paragraph",
+        "text": "Where legally required, the organization will notify the National Privacy Commission and affected individuals within the applicable regulatory requirements."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users should report suspected unauthorized access, data exposure, or security incidents promptly to the organization."
+      }
+    ]
+  },
+  {
+    "number": 15,
+    "title": "Third-Party Websites",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM communications or forms may include links to external websites."
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies is not responsible for the privacy practices of independent third-party websites that it does not control."
+      },
+      {
+        "type": "paragraph",
+        "text": "Individuals are encouraged to review the applicable privacy notices of those websites."
+      }
+    ]
+  },
+  {
+    "number": 16,
+    "title": "Changes to This Privacy Policy",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "We may revise this Privacy Policy to reflect changes in our operations, technology, processing activities, or legal requirements."
+      },
+      {
+        "type": "paragraph",
+        "text": "When material changes occur, we will provide appropriate notice where required."
+      },
+      {
+        "type": "paragraph",
+        "text": "The latest approved version will display its effective date and last updated date."
+      }
+    ]
+  },
+  {
+    "number": 17,
+    "title": "Contact Information",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "For questions about LeadCRM or this Privacy Policy:"
+      },
+      {
+        "type": "paragraph",
+        "text": "**Camxian Technologies**  \nLeadCRM Website: https://lead-crm.tech  \nGeneral Support: leadcrm.tech@gmail.com  \nPrivacy Requests: leadcrm.tech@gmail.com  \nBusiness Address: 180 Dr. Sixto Ave. Bgy Caniogan, Pasig City, Metro Manila"
+      },
+      {
+        "type": "paragraph",
+        "text": "This Privacy Policy is intended to provide clear information about LeadCRM-related personal-data processing and will be finalized following verification of the organization's actual processing practices, service providers, retention schedule, and privacy contacts."
+      }
+    ]
+  }
+]

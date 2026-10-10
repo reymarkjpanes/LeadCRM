@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
+    "build": "tsc --noEmit false --module commonjs --moduleResolution node && node scripts/sync-generated.cjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

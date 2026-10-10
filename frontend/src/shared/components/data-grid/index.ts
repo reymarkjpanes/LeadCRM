@@ -28,7 +28,6 @@ export {
   MODULE_ACCENT_COLORS,
   LEAD_STATUS_VARIANTS,
   CONTACT_STATUS_VARIANTS,
-  ACCOUNT_TYPE_VARIANTS,
   DEAL_PRIORITY_VARIANTS,
 } from './cell-renderers';
 export type { StatusVariant, ModuleAccentColor } from './cell-renderers';

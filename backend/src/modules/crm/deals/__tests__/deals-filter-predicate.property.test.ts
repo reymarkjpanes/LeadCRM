@@ -31,7 +31,7 @@ vi.mock('../../../../config/database.config', () => {
 // Import after mocking
 import prisma from '../../../../config/database.config';
 import { findAllDeals } from '../deals.repository';
-import { DealsQueryParams } from '../deals.dto';
+import { DealsQuerySchema, type DealsQueryParams } from '../deals.dto';
 
 // ─────────────────────────────────────────────────────
 // GENERATORS
@@ -113,6 +113,14 @@ async function callAndCaptureWhere(tenantId: string, params: DealsQueryParams): 
 // ─────────────────────────────────────────────────────
 // TESTS
 // ─────────────────────────────────────────────────────
+
+it('filters by the canonical Account ID and accepts only a matching legacy alias', async () => {
+  for (const filter of [{ accountId: 'account-a' }, { organizationId: 'account-a' }, { accountId: 'account-a', organizationId: 'account-a' }]) {
+    expect(await callAndCaptureWhere('tenant', DealsQuerySchema.parse(filter))).toMatchObject({ tenantId: 'tenant', accountId: 'account-a' });
+  }
+  expect(DealsQuerySchema.safeParse({ accountId: 'a', organizationId: 'b' }).success).toBe(false);
+  await expect(findAllDeals('tenant', { ...buildQueryParams({}), accountId: 'a', organizationId: 'b' })).rejects.toThrow(/same Account/);
+});
 
 describe('Feature: deals-module-modernization, Property 4: Filter Predicate Invariant', () => {
   beforeEach(() => {

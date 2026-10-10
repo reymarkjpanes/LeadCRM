@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Search, X, ChevronsUpDown, Check, AlertCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useData } from '@/store/DataContext';
+import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 import type { Organization, Contact, User, Pipeline, Stage, Lead } from '@/store/types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -180,7 +181,7 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
           entities = dataContext.contacts; // Leads are stored as 'contacts' in DataContext
           break;
         case 'users':
-          entities = dataContext.users;
+          entities = getAssignableAgents(dataContext.users);
           break;
         case 'pipelines':
           entities = dataContext.pipelines;

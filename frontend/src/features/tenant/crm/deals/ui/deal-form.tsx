@@ -1,9 +1,16 @@
 'use client';
+import { LEAD_SOURCES } from '@leadcrm/shared';
+import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
+import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelInputClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
-import React, { useEffect, useRef, useMemo } from 'react';
+
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { COMPANY_INDUSTRIES, DealIndustrySchema } from '@leadcrm/shared';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { useData } from '@/store/DataContext';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -24,26 +31,24 @@ const CreateDealFormSchema = z.object({
   pipelineId: z.string().min(1, 'Pipeline is required'),
   stageId: z.string().min(1, 'Stage is required'),
   title: z.string().min(1, 'Title is required').max(255, 'Max 255 characters'),
-  value: z.number().positive('Must be a positive number').max(999_999_999_999, 'Value exceeds maximum').optional(),
+  value: z.number().finite().nonnegative('Must be zero or greater').max(999_999_999_999, 'Value exceeds maximum').optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']),
   expectedCloseDate: z.string().optional(),
-  description: z.string().optional(),
   leadSource: z.string().optional(),
   organizationId: z.string().optional(),
   assignedUserId: z.string().optional(),
   contactIds: z.array(z.string()).optional(),
   leadIds: z.array(z.string()).optional(),
-  industry: z.string().optional(),
+  industry: z.union([DealIndustrySchema, z.literal('')]).optional(),
   address: z.string().optional(),
-  productInterests: z.array(z.string()).optional(),
+  productInterests: z.array(z.string().uuid()).min(1, 'Select at least one Product Interest.').max(100),
 });
 
 const UpdateDealFormSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255, 'Max 255 characters'),
-  value: z.number().positive('Must be a positive number').max(999_999_999_999, 'Value exceeds maximum').optional(),
+  value: z.number().finite().nonnegative('Must be zero or greater').max(999_999_999_999, 'Value exceeds maximum').optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
   expectedCloseDate: z.string().optional(),
-  description: z.string().optional(),
   leadSource: z.string().optional(),
   organizationId: z.string().optional(),
   assignedUserId: z.string().optional(),
@@ -51,11 +56,11 @@ const UpdateDealFormSchema = z.object({
   leadIds: z.array(z.string()).optional(),
   industry: z.string().optional(),
   address: z.string().optional(),
-  productInterests: z.array(z.string()).optional(),
+  productInterests: z.array(z.string()).min(1, 'Select at least one Product Interest.').optional(),
 });
 
-export type CreateDealFormData = z.infer<typeof CreateDealFormSchema>;
-export type UpdateDealFormData = z.infer<typeof UpdateDealFormSchema>;
+export type CreateDealFormData = z.infer<typeof CreateDealFormSchema> & { customFieldValues?: import('@leadcrm/shared').ClosingValues }
+export type UpdateDealFormData = z.infer<typeof UpdateDealFormSchema> & { customFieldValues?: import('@leadcrm/shared').ClosingValues }
 type DealFormData = CreateDealFormData | UpdateDealFormData;
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -66,17 +71,9 @@ const PRIORITY_OPTIONS: { value: 'LOW' | 'MEDIUM' | 'HIGH'; label: string }[] = 
   { value: 'HIGH', label: 'High' },
 ];
 
-const PRODUCT_OPTIONS = [
-  'CCTV', 'Biometrics', 'Door Access', 'Door access/Biometrics',
-  'Network/Structured Cabling', 'FDAS', 'PABX', 'PC/Laptop/Server Assembly',
-  'Software/Web Development', 'Others',
-];
 
-const SOURCE_OPTIONS = [
-  'Google Ads', 'Referral', 'Email Campaign', 'Website', 'LinkedIn Ads',
-  'Webinar', 'Social Media Advertisement', 'Partner Referral', 'Direct Mail',
-  'Cold Call', 'Content Marketing', 'YouTube Ads', 'SEO / Organic Search', 'Others',
-];
+
+const SOURCE_OPTIONS = LEAD_SOURCES;
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +107,10 @@ export function DealForm({
   onCancel,
   isLoading = false,
 }: DealFormProps): React.ReactElement {
-  const { pipelines } = useData();
+  const customFields = useRecordCustomFields('deals', initialData?.id);
+  const { products, loading: productsLoading, error: productsError, refresh: refreshProducts } = useProductInterests();
+  const { pipelines: allPipelines } = useData();
+  const pipelines = useMemo(() => allPipelines.filter(p => p.name.trim().toLowerCase() === 'sales pipeline'), [allPipelines]);
   const canCreate = useHasPermission('deals.create');
   const canEdit = useHasPermission('deals.edit');
   const isCreateMode = mode === 'create';
@@ -120,13 +120,12 @@ export function DealForm({
   const defaultValues = useMemo(() => {
     if (isCreateMode) {
       return {
-        pipelineId: preselect?.pipelineId || '',
-        stageId: preselect?.stageId || '',
+        pipelineId: preselect?.pipelineId || pipelines[0]?.id || '',
+        stageId: pipelines[0]?.stages.find(s => s.name.toLowerCase() === 'lead' && !s.isWon && !s.isLost)?.id || '',
         title: '',
         value: undefined,
         priority: 'MEDIUM' as const,
         expectedCloseDate: '',
-        description: '',
         leadSource: '',
         organizationId: '',
         assignedUserId: '',
@@ -145,7 +144,6 @@ export function DealForm({
       expectedCloseDate: initialData?.expectedCloseDate
         ? initialData.expectedCloseDate.split('T')[0]
         : '',
-      description: initialData?.description || '',
       leadSource: initialData?.leadSource || '',
       organizationId: initialData?.organizationId || '',
       assignedUserId: initialData?.assignedUserId || '',
@@ -153,9 +151,9 @@ export function DealForm({
       leadIds: (initialData as any)?.leadIds || [],
       industry: initialData?.industry || '',
       address: initialData?.address || '',
-      productInterests: initialData?.productInterests || [],
+      productInterests: initialData?.productInterestIds?.length ? initialData.productInterestIds : initialData?.productInterestId ? [initialData.productInterestId] : undefined,
     };
-  }, [isCreateMode, initialData, preselect]);
+  }, [isCreateMode, initialData, preselect, pipelines]);
 
   const {
     register,
@@ -172,26 +170,24 @@ export function DealForm({
     mode: 'onChange',
   });
 
+  const [submitError, setSubmitError] = useState('');
+  const submitting = useRef(false);
   const fieldId = React.useId();
   const formRef = useRef<HTMLFormElement>(null);
   const selectedPipelineId = watch('pipelineId');
+  const selectedProductIds = watch('productInterests') ?? [];
+  const selectedProducts = products.filter(product => selectedProductIds.includes(product.id));
 
-  // Get stages for selected pipeline (only relevant in create mode)
-  const stagesForPipeline = useMemo(() => {
-    const pipelineId = isCreateMode ? selectedPipelineId : initialData?.pipelineId;
-    if (!pipelineId) return [];
-    const pipeline = pipelines.find((p) => p.id === pipelineId);
-    return pipeline?.stages || [];
-  }, [isCreateMode, selectedPipelineId, initialData?.pipelineId, pipelines]);
+  useEffect(() => {
+    if (isCreateMode && !selectedPipelineId && pipelines[0]) setValue('pipelineId', pipelines[0].id, { shouldValidate: true });
+  }, [isCreateMode, selectedPipelineId, pipelines, setValue]);
 
   // Reset stageId when pipeline changes (create mode only)
   useEffect(() => {
-    if (isCreateMode && selectedPipelineId && !preselect?.stageId) {
-      setValue('stageId', '');
+    if (isCreateMode && selectedPipelineId) {
+      setValue('stageId', pipelines.find(p => p.id === selectedPipelineId)?.stages.find(s => s.name.toLowerCase() === 'lead' && !s.isWon && !s.isLost)?.id || '', { shouldValidate: true });
     }
-    // Only run when pipeline changes in create mode, not on initial mount with preselect
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPipelineId]);
+  }, [isCreateMode, selectedPipelineId, pipelines, setValue]);
 
   // Scroll to first error on submit attempt
   useEffect(() => {
@@ -208,17 +204,20 @@ export function DealForm({
   }, [errors, setFocus]);
 
   const onFormSubmit = async (data: CreateDealFormData): Promise<void> => {
+    if (!customFields.validate()) return;
     // Clean optional empty strings before submission.
     // currency is always PHP — not user-editable, injected here for backend compatibility.
     const cleaned = {
+      customFieldValues: customFields.payload(),
       ...data,
       currency: 'PHP',
+      value: undefined,
+      productInterestIds: data.productInterests?.length ? data.productInterests : undefined,
       expectedCloseDate: data.expectedCloseDate
         ? data.expectedCloseDate.includes('T')
           ? data.expectedCloseDate
           : `${data.expectedCloseDate}T00:00:00.000Z`
         : undefined,
-      description: data.description || undefined,
       leadSource: data.leadSource || undefined,
       organizationId: data.organizationId || undefined,
       assignedUserId: data.assignedUserId || undefined,
@@ -226,69 +225,38 @@ export function DealForm({
       leadIds: (data as any).leadIds?.length ? (data as any).leadIds : undefined,
       industry: data.industry || undefined,
       address: data.address || undefined,
-      productInterests: data.productInterests?.length ? data.productInterests : undefined,
+      productInterests: undefined,
     };
-    await onSubmit(cleaned as DealFormData);
+    if (submitting.current) return;
+    submitting.current = true; setSubmitError('');
+    try { await onSubmit(cleaned as DealFormData); }
+    catch (error) { setSubmitError(error instanceof Error ? error.message : 'Unable to save. Retry this submission.'); }
+    finally { submitting.current = false; }
   };
 
   // ── Shared styling ────────────────────────────────────────────────────
-  const inputCls =
-    'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none transition-all focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
-  const selectCls =
-    'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl pl-3.5 pr-8 py-2.5 text-sm text-slate-900 dark:text-white outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all [&>option]:bg-white dark:[&>option]:bg-slate-900';
+  const inputCls = panelInputClass;
+  const selectCls = panelInputClass + ' appearance-none pr-8 cursor-pointer';
   const errorInputCls = '!border-red-500 focus:!ring-red-500/20';
 
-  const isSubmitDisabled = !isValid || isSubmitting || isLoading || !hasPermission;
+  const isSubmitDisabled = !isValid || isSubmitting || isLoading || !hasPermission || (isCreateMode && (productsLoading || !!productsError || !selectedProductIds.length));
 
   return (
     <form
       ref={formRef}
       onSubmit={handleSubmit(onFormSubmit)}
-      className="flex flex-col h-full"
+      className="flex h-full min-h-0 flex-col"
       noValidate
     >
       {/* Scrollable Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+      <div className={panelBodyClass + " space-y-6"}>
         {/* Section 1: Pipeline & Stage (Create mode only — edit does not change pipeline/stage here) */}
         {isCreateMode && (
           <div className="space-y-4">
             <SectionHeader num={1} title="Pipeline & Stage" />
-            <div className="grid grid-cols-2 gap-4">
-              <FieldWrap label="Pipeline *" htmlFor={`${fieldId}-pipelineId`} error={errors.pipelineId?.message}>
-                <div className="relative">
-                  <select
-                    {...register('pipelineId')}
-                    id={`${fieldId}-pipelineId`}
-                    aria-invalid={!!errors.pipelineId}
-                    aria-describedby={errors.pipelineId ? `${fieldId}-pipelineId-error` : undefined}
-                    className={cn(selectCls, errors.pipelineId && errorInputCls)}
-                  >
-                    <option value="">Select pipeline...</option>
-                    {pipelines.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-                </div>
-              </FieldWrap>
-              <FieldWrap label="Stage *" htmlFor={`${fieldId}-stageId`} error={errors.stageId?.message}>
-                <div className="relative">
-                  <select
-                    {...register('stageId')}
-                    id={`${fieldId}-stageId`}
-                    aria-invalid={!!errors.stageId}
-                    aria-describedby={errors.stageId ? `${fieldId}-stageId-error` : undefined}
-                    className={cn(selectCls, errors.stageId && errorInputCls)}
-                    disabled={!selectedPipelineId}
-                  >
-                    <option value="">{selectedPipelineId ? 'Select stage...' : 'Select pipeline first'}</option>
-                    {stagesForPipeline.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-                </div>
-              </FieldWrap>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div><span className="block text-xs text-muted-foreground">Pipeline</span><p className="py-2 text-sm">Sales Pipeline</p><input type="hidden" {...register('pipelineId')} /></div>
+              <div><span className="block text-xs text-muted-foreground">Starting Stage</span><p className="py-2 text-sm">Lead</p><input type="hidden" {...register('stageId')} />{errors.stageId && <p role="alert">{errors.stageId.message}</p>}</div>
             </div>
           </div>
         )}
@@ -306,28 +274,22 @@ export function DealForm({
               placeholder="Enter deal title"
             />
           </FieldWrap>
-          <FieldWrap label="Value" htmlFor={`${fieldId}-value`} error={errors.value?.message}>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium select-none pointer-events-none">₱</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register('value', { valueAsNumber: true })}
-                  id={`${fieldId}-value`}
-                  aria-invalid={!!errors.value}
-                  aria-describedby={errors.value ? `${fieldId}-value-error` : undefined}
-                  className={cn(inputCls, 'pl-9', errors.value && errorInputCls)}
-                  placeholder="0.00"
-                  onKeyDown={(e) => {
-                    if (!/[0-9.]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete'].includes(e.key)) {
-                      e.preventDefault();
-                    }
-                  }}
-                />
-              </div>
-            </FieldWrap>
-          <div className="grid grid-cols-2 gap-4">
+          <FieldWrap error={errors.productInterests?.message || productsError} label="Product Interests" htmlFor={`${fieldId}-product-interest`}>
+            <Controller
+              name="productInterests"
+              control={control}
+              render={({ field }) => (
+                <ProductInterestSelect products={products} disabled={!isCreateMode || productsLoading || isSubmitting || isLoading} id={`${fieldId}-product-interest`} values={field.value || []} onChange={field.onChange} />
+              )}
+            />
+          </FieldWrap>
+          {productsError && <Button type="button" variant="ghost" onClick={refreshProducts}>Retry products</Button>}
+          {isCreateMode ? <div aria-live="polite" className="min-w-0 rounded-xl border border-border p-3 text-sm">
+            <p className="font-semibold">{selectedProducts.length} {selectedProducts.length === 1 ? 'Deal' : 'Deals'} will be created</p>
+            <ul className="mt-2 space-y-2">{selectedProducts.map(product => <li key={product.id} className="flex min-w-0 flex-wrap justify-between gap-2"><span className="min-w-0 [overflow-wrap:anywhere]">{product.name}</span><span>{new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(product.dealValue)}</span></li>)}</ul>
+            <p className="mt-2 text-xs text-muted-foreground">Each Deal keeps its own Product value. Multiple Deal titles include the Product name.</p>
+          </div> : <FieldWrap label="Value" htmlFor={`${fieldId}-value`}><input id={`${fieldId}-value`} readOnly value={new Intl.NumberFormat('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(initialData?.value ?? 0)} className={inputCls} /></FieldWrap>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap label="Priority" htmlFor={`${fieldId}-priority`} error={errors.priority?.message}>
               <div className="relative">
                 <select {...register('priority')}
@@ -348,17 +310,7 @@ export function DealForm({
                 aria-describedby={errors.expectedCloseDate ? `${fieldId}-expectedCloseDate-error` : undefined} className={inputCls} />
             </FieldWrap>
           </div>
-          <FieldWrap htmlFor={`${fieldId}-description`} error={errors.description?.message} label="Description">
-            <textarea
-              {...register('description')}
-              id={`${fieldId}-description`}
-              aria-invalid={!!errors.description}
-              aria-describedby={errors.description ? `${fieldId}-description-error` : undefined}
-              rows={3}
-              className={cn(inputCls, 'resize-none')}
-              placeholder="Add deal description..."
-            />
-          </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Deal Information" />
         </div>
 
         {/* Section 3: Relationships */}
@@ -412,12 +364,13 @@ export function DealForm({
               )}
             />
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Relationships" />
         </div>
 
         {/* Section 4: Additional Details */}
         <div className="space-y-4">
           <SectionHeader num={isCreateMode ? 4 : 3} title="Additional Details" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap htmlFor={`${fieldId}-leadSource`} error={errors.leadSource?.message} label="Lead Source">
               <div className="relative">
                 <select {...register('leadSource')}
@@ -433,10 +386,7 @@ export function DealForm({
               </div>
             </FieldWrap>
             <FieldWrap htmlFor={`${fieldId}-industry`} error={errors.industry?.message} label="Industry">
-              <input {...register('industry')}
-                id={`${fieldId}-industry`}
-                aria-invalid={!!errors.industry}
-                aria-describedby={errors.industry ? `${fieldId}-industry-error` : undefined} className={inputCls} placeholder="e.g. Technology, Healthcare" />
+              {isCreateMode ? <select {...register('industry')} id={`${fieldId}-industry`} className={selectCls}><option value="">Select industry...</option>{COMPANY_INDUSTRIES.map(industry => <option key={industry} value={industry}>{industry}</option>)}</select> : <input {...register('industry')} id={`${fieldId}-industry`} className={inputCls} />}
             </FieldWrap>
           </div>
           <FieldWrap htmlFor={`${fieldId}-address`} error={errors.address?.message} label="Address">
@@ -450,36 +400,31 @@ export function DealForm({
               placeholder="Enter address..."
             />
           </FieldWrap>
-          <FieldWrap label="Product Interests" htmlFor={`${fieldId}-product-interest`}>
-            <Controller
-              name="productInterests"
-              control={control}
-              render={({ field }) => (
-                <ProductInterestsSelect id={`${fieldId}-product-interest`} values={field.value || []} onChange={field.onChange} />
-              )}
-            />
-          </FieldWrap>
+
+          <CustomFieldGroup form={customFields} group="Additional Details" />
         </div>
+        <CustomFieldExtraGroups form={customFields} startNumber={isCreateMode ? 5 : 4} />
       </div>
 
+      {submitError && <p role="alert" className="px-4 py-2 text-sm text-destructive [overflow-wrap:anywhere]">{submitError}</p>}
       {/* Sticky Footer */}
-      <div className="shrink-0 px-6 py-4 border-t border-gray-200 dark:border-white/[0.06] bg-white dark:bg-slate-900 flex items-center justify-end gap-3">
+      <div className={panelFooterClass + " justify-end"}>
         <button
           type="button"
           onClick={onCancel}
-          className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.08] border border-gray-200 dark:border-white/[0.08] rounded-xl transition-colors"
+          className={panelSecondaryActionClass}
         >
           Cancel
         </button>
         {hasPermission && (
           <button
             type="submit"
-            disabled={isSubmitDisabled}
+            disabled={customFields.blocked || isSubmitDisabled}
             className={cn(
-              'px-6 py-2.5 text-sm font-semibold text-white rounded-xl transition-all shadow-lg shadow-blue-500/25',
+              'h-[42px] px-6 py-2.5 text-sm font-semibold text-white rounded-xl transition-all shadow-lg shadow-primary/25',
               isSubmitDisabled
-                ? 'bg-blue-400 cursor-not-allowed opacity-60'
-                : 'bg-blue-600 hover:bg-blue-700 active:scale-95',
+                ? 'bg-primary cursor-not-allowed opacity-60'
+                : 'bg-primary hover:bg-primary/90 active:scale-95',
             )}
           >
             {isLoading || isSubmitting ? 'Saving...' : isCreateMode ? 'Create Deal' : 'Update Deal'}
@@ -505,61 +450,10 @@ export function DealCreateForm({ onSave, onCancel }: LegacyDealCreateFormProps):
   return <DealForm mode="create" onSubmit={handleSubmit} onCancel={onCancel} />;
 }
 
-// ── Product Interests Multi-Select ─────────────────────────────────────────
-
-interface ProductInterestsSelectProps {
-  id: string;
-  values: string[];
-  onChange: (values: string[]) => void;
-}
-
-function ProductInterestsSelect({ id, values, onChange }: ProductInterestsSelectProps): React.ReactElement {
-  const [selected, setSelected] = React.useState('');
-  const canAdd = PRODUCT_OPTIONS.includes(selected) && !values.includes(selected);
-  const addProduct = (): void => {
-    if (!canAdd) return;
-    onChange([...values, selected]);
-    setSelected('');
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-[1_1_220px]">
-          <select id={id} value={selected} onChange={event => setSelected(event.target.value)} aria-describedby={`${id}-help`}
-            className="w-full min-w-0 appearance-none rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-900 px-3.5 py-2.5 pr-8 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-            <option value="">Select a product interest...</option>
-            {PRODUCT_OPTIONS.map(product => <option key={product} value={product}>{product}</option>)}
-          </select>
-          <ChevronDown size={13} aria-hidden="true" className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-        </div>
-        <Button type="button" variant="outline" disabled={!canAdd} onClick={addProduct} className="h-10 w-20 shrink-0"><Plus />Add</Button>
-      </div>
-      <p id={`${id}-help`} className="text-xs text-slate-500 dark:text-slate-400">Select an interest and add more as needed.</p>
-      {values.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {values.map(product => <span key={product} className="inline-flex max-w-full items-center gap-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] pl-2.5 pr-1 py-1 text-xs text-slate-700 dark:text-slate-300">
-            <span className="min-w-0 break-words">{product}</span>
-            <button type="button" aria-label={`Remove ${product}`} onClick={() => onChange(values.filter(value => value !== product))} className="shrink-0 rounded p-1 hover:bg-slate-200 dark:hover:bg-slate-700"><X size={14} /></button>
-          </span>)}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Reusable Helpers ───────────────────────────────────────────────────────
 
 function SectionHeader({ num, title }: { num: number; title: string }): React.ReactElement {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold shrink-0">
-        {num}
-      </div>
-      <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-wide">{title}</h3>
-      <div className="flex-1 h-px bg-gray-200 dark:bg-white/[0.06]" />
-    </div>
-  );
+  return <PanelSectionHeading number={num}>{title}</PanelSectionHeading>;
 }
 
 function FieldWrap({ label, error, htmlFor, children }: { label: string; error?: string; htmlFor?: string; children: React.ReactNode }): React.ReactElement {

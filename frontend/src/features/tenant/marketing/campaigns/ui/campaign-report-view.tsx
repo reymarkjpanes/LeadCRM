@@ -1,389 +1,226 @@
-﻿import React, { useState, useEffect } from 'react';
-import {
-  Send, Eye, MousePointerClick, X, Sparkles,
-  BarChart2, Monitor, Link2, RefreshCw, Loader2,
-} from 'lucide-react';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip as RechartsTooltip, ResponsiveContainer,
-} from '@/shared/components/charts/ChartComponents';
-import { Campaign } from '@/store/types';
-import { BackButton } from '@/shared/components/ui/back-button';
-import { campaignsApi } from '@/shared/services/campaigns.api';
+'use client';
 
-// ··· Types ····································································
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Copy, Download, Link2, Mail, Send, Target, Users } from 'lucide-react';
+import { toast } from 'sonner';
+import type { CampaignClickedLink, CampaignRecipient } from '@leadcrm/shared';
+import type { Campaign } from '@/store/types';
+import { campaignsApi, type CampaignReportResponse } from '@/shared/services/campaigns.api';
+import { Card } from '@/shared/components/ui/card';
+import { Badge } from '@/shared/components/ui/badge';
+import { Button } from '@/shared/components/ui/button';
+import { RecordBackButton } from '@/shared/components/crm/record-back-button';
+import { FilterButton } from '@/shared/components/crm/filter-button';
+import { ModuleFilterRail, type FilterGroup } from '@/shared/components/crm/module-filter-rail';
+import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
+import { AvatarCell } from '@/shared/components/crm/avatar-cell';
+import { DataLoadingSkeleton, DataLoadingSpinner } from '@/shared/components/crm/data-view-states';
+import { DataGrid, type DataGridColumnDef } from '@/shared/components/data-grid';
+import { formatDateTime } from '@/shared/components/data-grid/cell-renderers';
+import { CampaignStatusBadge, formatCampaignStatus } from './campaign-status-badge';
+import { campaignReportCsv } from '../services/campaign-report-export';
 
-type MetricTab = 'sent' | 'delivered' | 'opened' | 'clicked' | 'bounced';
+const deliveryFilters = ['Delivered', 'Bounced', 'Submitted', 'Sent', 'Failed', 'Pending'];
+const engagementFilters = ['Opened', 'Clicked'];
+const engagement = (value: boolean, label: string) => <span aria-label={value ? label : `Not ${label.toLowerCase()}`}>
+  {value ? <Check size={16} className="text-emerald-600" aria-hidden="true" /> : <span className="text-slate-400" aria-hidden="true">—</span>}
+</span>;
+const recipientColumns: DataGridColumnDef<CampaignRecipient>[] = [
+  { id: 'recipient', header: 'Recipient', accessor: row => row.name, width: 220,
+    cell: (_, row) => <AvatarCell name={row.name} initials={row.name.split(/\s+/).slice(0, 2).map(word => word[0]).join('')} /> },
+  { id: 'email', header: 'Email', accessor: row => row.email || '—', width: 240 },
+  { id: 'delivery', header: 'Delivery Status', accessor: row => row.deliveryStatus, width: 150,
+    cell: (_, row) => <Badge variant={row.deliveryStatus === 'Delivered' ? 'success' : ['Bounced', 'Failed'].includes(row.deliveryStatus) ? 'destructive' : 'secondary'} title={row.failureReason ?? undefined}>{row.deliveryStatus}</Badge> },
+  { id: 'opened', header: 'Opened', accessor: row => row.opened, width: 90, cell: (_, row) => engagement(row.opened, 'Opened') },
+  { id: 'clicked', header: 'Clicked', accessor: row => row.clicked, width: 90, cell: (_, row) => engagement(row.clicked, 'Clicked') },
+  { id: 'activity', header: 'Last Activity', accessor: row => formatDateTime(row.lastActivity), width: 220 },
+  { id: 'actions', header: 'Actions', accessor: () => '', width: 80, cell: (_, row) => <Button variant="ghost" size="icon" disabled={!row.email}
+    aria-label={`Copy email for ${row.name}`} title="Copy email" onClick={async () => {
+      try { await navigator.clipboard.writeText(row.email || ''); toast.success('Email copied.'); }
+      catch { toast.error('Unable to copy email.'); }
+    }}><Copy size={14} /></Button> },
+];
+const linkColumns: DataGridColumnDef<CampaignClickedLink>[] = [
+  { id: 'url', header: 'Link URL', accessor: row => row.url, width: 380, cell: (_, row) =>
+    <a href={/^https?:\/\//i.test(row.url) ? row.url : undefined} title={row.url} aria-label={row.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 text-blue-600 hover:underline">
+      <Link2 size={16} className="shrink-0" aria-hidden="true" /><span className="truncate">{row.url}</span>
+    </a> },
+  { id: 'total', header: 'Total Clicks', accessor: row => row.uniqueClicks, width: 150 },
+];
 
-interface CampaignReportViewProps {
-  campaign: Campaign;
-  activeMetricTab: MetricTab;
-  onMetricTabChange: (tab: MetricTab) => void;
-  onBack: () => void;
-}
-
-interface LiveMetrics {
-  sentCount: number;
-  openedCount: number;
-  clickedCount: number;
-  engagement: number;
-  deliveredCount?: number;
-  bouncedCount?: number;
-  recipientCount?: number;
-  failedCount?: number;
-}
-
-// ··· Helpers ·································································
-
-function deriveMetrics(liveMetrics: LiveMetrics) {
-  const sent      = liveMetrics.sentCount ?? 0;
-  const opened    = liveMetrics.openedCount ?? 0;
-  const clicked   = liveMetrics.clickedCount ?? 0;
-  const delivered = liveMetrics.deliveredCount ?? 0;
-  const deliveredPct = sent > 0 ? Math.round(delivered / sent * 100) : 0;
-  const openedPct    = sent > 0 ? Math.round((opened / sent) * 100) : 0;
-  const clickedPct   = sent > 0 ? Math.round((clicked / sent) * 100) : 0;
-  const bounce = liveMetrics.bouncedCount ?? 0;
-  return { sent, delivered, deliveredPct, opened, openedPct, clicked, clickedPct, bounce };
-}
-
-function getMetricTabActiveClass(tab: MetricTab, active: MetricTab): string {
-  const colorMap: Record<MetricTab, string> = {
-    sent:      'bg-blue-50/50 dark:bg-blue-950/20 border-[#0A6EFF] shadow-[0_0_15px_rgba(10,110,255,0.1)]',
-    delivered: 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
-    opened:    'bg-blue-50/50 dark:bg-blue-950/20 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.1)]',
-    clicked:   'bg-blue-50/50 dark:bg-blue-950/20 border-teal-500 shadow-[0_0_15px_rgba(20,184,166,0.1)]',
-    bounced:   'bg-red-50/50 dark:bg-red-950/20 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.1)]',
-  };
-  const inactive = 'bg-white dark:bg-white/2 border-gray-200 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/[0.12]';
-  return tab === active ? colorMap[tab] : inactive;
-}
-
-// ··· Inline empty state for chart panels ·····································
-
-function ChartEmptyState({ icon, message }: { icon: React.ReactNode; message: string }) {
-  return (
-    <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400 dark:text-slate-500">
-      <div className="p-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-400 dark:text-slate-500">
-        {icon}
-      </div>
-      <p className="text-sm text-slate-500 dark:text-slate-400">{message}</p>
-    </div>
-  );
-}
-
-// ··· Skeleton cards ··························································
-
-function SkeletonCard() {
-  return (
-    <div className="rounded-xl p-5 border border-gray-200 dark:border-white/5 bg-white dark:bg-white/2 animate-pulse">
-      <div className="h-3 w-16 bg-slate-200 dark:bg-white/10 rounded mb-3" />
-      <div className="h-7 w-20 bg-slate-200 dark:bg-white/10 rounded mb-2" />
-      <div className="h-2.5 w-12 bg-slate-100 dark:bg-white/5 rounded" />
-    </div>
-  );
-}
-
-// ··· Component ································································
-
-export function CampaignReportView({
-  campaign,
-  activeMetricTab,
-  onMetricTabChange,
-  onBack,
-}: CampaignReportViewProps) {
-  const [liveMetrics, setLiveMetrics] = useState<LiveMetrics>({
-    sentCount:    campaign.sentCount,
-    openedCount:  campaign.openedCount ?? 0,
-    clickedCount: campaign.clickedCount ?? 0,
-    engagement:   campaign.engagement,
-    deliveredCount: campaign.deliveredCount, bouncedCount: campaign.bouncedCount,
-    recipientCount: campaign.recipientCount, failedCount: campaign.failedCount,
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError]   = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchLatest() {
-      setIsLoading(true);
-      setHasError(false);
-      try {
-        const response = await campaignsApi.get(campaign.id);
-        if (!cancelled) {
-          const c = response.data;
-          setLiveMetrics({
-            sentCount:    c.sentCount,
-            openedCount:  c.openedCount ?? 0,
-            clickedCount: c.clickedCount ?? 0,
-            engagement:   c.engagement,
-            deliveredCount: c.deliveredCount, bouncedCount: c.bouncedCount,
-            recipientCount: c.recipientCount, failedCount: c.failedCount,
-          });
-        }
-      } catch {
-        if (!cancelled) setHasError(true);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
+export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; onBack: () => void }) {
+  const [report, setReport] = useState<CampaignReportResponse['data'] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [deliveryFilter, setDeliveryFilter] = useState<string[]>([]);
+  const [engagementFilter, setEngagementFilter] = useState<string[]>([]);
+  const [showAllLinks, setShowAllLinks] = useState(false);
+  const request = useRef(0);
+  const inFlight = useRef(false);
+  const activeRequest = useRef<AbortController | null>(null);
+  const fetchReport = useCallback(async (background = false) => {
+    if (inFlight.current) { if (!background) setLoading(true); return; }
+    inFlight.current = true;
+    const sequence = ++request.current;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    if (!background) setLoading(true);
+    setError('');
+    try {
+      const result = await campaignsApi.report(campaign.id, controller.signal);
+      if (sequence === request.current) setReport(result.data);
+    } catch (failure) {
+      if (sequence === request.current) setError(failure instanceof Error ? failure.message : 'Unable to load campaign report. Please try again.');
+    } finally {
+      if (sequence === request.current) { inFlight.current = false; setLoading(false); }
     }
-
-    void fetchLatest();
-    return () => { cancelled = true; };
   }, [campaign.id]);
+  useEffect(() => {
+    setReport(null); setSearch(''); setShowFilters(false); setFilterSearch('');
+    setDeliveryFilter([]); setEngagementFilter([]); setShowAllLinks(false);
+    inFlight.current = false;
+    void fetchReport();
+    const refresh = () => { if (!document.hidden) void fetchReport(true); };
+    const interval = setInterval(refresh, 2500);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      request.current++;
+      activeRequest.current?.abort();
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [fetchReport]);
 
-  const m = deriveMetrics(liveMetrics);
-
-  // Single real data point for the engagement chart
-  const engagementChartData = m.sent > 0
-    ? [{ name: campaign.name, opens: m.opened, clicks: m.clicked }]
-    : [];
-
-  const metricPanelText: Record<MetricTab, string> = {
-    sent:      `Emails were submitted to the provider for ${m.sent.toLocaleString()} contacts in the target segment.`,
-    delivered: `${m.delivered.toLocaleString()} emails were confirmed delivered (${m.deliveredPct}% delivery rate).`,
-    opened:    `${m.opened.toLocaleString()} contacts opened the campaign (${m.openedPct}% open rate).`,
-    clicked:   `${m.clicked.toLocaleString()} contacts clicked a link in the campaign (${m.clickedPct}% click rate).`,
-    bounced:   `${m.bounce.toLocaleString()} recipients bounced or were blocked by the provider.`,
+  const recipients = report?.recipients ?? [];
+  const visibleRecipients = useMemo(() => recipients.filter(row => {
+    const query = search.trim().toLowerCase();
+    return `${row.name} ${row.email || ''} ${row.phone || ''}`.toLowerCase().includes(query) &&
+      (!deliveryFilter.length || deliveryFilter.includes(row.deliveryStatus)) &&
+      (!engagementFilter.length || engagementFilter.some(value => value === 'Opened' ? row.opened : row.clicked));
+  }), [recipients, search, deliveryFilter, engagementFilter]);
+  const current = report ?? campaign;
+  const status = formatCampaignStatus(current.status);
+  const isSms = current.type.toUpperCase() === 'SMS';
+  const columns: DataGridColumnDef<CampaignRecipient>[] = isSms ? recipientColumns.filter(c => !['opened', 'clicked'].includes(c.id)).map(c => c.id === 'email' ? { ...c, id: 'phone', header: 'Phone', accessor: row => row.phone || '—' } : c.id === 'actions' ? { ...c, cell: (_, row) => <Button variant="ghost" size="icon" disabled={!row.phone} aria-label={`Copy phone for ${row.name}`} title="Copy phone" onClick={async () => { try { await navigator.clipboard.writeText(row.phone || ''); toast.success('Phone copied.'); } catch { toast.error('Unable to copy phone.'); } }}><Copy size={14} /></Button> } : c) : recipientColumns;
+  const filterGroups: FilterGroup[] = [{ id: 'delivery', label: 'Delivery Status', items:
+    deliveryFilters.filter(value => !isSms || value !== 'Bounced').map(value => ({ id: value, label: value,
+      count: recipients.filter(row => row.deliveryStatus === value).length, isChecked: deliveryFilter.includes(value) })) },
+    ...(!isSms ? [{ id: 'engagement', label: 'Engagement', items: engagementFilters.map(value => ({ id: value, label: value,
+      count: recipients.filter(row => value === 'Opened' ? row.opened : row.clicked).length, isChecked: engagementFilter.includes(value) })) }] : [])];
+  const toggleFilter = (group: string, value: string) => {
+    const update = group === 'delivery' ? setDeliveryFilter : setEngagementFilter;
+    update(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value]);
   };
-
-  const metricPanelTitle: Record<MetricTab, string> = {
-    sent:      'Sent Overview',
-    delivered: 'Delivery Report',
-    opened:    'Open Rate',
-    clicked:   'Click Performance',
-    bounced:   'Bounces & Deliverability',
-  };
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="flex items-center gap-4 mb-6">
-          <BackButton label="Back to Campaigns" onClick={onBack} />
-          <div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {campaign.name} Report
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading metrics…</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
-        </div>
-        <div className="flex items-center justify-center py-10 gap-2 text-slate-400 dark:text-slate-500">
-          <Loader2 size={16} className="animate-spin" />
-          <span className="text-sm">Fetching live data…</span>
-        </div>
-      </div>
-    );
+  const initialLoading = loading && !report;
+  const count = report?.recipientCount ?? 0;
+  const metrics: { label: string; value: number | string }[] = isSms ? [
+    { label: 'Recipients', value: count }, { label: 'Submitted', value: report?.sentCount ?? 0 },
+    { label: 'Sent', value: recipients.filter(r => ['Sent', 'Delivered'].includes(r.deliveryStatus)).length },
+    { label: 'Delivered', value: report?.deliveredCount ?? 0 },
+    { label: 'Failed', value: report?.failedCount ?? 0 },
+  ] : [
+    { label: 'Recipients', value: count },
+    { label: 'Delivered', value: report?.deliveredCount ?? 0 },
+    { label: 'Submitted', value: report?.sentCount ?? 0 },
+    { label: 'Opened', value: report?.openedCount ?? 0 },
+    { label: 'Total Clicks', value: report?.clickedCount ?? 0 },
+    { label: 'Bounced', value: report?.bouncedCount ?? 0 },
+  ];
+  const trackingMessage = report?.trackingStatus === 'draft' ? 'Save and send this draft to begin tracking.'
+    : report?.trackingStatus === 'not_sent' ? 'This campaign has not been submitted.'
+    : report?.trackingStatus === 'no_links' ? 'This campaign contains no trackable HTTP or HTTPS links.'
+    : (report?.clickedCount ?? 0) > 0 ? 'Clicks were recorded, but their destination URLs are unavailable.'
+    : 'No links have been clicked yet.';
+  function exportReport() {
+    if (!report || error) return;
+    const filter = [deliveryFilter.length ? `Delivery: ${deliveryFilter.join(' or ')}` : '',
+      engagementFilter.length ? `Engagement: ${engagementFilter.join(' or ')}` : ''].filter(Boolean).join('; ') || 'All recipients';
+    const url = URL.createObjectURL(new Blob([campaignReportCsv(report, visibleRecipients, { search, filter })], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'campaign-report.csv'; link.click(); URL.revokeObjectURL(url);
   }
+  const details = [
+    { label: 'Type', value: current.type === 'Sms' ? 'SMS' : current.type, icon: Mail },
+    { label: 'Status', value: status, icon: Check },
+    { label: 'Target Segment', value: current.targetAudience, icon: Target },
+    { label: 'Recipients', value: `${count} recipient${count === 1 ? '' : 's'}`, icon: Users },
+    { label: 'Submitted', value: formatDateTime(current.sentAt), icon: Send },
+  ];
 
-  if (hasError) {
-    return (
-      <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="flex items-center gap-4 mb-6">
-          <BackButton label="Back to Campaigns" onClick={onBack} />
-          <div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {campaign.name} Report
-            </h2>
+  return <div className="w-full min-w-0 space-y-6">
+    <header className="min-w-0">
+      <RecordBackButton label="Campaigns" onClick={onBack} />
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Badge className="uppercase">{current.type} campaign</Badge>
+        <CampaignStatusBadge status={current.status} />
+      </div>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="break-words text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{current.name} Report</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Performance overview and recipient activity</p>
+        </div>
+        <Button variant="outline" size="sm" className="w-8 shrink-0 px-0 sm:w-auto sm:px-3" aria-label="Export report" title="Export report"
+          onClick={exportReport} disabled={!report || !!error || loading}><Download size={14} aria-hidden="true" /><span className="hidden sm:inline">Export report</span></Button>
+      </div>
+    </header>
+    {error && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/20 dark:border-rose-900 dark:text-rose-300">
+      <span className="min-w-0 flex-1">{error}{report && ' Previously loaded data is shown.'}</span>
+      <Button variant="outline" onClick={() => void fetchReport()} disabled={loading}>Retry</Button>
+    </div>}
+    {current.submissionInterruptedAt && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20 dark:border-amber-900 dark:text-amber-200">Submission was interrupted. Recipients marked as not sent were never submitted. Unconfirmed recipients may have been accepted. Review recipient failure reasons and provider history before sending again; no recipients were automatically retried.</div>}
+    {(report || initialLoading) && <>
+      <section aria-label="Campaign metrics" aria-busy={initialLoading} className={`grid grid-cols-1 min-[360px]:grid-cols-2 md:grid-cols-3 ${isSms ? 'xl:grid-cols-5' : 'xl:grid-cols-6'} gap-3`}>
+        {metrics.map((metric, index) => <Card key={metric.label} className="min-w-0 rounded-lg p-4 shadow-sm">
+          <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">{metric.label}</h2>
+          {initialLoading ? <div aria-hidden="true" className="h-8 w-20 animate-pulse rounded bg-slate-100 dark:bg-slate-800" /> :
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><span className="text-2xl font-semibold text-slate-900 dark:text-white">{metric.value.toLocaleString()}</span>
+              {isSms && index > 0 && typeof metric.value === 'number' && <span className={index === 4 ? 'text-sm text-rose-600' : 'text-sm text-slate-500 dark:text-slate-400'}>{count ? Math.round(metric.value / count * 100) : 0}%</span>}
+            </div>}
+        </Card>)}
+      </section>
+      <section aria-labelledby="campaign-details-title">
+        <h2 id="campaign-details-title" className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Campaign details</h2>
+        <Card className="rounded-lg shadow-none overflow-hidden">
+          {initialLoading ? <div aria-hidden="true"><DataLoadingSkeleton rowCount={2} columnCount={3} /></div> :
+            <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+              {details.map(({ label, value, icon: Icon }) => <div key={label} className="flex min-w-0 items-start gap-3 border-b border-slate-100 dark:border-slate-800 p-4 xl:border-b-0 xl:border-r last:border-0">
+                <span className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2 text-blue-500"><Icon size={17} aria-hidden="true" /></span>
+                <div className="min-w-0"><dt className="text-[10px] uppercase text-slate-500 dark:text-slate-400">{label}</dt><dd className="mt-1 break-words text-xs text-slate-900 dark:text-white">{value || '—'}</dd></div>
+              </div>)}
+            </dl>}
+        </Card>
+      </section>
+      <section aria-labelledby="recipients-title" className="min-w-0 space-y-3" aria-busy={loading}>
+        <div><h2 id="recipients-title" className="text-sm font-semibold text-slate-900 dark:text-white">Recipient performance</h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{initialLoading ? 'Recipient activity' : `${visibleRecipients.length} of ${recipients.length} recipients`}</p></div>
+        <ModuleTableToolbar label="Recipients" search={search} onSearch={setSearch} placeholder="Search recipients..." refreshing={loading} onRefresh={() => fetchReport()}
+          filter={<FilterButton title="recipients" open={showFilters} active={!!(deliveryFilter.length || engagementFilter.length)} onClick={() => setShowFilters(value => !value)} />} />
+        <div className="flex min-w-0 items-start gap-3">
+          <ModuleFilterRail showFilters={showFilters} filterGroups={filterGroups} onToggleFilters={() => setShowFilters(false)}
+            filterSearchTerm={filterSearch} onFilterSearch={setFilterSearch} onFilterToggle={toggleFilter} totalRecords={recipients.length}
+            onClearFilters={() => { setDeliveryFilter([]); setEngagementFilter([]); setFilterSearch(''); setSearch(''); }} />
+          <div className="relative min-w-0 flex-1">
+            <DataGrid ariaLabel="Recipient performance table" columns={columns} data={visibleRecipients} getRowId={row => row.id} isLoading={initialLoading} height="auto"
+              emptyMessage={recipients.length ? 'No recipients match your search and filter.' : 'No recipients yet.'} />
+            {loading && !initialLoading && <div className="absolute inset-0 z-30 flex items-center justify-center overflow-hidden rounded-xl bg-background/90">
+              <DataLoadingSpinner label="Refreshing recipients" hideLabel />
+            </div>}
           </div>
         </div>
-        <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-          <div className="p-3 rounded-xl bg-red-500/10 text-red-500">
-            <X size={24} />
-          </div>
-          <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Failed to load campaign metrics</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">There was a problem fetching the latest data.</p>
-          <button
-            type="button"
-            onClick={() => {
-              setHasError(false);
-              setIsLoading(true);
-              campaignsApi.get(campaign.id)
-                .then(r => setLiveMetrics({
-                  sentCount:    r.data.sentCount,
-                  openedCount:  r.data.openedCount ?? 0,
-                  clickedCount: r.data.clickedCount ?? 0,
-                  engagement:   r.data.engagement,
-                  deliveredCount: r.data.deliveredCount, bouncedCount: r.data.bouncedCount,
-                  recipientCount: r.data.recipientCount, failedCount: r.data.failedCount,
-                }))
-                .catch(() => setHasError(true))
-                .finally(() => setIsLoading(false));
-            }}
-            className="flex items-center gap-2 h-9 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors shadow-md shadow-blue-500/20 active:scale-95"
-          >
-            <RefreshCw size={14} />
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <BackButton label="Back to Campaigns" onClick={onBack} />
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-            {campaign.name} Report
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{liveMetrics.recipientCount ?? 0} eligible recipients · {m.sent} submitted · {liveMetrics.failedCount ?? 0} submission failures</p>
-        </div>
-      </div>
-
-      {/* Metric cards */}
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-
-          {/* Sent */}
-          <button type="button" onClick={() => onMetricTabChange('sent')}
-            className={`text-left rounded-xl p-5 border transition-all ${getMetricTabActiveClass('sent', activeMetricTab)}`}>
-            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Total Submitted</h3>
-            <div className="text-2xl font-black text-slate-900 dark:text-white">{m.sent.toLocaleString()}</div>
-            <div className="text-xs text-slate-400 dark:text-slate-500 mt-1.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-slate-400 rounded-full" /> Accepted by provider
-            </div>
-          </button>
-
-          {/* Delivered */}
-          <button type="button" onClick={() => onMetricTabChange('delivered')}
-            className={`text-left rounded-xl p-5 border transition-all ${getMetricTabActiveClass('delivered', activeMetricTab)}`}>
-            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-              Delivered
-            </h3>
-            <div className="text-2xl font-black text-slate-900 dark:text-white">{m.delivered.toLocaleString()}</div>
-            <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1 font-medium">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> {m.deliveredPct}% Rate
-            </div>
-          </button>
-
-          {/* Open rate */}
-          <button type="button" onClick={() => onMetricTabChange('opened')}
-            className={`text-left rounded-xl p-5 border transition-all ${getMetricTabActiveClass('opened', activeMetricTab)}`}>
-            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Open Rate</h3>
-            <div className="text-2xl font-black text-slate-900 dark:text-white">{m.openedPct}%</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> {m.opened.toLocaleString()} opened
-            </div>
-          </button>
-
-          {/* Click rate */}
-          <button type="button" onClick={() => onMetricTabChange('clicked')}
-            className={`text-left rounded-xl p-5 border transition-all ${getMetricTabActiveClass('clicked', activeMetricTab)}`}>
-            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Click Rate</h3>
-            <div className="text-2xl font-black text-slate-900 dark:text-white">{m.clickedPct}%</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-teal-500 rounded-full" /> {m.clicked.toLocaleString()} clicked
-            </div>
-          </button>
-
-          {/* Bounced */}
-          <button type="button" onClick={() => onMetricTabChange('bounced')}
-            className={`text-left rounded-xl p-5 border transition-all ${getMetricTabActiveClass('bounced', activeMetricTab)}`}>
-            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Bounce Rate</h3>
-            <div className="text-2xl font-black text-slate-500 dark:text-slate-400">{m.sent ? Math.round(m.bounce / m.sent * 100) : 0}%</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-red-500 rounded-full" /> {m.bounce.toLocaleString()} bounced
-            </div>
-          </button>
-        </div>
-
-        {/* Active metric panel */}
-        <div className="p-4 bg-slate-50 dark:bg-[#0c0f16] border border-gray-200 dark:border-white/4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-1 duration-150">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-lg ${
-              activeMetricTab === 'sent'      ? 'bg-blue-500/10 text-blue-500' :
-              activeMetricTab === 'delivered' ? 'bg-emerald-500/10 text-emerald-500' :
-              activeMetricTab === 'opened'    ? 'bg-sky-500/10 text-sky-500' :
-              activeMetricTab === 'clicked'   ? 'bg-teal-500/10 text-teal-500' :
-                                                'bg-red-500/10 text-red-500'
-            }`}>
-              {activeMetricTab === 'sent'      && <Send size={18} />}
-              {activeMetricTab === 'delivered' && <Sparkles size={18} />}
-              {activeMetricTab === 'opened'    && <Eye size={18} />}
-              {activeMetricTab === 'clicked'   && <MousePointerClick size={18} />}
-              {activeMetricTab === 'bounced'   && <X size={18} />}
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest">
-                {metricPanelTitle[activeMetricTab]}
-              </h4>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                {metricPanelText[activeMetricTab]}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 bg-white dark:bg-black/20 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5">
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium font-mono">Status:</span>
-            <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-bold font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> Live
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Engagement over time */}
-        <div className="bg-white dark:bg-white/2 rounded-xl p-5 border border-gray-200 dark:border-white/5">
-          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Engagement Overview</h3>
-          {engagementChartData.length > 0 ? (
-            <div className="h-64 relative w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <AreaChart data={engagementChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorOpens" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0A6EFF" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#0A6EFF" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    itemStyle={{ color: '#e2e8f0' }}
-                  />
-                  <Area type="monotone" dataKey="opens" stroke="#0A6EFF" fillOpacity={1} fill="url(#colorOpens)" name="Opens" />
-                  <Area type="monotone" dataKey="clicks" stroke="#10B981" fillOpacity={1} fill="url(#colorClicks)" name="Clicks" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <ChartEmptyState
-              icon={<BarChart2 size={20} />}
-              message="Detailed time-series data not available yet"
-            />
-          )}
-        </div>
-
-        {/* Device breakdown */}
-        <div className="bg-white dark:bg-white/2 rounded-xl p-5 border border-gray-200 dark:border-white/5">
-          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Device Breakdown</h3>
-          <ChartEmptyState
-            icon={<Monitor size={20} />}
-            message="Device tracking not available yet"
-          />
-        </div>
-
-        {/* Top links */}
-        <div className="bg-white dark:bg-white/2 rounded-xl p-5 border border-gray-200 dark:border-white/5">
-          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Top Links Clicked</h3>
-          <ChartEmptyState
-            icon={<Link2 size={20} />}
-            message="Link click tracking not available yet"
-          />
-        </div>
-      </div>
-    </div>
-  );
+      </section>
+      {!isSms && <section aria-labelledby="top-links-title" className="min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 id="top-links-title" className="text-sm font-semibold text-slate-900 dark:text-white">Top Clicked Links</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Each recipient counts once per link.</p></div>
+          {(report?.topLinks.length ?? 0) > 5 && <Button variant="outline" size="sm" onClick={() => setShowAllLinks(value => !value)}>{showAllLinks ? 'Show Top Five' : 'Show All'}</Button>}</div>
+        {initialLoading ? <div aria-hidden="true"><DataLoadingSkeleton rowCount={1} columnCount={2} /></div> : report?.topLinks.length ?
+          <DataGrid ariaLabel="Top links clicked table" columns={linkColumns} data={showAllLinks ? report.topLinks : report.topLinks.slice(0, 5)} getRowId={row => row.url} height="auto" /> :
+          <Card className="rounded-lg p-4 shadow-none text-xs text-slate-500 dark:text-slate-400">{trackingMessage}</Card>}
+      </section>}
+    </>}
+  </div>;
 }

@@ -1,0 +1,470 @@
+[
+  {
+    "number": 1,
+    "title": "Introduction",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "These Terms of Service (\"Terms\") govern the authorized use of LeadCRM, an internal Customer Relationship Management system developed by the LeadCRM Development Team, an external student capstone development team, for Camxian Technologies (\"Company\")."
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM supports the Company's customer relationship management, sales operations, employee task coordination, business communications, workflow automation, and performance reporting."
+      },
+      {
+        "type": "paragraph",
+        "text": "The system is intended for authorized Company personnel and other expressly approved users."
+      },
+      {
+        "type": "paragraph",
+        "text": "By accessing LeadCRM, users agree to comply with applicable Company policies, these Terms, and relevant laws."
+      }
+    ]
+  },
+  {
+    "number": 2,
+    "title": "System Ownership and Development",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM is a CRM application developed by the LeadCRM Development Team as a student capstone project for the Company's internal business operations."
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies operates LeadCRM for its authorized business activities, determines permitted business use, administers organizational accounts through designated personnel, establishes applicable organizational policies, and is responsible for its applicable legal and privacy obligations."
+      },
+      {
+        "type": "paragraph",
+        "text": "The LeadCRM Development Team consists of student capstone developers who are separate from Camxian Technologies' employees. The team developed LeadCRM for the organization and may provide maintenance or technical assistance where authorized. The team does not automatically own company records or act as Camxian Technologies' Data Protection Officer."
+      },
+      {
+        "type": "paragraph",
+        "text": "Ownership of software, source code, branding, and related intellectual property remains subject to applicable employment, development, licensing, and other agreements."
+      }
+    ]
+  },
+  {
+    "number": 3,
+    "title": "Authorized Access",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Only authorized users may access LeadCRM."
+      },
+      {
+        "type": "paragraph",
+        "text": "System accounts are created or managed by designated administrators."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must use their own approved credentials."
+      },
+      {
+        "type": "paragraph",
+        "text": "Account access is subject to assigned roles, permissions, account status, and other applicable security controls."
+      },
+      {
+        "type": "paragraph",
+        "text": "No user is automatically entitled to access all Company information."
+      }
+    ]
+  },
+  {
+    "number": 4,
+    "title": "User Responsibilities",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "All authorized users must:"
+      },
+      {
+        "type": "list",
+        "ordered": true,
+        "items": [
+          "Protect their login credentials.",
+          "Maintain accurate business records.",
+          "Access information only for approved purposes.",
+          "Respect assigned roles and permissions.",
+          "Protect confidential customer and Company data.",
+          "Use LeadCRM only for legitimate business activities.",
+          "Report suspected security incidents.",
+          "Comply with applicable Company policies and Philippine laws."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Account sharing is prohibited unless specifically authorized through an approved organizational procedure."
+      }
+    ]
+  },
+  {
+    "number": 5,
+    "title": "Acceptable Use",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM may be used for authorized activities such as:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Managing leads and contacts.",
+          "Maintaining customer accounts.",
+          "Tracking deals and sales opportunities.",
+          "Assigning and completing tasks.",
+          "Recording customer communications.",
+          "Managing authorized campaigns.",
+          "Running approved workflow automations.",
+          "Reviewing permitted reports.",
+          "Managing system users and permissions."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Use must remain related to legitimate Company operations."
+      }
+    ]
+  },
+  {
+    "number": 6,
+    "title": "Prohibited Activities",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Users must not:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Access records without authorization.",
+          "Share account passwords.",
+          "Bypass system security controls.",
+          "Extract or disclose confidential records without permission.",
+          "Enter deliberately false business information.",
+          "Manipulate sales results or reporting data.",
+          "Delete information to conceal unauthorized activities.",
+          "Use Company information for personal gain without authorization.",
+          "Send unlawful or unauthorized marketing messages.",
+          "Introduce malicious software.",
+          "Disrupt application availability.",
+          "Attempt unauthorized access to another user's account.",
+          "Interfere with audit logs or security mechanisms."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Violations may result in access restrictions, disciplinary action where applicable, or other lawful measures."
+      }
+    ]
+  },
+  {
+    "number": 7,
+    "title": "Roles and Permissions",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM uses role-based access control."
+      },
+      {
+        "type": "paragraph",
+        "text": "Administrators may assign users to available roles with defined permissions."
+      },
+      {
+        "type": "paragraph",
+        "text": "These permissions may determine whether a user can view, create, edit, archive, assign, or manage specific records and modules."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must not attempt to perform actions beyond their authorized permissions."
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies may modify user permissions based on legitimate operational and security requirements."
+      }
+    ]
+  },
+  {
+    "number": 8,
+    "title": "Customer and Business Information",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Customer records, sales activities, internal notes, and related information processed through LeadCRM must be used only for authorized Company business."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must maintain reasonable accuracy and confidentiality."
+      },
+      {
+        "type": "paragraph",
+        "text": "Business records and related access rights are governed by applicable Company policies, contractual arrangements, intellectual property rules, and applicable law."
+      },
+      {
+        "type": "paragraph",
+        "text": "The creation of a record does not grant a user personal ownership of that information."
+      }
+    ]
+  },
+  {
+    "number": 9,
+    "title": "Communications and Marketing",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Users authorized to send email or SMS campaigns must ensure that communications:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Are related to legitimate Company purposes.",
+          "Use appropriately authorized contact information.",
+          "Comply with applicable privacy and communications laws.",
+          "Respect relevant marketing preferences.",
+          "Do not contain deceptive or malicious content.",
+          "Do not improperly disclose confidential information."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must not use LeadCRM to send unauthorized mass communications."
+      }
+    ]
+  },
+  {
+    "number": 10,
+    "title": "Workflow Automation",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Authorized users may configure or operate supported workflows within their assigned permissions."
+      },
+      {
+        "type": "paragraph",
+        "text": "Workflow configurations must serve legitimate business purposes."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must review relevant automation settings and avoid actions that would improperly modify records, send unwanted communications, or create misleading business information."
+      },
+      {
+        "type": "paragraph",
+        "text": "Significant unexpected workflow behavior should be reported through the Company's approved support procedures."
+      }
+    ]
+  },
+  {
+    "number": 11,
+    "title": "Dashboard and Reporting",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM provides performance reporting for authorized organizational use."
+      },
+      {
+        "type": "paragraph",
+        "text": "Dashboard metrics, charts, and sales reports depend on the quality and completeness of the underlying records."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must not intentionally manipulate data to misrepresent Company performance."
+      },
+      {
+        "type": "paragraph",
+        "text": "Reports should be validated before making significant business or financial decisions."
+      },
+      {
+        "type": "paragraph",
+        "text": "LeadCRM reporting is not automatically a substitute for audited financial statements."
+      }
+    ]
+  },
+  {
+    "number": 12,
+    "title": "Privacy and Confidentiality",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies processes personal information in accordance with applicable laws and its approved Privacy Policy."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must comply with organizational confidentiality requirements."
+      },
+      {
+        "type": "paragraph",
+        "text": "Unauthorized copying, disclosure, or use of confidential information is prohibited."
+      }
+    ]
+  },
+  {
+    "number": 13,
+    "title": "System Availability",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies or its authorized technical service providers, including the LeadCRM Development Team where expressly permitted, may perform maintenance, updates, repairs, and security improvements."
+      },
+      {
+        "type": "paragraph",
+        "text": "Temporary disruptions may occur because of:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Maintenance.",
+          "System upgrades.",
+          "Network interruptions.",
+          "Third-party provider failures.",
+          "Security incidents.",
+          "Infrastructure problems."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Users should report technical concerns through approved support channels."
+      },
+      {
+        "type": "paragraph",
+        "text": "No separate uptime guarantee is established unless expressly agreed in writing."
+      }
+    ]
+  },
+  {
+    "number": 14,
+    "title": "Account Suspension or Deactivation",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies may restrict or deactivate an account when justified by:"
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          "Employment or authorization changes.",
+          "Security concerns.",
+          "Violation of Company policies.",
+          "Unauthorized access.",
+          "Legitimate administrative requirements.",
+          "Applicable legal obligations."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Related business records may be retained where appropriate under approved retention policies and applicable law."
+      },
+      {
+        "type": "paragraph",
+        "text": "Account deactivation does not automatically mean every associated business record is deleted."
+      }
+    ]
+  },
+  {
+    "number": 15,
+    "title": "Third-Party Services",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM may use approved external services for email, messaging, hosting, database operations, and storage."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must not connect unauthorized third-party accounts or disclose integration credentials."
+      },
+      {
+        "type": "paragraph",
+        "text": "Third-party services may be governed by their own applicable agreements and terms."
+      }
+    ]
+  },
+  {
+    "number": 16,
+    "title": "Intellectual Property",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM's software, branding, designs, and related materials are subject to applicable intellectual property rights."
+      },
+      {
+        "type": "paragraph",
+        "text": "Users must not reproduce, distribute, resell, or commercially exploit protected components without authorization."
+      },
+      {
+        "type": "paragraph",
+        "text": "Nothing in these Terms overrides applicable open-source licenses or established contractual rights."
+      }
+    ]
+  },
+  {
+    "number": 17,
+    "title": "Limitation of Liability",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "LeadCRM is provided for authorized Company operations, subject to applicable Company agreements and legal obligations."
+      },
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies does not guarantee uninterrupted or error-free operation."
+      },
+      {
+        "type": "paragraph",
+        "text": "Nothing in these Terms limits responsibility or rights where such limitation is prohibited by applicable law."
+      }
+    ]
+  },
+  {
+    "number": 18,
+    "title": "Updates to These Terms",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Camxian Technologies may revise these Terms to reflect operational, technical, policy, or legal changes."
+      },
+      {
+        "type": "paragraph",
+        "text": "The latest approved Terms and effective date will be made available to authorized users."
+      },
+      {
+        "type": "paragraph",
+        "text": "Material changes will be communicated as appropriate."
+      }
+    ]
+  },
+  {
+    "number": 19,
+    "title": "Governing Law",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "These Terms are governed by the applicable laws of the Republic of the Philippines."
+      },
+      {
+        "type": "paragraph",
+        "text": "Any disputes or concerns shall be handled in accordance with relevant laws, Company policies, and existing contractual arrangements."
+      }
+    ]
+  },
+  {
+    "number": 20,
+    "title": "Contact and Support",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "For questions or concerns about LeadCRM:"
+      },
+      {
+        "type": "paragraph",
+        "text": "**Camxian Technologies**  \nApplication: LeadCRM  \nDeveloped by: LeadCRM Development Team (Student Capstone Project)  \nWebsite: https://lead-crm.tech  \nSupport Email: leadcrm.tech@gmail.com  \nBusiness Address: 180 Dr. Sixto Ave. Bgy Caniogan, Pasig City, Metro Manila"
+      },
+      {
+        "type": "paragraph",
+        "text": "Users should report technical issues, security concerns, and unauthorized activities through approved Company channels."
+      }
+    ]
+  }
+]

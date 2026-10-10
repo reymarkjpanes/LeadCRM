@@ -15,6 +15,7 @@ import { contactsApi } from '@/shared/services/contacts.api';
 import { dealsApi } from '@/shared/services/deals.api';
 vi.mock('@/shared/services/workflows.api', () => ({
   workflowsApi: { test: vi.fn(), getExecutions: vi.fn() },
+  withWorkflowTimeout: <T,>(request: Promise<T>) => request,
 }));
 vi.mock('@/shared/services/contacts.api', () => ({
   contactsApi: { list: vi.fn() },
@@ -98,6 +99,7 @@ describe('workflow test and activity', () => {
       .mockRejectedValueOnce(new Error('Temporary failure'))
       .mockResolvedValue({
         success: true,
+        meta: { total: 1, page: 1, limit: 25, hasMore: false },
         data: [
           {
             id: 'run',
@@ -123,11 +125,12 @@ describe('workflow test and activity', () => {
       } as never);
     render(<WorkflowRuns workflowId="saved-workflow" />);
     await screen.findByText('Temporary failure');
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh activity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh workflow activity' }));
     await screen.findByText('Action disabled');
     expect(workflowsApi.getExecutions).toHaveBeenLastCalledWith(
       'saved-workflow',
       1,
+      25,
     );
   });
 });

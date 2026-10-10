@@ -19,6 +19,7 @@ const GROUP_SELECT = {
           firstName: true,
           lastName:  true,
           email:     true,
+          role:      true,
         },
       },
     },
@@ -47,27 +48,36 @@ export async function createGroup(tenantId: string, name: string) {
   });
 }
 
-export async function updateGroup(id: string, name: string) {
+export async function updateGroup(id: string, tenantId: string, name: string) {
   return prisma.tenantGroup.update({
-    where:  { id },
+    where:  { id, tenantId },
     data:   { name },
     select: GROUP_SELECT,
   });
 }
 
-export async function deleteGroup(id: string) {
-  // Cascade in DB removes TenantGroupMember rows automatically
-  return prisma.tenantGroup.delete({ where: { id } });
+export async function deleteEmptyGroup(id: string, tenantId: string) {
+  // The predicate and serializable transaction protect against concurrent additions.
+  return prisma.$transaction(tx => tx.tenantGroup.deleteMany({
+    where: { id, tenantId, members: { none: {} } },
+  }), { isolationLevel: 'Serializable' });
 }
 
 export async function addGroupMember(groupId: string, userId: string, tenantId: string) {
-  return prisma.tenantGroupMember.upsert({
-    where:  { groupId_userId: { groupId, userId } },
-    create: { groupId, userId, tenantId },
-    update: {}, // already exists — no-op
-  });
+  return prisma.$transaction(async tx => {
+    await tx.tenantGroup.findFirstOrThrow({ where: { id: groupId, tenantId } });
+    return tx.tenantGroupMember.upsert({
+      where: { groupId_userId: { groupId, userId }, tenantId },
+      create: { groupId, userId, tenantId },
+      update: {}, // already exists — no-op
+    });
+  }, { isolationLevel: 'Serializable' });
 }
 
-export async function removeGroupMember(groupId: string, userId: string) {
-  return prisma.tenantGroupMember.deleteMany({ where: { groupId, userId } });
+export async function findMemberUser(userId: string, tenantId: string) {
+  return prisma.user.findFirst({ where: { id: userId, tenantId, status: 'ACTIVE' }, select: { id: true } });
+}
+
+export async function removeGroupMember(groupId: string, userId: string, tenantId: string) {
+  return prisma.tenantGroupMember.deleteMany({ where: { groupId, userId, tenantId } });
 }

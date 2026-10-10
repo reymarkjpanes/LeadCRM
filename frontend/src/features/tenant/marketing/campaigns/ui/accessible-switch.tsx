@@ -28,9 +28,9 @@ export function AccessibleSwitch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900',
+        'relative inline-flex items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900',
         'w-10 h-[22px]',
-        checked ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700',
+        checked ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700',
         disabled && 'opacity-50 cursor-not-allowed',
         !disabled && 'cursor-pointer'
       )}

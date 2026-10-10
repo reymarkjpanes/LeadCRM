@@ -14,7 +14,7 @@ import {
   editorIssues,
 } from './workflow-editor';
 const actions = getAvailableActions(),
-  options = { users: [], pipelines: [], templates: [], campaigns: [] };
+  options = { senders: [{ id: "sender", name: "Sender" }], users: [], pipelines: [], templates: [], campaigns: [] };
 const draft: WorkflowDraft = {
   name: 'Sequence',
   trigger: 'lead.created',
@@ -40,7 +40,7 @@ describe('canonical workflow editing operations', () => {
     expect(moveAction(moved, id, 0).draft).toEqual(original.draft);
     expect(moveAction(original, id, 1)).toBe(original);
   });
-  it('rejects invalid positions, incompatible entities, and conditions after actions', () => {
+  it('allows related-Deal moves and rejects invalid positions and conditions after actions', () => {
     const document = editorDocument(draft);
     expect(
       canPlace(
@@ -50,7 +50,7 @@ describe('canonical workflow editing operations', () => {
         WORKFLOW_TRIGGERS,
         actions,
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canPlace(
         { kind: 'trigger', type: 'lead.created' },

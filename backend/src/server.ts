@@ -1,29 +1,14 @@
 ﻿import 'dotenv/config';
 import app from './app';
-import { startCampaignScheduler } from './core/scheduler/campaign-scheduler.service';
+import { startNotificationScheduler } from './modules/notifications/notification-events.service';
+import { startMailboxScheduler } from './integrations/gmail/mailbox-sync.service';
+import { startCampaignRecoveryScheduler } from './modules/marketing/campaigns/campaign-submission-recovery';
+import { drainCampaignSubmissions } from './modules/marketing/campaigns/campaigns.service';
 import { purgeExpiredSessions } from './core/auth/session.service';
-import { seedDemoAccounts } from './database/seeders/demo.seed';
+import { startImportCleanupScheduler } from './modules/crm/imports/import-cleanup.service';
+import { validateEnvironment } from './config/validate-env';
 
-// Guard against missing required env vars at startup
-const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    throw new Error(`Missing required environment variable: ${key}`);
-  }
-}
-
-// Email service — fail fast in production if Brevo is not configured.
-// Discovering a missing API key on the first registration attempt is worse
-// than a clean startup failure with a clear diagnostic message.
-if (process.env.NODE_ENV === 'production') {
-  const brevoKey = process.env.BREVO_API_KEY;
-  if (!brevoKey || !brevoKey.startsWith('xkeysib-') || brevoKey.trim().length < 20) {
-    throw new Error(
-      '[EmailService] BREVO_API_KEY is missing or invalid. ' +
-      'Set the real xkeysib-... key in your Render environment variables before starting the server.',
-    );
-  }
-}
+validateEnvironment();
 
 const PORT = process.env.PORT ?? 4000;
 
@@ -60,32 +45,27 @@ function startSessionPurgeScheduler(): void {
   console.log('[session-purge] Session cleanup scheduler started (runs every 24h).');
 }
 
-app.listen(PORT, () => {
+let stopMailbox: (() => void) | undefined;
+let stopNotifications: (() => Promise<void>) | undefined;
+let stopCampaignRecovery: (() => Promise<void>) | undefined;
+const server = app.listen(PORT, () => {
   console.log(`[server] LeadCRM API running on http://localhost:${PORT}`);
   console.log(`[server] Environment: ${process.env.NODE_ENV ?? 'development'}`);
 
-  // ── Startup seed: repair system admin account ─────────────────────────
-  // Runs the idempotent demo account seeder on every boot so the system
-  // admin password hash in the DB always matches SYSTEM_ADMIN_PASSWORD from
-  // the current environment variables. This is the only reliable mechanism
-  // on Render's free plan (no shell access, no post-deploy hooks).
-  //
-  // Safety: all operations are upserts — never destructive. The seeder skips
-  // faker tenant generation when SKIP_DEMO_TENANTS=true. Takes ~200ms and
-  // runs non-blocking so it does not delay the server accepting connections.
-  seedDemoAccounts()
-    .then((seededEmail) => {
-      console.log(`[server] ✓ System admin seed completed: ${seededEmail}`);
-    })
-    .catch((err: unknown) => {
-      // Non-fatal — the server continues running. Log clearly so Render logs
-      // show exactly what went wrong (e.g. wrong SYSTEM_ADMIN_PASSWORD format).
-      console.error('[server] ⚠ System admin seed failed (non-fatal):', err instanceof Error ? err.message : err);
-    });
-
   // Start background services
-  startCampaignScheduler();
+  stopCampaignRecovery = startCampaignRecoveryScheduler();
+  stopMailbox = startMailboxScheduler();
+  if (process.env.NOTIFICATION_WORKER_ENABLED !== 'false') stopNotifications = startNotificationScheduler();
   startSessionPurgeScheduler();
+  startImportCleanupScheduler();
 
 
+});
+server.on('close', () => { stopMailbox?.(); void stopNotifications?.(); void stopCampaignRecovery?.(); });
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
+  stopMailbox?.();
+  const drain = drainCampaignSubmissions();
+  server.close(() => { void Promise.allSettled([drain, stopNotifications?.(), stopCampaignRecovery?.()]).finally(() => process.exit(0)); });
+  // Interrupted mailbox pages and scheduled claims resume from durable leases.
+  setTimeout(() => process.exit(0), 30000).unref();
 });

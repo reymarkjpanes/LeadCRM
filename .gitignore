@@ -10,6 +10,7 @@ out/
 
 # Coverage
 coverage/
+/data/outputs/dashboard-verification/
 
 # Environment files
 .env*
@@ -21,6 +22,12 @@ Thumbs.db
 
 # Logs
 *.log
+/data-import-login.png
+/data/outputs/csv-import-qa/
+/data-import-normalization-inventory.json
+/data-import-normalized-drift.sql
+/data-import-render-inventory.json
+/data/outputs/import-deploy-test/
 npm-debug.log*
 
 # Editor
@@ -41,10 +48,52 @@ metadata.json
 # Vite leftover artifacts (project uses Next.js)
 vite.config.ts
 index.html
+!frontend/qa/roles/index.html
 src/main.tsx
-
 # Turborepo cache
 .turbo/
+# Disposable QA worker/cache artifacts.
+/.tmp/
 
 # Reviewed onboarding repair is maintained source, not a scratch script.
 !backend/src/scripts/fix-null-onboarding.ts
+
+# Backend examples contain empty placeholders only.
+!backend/.env.example
+
+# Local database inventories contain deployment-specific identifiers.
+data/outputs/retired-features-*.json
+/data/outputs/product-normalization-tests/
+/data/outputs/engagement-implementation/
+/product-normalization-before.json
+/product-normalization-after.json
+
+# Local audit evidence and recovery backups may contain private account data.
+/data/outputs/database-audit/
+
+# Reproducible local custom-field browser evidence.
+/data/outputs/custom-fields-browser/
+
+# Reproducible Campaigns browser verification artifacts.
+/data/outputs/campaign-sms/
+
+# Reproducible local UI acceptance screenshots and logs.
+/data/outputs/ui-fixes-browser/
+/data/outputs/product-share-browser/
+
+# Reproducible Campaigns status verification artifacts.
+/data/outputs/campaign-status-*.jpg
+/data/outputs/campaign-status-*.json
+/data/outputs/campaign-status-*.jsonl
+
+# Reproducible local mailbox acceptance evidence and redacted hosting screenshots.
+/data/outputs/mailbox-browser/
+
+# Reproducible Workflow responsive and persistence evidence.
+/data/outputs/workflow-browser/
+
+# Reproducible local Leads acceptance screenshots and logs.
+/data/outputs/lead-polish-browser/
+/data/outputs/notification-verification/
+/data/outputs/organization-settings-browser/
+/data/outputs/campaign-clicks/

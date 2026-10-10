@@ -14,7 +14,8 @@ it('starts read-only with database values and Cancel discards unsaved edits', ()
   render(<ProfileForm />);
   expect(screen.queryByLabelText('Time Zone')).toBeNull();
   expect((screen.getByLabelText('First Name') as HTMLInputElement).disabled).toBe(true);
-  expect((screen.getByLabelText('Department') as HTMLInputElement).value).toBe('');
+  expect(screen.queryByLabelText('Department')).toBeNull();
+  expect(screen.getByLabelText('Groups').textContent).toBe('No groups assigned');
   expect(screen.queryByText('Save Changes')).toBeNull();
   fireEvent.click(screen.getByText('Edit'));
   expect((screen.getByLabelText('Email Address') as HTMLInputElement).disabled).toBe(true);
@@ -28,7 +29,7 @@ it('waits for server confirmation, blocks duplicate saves and remains editable o
   mocks.save.mockReturnValue(new Promise((_, r) => { reject = r; }));
   render(<ProfileForm />);
   fireEvent.click(screen.getByText('Edit'));
-  fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Engineering' } });
+  fireEvent.change(screen.getByLabelText('Job Title'), { target: { value: 'Engineer' } });
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.success).not.toHaveBeenCalled();
   expect((screen.getByText('Saving…') as HTMLButtonElement).disabled).toBe(true);
@@ -51,4 +52,31 @@ it('rejects invalid file types and oversized files without uploading', async () 
   fireEvent.change(picker, { target: { files: [big] } });
   expect(mocks.error).toHaveBeenCalledTimes(2);
   expect(mocks.upload).not.toHaveBeenCalled();
+});
+
+it('shows field errors for overlong profile fields and reuses the PH mobile rule', async () => {
+  render(<ProfileForm />); fireEvent.click(screen.getByText('Edit'));
+  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'A'.repeat(51) } });
+  expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('Ada');
+  expect(screen.getByText('First name must not exceed 50 characters.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'B'.repeat(51) } });
+  expect((screen.getByLabelText('Last Name') as HTMLInputElement).value).toBe('Lovelace');
+  expect(screen.getByText('Last name must not exceed 50 characters.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Job Title'), { target: { value: 'J'.repeat(101) } });
+  expect((screen.getByLabelText('Job Title') as HTMLInputElement).value).toBe('');
+  expect(screen.getByText('Job title must not exceed 100 characters.')).toBeTruthy();
+  const phone = screen.getByLabelText('Phone Number') as HTMLInputElement;
+  expect(screen.getByText('+63')).toBeTruthy();
+  fireEvent.change(phone, { target: { value: '9123456789abc' } });
+  expect(phone.value).toBe('');
+  expect(screen.getByText('Enter a valid 10-digit Philippine mobile number starting with 9.')).toBeTruthy();
+  fireEvent.change(phone, { target: { value: '91234567890' } });
+  expect(phone.value).toBe('');
+  fireEvent.change(phone, { target: { value: '8123456789' } });
+  expect(phone.value).toBe('8123456789');
+  expect(screen.getByText('Enter a valid 10-digit Philippine mobile number starting with 9.')).toBeTruthy();
+  fireEvent.change(phone, { target: { value: '+639123456789' } });
+  expect(screen.getByText('Enter a valid 10-digit Philippine mobile number starting with 9.')).toBeTruthy();
+  fireEvent.change(phone, { target: { value: '9123456789' } });
+  expect(screen.queryByText('Enter a valid 10-digit Philippine mobile number starting with 9.')).toBeNull();
 });

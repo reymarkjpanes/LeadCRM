@@ -13,11 +13,11 @@ export async function seedDefaultPipeline(tenantId: string, tx: Prisma.Transacti
       isDefault: true,
       stages: {
         create: [
-          { name: 'Lead', order: 1, isDefault: true, tenantId },
-          { name: 'Contacted', order: 2, tenantId },
-          { name: 'Qualified', order: 3, tenantId },
-          { name: 'Won', order: 4, isWon: true, tenantId },
-          { name: 'Lost', order: 5, isLost: true, tenantId },
+          { name: 'Lead', order: 1, isDefault: true },
+          { name: 'Contacted', order: 2 },
+          { name: 'Qualified', order: 3 },
+          { name: 'Won', order: 4, isWon: true },
+          { name: 'Lost', order: 5, isLost: true },
         ],
       },
     },

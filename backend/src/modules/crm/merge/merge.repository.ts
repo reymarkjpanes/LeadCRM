@@ -1,3 +1,4 @@
+import {taskAssociationWhere, reassignTaskLinks} from "../../operations/tasks/tasks.repository";
 import prisma from '../../../config/database.config';
 import type { Prisma } from '@prisma/client';
 import type { RelationshipCounts } from './merge.types';
@@ -8,7 +9,7 @@ import type { RelationshipCounts } from './merge.types';
 export async function countLeadRelationships(id: string, tenantId: string): Promise<RelationshipCounts> {
   const [activities, tasks, deals, campaigns] = await Promise.all([
     prisma.activity.count({ where: { leadId: id, tenantId } }),
-    prisma.task.count({ where: { leadId: id, tenantId } }),
+    prisma.task.count({ where: { tenantId, ...taskAssociationWhere("lead",id,tenantId) } }),
     prisma.leadDeal.count({ where: { leadId: id, tenantId } }),
     prisma.campaignContact.count({ where: { leadId: id, tenantId } }),
   ]);
@@ -21,7 +22,7 @@ export async function countLeadRelationships(id: string, tenantId: string): Prom
 export async function countContactRelationships(id: string, tenantId: string): Promise<RelationshipCounts> {
   const [activities, tasks, deals, campaigns] = await Promise.all([
     prisma.activity.count({ where: { contactId: id, tenantId } }),
-    prisma.task.count({ where: { contactId: id, tenantId } }),
+    prisma.task.count({ where: { tenantId, ...taskAssociationWhere("contact",id,tenantId) } }),
     prisma.contactDeal.count({ where: { contactId: id, tenantId } }),
     prisma.campaignContact.count({ where: { contactId: id, tenantId } }),
   ]);
@@ -32,14 +33,15 @@ export async function countContactRelationships(id: string, tenantId: string): P
  * Count relationships for an Account record.
  */
 export async function countAccountRelationships(id: string, tenantId: string): Promise<RelationshipCounts> {
-  const [activities, deals, leads, contacts] = await Promise.all([
+  const [activities, deals, leads, contacts, tasks] = await Promise.all([
     prisma.activity.count({ where: { accountId: id, tenantId } }),
     prisma.deal.count({ where: { accountId: id, tenantId, isArchived: false } }),
     prisma.lead.count({ where: { accountId: id, tenantId } }),
     // Contacts link to Account via Contact.accountId (ADR-001 canonical path).
     prisma.contact.count({ where: { accountId: id, tenantId, isArchived: false } }),
+    prisma.task.count({where:{tenantId,...taskAssociationWhere("account",id,tenantId)}}),
   ]);
-  return { activities, tasks: 0, deals, leads, contacts };
+  return { activities, tasks, deals, leads, contacts };
 }
 
 /**
@@ -58,10 +60,7 @@ export async function reassignLeadRelationships(
   });
 
   // Tasks
-  const tasks = await tx.task.updateMany({
-    where: { leadId: secondaryId, tenantId },
-    data: { leadId: primaryId },
-  });
+  const tasks = await reassignTaskLinks(tx,"lead",primaryId,secondaryId,tenantId);
 
   // LeadDeal junctions — handle uniqueness conflicts
   const existingJunctions = await tx.leadDeal.findMany({
@@ -90,15 +89,21 @@ export async function reassignLeadRelationships(
     }
   }
 
-  // Direct Deal.leadId references
-  await tx.deal.updateMany({
-    where: { leadId: secondaryId, tenantId },
-    data: { leadId: primaryId },
+  // Files follow the surviving record. Conflicting custom values remain on the
+  // archived source; missing fields are copied with their original timestamps.
+  await tx.recordFile.updateMany({ where: { tenantId, leadId: secondaryId }, data: { leadId: primaryId } });
+  await tx.formSubmission.updateMany({ where: { tenantId, leadId: secondaryId }, data: { leadId: primaryId } });
+  await tx.mailboxMessage.updateMany({ where: { tenantId, leadId: secondaryId }, data: { leadId: primaryId } });
+  await tx.emailAccount.updateMany({ where: { tenantId, messages: { some: { tenantId, leadId: primaryId } } }, data: { mailboxVersion: { increment: 1 } } });
+  const values = await tx.customFieldValue.findMany({ where: { tenantId, leadId: secondaryId } });
+  for (const value of values) await tx.customFieldValue.upsert({
+    where: { tenantId_fieldId_leadId: { tenantId, fieldId: value.fieldId, leadId: primaryId } },
+    create: { tenantId, fieldId: value.fieldId, module: 'leads', leadId: primaryId, value: value.value as Prisma.InputJsonValue, createdAt: value.createdAt, updatedAt: value.updatedAt }, update: {},
   });
-
   // CampaignContacts
+  const primaryCampaigns = await tx.campaignContact.findMany({ where: { tenantId, leadId: primaryId }, select: { campaignId: true } });
   const campaigns = await tx.campaignContact.updateMany({
-    where: { leadId: secondaryId, tenantId },
+    where: { leadId: secondaryId, tenantId, campaignId: { notIn: primaryCampaigns.map(row => row.campaignId) } },
     data: { leadId: primaryId },
   });
 
@@ -133,10 +138,7 @@ export async function reassignContactRelationships(
   });
 
   // Tasks
-  const tasks = await tx.task.updateMany({
-    where: { contactId: secondaryId, tenantId },
-    data: { contactId: primaryId },
-  });
+  const tasks = await reassignTaskLinks(tx,"contact",primaryId,secondaryId,tenantId);
 
   // ContactDeal junctions — handle uniqueness conflicts
   const existingJunctions = await tx.contactDeal.findMany({
@@ -163,15 +165,22 @@ export async function reassignContactRelationships(
     }
   }
 
-  // Direct Deal.contactId references
-  await tx.deal.updateMany({
-    where: { contactId: secondaryId, tenantId },
-    data: { contactId: primaryId },
-  });
-
   // CampaignContacts
+  // Keep conversion, form, file and custom-field links attached to the survivor.
+  await tx.lead.updateMany({ where: { tenantId, contactId: secondaryId }, data: { contactId: primaryId } });
+  await tx.formSubmission.updateMany({ where: { tenantId, contactId: secondaryId }, data: { contactId: primaryId } });
+  await tx.recordFile.updateMany({ where: { tenantId, contactId: secondaryId }, data: { contactId: primaryId } });
+  await tx.mailboxMessage.updateMany({ where: { tenantId, contactId: secondaryId }, data: { contactId: primaryId } });
+  await tx.emailAccount.updateMany({ where: { tenantId, messages: { some: { tenantId, contactId: primaryId } } }, data: { mailboxVersion: { increment: 1 } } });
+  const values = await tx.customFieldValue.findMany({ where: { tenantId, contactId: secondaryId } });
+  for (const value of values) await tx.customFieldValue.upsert({
+    where: { tenantId_fieldId_contactId: { tenantId, fieldId: value.fieldId, contactId: primaryId } },
+    create: { tenantId, fieldId: value.fieldId, module: 'contacts', contactId: primaryId, value: value.value as Prisma.InputJsonValue, createdAt: value.createdAt, updatedAt: value.updatedAt }, update: {},
+  });
+  // A campaign keeps its existing delivery history when both records participated.
+  const primaryCampaigns = await tx.campaignContact.findMany({ where: { tenantId, contactId: primaryId }, select: { campaignId: true } });
   const campaigns = await tx.campaignContact.updateMany({
-    where: { contactId: secondaryId, tenantId },
+    where: { contactId: secondaryId, tenantId, campaignId: { notIn: primaryCampaigns.map(row => row.campaignId) } },
     data: { contactId: primaryId },
   });
 
@@ -199,6 +208,7 @@ export async function reassignAccountRelationships(
   secondaryId: string,
   tenantId: string,
 ): Promise<RelationshipCounts> {
+  const tasks = await reassignTaskLinks(tx,"account",primaryId,secondaryId,tenantId);
   // Leads
   const leads = await tx.lead.updateMany({
     where: { accountId: secondaryId, tenantId },
@@ -227,7 +237,7 @@ export async function reassignAccountRelationships(
 
   return {
     activities: activities.count,
-    tasks: 0,
+    tasks: tasks.count,
     deals: deals.count,
     leads: leads.count,
     contacts: contacts.count,

@@ -1,6 +1,6 @@
 # LeadCRM Help Center
 
-Implemented 2026-09-24. This is source-controlled product documentation, not an editable CMS. No database, API contract, tenant scope, or permission behavior was changed.
+Implemented 2026-09-24; public access added 2026-10-09. This is source-controlled product documentation, not an editable CMS. No database, API contract, tenant scope, or CRM module permission behavior was changed.
 
 ## Routes and entry point
 
@@ -9,7 +9,7 @@ Implemented 2026-09-24. This is source-controlled product documentation, not an 
 - `/help/articles/[slug]`: 126 individual articles, each with summary, sections, relevant notes, breadcrumbs, contents navigation, and related articles.
 - Unknown article/category slugs use the Help Center not-found view.
 - The existing profile dropdown uses a Next.js Link to `/help` in the same tab and closes on selection. The placeholder toast and external-link icon were removed.
-- All pages remain inside the existing tenant layout and AuthGuard. Help adds no new permissions. Articles explain access requirements without providing privileged action buttons.
+- All Help Center routes are public. Signed-out visitors see only the help content, without the CRM sidebar or top bar. A restored signed-in user receives the existing `CrmLayout`, including its navigation, responsive controls, theme, and module permission checks. Other tenant routes retain `AuthGuard`. Help adds no new permissions or CRM record access; articles contain no privileged action buttons.
 
 ## Source and maintenance
 
@@ -62,13 +62,14 @@ Revisit these articles when the corresponding product behavior changes. A succes
 
 ## Responsive and accessible presentation
 
-`ui/help.module.css` uses existing background, surface, border, text, and primary CSS variables. It inherits the scoped CRM theme and accent settings. No separate theme provider or hard-coded light page is introduced.
+`ui/help.module.css` uses existing background, surface, border, text, and primary CSS variables. Signed-in pages inherit the scoped CRM theme and accent settings; public pages use the root theme variables. No separate theme provider is introduced.
 
 Category cards move from three columns to two, then one. Popular articles stack at small widths. Article pages use a desktop contents rail and a native collapsible contents control below 1000px. Breadcrumbs wrap; all content columns use `minmax(0, 1fr)` and long text can wrap. Forms have labels, headings are semantic, links and controls have focus outlines, search count updates are announced, and motion respects reduced-motion preferences.
 
 ## Files changed
 
-- New route shells and not-found UI: `frontend/app/(tenant)/help/`.
+- Public route shells, conditional layout and not-found UI: `frontend/app/help/`.
+- Signed-in/public shell selection: `frontend/src/features/tenant/help/ui/help-layout.tsx`.
 - New content, search, presentation, styles, and tests: `frontend/src/features/tenant/help/`.
 - Menu entry: `frontend/src/features/tenant/layout/user-profile-dropdown.tsx`.
 - Help route recognition: `frontend/src/features/tenant/layout/use-layout.ts`, `frontend/src/lib/route-map.ts`.
@@ -76,6 +77,8 @@ Category cards move from three columns to two, then one. Popular articles stack 
 - This maintenance report: `docs/help-center.md`.
 
 ## Verification
+
+The original implementation checks below are historical. The October 9, 2026 public-access follow-up moves the same content outside the protected route group. Current verification is recorded in `docs/legal-auth-email-integration.md` and its `public-help-evidence.json` artifact.
 
 - `npm --prefix frontend run lint`: passed (TypeScript, `tsc --noEmit`).
 - `npm --prefix frontend run test -- src/features/tenant/help/__tests__ src/features/tenant/layout/__tests__ src/shared/providers/__tests__/auth-guard.lifecycle.test.tsx`: 39 tests passed across six files.
@@ -207,7 +210,6 @@ The complete article inventory follows.
 | Creating a Form | /help/articles/forms | settings.ts |
 | Form Fields | /help/articles/form-fields | settings.ts |
 | Publishing and Sharing Forms: current limits | /help/articles/form-publishing | settings.ts |
-| Account Details | /help/articles/account-details | settings.ts |
 | Understanding the Audit Trail | /help/articles/audit-trail | settings.ts |
 | Role-Based Access | /help/articles/role-based-access | settings.ts |
 | Why can’t I create a record? | /help/articles/cannot-create-record | troubleshooting.ts |

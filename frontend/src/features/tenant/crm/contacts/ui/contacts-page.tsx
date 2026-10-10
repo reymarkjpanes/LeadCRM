@@ -1,10 +1,12 @@
 ﻿'use client';
+import { assignedAgentName } from '@/shared/utils/assigned-agents';
 
 import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
+import { Button } from '@/shared/components/ui/button';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useData } from '@/store/DataContext';
-import { useAuth } from '@/store/AuthContext';
+import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 import { Contact } from '@/store/types';
 import { ModuleWorkspace, ViewType, StatusBadge, ContactPanel } from '@/shared/components/crm';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -17,51 +19,30 @@ import { CONTACTS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 import { CONTACTS_MODULE_CONFIG } from '../contacts.config';
 import { ContactsDataGrid } from './contacts-data-grid';
 import { ContactFormSheet } from './contact-form';
-import { ColumnsPopover } from '@/shared/components/data-grid';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { ActionableEmptyState } from '@/shared/components/actionable-empty-state';
-import { PageSizeSelect } from '@/shared/components/page-size-select';
+import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
+import { TableLoadingState } from '@/shared/components/crm/table-loading-state';
 import { useRouter } from 'next/navigation';
-import { contactsV2Api } from '@/shared/services/contacts-v2.api';
-import { compareSortValues } from '@leadcrm/shared';
+import { contactsV2Api, type ContactV2Query, type ContactsV2Response } from '@/shared/services/contacts-v2.api';
+import { CRM_STATUSES, normalizeCrmStatus, type FilterCondition } from '@leadcrm/shared';
 import { useCachedPage } from '@/shared/hooks/use-cached-page';
 // ── Contacts Page ─────────────────────────────────────────────────────────────
-// Shows all contacts with activity flags, customer type, account links, deals
+// Contact queries, counts and filter facets are applied before server pagination.
 
 export default function ContactsPage(): React.ReactElement {
   const { organizations, deals, users } = useData();
-  const { user, tenant } = useAuth();
   const { dialogProps, confirm, close } = useConfirmDialog();
   const canCreate = useHasPermission('contacts.create');
+  const canImport = useHasPermission('contacts.import');
   const canEdit   = useHasPermission('contacts.edit');
-  const canDelete = useHasPermission('contacts.delete');
+  const canDelete = useHasPermission('contacts.archive');
   const { getParam, getArrayParam, updateParams } = useFilterUrlSync('contacts');
 
   const highlightId = getParam('highlight') || undefined;
-
-  const { data: contacts = [], refetch: fetchContacts, error: contactsError } = useCachedPage({
-    module: 'contacts',
-    revalidateOnInvalidation: true,
-    params: { collection: 'all', recordId: highlightId },
-    intervalMs: 60_000,
-    fetchFn: async (signal) => {
-      if (highlightId) return [(await contactsV2Api.get(highlightId, signal)).data];
-      const rows: Contact[] = [];
-      let page = 1;
-      while (true) {
-        const response = await contactsV2Api.list({ limit: 100, page }, signal);
-        rows.push(...response.data);
-        if (!response.meta.hasMore || response.data.length === 0) return rows;
-        page++;
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (contactsError) toast.error(contactsError);
-  }, [contactsError]);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const manualRefreshLock = useRef(false);
 
   // ── Column Preferences ────────────────────────────────────────────────
   const {
@@ -102,18 +83,56 @@ export default function ContactsPage(): React.ReactElement {
   const [contactSelectedIds, setContactSelectedIds] = useState<Set<string>>(new Set());
 
   // Multi-select stacked criteria
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => getArrayParam('status').map(normalizeCrmStatus));
   const [selectedSystemFilters, setSelectedSystemFilters] = useState<string[]>(() => getArrayParam('system'));
-  const [selectedCustomerTypes, setSelectedCustomerTypes] = useState<string[]>(() => getArrayParam('types'));
   const [selectedOwners, setSelectedOwners] = useState<string[]>(() => getArrayParam('owners'));
   const [selectedRelated, setSelectedRelated] = useState<string[]>(() => getArrayParam('related'));
+  const [currentPage, setCurrentPage] = useState(1);
 
   const debouncedSearch = useDebounce(searchTerm, 300);
+  const serverFilters = useMemo((): FilterCondition[] => [
+    ...(activeTab === 'my' || activeTab === 'active-customers' ? [{ field: 'scope', operator: 'equals', value: activeTab === 'my' ? 'my' : 'active' } as FilterCondition] : []),
+    ...(selectedStatuses.length ? [{ field: 'status', operator: 'in', value: selectedStatuses } as FilterCondition] : []),
+    ...(selectedSystemFilters.length ? [{ field: 'system', operator: 'in', value: selectedSystemFilters } as FilterCondition] : []),
+    ...(selectedOwners.length ? [{ field: 'assignedUserId', operator: 'in', value: selectedOwners } as FilterCondition] : []),
+    ...(selectedRelated.length ? [{ field: 'related', operator: 'in', value: selectedRelated } as FilterCondition] : []),
+  ], [activeTab, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated]);
+  const query: ContactV2Query = {
+    page: currentPage, limit: pageSize, search: debouncedSearch,
+    sort: sort ? `${sort.field}:${sort.direction}` : undefined, filters: serverFilters,
+  };
+  const { data: response, refetch: fetchContacts, error: contactsError, isInitialLoad, isRefreshing } = useCachedPage<ContactsV2Response>({
+    module: 'contacts', revalidateOnInvalidation: true,
+    params: highlightId ? { recordId: highlightId } : { ...query },
+    intervalMs: 60_000,
+    fetchFn: async signal => {
+      if (!highlightId) return contactsV2Api.list(query, signal);
+      const contact = (await contactsV2Api.get(highlightId, signal)).data;
+      return { success: true, data: [contact], meta: { total: 1, page: 1, limit: pageSize, hasMore: false } };
+    },
+  });
+  const filteredContacts = response?.data ?? [];
+  const paginatedContacts = filteredContacts;
+  const serverTotal = response?.meta.total ?? 0;
+  const facets = response?.meta.facets ?? {};
+  const refreshContacts = async () => {
+    if (manualRefreshLock.current || isInitialLoad || isRefreshing) return;
+    manualRefreshLock.current = true;
+    setManualRefreshing(true);
+    try { await fetchContacts(); }
+    finally { manualRefreshLock.current = false; setManualRefreshing(false); }
+  };
+  useEffect(() => { if (contactsError) toast.error(contactsError); }, [contactsError]);
+  useEffect(() => {
+    if (response && currentPage > Math.max(1, Math.ceil(serverTotal / pageSize))) setCurrentPage(Math.max(1, Math.ceil(serverTotal / pageSize)));
+  }, [response, currentPage, pageSize, serverTotal]);
+  useEffect(() => { setContactSelectedIds(new Set()); }, [currentPage, pageSize, debouncedSearch, serverFilters]);
 
   useEffect(() => {
     if (!highlightId) return;
     setSearchTerm(''); setActiveTab('all'); setActiveView('table'); setCurrentPage(1);
     setSelectedSystemFilters([]);
-    setSelectedCustomerTypes([]);
+    setSelectedStatuses([]);
     setSelectedOwners([]);
     setSelectedRelated([]);
   }, [highlightId]);
@@ -125,21 +144,20 @@ export default function ContactsPage(): React.ReactElement {
       tab: activeTab !== 'all' ? activeTab : null,
       search: debouncedSearch || null,
       view: activeView !== 'list' ? activeView : null,
+      status: selectedStatuses,
       system: selectedSystemFilters,
-      types: selectedCustomerTypes,
+      types: null,
       owners: selectedOwners,
       related: selectedRelated,
     });
-  }, [activeTab, debouncedSearch, activeView, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, highlightId, updateParams]);
+  }, [activeTab, debouncedSearch, activeView, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, highlightId, updateParams]);
 
   // ── Persist filter selections (fire-and-forget) ────────────────────────
   useEffect(() => {
     const conditions: { field: string; operator: string; value: unknown }[] = [];
+    if (selectedStatuses.length) conditions.push({ field: 'status', operator: 'in', value: selectedStatuses });
     if (selectedSystemFilters.length > 0) {
       conditions.push({ field: 'system', operator: 'in', value: selectedSystemFilters });
-    }
-    if (selectedCustomerTypes.length > 0) {
-      conditions.push({ field: 'customerType', operator: 'in', value: selectedCustomerTypes });
     }
     if (selectedOwners.length > 0) {
       conditions.push({ field: 'assignedUserId', operator: 'in', value: selectedOwners });
@@ -148,95 +166,19 @@ export default function ContactsPage(): React.ReactElement {
       conditions.push({ field: 'related', operator: 'in', value: selectedRelated });
     }
     persistFilters(conditions);
-  }, [selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, persistFilters]);
-
-  // ── Data ─────────────────────────────────────────────────────────────
-  const activeContacts = useMemo(
-    () => contacts.filter((c) => !c.isArchived),
-    [contacts],
-  );
-
-  const activeCustomersCount = useMemo(
-    () => activeContacts.filter((c) => c.customerType === 'Active Customer').length,
-    [activeContacts],
-  );
-
-  const filteredContacts = useMemo(() => {
-    if (highlightId) return activeContacts.filter(contact => contact.id === highlightId);
-    let result = activeContacts;
-
-    // Tab filter
-    if (activeTab === 'my') {
-      result = result.filter((c) => c.assignedUserId === user?.id);
-    } else if (activeTab === 'active-customers') {
-      result = result.filter((c) => c.customerType === 'Active Customer');
-    }
-
-    // Search query
-    if (debouncedSearch) {
-      const term = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (c) =>
-          (c.contactPerson ?? c.leadPerson ?? '').toLowerCase().includes(term) ||
-          (c.email ?? '').toLowerCase().includes(term) ||
-          (c.companyName ?? '').toLowerCase().includes(term),
-      );
-    }
-
-    // System Filters
-    if (selectedSystemFilters.includes('touched')) {
-      result = result.filter((c) => c.lastUpdated || c.updateStatus);
-    }
-    if (selectedSystemFilters.includes('untouched')) {
-      result = result.filter((c) => !c.lastUpdated && !c.updateStatus);
-    }
-
-    // Customer Types
-    if (selectedCustomerTypes.length > 0) {
-      result = result.filter((c) => selectedCustomerTypes.includes(c.customerType ?? 'Prospect'));
-    }
-
-    // Owners
-    if (selectedOwners.length > 0) {
-      result = result.filter((c) => selectedOwners.includes(c.assignedUserId ?? ''));
-    }
-
-    // Related (e.g. Has Deals)
-    if (selectedRelated.includes('has_deals')) {
-      result = result.filter((c) => deals.some(d => !d.isArchived && (d.contactId === c.id || (d.contactIds ?? []).includes(c.id))));
-    }
-
-    return result;
-  }, [activeContacts, activeTab, user?.id, debouncedSearch, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, deals, highlightId]);
+  }, [selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, persistFilters]);
 
   const getAccountName = useCallback((contact: Contact): string => {
     const linked = organizations.find(org => org.id === (contact.accountId ?? contact.organizationId));
     const apiContact = contact as Contact & { account?: { name: string }; company?: string };
-    return linked?.name ?? contact.companyName ?? apiContact.account?.name ?? apiContact.company ?? '—';
+    return apiContact.account?.name || linked?.name || contact.companyName || apiContact.company || '—';
   }, [organizations]);
 
   // ── Pagination ───────────────────────────────────────────────────────
-  const [currentPage, setCurrentPage] = useState(1);
-
   // Reset page on filter/search/tab/pageSize/sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, activeTab, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, pageSize, sort]);
-
-  const paginatedContacts = useMemo(() => {
-    const start = highlightId ? 0 : (currentPage - 1) * pageSize;
-    const value = (row: Contact) => {
-      if (sort?.field === 'firstName') return row.firstName ?? row.contactPerson ?? row.leadPerson;
-      if (sort?.field === 'companyName') {
-        const company = getAccountName(row);
-        return company === '—' ? null : company;
-      }
-      if (sort?.field === 'createdAt') return row.createdAt ? new Date(row.createdAt) : null;
-      return (row as unknown as Record<string, unknown>)[sort?.field ?? ''];
-    };
-    const ordered = sort ? [...filteredContacts].sort((a, b) => compareSortValues(value(a), value(b), sort.direction)) : filteredContacts;
-    return ordered.slice(start, start + pageSize);
-  }, [filteredContacts, currentPage, pageSize, sort, getAccountName, highlightId]);
+  }, [debouncedSearch, activeTab, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, pageSize, sort]);
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const getInitials = (contact: Contact): string => {
@@ -248,27 +190,6 @@ export default function ContactsPage(): React.ReactElement {
 
   const getName = (contact: Contact): string => {
     return contact.contactPerson ?? contact.leadPerson ?? (`${contact.firstName ?? ''} ${contact.lastName ?? ''}`.trim() || 'Unknown');
-  };
-
-  const getSubtitle = (contact: Contact): string => {
-    return contact.jobTitle ?? '';
-  };
-
-  const getCustomerType = (contact: Contact): string => {
-    return contact.customerType ?? 'Prospect';
-  };
-
-  const getCustomerTypeVariant = (type: string): 'success' | 'info' | 'purple' | 'neutral' => {
-    if (type === 'Active Customer') return 'success';
-    if (type === 'Prospect') return 'info';
-    if (type === 'Evaluator') return 'purple';
-    return 'neutral';
-  };
-
-  const getStatusVariant = (status: string): 'success' | 'info' | 'danger' | 'neutral' => {
-    if (status === 'Active') return 'success';
-    if (status === 'Inactive') return 'danger';
-    return 'neutral';
   };
 
   const getContactDeals = (contactId: string): number => {
@@ -283,23 +204,15 @@ export default function ContactsPage(): React.ReactElement {
       .reduce((sum, d) => sum + (d.value ?? 0), 0);
   };
 
-  // Activity flag helper - shows date when there's a recent task/activity
-  const getActivityDate = (contact: Contact): string | null => {
-    const created = contact.createdAt ? new Date(contact.createdAt) : null;
-    if (!created) return null;
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - created.getTime()) / (1000 * 3600 * 24));
-    if (diffDays <= 14) {
-      return `${created.toLocaleDateString('en-US', { month: 'short' })} ${created.getDate()}`;
-    }
-    return null;
-  };
-
   // ── Filter Groups ────────────────────────────────────────────────────
-  const touchedCount = activeContacts.filter((c) => c.lastUpdated || c.updateStatus).length;
-  const untouchedCount = activeContacts.length - touchedCount;
+  const touchedCount = facets.touched ?? 0;
+  const untouchedCount = facets.untouched ?? 0;
 
   const filterGroups = useMemo(() => [
+    {
+      id: 'status', label: 'Status', isExpanded: true,
+      items: CRM_STATUSES.map(status => ({ id: status, label: status, count: facets['status:' + status] ?? 0, isChecked: selectedStatuses.includes(status) })),
+    },
     {
       id: 'system',
       label: 'System Defined Filters',
@@ -314,13 +227,10 @@ export default function ContactsPage(): React.ReactElement {
       label: 'Filter By Fields',
       isExpanded: true,
       items: [
-        { id: 'type:Active Customer', label: 'Type: Active Customer', count: activeContacts.filter(c => c.customerType === 'Active Customer').length, isChecked: selectedCustomerTypes.includes('Active Customer') },
-        { id: 'type:Prospect', label: 'Type: Prospect', count: activeContacts.filter(c => c.customerType === 'Prospect').length, isChecked: selectedCustomerTypes.includes('Prospect') },
-        { id: 'type:Evaluator', label: 'Type: Evaluator', count: activeContacts.filter(c => c.customerType === 'Evaluator').length, isChecked: selectedCustomerTypes.includes('Evaluator') },
-        ...users.slice(0, 5).map(u => ({
+        ...getAssignableAgents(users).slice(0, 5).map(u => ({
           id: `owner:${u.id}`,
-          label: `Owner: ${u.firstName} ${u.lastName}`,
-          count: activeContacts.filter(c => c.assignedUserId === u.id).length,
+          label: `Assigned Agent: ${u.firstName} ${u.lastName}`,
+          count: facets['owner:' + u.id] ?? 0,
           isChecked: selectedOwners.includes(u.id),
         })),
       ],
@@ -330,23 +240,20 @@ export default function ContactsPage(): React.ReactElement {
       label: 'Filter By Related Modules',
       isExpanded: true,
       items: [
-        { id: 'has_deals', label: 'Contacts with Deals', count: activeContacts.filter(c => deals.some(d => !d.isArchived && (d.contactId === c.id || (d.contactIds ?? []).includes(c.id)))).length, isChecked: selectedRelated.includes('has_deals') },
+        { id: 'has_deals', label: 'Contacts with Deals', count: facets.has_deals ?? 0, isChecked: selectedRelated.includes('has_deals') },
       ],
     },
-  ], [activeContacts, touchedCount, untouchedCount, selectedSystemFilters, selectedCustomerTypes, selectedOwners, selectedRelated, users, deals]);
+  ], [facets, touchedCount, untouchedCount, selectedStatuses, selectedSystemFilters, selectedOwners, selectedRelated, users]);
 
   const handleFilterToggle = useCallback((groupId: string, itemId: string) => {
-    if (groupId === 'system') {
+    if (groupId === 'status') {
+      setSelectedStatuses(prev => prev.includes(itemId) ? prev.filter(value => value !== itemId) : [...prev, itemId]);
+    } else if (groupId === 'system') {
       setSelectedSystemFilters(prev =>
         prev.includes(itemId) ? prev.filter(x => x !== itemId) : [...prev, itemId]
       );
     } else if (groupId === 'fields') {
-      if (itemId.startsWith('type:')) {
-        const type = itemId.replace('type:', '');
-        setSelectedCustomerTypes(prev =>
-          prev.includes(type) ? prev.filter(x => x !== type) : [...prev, type]
-        );
-      } else if (itemId.startsWith('owner:')) {
+      if (itemId.startsWith('owner:')) {
         const ownerId = itemId.replace('owner:', '');
         setSelectedOwners(prev =>
           prev.includes(ownerId) ? prev.filter(x => x !== ownerId) : [...prev, ownerId]
@@ -363,15 +270,19 @@ export default function ContactsPage(): React.ReactElement {
     title: 'Archive Contact' + (ids.length > 1 ? 's?' : '?'),
     description: `${name} will be removed from active Contacts and moved to Archived Data. You can restore this record later.`,
     confirmLabel: 'Archive',
+    variant: 'destructive',
     onConfirm: async () => {
-      try {
-        await Promise.all(ids.map((id) => contactsV2Api.archive(id)));
-        await fetchContacts();
-        close();
-        toast.success('Contact archived');
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to archive contact');
+      const results = await Promise.allSettled(ids.map(id => contactsV2Api.archive(id)));
+      const failedIds = ids.filter((_, index) => results[index].status === 'rejected');
+      setContactSelectedIds(previous => new Set([...previous].filter(id => failedIds.includes(id))));
+      await fetchContacts();
+      if (failedIds.length) {
+        confirmArchive(failedIds, ids.length === 1 ? name : `${failedIds.length} contact${failedIds.length === 1 ? '' : 's'}`);
+        const failure = results.find(result => result.status === 'rejected');
+        throw new Error(failure?.status === 'rejected' && failure.reason instanceof Error ? failure.reason.message : 'Unable to archive the remaining records. Please try again.');
       }
+      close();
+      toast.success('Contact archived');
     },
   });
 
@@ -379,12 +290,14 @@ export default function ContactsPage(): React.ReactElement {
     <>
     <ConfirmActionDialog {...dialogProps} />
       <ModuleWorkspace
+      bulkSelection={{ count: contactSelectedIds.size, onClear: () => setContactSelectedIds(new Set()), actions: canDelete && <Button variant="outline" onClick={() => confirmArchive([...contactSelectedIds], `${contactSelectedIds.size} contacts`)}>Archive</Button> }}
       moduleId="contacts"
       title="Contacts"
+        description="Manage customer and business contact information."
       moduleConfig={CONTACTS_MODULE_CONFIG}
       primaryActionLabel="Create Contact"
       onPrimaryAction={() => { setEditingContact(undefined); setIsFormOpen(true); }}
-      onImport={() => router.push('/crm/contacts/import')}
+      onImport={canImport ? () => router.push('/crm/contacts/import') : undefined}
       canCreate={canCreate}
       availableViews={['table']}
       activeView={'table' as ViewType}
@@ -406,11 +319,14 @@ export default function ContactsPage(): React.ReactElement {
       onToggleFilters={() => setShowFilters(!showFilters)}
       filterSearchTerm={filterSearchTerm}
       onFilterSearch={setFilterSearchTerm}
-      totalRecords={filteredContacts.length}
+      totalRecords={serverTotal}
       searchTerm={searchTerm}
       onSearch={setSearchTerm}
       searchPlaceholder="Search contacts..."
-      onRefresh={() => toast.success('Refreshed')}
+      onRefresh={refreshContacts}
+      refreshDisabled={isInitialLoad || isRefreshing || manualRefreshing}
+      loading={isInitialLoad || isColumnsLoading}
+      loadingLabel={isInitialLoad ? 'Loading contacts...' : 'Loading columns...'}
       onManageColumns={() => setIsManageColumnsOpen(true)}
     >
         {highlightId && <div className="mb-3 flex items-center justify-between gap-3 text-sm text-slate-500">
@@ -419,74 +335,61 @@ export default function ContactsPage(): React.ReactElement {
         </div>}
       {/* ── List / Table View — DataGrid ─────────────────── */}
       {(activeView === 'list' || activeView === 'table') && (
-        <>
-          {filteredContacts.length === 0 && (
-            <ActionableEmptyState
-              icon={Users}
-              title={debouncedSearch ? 'No contacts match your search' : 'No contacts yet'}
-              description={
-                debouncedSearch
-                  ? `Try a different search term or clear your filters.`
-                  : 'Add your first contact to start building your CRM.'
-              }
-              actionLabel={!debouncedSearch && canCreate ? 'Add Contact' : undefined}
-              onAction={!debouncedSearch && canCreate ? () => { setEditingContact(undefined); setIsFormOpen(true); } : undefined}
-            />
-          )}
-          {filteredContacts.length > 0 && (
-        <ContactsDataGrid
-            sort={sort}
-            onSortChange={setSort}
-          contacts={paginatedContacts}
-          totalRecords={filteredContacts.length}
-          effectiveColumns={effectiveColumns}
-          onRowClick={(contact) => setSelectedContact(contact)}
-          selectedIds={contactSelectedIds}
-          onSelectionChange={setContactSelectedIds}
-          getAccountName={getAccountName}
-          getAssignedUserName={(userId) => {
-            if (!userId) return '—';
-            const u = users.find((usr) => usr.id === userId);
-            return u ? `${u.firstName} ${u.lastName}` : '—';
-          }}
-          canEdit={canEdit}
-          canArchive={canDelete}
-          onEdit={(contact) => { setEditingContact(contact); setIsFormOpen(true); }}
-          onArchive={(contact) => confirmArchive([contact.id], getName(contact))}
-          onHideColumn={async (columnId) => {
-            const updated = effectiveColumns.map((col) =>
-              col.id === columnId ? { ...col, visible: false } : col,
-            );
-            try {
-              await saveColumns(updated);
-            } catch {
-              toast.error('Failed to hide column. Reverted.');
-            }
-          }}
-          highlightRowId={highlightId}
-          viewMode={viewMode}
-        />
-          )}
-        </>
+        <div aria-busy={manualRefreshing} aria-label="Contacts table area">
+          {manualRefreshing && <TableLoadingState label="Loading contacts..." />}
+          <div hidden={manualRefreshing}>
+            {contactsError && !filteredContacts.length && <div role="alert" className="space-y-2 p-4 text-sm"><p>{contactsError}</p><Button variant="outline" onClick={refreshContacts} disabled={isRefreshing || manualRefreshing}>Retry</Button></div>}
+            {filteredContacts.length === 0 && !contactsError && (
+              <ActionableEmptyState
+                icon={Users}
+                title={debouncedSearch ? 'No contacts match your search' : 'No contacts yet'}
+                description={
+                  debouncedSearch
+                    ? `Try a different search term or clear your filters.`
+                    : 'Add your first contact to start building your CRM.'
+                }
+                actionLabel={!debouncedSearch && canCreate ? 'Add Contact' : undefined}
+                onAction={!debouncedSearch && canCreate ? () => { setEditingContact(undefined); setIsFormOpen(true); } : undefined}
+              />
+            )}
+            {filteredContacts.length > 0 && (
+              <ContactsDataGrid
+                sort={sort}
+                onSortChange={setSort}
+                contacts={paginatedContacts}
+                totalRecords={serverTotal}
+                effectiveColumns={effectiveColumns}
+                onRowClick={(contact) => setSelectedContact(contact)}
+                selectedIds={contactSelectedIds}
+                onSelectionChange={setContactSelectedIds}
+                getAccountName={getAccountName}
+                getAssignedUserName={(userId) => assignedAgentName(users, userId)}
+                canEdit={canEdit}
+                canArchive={canDelete}
+                onEdit={(contact) => { setEditingContact(contact); setIsFormOpen(true); }}
+                onArchive={(contact) => confirmArchive([contact.id], getName(contact))}
+                onHideColumn={async (columnId) => {
+                  const updated = effectiveColumns.map((col) =>
+                    col.id === columnId ? { ...col, visible: false } : col,
+                  );
+                  try {
+                    await saveColumns(updated);
+                  } catch {
+                    toast.error('Failed to hide column. Reverted.');
+                  }
+                }}
+                highlightRowId={highlightId}
+                viewMode={viewMode}
+              />
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Bottom Pagination + Per Page ─────────────────────── */}
-      {(activeView === 'list' || activeView === 'table') && filteredContacts.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 mt-2 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500 dark:text-slate-400">Per page</label>
-            <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
-            <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">{filteredContacts.length} total records</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Page {currentPage} of {Math.ceil(filteredContacts.length / pageSize) || 1}</span>
-            <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage <= 1 ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Previous page">
-              <ChevronLeft size={14} />
-            </button>
-            <button onClick={() => setCurrentPage(Math.min(Math.ceil(filteredContacts.length / pageSize), currentPage + 1))} disabled={currentPage >= Math.ceil(filteredContacts.length / pageSize)} className={cn('inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors', currentPage >= Math.ceil(filteredContacts.length / pageSize) ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700')} aria-label="Next page">
-              <ChevronRight size={14} />
-            </button>
-          </div>
+      {filteredContacts.length > 0 && (
+        <div hidden={manualRefreshing}>
+          <LeadsPagination currentPage={currentPage} totalRecords={serverTotal} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={size => { setPageSize(size); setCurrentPage(1); }} refreshing={isRefreshing} />
         </div>
       )}
 
@@ -500,11 +403,11 @@ export default function ContactsPage(): React.ReactElement {
               className="bg-white dark:bg-slate-800/60 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-4 cursor-pointer hover:shadow-md hover:border-[#2563EB]/30 transition-all"
             >
               <div className="flex items-start gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-[11px] shrink-0">
+                <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-[11px] shrink-0">
                   {getInitials(contact)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-[#0F172A] dark:text-white truncate">
+                  <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate hover:underline">
                     {getName(contact)}
                   </p>
                   <p className="text-[11.5px] text-[#2563EB] dark:text-blue-400 truncate font-medium">
@@ -514,7 +417,7 @@ export default function ContactsPage(): React.ReactElement {
                     {contact.email ?? ''}
                   </p>
                 </div>
-                <StatusBadge label={getCustomerType(contact)} variant={getCustomerTypeVariant(getCustomerType(contact))} dot={false} />
+                <StatusBadge label={normalizeCrmStatus(contact.status)} variant="neutral" dot={false} />
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-[#E4E9F0] dark:border-slate-700">
                 <span className="text-[12px] text-[#5A6B85]">
@@ -538,11 +441,11 @@ export default function ContactsPage(): React.ReactElement {
               onClick={() => setSelectedContact(contact)}
               className="bg-white dark:bg-slate-800/60 border border-[#E4E9F0] dark:border-slate-700 rounded-xl p-3 cursor-pointer hover:shadow-md transition-all flex items-center gap-2.5"
             >
-              <div className="w-9 h-9 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
+              <div className="w-9 h-9 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
                 {getInitials(contact)}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-semibold text-[#0F172A] dark:text-white truncate">
+                <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate hover:underline">
                   {getName(contact)}
                 </p>
                 <p className="text-[10.5px] text-[#5A6B85] dark:text-slate-400 truncate">
@@ -585,7 +488,7 @@ export default function ContactsPage(): React.ReactElement {
           }
           await fetchContacts();
         } catch (err: unknown) {
-          toast.error(err instanceof Error ? err.message : 'Failed to save contact');
+          throw err instanceof Error ? err : new Error('Failed to save contact');
         }
         setIsFormOpen(false);
         setEditingContact(undefined);

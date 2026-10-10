@@ -34,9 +34,9 @@ function PageButton({
       aria-current={isCurrent ? 'page' : undefined}
       className={cn(
         'inline-flex items-center justify-center min-w-[32px] h-8 px-2 text-xs font-medium rounded-md transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
         isCurrent
-          ? 'bg-blue-600 text-white shadow-sm'
+          ? 'bg-primary text-white shadow-sm'
           : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06]',
         disabled && 'opacity-40 pointer-events-none',
       )}
@@ -68,7 +68,7 @@ function NavButton({
       className={cn(
         'inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-500 dark:text-slate-400 transition-all duration-150',
         'hover:bg-slate-100 dark:hover:bg-white/[0.06] hover:text-slate-700 dark:hover:text-slate-200',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
         'disabled:opacity-30 disabled:pointer-events-none',
       )}
     >
@@ -136,7 +136,7 @@ export function Pagination({
   );
 
   // Don't render anything when there's truly nothing to paginate
-  if (totalItems === 0 && !isLoading) return null;
+  if (isLoading || totalItems === 0) return null;
 
   return (
     <nav
@@ -170,7 +170,7 @@ export function Pagination({
               'bg-white dark:bg-slate-900',
               'text-slate-700 dark:text-slate-300',
               'hover:border-slate-300 dark:hover:border-white/[0.15]',
-              'focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:outline-none',
+              'focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:outline-none',
               'transition-colors',
             )}
             aria-label="Rows per page"

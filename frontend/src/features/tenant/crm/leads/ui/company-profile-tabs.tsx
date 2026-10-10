@@ -1,4 +1,5 @@
 'use client';
+import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import { uuid } from '@/lib/utils';
 
 import React, { useState, useEffect } from 'react';
@@ -97,11 +98,6 @@ export const CompanyProfileTabs = ({
   const [smsText, setSmsText] = useState('');
   const [isSendingSms, setIsSendingSms] = useState(false);
 
-  // New task inline state
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDate, setNewTaskDate] = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
-
   // Custom logging inline states
   const [logType, setLogType] = useState<'Call' | 'Meeting' | 'Note'>('Call');
   const [logNotes, setLogNotes] = useState('');
@@ -110,7 +106,6 @@ export const CompanyProfileTabs = ({
   const [cascadeWeb, setCascadeWeb] = useState(selectedOrg.website !== 'N/A' ? selectedOrg.website : '');
   const [cascadeIndustry, setCascadeIndustry] = useState(selectedOrg.industry);
   const [cascadeSize, setCascadeSize] = useState<string | undefined>(selectedOrg.size);
-  const [cascadeTaxId, setCascadeTaxId] = useState(selectedOrg.taxId !== 'N/A' ? selectedOrg.taxId : '');
   const [cascadeAddress, setCascadeAddress] = useState(selectedOrg.address !== 'N/A' ? selectedOrg.address : '');
 
   // Predefined email templates
@@ -129,7 +124,6 @@ export const CompanyProfileTabs = ({
     setCascadeWeb(selectedOrg.website !== 'N/A' ? selectedOrg.website : '');
     setCascadeIndustry(selectedOrg.industry);
     setCascadeSize(selectedOrg.size);
-    setCascadeTaxId(selectedOrg.taxId !== 'N/A' ? selectedOrg.taxId : '');
     setCascadeAddress(selectedOrg.address !== 'N/A' ? selectedOrg.address : '');
 
   }, [selectedOrg]);
@@ -209,33 +203,12 @@ export const CompanyProfileTabs = ({
     }, 1000);
   };
 
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    addTask({
-      title: `${newTaskTitle} (Firm: ${selectedOrg.name})`,
-      assignedUserId: selectedOrg.repId || currentUser?.id || 'user_1',
-      dueDate: newTaskDate || new Date().toISOString().split('T')[0],
-      priority: newTaskPriority,
-      status: 'pending',
-      notes: `Rollup scheduled task for B2B Account: ${selectedOrg.name}.`
-    });
-
-    addActivityLog(`Scheduled corporate task milestone: "${newTaskTitle}"`, 'task');
-    setNewTaskTitle('');
-    setNewTaskDate('');
-    setNewTaskPriority('Medium');
-    toast.success('Task logged under Corporate Account on board!');
-  };
-
   const handlePerformCascadeWeb = (e: React.FormEvent) => {
     e.preventDefault();
     const fields: Partial<Lead> = {};
     if (cascadeWeb) { fields.orgWebsite = cascadeWeb; fields.website = cascadeWeb; }
     if (cascadeIndustry) { fields.businessType = cascadeIndustry; }
     if (cascadeSize) { fields.companySize = cascadeSize; }
-    if (cascadeTaxId) { fields.taxId = cascadeTaxId; }
     if (cascadeAddress) { fields.address = cascadeAddress; }
 
     handleSyncCompanyDetails(selectedOrg.name, fields);
@@ -279,8 +252,7 @@ export const CompanyProfileTabs = ({
     return pipeline.stages.find(s => s.id === stageId)?.name ?? stageId;
   };
 
-  // Connected Tasks
-  const connectedTasks = tasks.filter(t => t.title?.includes(selectedOrg.name));
+
 
   const assignedRep = users.find(u => u.id === selectedOrg.repId);
 
@@ -307,7 +279,7 @@ export const CompanyProfileTabs = ({
             <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${getCRMStatusStyles(selectedOrg?.status || 'Customer')}`}>
               {selectedOrg?.status || 'Customer'} Account
             </span>
-            <span className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2.5 py-0.5 rounded-full border border-blue-500/10">
+            <span className="text-[10px] font-bold bg-primary/10 text-blue-400 px-2.5 py-0.5 rounded-full border border-primary/10">
               {selectedOrg?.leadSource || 'Website Portal'}
             </span>
           </div>
@@ -315,7 +287,7 @@ export const CompanyProfileTabs = ({
           {onEditClick && (
             <button
               onClick={onEditClick}
-              className="mt-4 w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-550 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
+              className="mt-4 w-full py-1.5 px-3 bg-primary hover:bg-blue-550 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
             >
               <Edit size={12} /> Update Company Details
             </button>
@@ -369,7 +341,7 @@ export const CompanyProfileTabs = ({
               onClick={() => setActiveTab(tab)}
               className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all capitalize whitespace-nowrap ${
                 activeTab === tab 
-                  ? 'bg-blue-500 text-white shadow-sm' 
+                  ? 'bg-primary text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/5'
               }`}
             >
@@ -412,14 +384,6 @@ export const CompanyProfileTabs = ({
                     <div>
                       <span className="text-slate-400 text-[10px] block">Account Size Bracket</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedOrg.size}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Corporate Tax ID / TIN</span>
-                      <span className="font-mono font-semibold text-slate-800 dark:text-amber-400">{selectedOrg.taxId || 'N/A'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Customer Type</span>
-                      <span className="font-semibold text-slate-850 dark:text-blue-400">Corporate Organization</span>
                     </div>
                   </div>
                 </div>
@@ -486,7 +450,7 @@ export const CompanyProfileTabs = ({
                         setSelectedOrgName(null);
                       }
                     }}
-                    className="p-3 border border-gray-150 dark:border-white/3 bg-gray-50/50 dark:bg-white/1 hover:border-blue-500/25 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-white/5"
+                    className="p-3 border border-gray-150 dark:border-white/3 bg-gray-50/50 dark:bg-white/1 hover:border-primary/25 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-white/5"
                   >
                     <div className="text-left space-y-0.5">
                       <span className="font-bold text-slate-900 dark:text-white block text-xs md:text-sm">{c.leadPerson}</span>
@@ -545,7 +509,7 @@ export const CompanyProfileTabs = ({
                 <button 
                   type="button" 
                   onClick={handleSaveNotes}
-                  className="bg-blue-600 hover:bg-blue-550 font-bold text-white px-4 py-2 rounded-xl text-xs transition-colors shadow-md shadow-blue-500/10"
+                  className="bg-primary hover:bg-blue-550 font-bold text-white px-4 py-2 rounded-xl text-xs transition-colors shadow-md shadow-primary/10"
                 >
                   Save Corporate Records
                 </button>
@@ -580,92 +544,7 @@ export const CompanyProfileTabs = ({
           )}
 
           {/* TAB 7: OUTLINE CORPORATE TASKS */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-5 text-left animate-in fade-in duration-100" id="profile-tasks-integration-tab">
-              <form onSubmit={handleAddTask} className="bg-slate-50 dark:bg-white/1 border border-gray-200 dark:border-white/3 p-4 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Fast Schedule Account task milestone</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Task Title <span className="text-red-500">*</span></label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder={`e.g. Schedule onboarding for ${selectedOrg.name}`}
-                      value={newTaskTitle}
-                      onChange={e => setNewTaskTitle(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Target Due Date</label>
-                    <input 
-                      type="date" 
-                      value={newTaskDate}
-                      onChange={e => setNewTaskDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-between items-center pt-1">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-semibold text-slate-500">Priority:</span>
-                    {(['Low', 'Medium', 'High'] as const).map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setNewTaskPriority(p)}
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                          newTaskPriority === p ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/5 text-slate-600'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-                    <Plus size={12} /> Add Corporate Task
-                  </button>
-                </div>
-              </form>
-
-              <div className="space-y-2">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Enterprise task queue</h5>
-                {connectedTasks.map(t => (
-                  <div key={t.id} className="flex justify-between items-center p-3 border border-gray-150 dark:border-white/3 bg-white dark:bg-white/2 rounded-xl text-xs hover:border-gray-200 dark:hover:border-white/10 transition-all">
-                    <div className="flex items-start gap-2.5">
-                      <input 
-                        type="checkbox" 
-                        checked={t.status === 'completed'}
-                        onChange={() => {
-                          updateTask(t.id, { status: t.status === 'completed' ? 'pending' : 'completed' });
-                          toast.success('Task checklist status toggled successfully');
-                        }}
-                        className="rounded border-gray-300 text-blue-500 mt-0.5 cursor-pointer"
-                      />
-                      <div className="text-left">
-                        <span className={`font-bold block ${t.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>{t.title}</span>
-                        <div className="flex items-center gap-2 text-[9px] text-slate-400 mt-0.5 font-semibold">
-                          <span>Due: {t.dueDate}</span>
-                          <span>•</span>
-                          <span className={`px-1.5 py-0.2 rounded ${
-                            t.priority === 'High' ? 'bg-red-500/10 text-red-500' :
-                            t.priority === 'Medium' ? 'bg-amber-500/10 text-amber-500' :
-                            'bg-slate-500/10 text-slate-500'
-                          }`}>{t.priority}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {connectedTasks.length === 0 && (
-                  <div className="p-8 text-center text-slate-500 border border-dashed border-gray-200 dark:border-white/5 rounded-2xl">
-                    No active corporate milestones registered.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'tasks' && <RelatedTasks links={{ accountId: selectedOrg.id }} />}
 
           {/* TAB 8: ASSOCIATED DEALS PIPELINE — Enterprise Deals Table */}
           {activeTab === 'deals' && (
@@ -676,7 +555,7 @@ export const CompanyProfileTabs = ({
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                   {[
                     { label: 'Total Deals',     value: dealStats.total,                                        color: 'bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300' },
-                    { label: 'Active',          value: dealStats.active,                                       color: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' },
+                    { label: 'Active',          value: dealStats.active,                                       color: 'bg-blue-50 dark:bg-primary/10 text-blue-700 dark:text-primary' },
                     { label: 'Pipeline Value',  value: `₱${dealStats.pipelineValue.toLocaleString()}`,         color: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' },
                     { label: 'Won Deals',       value: dealStats.won,                                          color: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' },
                     { label: 'Win Rate',        value: `${dealStats.winRate}%`,                                color: 'bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400' },
@@ -727,7 +606,7 @@ export const CompanyProfileTabs = ({
                           >
                             {/* 1. Deal Column (Enriched with Title + Subtext) */}
                             <td className="py-3 px-3 min-w-50">
-                              <p className="font-bold text-slate-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{deal.title}</p>
+                              <p className="font-bold text-slate-900 dark:text-white truncate group-hover:text-primary dark:group-hover:text-blue-400 transition-colors">{deal.title}</p>
                               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                                 Rep: {deal.leadPerson || 'General Lead'} {deal.leadSource ? `• ${deal.leadSource}` : ''}
                               </p>
@@ -750,7 +629,7 @@ export const CompanyProfileTabs = ({
                               <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
                                 isWon  ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20' :
                                 isLost ? 'bg-red-100   dark:bg-red-500/10   text-red-700   dark:text-red-400   border border-red-500/20'     :
-                                         'bg-blue-100  dark:bg-blue-500/10  text-blue-700  dark:text-blue-400 border border-blue-500/20'
+                                         'bg-blue-100  dark:bg-primary/10  text-blue-700  dark:text-primary border border-primary/20'
                               }`}>
                                 {stageName}
                               </span>
@@ -791,7 +670,7 @@ export const CompanyProfileTabs = ({
                   <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">This account has no associated B2B deals yet.</p>
                   <button 
                     onClick={() => toast.info('Initiate new B2B deal from the Deals page or Pipeline module.')}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-colors"
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary/90 text-white shadow-sm transition-colors"
                   >
                     <Plus size={14} />
                     Create Deal
@@ -846,16 +725,6 @@ export const CompanyProfileTabs = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase select-none mb-1">Corporate Tax Identifier / TIN</label>
-                    <input 
-                      type="text" 
-                      value={cascadeTaxId}
-                      onChange={e => setCascadeTaxId(e.target.value)}
-                      placeholder="e.g. TIN-238-294-110"
-                      className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/5 rounded-lg px-3 py-2 text-xs focus:outline-none dark:text-white"
-                    />
-                  </div>
 
                   <div className="sm:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase select-none mb-1">HQ Corporate Address details</label>
@@ -872,7 +741,7 @@ export const CompanyProfileTabs = ({
                 <div className="flex justify-end pt-1">
                   <button 
                     type="submit" 
-                    className="bg-blue-600 hover:bg-blue-550 text-white font-bold text-xs px-4.5 py-2 rounded-xl transition-all shadow-md shadow-blue-500/10 flex items-center gap-1.5"
+                    className="bg-primary hover:bg-blue-550 text-white font-bold text-xs px-4.5 py-2 rounded-xl transition-all shadow-md shadow-primary/10 flex items-center gap-1.5"
                   >
                     🔄 Propagate sync to {selectedOrg.leads.length} personnel profiles
                   </button>

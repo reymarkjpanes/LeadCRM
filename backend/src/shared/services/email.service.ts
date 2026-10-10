@@ -1,4 +1,4 @@
-﻿import { AppError } from '../errors/app-error';
+import { AppError } from '../errors/app-error';
 
 /**
  * Email service — Brevo HTTP API transport.
@@ -12,15 +12,19 @@
  *   BREVO_FROM_NAME    — display name (optional, defaults to LeadCRM)
  */
 
+import type { CampaignEmailSettings } from '@leadcrm/shared';
+
 export interface SendMailOptions {
   to: string;
   subject: string;
   html: string;
   requireDelivery?: boolean;
+  /** Account recovery has no campaign delivery record. */
+  category?: 'password-reset';
 }
 
-/** Returns sandbox allowlist from BREVO_SANDBOX_EMAILS, or null when unset. */
-function getSandboxAllowlist(): Set<string> | null {
+/** Deployment email allowlist for non-production NODE_ENV; unrelated to CRM data scope. */
+function getDevelopmentAllowlist(): Set<string> | null {
   const raw = process.env.BREVO_SANDBOX_EMAILS;
   if (!raw || raw.trim() === '') return null;
   const allowed = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
@@ -51,10 +55,14 @@ export function assertBrevoConfigured(): void {
   }
 }
 
+export function getBrevoSenderIdentity(): CampaignEmailSettings {
+  return { senderName: process.env.BREVO_FROM_NAME || 'LeadCRM', senderEmail: process.env.BREVO_FROM_EMAIL || null };
+}
+
 export async function sendMail(options: SendMailOptions): Promise<SendMailResult> {
   if (/[\r\n]/.test(options.subject)) throw new AppError('Invalid email subject.', 400);
   if (process.env.NODE_ENV !== 'production') {
-    const allowlist = getSandboxAllowlist();
+    const allowlist = getDevelopmentAllowlist();
     if (allowlist !== null && !allowlist.has(options.to.trim().toLowerCase())) {
       return { messageId: null, submitted: false };
     }
@@ -71,8 +79,9 @@ export async function sendMail(options: SendMailOptions): Promise<SendMailResult
       signal: AbortSignal.timeout(15000),
       headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY!, 'content-type': 'application/json' },
       body: JSON.stringify({
-        sender: { name: process.env.BREVO_FROM_NAME || 'LeadCRM', email: process.env.BREVO_FROM_EMAIL },
+        sender: { name: getBrevoSenderIdentity().senderName, email: getBrevoSenderIdentity().senderEmail },
         to: [{ email: options.to }], subject: options.subject, htmlContent: options.html,
+        ...(options.category === 'password-reset' ? { tags: ['leadcrm-password-reset'] } : {}),
       }),
     });
   } catch (error) {
@@ -301,341 +310,8 @@ function wrapEmailShell(bodyContent: string, footerNote?: string): string {
 </html>`;
 }
 
-// ─── Email template builders ───────────────────────────────────────────────────
+export { buildPasswordResetEmail, buildWelcomeCredentialsEmail } from './auth-email.templates';
 
-/**
- * Builds the combined verification email — clean, minimal, enterprise style.
- * Two paths: magic link button (primary) + large copyable OTP code (fallback).
- */
-export function buildVerificationEmail(verificationUrl: string, otpCode: string): string {
-  // Large monospace OTP — displayed as one block so it's easy to read and copy
-  const bodyContent = `
-    <!-- Greeting -->
-    <p style="font-size:16px;color:#374151;margin:0 0 24px;line-height:1.6;">
-      Hi there,
-    </p>
-    <p style="font-size:16px;color:#374151;margin:0 0 32px;line-height:1.6;">
-      Thanks for signing up for <strong>LeadCRM</strong>. Please verify your email address to activate your account.
-    </p>
-
-    <!-- Primary CTA -->
-    <div style="text-align:center;margin:0 0 36px;">
-      <a href="${verificationUrl}"
-         target="_blank"
-         style="display:inline-block;background:#2563eb;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;padding:14px 48px;border-radius:8px;letter-spacing:0.01em;">
-        Verify my email
-      </a>
-    </div>
-
-    <!-- Divider -->
-    <div style="border-top:1px solid #e5e7eb;margin:0 0 28px;"></div>
-
-    <!-- OTP fallback -->
-    <p style="font-size:14px;color:#6b7280;margin:0 0 16px;text-align:center;">
-      Or copy and enter this code on the verification page:
-    </p>
-
-    <!-- Code block — large, easy to read, easy to copy -->
-    <div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:20px;text-align:center;margin:0 0 32px;">
-      <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:700;color:#111827;letter-spacing:0.25em;">
-        ${otpCode}
-      </span>
-    </div>
-
-    <!-- Expiry info -->
-    <table cellpadding="0" cellspacing="0" style="width:100%;background:#fefce8;border:1px solid #fde68a;border-radius:8px;margin:0 0 28px;">
-      <tr>
-        <td style="padding:14px 16px;">
-          <p style="font-size:13px;color:#92400e;margin:0;line-height:1.5;">
-            <strong>Note:</strong> The button link expires in <strong>24 hours</strong>. The verification code expires in <strong>10 minutes</strong>.
-          </p>
-        </td>
-      </tr>
-    </table>
-
-    <!-- Security footer -->
-    <p style="font-size:13px;color:#9ca3af;margin:0;line-height:1.6;text-align:center;">
-      If you did not create a LeadCRM account, you can safely ignore this email.<br>
-      No action is required.
-    </p>
-  `;
-
-  return wrapEmailShell(bodyContent);
-}
-
-/**
- * Builds the HTML body for a registration email verification OTP.
- * Enhanced design: enterprise SaaS, modern blue gradient header, 
- * improved digit boxes with animation-ready styling, enhanced security notice.
- */
-export function buildRegistrationOtpEmail(code: string): string {
-  // Split code into individual digits for the digit-box display
-  const digits = code.split('');
-
-  const digitBoxStyle = [
-    'display: inline-block',
-    'width: 48px',
-    'height: 60px',
-    'line-height: 60px',
-    'text-align: center',
-    'font-size: 32px',
-    'font-weight: 800',
-    'color: #1e3a8a',
-    'background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-    'border: 2px solid #93c5fd',
-    'border-radius: 12px',
-    'margin: 0 4px',
-    'font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace',
-    'letter-spacing: 0',
-    'box-shadow: 0 2px 8px rgba(37,99,235,0.12)',
-  ].join('; ');
-
-  const digitBoxes = digits
-    .map(d => `<span style="${digitBoxStyle}">${d}</span>`)
-    .join('');
-
-  const bodyContent = `
-    <!-- Hero Icon + Heading -->
-    <div style="text-align: center; margin-bottom: 36px;">
-      <div style="
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 80px; height: 80px;
-        background: linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%);
-        border: 2px solid #60a5fa;
-        border-radius: 20px;
-        margin-bottom: 24px;
-        box-shadow: 0 8px 16px rgba(37,99,235,0.15);
-      ">
-        <!-- Enhanced Shield check icon -->
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M12 2L3 7V12C3 16.55 6.84 20.74 12 22C17.16 20.74 21 16.55 21 12V7L12 2Z" fill="#2563eb" opacity="0.2"/>
-          <path d="M12 2L3 7V12C3 16.55 6.84 20.74 12 22C17.16 20.74 21 16.55 21 12V7L12 2Z" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M8.5 12L10.5 14L15.5 10" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <h1 style="font-size: 28px; font-weight: 800; color: #0f172a; margin-bottom: 12px; letter-spacing: -0.5px; line-height: 1.2;">
-        Verify your email address
-      </h1>
-      <p style="color: #64748b; font-size: 16px; line-height: 1.6; max-width: 400px; margin: 0 auto;">
-        Enter the 6-digit code below to confirm your email and activate your LeadCRM account.
-      </p>
-    </div>
-
-    <!-- Enhanced OTP Digit Boxes -->
-    <div style="text-align: center; margin-bottom: 16px;">
-      <div style="
-        display: inline-block;
-        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-        border: 1.5px solid #cbd5e1;
-        border-radius: 16px;
-        padding: 24px 28px;
-        box-shadow: inset 0 2px 4px rgba(0,0,0,0.03);
-      ">
-        ${digitBoxes}
-      </div>
-    </div>
-
-    <!-- Enhanced Expiry badge -->
-    <div style="text-align: center; margin-bottom: 32px;">
-      <span style="
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
-        border: 1.5px solid #fde047;
-        border-radius: 24px;
-        padding: 8px 18px;
-        font-size: 13px;
-        font-weight: 700;
-        color: #92400e;
-        box-shadow: 0 2px 8px rgba(251,191,36,0.15);
-      ">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline;vertical-align:middle;" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" stroke="#92400e" stroke-width="2"/>
-          <path d="M12 7V12L15 14" stroke="#92400e" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        Expires in 10 minutes
-      </span>
-    </div>
-
-    <!-- Refined Divider -->
-    <hr style="border: none; border-top: 1.5px solid #e2e8f0; margin: 0 0 28px 0;" />
-
-    <!-- Enhanced Security notice -->
-    <div style="
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-      border: 1.5px solid #86efac;
-      border-radius: 14px;
-      padding: 18px 20px;
-      margin-bottom: 24px;
-      box-shadow: 0 2px 8px rgba(34,197,94,0.08);
-    ">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-top:2px;" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" fill="#86efac" stroke="#22c55e" stroke-width="2"/>
-        <path d="M8.5 12L10.5 14L15.5 10" stroke="#166534" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <div>
-        <p style="font-size: 14px; font-weight: 700; color: #14532d; margin-bottom: 4px;">Keep your account secure</p>
-        <p style="font-size: 13px; color: #166534; line-height: 1.6;">
-          Never share this code with anyone. LeadCRM will never ask for this code via phone or chat.
-          If you didn&rsquo;t request this, you can safely ignore this email.
-        </p>
-      </div>
-    </div>
-
-    <!-- Need help -->
-    <p style="text-align: center; font-size: 13px; color: #94a3b8; line-height: 1.7;">
-      Having trouble? Contact us at
-      <a href="mailto:support@leadcrm.io" style="color: #2563eb; text-decoration: none; font-weight: 600;">support@leadcrm.io</a>
-    </p>
-  `;
-
-  return wrapEmailShell(bodyContent, "You're receiving this email because a registration was started with your address.");
-}
-
-/**
- * Builds the HTML body for a password reset email.
- * Enhanced design: clear call-to-action with gradient button, 
- * improved security warning, modern badge styling, better visual hierarchy.
- */
-export function buildPasswordResetEmail(resetUrl: string): string {
-  const bodyContent = `
-    <!-- Hero Icon + Heading -->
-    <div style="text-align: center; margin-bottom: 36px;">
-      <div style="
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 80px; height: 80px;
-        background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
-        border: 2px solid #fb923c;
-        border-radius: 20px;
-        margin-bottom: 24px;
-        box-shadow: 0 8px 16px rgba(234,88,12,0.15);
-      ">
-        <!-- Enhanced Lock icon -->
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect x="5" y="11" width="14" height="10" rx="2" fill="#ea580c" opacity="0.2"/>
-          <rect x="5" y="11" width="14" height="10" rx="2" stroke="#ea580c" stroke-width="2"/>
-          <path d="M8 11V7C8 5.34315 9.34315 4 11 4H13C14.6569 4 16 5.34315 16 7V11" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="12" cy="16" r="1.5" fill="#ea580c"/>
-        </svg>
-      </div>
-      <h1 style="font-size: 28px; font-weight: 800; color: #0f172a; margin-bottom: 12px; letter-spacing: -0.5px; line-height: 1.2;">
-        Reset your password
-      </h1>
-      <p style="color: #64748b; font-size: 16px; line-height: 1.6; max-width: 420px; margin: 0 auto;">
-        We received a request to reset the password for your LeadCRM account. Click the button below to set a new one.
-      </p>
-    </div>
-
-    <!-- Enhanced CTA Button -->
-    <div style="text-align: center; margin-bottom: 24px;">
-      <a href="${resetUrl}"
-         style="
-           display: inline-block;
-           padding: 16px 42px;
-           background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
-           color: #ffffff;
-           text-decoration: none;
-           border-radius: 12px;
-           font-size: 16px;
-           font-weight: 700;
-           letter-spacing: 0.2px;
-           box-shadow: 0 6px 20px rgba(37,99,235,0.4), 0 2px 8px rgba(37,99,235,0.2);
-           transition: all 0.3s ease;
-         ">
-        Reset Password
-      </a>
-    </div>
-
-    <!-- Enhanced Expiry badge -->
-    <div style="text-align: center; margin-bottom: 32px;">
-      <span style="
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
-        border: 1.5px solid #fde047;
-        border-radius: 24px;
-        padding: 8px 18px;
-        font-size: 13px;
-        font-weight: 700;
-        color: #92400e;
-        box-shadow: 0 2px 8px rgba(251,191,36,0.15);
-      ">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline;vertical-align:middle;" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" stroke="#92400e" stroke-width="2"/>
-          <path d="M12 7V12L15 14" stroke="#92400e" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        Link expires in 60 minutes
-      </span>
-    </div>
-
-    <!-- Refined Divider -->
-    <hr style="border: none; border-top: 1.5px solid #e2e8f0; margin: 0 0 24px 0;" />
-
-    <!-- Enhanced Fallback URL (for clients that block buttons) -->
-    <div style="
-      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-      border: 1.5px solid #cbd5e1;
-      border-radius: 14px;
-      padding: 18px 20px;
-      margin-bottom: 24px;
-    ">
-      <p style="font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 600;">
-        If the button above doesn&rsquo;t work, copy and paste this link into your browser:
-      </p>
-      <p style="font-size: 12px; color: #2563eb; word-break: break-all; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; background: #eff6ff; padding: 10px 12px; border-radius: 8px; border: 1px solid #bfdbfe;">
-        ${resetUrl}
-      </p>
-    </div>
-
-    <!-- Enhanced Security warning -->
-    <div style="
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-      border: 1.5px solid #fdba74;
-      border-radius: 14px;
-      padding: 18px 20px;
-      margin-bottom: 24px;
-      box-shadow: 0 2px 8px rgba(251,146,60,0.08);
-    ">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-top:2px;" aria-hidden="true">
-        <path d="M12 3L2 21H22L12 3Z" fill="#fed7aa" stroke="#f97316" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M12 10V14" stroke="#92400e" stroke-width="2.5" stroke-linecap="round"/>
-        <circle cx="12" cy="17" r="1.2" fill="#92400e"/>
-      </svg>
-      <div>
-        <p style="font-size: 14px; font-weight: 700; color: #78350f; margin-bottom: 4px;">Didn&rsquo;t request this?</p>
-        <p style="font-size: 13px; color: #92400e; line-height: 1.6;">
-          If you didn&rsquo;t request a password reset, ignore this email — your password will remain unchanged.
-          If you&rsquo;re concerned about account security, contact our support team immediately.
-        </p>
-      </div>
-    </div>
-
-    <!-- Need help -->
-    <p style="text-align: center; font-size: 13px; color: #94a3b8; line-height: 1.7;">
-      Need help? Reach us at
-      <a href="mailto:support@leadcrm.io" style="color: #2563eb; text-decoration: none; font-weight: 600;">support@leadcrm.io</a>
-    </p>
-  `;
-
-  return wrapEmailShell(bodyContent, "You're receiving this email because a password reset was requested for your account.");
-}
-
-/**
- * Builds the HTML body for the welcome email sent after onboarding completion.
- * Professional, warm tone with quick-start tips.
- */
 export function buildWelcomeEmail(firstName: string, tenantName: string): string {
   const appUrl = process.env.APP_URL || 'http://localhost:3000';
 
@@ -706,65 +382,3 @@ export function buildWelcomeEmail(firstName: string, tenantName: string): string
 
   return wrapEmailShell(bodyContent, "You're receiving this email because you completed your LeadCRM setup.");
 }
-
-/**
- * Builds the HTML body for a team invitation email.
- * Clear CTA with inviter name, tenant name, and role context.
- */
-export function buildInvitationEmail(inviterName: string, tenantName: string, inviteUrl: string, roleName: string): string {
-  const bodyContent = `
-    <!-- Hero Icon + Heading -->
-    <div style="text-align:center;padding:8px 0 24px;">
-      <div style="width:72px;height:72px;background:linear-gradient(135deg,#a78bfa 0%,#7c3aed 100%);border-radius:18px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 8px 16px rgba(124,58,237,0.2);">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M16 21V19C16 17.9391 15.5786 16.9217 14.8284 16.1716C14.0783 15.4214 13.0609 15 12 15H5C3.93913 15 2.92172 15.4214 2.17157 16.1716C1.42143 16.9217 1 17.9391 1 19V21" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="8.5" cy="7" r="4" stroke="#ffffff" stroke-width="2"/>
-          <path d="M20 8V14" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-          <path d="M23 11H17" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h1 style="font-size:24px;font-weight:800;color:#0f172a;margin:0 0 8px;letter-spacing:-0.3px;">
-        You're invited to join ${tenantName}
-      </h1>
-      <p style="font-size:15px;color:#64748b;margin:0;line-height:1.6;">
-        <strong style="color:#0f172a;">${inviterName}</strong> has invited you to join their workspace on LeadCRM as a <strong style="color:#7c3aed;">${roleName}</strong>.
-      </p>
-    </div>
-
-    <!-- What you'll get -->
-    <div style="background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:14px;padding:20px;margin:24px 0;">
-      <p style="font-size:14px;font-weight:700;color:#4c1d95;margin:0 0 12px;">What you'll be able to do:</p>
-      <ul style="margin:0;padding:0 0 0 20px;color:#5b21b6;font-size:13px;line-height:2;">
-        <li>Manage contacts and deals collaboratively</li>
-        <li>Track your sales pipeline in real-time</li>
-        <li>Access reports and team performance metrics</li>
-      </ul>
-    </div>
-
-    <!-- CTA Button -->
-    <div style="text-align:center;margin:32px 0;">
-      <a href="${inviteUrl}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;box-shadow:0 4px 14px rgba(124,58,237,0.3);">
-        Accept Invitation
-      </a>
-    </div>
-
-    <!-- Expiry Note -->
-    <div style="text-align:center;margin-bottom:24px;">
-      <span style="display:inline-flex;align-items:center;gap:6px;background:#fefce8;border:1.5px solid #fde047;border-radius:24px;padding:8px 18px;font-size:13px;font-weight:700;color:#92400e;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline;vertical-align:middle;" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" stroke="#92400e" stroke-width="2"/>
-          <path d="M12 7V12L15 14" stroke="#92400e" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        Invitation expires in 7 days
-      </span>
-    </div>
-
-    <!-- Security Note -->
-    <p style="font-size:12px;color:#94a3b8;text-align:center;margin:20px 0 0;">
-      If you don't recognize this invitation, you can safely ignore this email.
-    </p>
-  `;
-
-  return wrapEmailShell(bodyContent, "You're receiving this email because someone invited you to join their LeadCRM workspace.");
-}
-

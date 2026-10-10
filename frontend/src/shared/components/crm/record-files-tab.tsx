@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import {
+  Loader2,
   Upload,
   FileText,
   Image,
@@ -11,6 +12,9 @@ import {
   Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { RECORD_FILE_MAX_BYTES } from '@leadcrm/shared';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
+import { DataLoadingSkeleton } from './data-view-states';
 import { cn } from '@/lib/utils';
 import { Button } from '@/shared/components/ui/button';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -32,6 +36,9 @@ export interface FileRecord {
 export interface RecordFilesTabProps {
   /** Existing files for this record */
   files: FileRecord[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   /** Permission key for delete access */
   deletePermission?: PermissionKey;
   /** Callback when a file is uploaded */
@@ -57,7 +64,7 @@ function getFileIcon(mimeType: string): React.ComponentType<{ className?: string
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -76,16 +83,14 @@ function UploadZone({ onUpload }: UploadZoneProps): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File): Promise<void> => {
-    if (!onUpload) {
-      toast.info('File upload coming soon');
-      return;
-    }
+    if (!onUpload || isUploading) return;
+    if (!file.size || file.size > RECORD_FILE_MAX_BYTES) { toast.error('Choose a nonempty file no larger than 10 MB.'); return; }
     setIsUploading(true);
     try {
       await onUpload(file);
       toast.success(`${file.name} uploaded`);
-    } catch {
-      toast.error('Failed to upload file');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to upload file');
     } finally {
       setIsUploading(false);
     }
@@ -122,13 +127,14 @@ function UploadZone({ onUpload }: UploadZoneProps): React.ReactElement {
         type="file"
         onChange={handleChange}
         className="hidden"
-        aria-label="Upload file"
+        aria-label="Choose file"
+        disabled={isUploading}
       />
-      <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+      {isUploading ? <Loader2 role="status" aria-label="Uploading file" className="h-8 w-8 animate-spin text-primary mx-auto mb-3" /> : <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-3" />}
       <p className="text-sm text-muted-foreground mb-1">
         {isUploading ? 'Uploading...' : 'Drag and drop a file here, or'}
       </p>
-      {!isUploading && (
+      {!isUploading ? (
         <Button
           variant="outline"
           size="sm"
@@ -136,9 +142,9 @@ function UploadZone({ onUpload }: UploadZoneProps): React.ReactElement {
           className="gap-1.5"
         >
           <Plus className="h-3.5 w-3.5" />
-          Browse files
+          Upload file
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -167,8 +173,8 @@ function FileRow({ file, canDelete, onDelete }: FileRowProps): React.ReactElemen
     try {
       await onDelete(file.id);
       toast.success('File deleted');
-    } catch {
-      toast.error('Failed to delete file');
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to delete file. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -188,23 +194,23 @@ function FileRow({ file, canDelete, onDelete }: FileRowProps): React.ReactElemen
         {/* File info */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
             {formatFileSize(file.size)} · {formatDate(file.uploadedAt)}
             {file.uploadedBy && ` · ${file.uploadedBy}`}
           </p>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 shrink-0">
           {file.url && (
-            <a
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><a
               href={file.url}
               download={file.name}
               className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-accent transition-colors"
               aria-label={`Download ${file.name}`}
             >
               <Download className="h-3.5 w-3.5 text-muted-foreground" />
-            </a>
+            </a></TooltipTrigger><TooltipContent>Download file</TooltipContent></Tooltip></TooltipProvider>
           )}
           {canDelete && onDelete && (
             <button
@@ -239,16 +245,21 @@ function FileRow({ file, canDelete, onDelete }: FileRowProps): React.ReactElemen
 
 export function RecordFilesTab({
   files,
+  loading,
+  error,
+  onRetry,
   deletePermission,
   onUpload,
   onDelete,
 }: RecordFilesTabProps): React.ReactElement {
-  const canDelete = useHasPermission(deletePermission ?? 'contacts.delete' as PermissionKey);
+  const canDelete = useHasPermission(deletePermission ?? 'contacts.archive' as PermissionKey);
 
   return (
-    <div className="p-6 space-y-4 max-w-4xl">
+    <div className="w-full min-w-0 p-4 space-y-4">
       {/* Upload zone */}
-      <UploadZone onUpload={onUpload} />
+      {onUpload && <UploadZone onUpload={onUpload} />}
+      {loading && !files.length && <div role="status" aria-label="Loading files"><DataLoadingSkeleton rowCount={3} columnCount={2} rowHeight={76} /></div>}
+      {error && <div role="alert" className="text-sm text-destructive">{error}{onRetry && <Button variant="ghost" onClick={onRetry}>Retry files</Button>}</div>}
 
       {/* File list */}
       {files.length > 0 ? (
@@ -262,12 +273,12 @@ export function RecordFilesTab({
             />
           ))}
         </div>
-      ) : (
+      ) : !loading && !error ? (
         <div className="text-center py-8">
           <FileIcon className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

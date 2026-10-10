@@ -8,11 +8,11 @@
  */
 export function toBackendCreateOrg(data: Record<string, any>): Record<string, any> {
   return {
+    customFieldValues: data.customFieldValues,
     name: data.name || 'Unnamed Organization',
     industry: data.industry || undefined,
     size: data.size || undefined,
     website: data.website || undefined,
-    taxId: data.taxId || undefined,
     tags: Array.isArray(data.tags) ? data.tags : [],
     address: data.address || undefined,
     city: data.city || undefined,
@@ -30,12 +30,12 @@ export function toBackendCreateOrg(data: Record<string, any>): Record<string, an
  */
 export function toBackendUpdateOrg(data: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
+  if (data.customFieldValues !== undefined) result.customFieldValues = data.customFieldValues;
 
   if (data.name !== undefined) result.name = data.name;
   if (data.industry !== undefined) result.industry = data.industry || undefined;
   if (data.size !== undefined) result.size = data.size || undefined;
   if (data.website !== undefined) result.website = data.website || undefined;
-  if (data.taxId !== undefined) result.taxId = data.taxId || undefined;
   if (data.tags !== undefined) result.tags = Array.isArray(data.tags) ? data.tags : [];
   if (data.address !== undefined) result.address = data.address || undefined;
   if (data.city !== undefined) result.city = data.city || undefined;
@@ -63,7 +63,14 @@ export function toFrontendOrg(backendOrg: any): Record<string, any> {
     industry: backendOrg.industry || '',
     size: backendOrg.size || '',
     website: backendOrg.website || '',
-    taxId: backendOrg.taxId || '',
+    email: backendOrg.email || '',
+    phone: backendOrg.phone || '',
+    notes: backendOrg.notes || '',
+    internalNotes: backendOrg.internalNotes || '',
+    productInterests: Array.isArray(backendOrg.productInterests) ? backendOrg.productInterests : [],
+    activeProducts: Array.isArray(backendOrg.activeProducts) ? backendOrg.activeProducts : [],
+    updatedAt: backendOrg.updatedAt || undefined,
+    assignedUser: backendOrg.assignedUser || undefined,
     assignedUserId: backendOrg.assignedUserId || '',
     tags: Array.isArray(backendOrg.tags) ? backendOrg.tags : [],
     createdAt: backendOrg.createdAt || new Date().toISOString(),

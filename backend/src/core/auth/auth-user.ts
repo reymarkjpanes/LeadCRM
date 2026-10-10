@@ -9,8 +9,12 @@ export const authTenantSelect = {
   onboardingStep: true, onboardingCompletedAt: true, ownerUserId: true,
 } satisfies Prisma.TenantSelect;
 
+export const authUserInclude = {
+  tenant: { select: authTenantSelect },
+  groupMemberships: { select: { group: { select: { id: true, name: true } } } },
+} satisfies Prisma.UserInclude;
+
 export interface AuthUserSource {
-  activeEnvironment?: import('@leadcrm/shared').CrmEnvironment;
   id: string;
   email: string;
   role: string;
@@ -20,10 +24,12 @@ export interface AuthUserSource {
   status?: string;
   emailVerified?: Date | null;
   passwordHash?: string | null;
+  passwordChangedAt?: Date | null;
   mustChangePassword?: boolean;
+  onboardingCompletedAt?: Date | null;
   phone?: string | null;
   jobTitle?: string | null;
-  department?: string | null;
+  groupMemberships?: { group: { id: string; name: string } }[];
   avatarUrl?: string | null;
   tenant?: {
     name?: string | null;
@@ -44,7 +50,6 @@ export type AuthUserResponse = AuthUser;
 export function buildAuthUserResponse(user: AuthUserSource): AuthUser {
   const tenant = user.tenant;
   return {
-    activeEnvironment: user.role === 'System Admin' ? null : user.activeEnvironment ?? 'SANDBOX',
     id: user.id,
     email: user.email,
     role: user.role,
@@ -55,7 +60,7 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUser {
     emailVerified: user.emailVerified?.toISOString() ?? null,
     phone: user.phone ?? null,
     jobTitle: user.jobTitle ?? null,
-    department: user.department ?? null,
+    groups: (user.groupMemberships ?? []).map(member => member.group).sort((a, b) => a.name.localeCompare(b.name)),
     avatarUrl: user.avatarUrl ?? null,
     tenantName: tenant?.name ?? null,
     tenantStatus: tenant?.status ?? null,
@@ -63,10 +68,11 @@ export function buildAuthUserResponse(user: AuthUserSource): AuthUser {
     companySize: tenant?.companySize ?? null,
     website: tenant?.website ?? null,
     currency: tenant?.currency ?? null,
-    onboardingStep: tenant?.onboardingStep ?? 0,
-    onboardingCompletedAt: tenant?.onboardingCompletedAt?.toISOString() ?? null,
+    onboardingStep: user.onboardingCompletedAt ? 3 : 0,
+    onboardingCompletedAt: user.onboardingCompletedAt?.toISOString() ?? null,
     isTenantOwner: tenant?.ownerUserId === user.id,
     hasPassword: Boolean(user.passwordHash),
+    passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
     mustChangePassword: user.mustChangePassword ?? false,
   };
 }
@@ -78,7 +84,7 @@ export async function readAuthUser(
 ): Promise<AuthUser> {
   const user = await db.user.findFirst({
     where: { id: userId, tenantId },
-    include: { tenant: { select: authTenantSelect } },
+    include: authUserInclude,
   });
   if (!user) throw new AppError('Authentication required', 401);
   return buildAuthUserResponse(user);

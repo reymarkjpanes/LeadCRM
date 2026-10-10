@@ -16,13 +16,20 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 it('updates only the authenticated tenant user, audits and returns canonical profile fields', async () => {
-  const result = await updateSelfProfile(user.id, user.tenantId, { firstName: ' Ada ', phone: '123', jobTitle: 'Engineer', department: 'Sales' });
-  expect(db.user.update).toHaveBeenCalledWith({ where: { id: user.id, tenantId: user.tenantId }, data: { firstName: 'Ada', phone: '123', jobTitle: 'Engineer', department: 'Sales' } });
-  expect(result).toMatchObject({ firstName: 'Ada', phone: '123', department: 'Sales' });
+  const result = await updateSelfProfile(user.id, user.tenantId, { firstName: ' Ada ', lastName: ' Lovelace ', phone: '9123456789', jobTitle: ' Engineer ' });
+  expect(db.user.update).toHaveBeenCalledWith({ where: { id: user.id, tenantId: user.tenantId }, data: { firstName: 'Ada', lastName: 'Lovelace', phone: '+639123456789', jobTitle: 'Engineer' } });
+  expect(result).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace', phone: '+639123456789', groups: [] });
   expect(result).not.toHaveProperty('passwordHash');
   expect(db.auditLog.create).toHaveBeenCalledOnce();
 });
-it.each(['role', 'tenantId', 'userId', 'status', 'permissions', 'activeEnvironment', 'passwordHash', 'email', 'avatarUrl'])('rejects self-editing %s', async field => {
+it.each([
+  ['phone', '8123456789'], ['phone', '09123456789'], ['phone', '912345678'], ['phone', '91234567890'], ['phone', '91234abc90'],
+  ['firstName', 'F'.repeat(51)], ['lastName', 'L'.repeat(51)], ['jobTitle', 'J'.repeat(101)], ['department', 'D'.repeat(101)],
+])('rejects invalid profile %s value', async (field, value) => {
+  await expect(updateSelfProfile(user.id, user.tenantId, { [field]: value } as any)).rejects.toThrow();
+  expect(db.user.update).not.toHaveBeenCalled();
+});
+it.each(['role', 'tenantId', 'userId', 'status', 'permissions', 'passwordHash', 'email', 'avatarUrl', 'department', 'groupIds', 'groups'])('rejects self-editing %s', async field => {
   await expect(updateSelfProfile(user.id, user.tenantId, { [field]: 'forged' } as any)).rejects.toThrow();
   expect(db.user.update).not.toHaveBeenCalled();
 });

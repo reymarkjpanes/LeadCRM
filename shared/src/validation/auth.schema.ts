@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { EmployeeEmailSchema } from './security.schema';
 
+/** Recovery uses login normalization without revealing account-access restrictions. */
+export const ForgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().max(254).email('Valid email required'),
+}).strict();
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
+
 export const StrongPasswordSchema = z.string().min(8, 'Use at least 8 characters.').max(72, 'Use no more than 72 characters.').refine(value => new TextEncoder().encode(value).length <= 72, 'Password must be no more than 72 bytes.').refine(value =>
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9\s])/.test(value),
   'Use uppercase and lowercase letters, a number, and a special character',
@@ -15,9 +21,8 @@ export const RegisterSchema = z.object({
   email: EmployeeEmailSchema,
   password: StrongPasswordSchema,
   acceptTerms: z.boolean().optional(),
-  invitationToken: z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
-  if (!data.invitationToken && data.acceptTerms !== true) {
+  if (data.acceptTerms !== true) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['acceptTerms'],

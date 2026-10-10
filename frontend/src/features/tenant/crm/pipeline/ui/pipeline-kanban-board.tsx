@@ -62,7 +62,7 @@ interface PipelineKanbanBoardProps {
 
 interface DealCardContentProps {
   deal: Deal;
-  assignedUser?: UserType;
+  assignedUser?: Pick<UserType, 'id' | 'firstName' | 'lastName'>;
   canDrag?: boolean;
   isAutomatedOnly?: boolean;
   attributes?: React.HTMLAttributes<HTMLElement>;
@@ -89,7 +89,7 @@ function DealCardContent({
   return (
     <div className={`flex flex-col gap-3 ${isDragOverlay ? 'opacity-90' : ''}`}>
       <div className="flex justify-between items-start gap-2">
-        <div className="flex items-start gap-2 flex-1">
+        <div className="flex min-w-0 items-start gap-2 flex-1">
           {canDrag && !isAutomatedOnly && !isDragOverlay ? (
             <div
               {...attributes}
@@ -107,35 +107,32 @@ function DealCardContent({
               <Lock size={12} className="text-blue-400/70" />
             </div>
           ) : null}
-          <div className="flex flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             <h4
-              className={`font-semibold text-slate-900 dark:text-white text-sm leading-tight group-hover:text-blue-500 transition-colors ${
+              className={`font-medium text-[#1a73e8] dark:text-blue-400 text-[13px] leading-5 [overflow-wrap:anywhere] group-hover:underline transition-colors ${
                 (!canDrag && !isDragOverlay) || isAutomatedOnly ? 'ml-1' : ''
               }`}
             >
               {deal.title}
             </h4>
-            <div className="flex items-center text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {(deal.contactPerson || deal.companyName) && <div className="flex min-w-0 items-start text-xs text-slate-500 dark:text-slate-400 mt-1">
               <User size={12} className="mr-1.5 shrink-0" />
-              <span className="truncate">
-                {deal.contactPerson} &middot;{' '}
-                <strong className="font-medium text-slate-700 dark:text-slate-300">
-                  {deal.companyName}
-                </strong>
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {[deal.contactPerson, deal.companyName].filter(Boolean).join(' · ')}
               </span>
-            </div>
+            </div>}
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-        {deal.value > 0 && (
-          <span className="inline-flex items-center gap-1 bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400 border border-green-200 dark:border-green-500/20 px-2 py-0.5 rounded text-xs font-semibold shrink-0">
+        {typeof deal.value === 'number' && (
+          <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-200 text-[13px] font-medium shrink-0">
             {formatCurrency(deal.value)}
           </span>
         )}
         <span
-          className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0
+          className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border shrink-0
             ${
               deal.priority === 'High'
                 ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20'
@@ -208,7 +205,7 @@ function DealCardContent({
 
 interface SortableDealCardProps {
   deal: Deal;
-  assignedUser?: UserType;
+  assignedUser?: Pick<UserType, 'id' | 'firstName' | 'lastName'>;
   onClick: (deal: Deal) => void;
   canDrag?: boolean;
   isAutomatedOnly?: boolean;
@@ -330,11 +327,9 @@ function DroppableStage({
             >
               {stage.name}
             </h3>
-            {stageValue > 0 && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {formatCurrency(stageValue, currencyConfig)}
-              </p>
-            )}
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              {formatCurrency(stageValue, currencyConfig)}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -568,7 +563,7 @@ export function PipelineKanbanBoard({
                       <SortableDealCard
                         key={deal.id}
                         deal={deal}
-                        assignedUser={users.find((u) => u.id === deal.assignedUserId)}
+                        assignedUser={deal.assignedUser ?? users.find((u) => u.id === deal.assignedUserId)}
                         onClick={onDealClick}
                         canDrag={canEdit}
                         isAutomatedOnly={!canEdit}
@@ -646,7 +641,7 @@ export function PipelineKanbanBoard({
           <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border-2 border-blue-500/60 shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col gap-3 w-80 rotate-1 cursor-grabbing">
             <DealCardContent
               deal={activeDeal}
-              assignedUser={users.find((u) => u.id === activeDeal.assignedUserId)}
+              assignedUser={activeDeal.assignedUser ?? users.find((u) => u.id === activeDeal.assignedUserId)}
               isDragOverlay={true}
             />
           </div>

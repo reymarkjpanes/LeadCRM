@@ -1,6 +1,7 @@
 import { User } from '@/store/types';
 
 export interface UserDTO {
+  assignableAgent?: boolean;
   id: string;
   tenantId: string;
   firstName: string;
@@ -10,12 +11,12 @@ export interface UserDTO {
   status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
   phone?: string | null;
   jobTitle?: string | null;
-  department?: string | null;
+  groups?: { id: string; name: string }[];
   avatarUrl?: string | null;
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  invitationSent?: boolean;
+  setupEmailSent?: boolean;
 }
 
 export interface CreateUserDTO {
@@ -25,7 +26,7 @@ export interface CreateUserDTO {
   role: string;
   phone: string;
   jobTitle?: string;
-  department?: string;
+  groupIds?: string[];
 }
 
 export interface UpdateUserDTO {
@@ -35,12 +36,14 @@ export interface UpdateUserDTO {
   status?: string;
   phone?: string;
   jobTitle?: string;
-  department?: string;
+  groupIds?: string[];
 }
 
 export const userAdapter = {
   toModel: (dto: UserDTO): User => ({
     id: dto.id,
+    assignableAgent: dto.assignableAgent,
+    createdAt: dto.createdAt,
     isArchived: dto.status === 'INACTIVE',
     firstName: dto.firstName,
     lastName: dto.lastName,
@@ -50,7 +53,7 @@ export const userAdapter = {
     tenantId: dto.tenantId,
     phone: dto.phone || undefined,
     jobTitle: dto.jobTitle || undefined,
-    department: dto.department || undefined,
+    groups: dto.groups ?? [],
     avatarUrl: dto.avatarUrl || undefined,
     lastLoginAt: dto.lastLoginAt || undefined,
   }),
@@ -64,7 +67,7 @@ export const userAdapter = {
     role: user.role || '',
     phone: user.phone || '',
     jobTitle: user.jobTitle,
-    department: user.department,
+    groupIds: user.groupIds,
   }),
   
   toUpdateDTO: (user: Partial<User>): UpdateUserDTO => ({
@@ -74,6 +77,6 @@ export const userAdapter = {
     status: user.status?.toUpperCase(),
     phone: user.phone,
     jobTitle: user.jobTitle,
-    department: user.department,
+    groupIds: user.groupIds,
   }),
 };

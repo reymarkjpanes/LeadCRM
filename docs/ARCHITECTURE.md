@@ -1,225 +1,59 @@
-# LeadCRM — Architecture
+# LeadCRM architecture
 
-## System Overview
+## System boundaries
 
-LeadCRM is a multi-tenant SaaS CRM built for IT solutions providers, security firms, and telecom agencies. It is organized as a Turborepo monorepo with three packages: `frontend`, `backend`, and `shared`.
+LeadCRM is an internal CRM with tenant-scoped data and Client Admin/custom staff roles. The monorepo has three workspaces: `frontend` (Next.js App Router), `backend` (Express/Prisma), and `shared` (TypeScript contracts, Zod validation, permission metadata). There is one CRM workspace dataset; public Forms provide the guest entry point. Retired SaaS and operational modules are not part of the current architecture.
 
----
+Browser → Next.js `/api/proxy` → Express `/api/v1` → domain services → Prisma/PostgreSQL.
 
-## Monorepo Layout
+The frontend server reads `API_URL`. Authentication uses the existing HttpOnly cookie or a persisted Bearer session. The backend rechecks the current user, role/session, workspace status, password/onboarding state, and permissions. Tenant identity comes from the authenticated context rather than request bodies. Only `ACTIVE` and compatibility `SANDBOX` workspace statuses permit CRM access; missing or unsupported statuses fail closed.
 
-```
-leadcrm/
-├── frontend/          ← Next.js 15 SPA (Tailwind v4 + ShadCN + Chart.js)
-├── backend/           ← Node.js + Express.js API (Prisma + PostgreSQL)
-├── shared/            ← @leadcrm/shared — types, constants, contracts, validation
-├── infrastructure/    ← Docker, Nginx, deployment scripts
-├── docs/              ← Architecture, API, and project documentation
-├── package.json       ← Turborepo workspaces root
-├── turbo.json
-└── tsconfig.base.json
-```
+## Frontend
 
----
+Routes in `frontend/app` are thin routing shells. Domain UI, hooks, and API services live under `frontend/src/features/tenant`; navigation uses Next.js routing. `AuthContext` holds current account/permission state. `DataContext` supports shared CRM state and development mocks; live domain hooks/services also use the shared API transport directly. Production mocks are disabled.
 
-## Dual-Portal Design
+Shared UI under `frontend/src/shared` contains drawers, forms, permission guards, table/preferences helpers, and chart primitives. Reuse the existing domain detail views and hooks before creating another parallel implementation. Local invalidation events refresh the affected views while preserving drafts and matching rows during background reads; permission loss clears protected data.
 
-| Concern | CRM Portal | Admin Portal |
-|---|---|---|
-| Audience | Tenant users (Client Admin, Sales Rep, Viewer, Technician) | LeadCRM operator (System Admin) |
-| Purpose | Daily CRM work — contacts, pipeline, campaigns, automation | Platform control — tenant management and audit |
-| Physical path | `frontend/src/features/tenant/` | `frontend/src/features/system-admin/` |
-| App Router group | `app/(tenant)/` | `app/(system-admin)/` |
+## Backend
 
-The portals are **physically separated folders**, not just route groups. This prevents cross-portal imports at the file system level.
+`backend/src/api/routes` defines registered HTTP routes and action-specific permission checks. Middleware handles authentication, tenant/readiness, validation, rate limiting, and errors. Domain services live in `backend/src/modules`; database access uses existing repositories and transaction helpers. Controllers translate HTTP input/output; services carry business rules and transaction boundaries.
 
----
+Related relationship, audit, and record writes commit together. Tenant-scoped IDs are validated before association. Create/edit/archive/restore actions retain their module-specific authorization. Backend guards remain authoritative even when the frontend hides a control.
 
-## Frontend Architecture
+## Canonical data and integration points
 
-```
-frontend/
-├── app/                   ← Next.js App Router (routing shells ONLY — 3-line imports)
-│   ├── login/             ← Public auth routes
-│   ├── register/          ← Public registration
-│   ├── (tenant)/          ← CRM portal routes (no URL segment)
-│   ├── (system-admin)/    ← Admin portal routes (URLs: /admin/*)
-│   └── layout.tsx         ← Root layout — metadata, PWA manifest
-└── src/
-    ├── features/
-    │   ├── tenant/        ← CRM portal — domain module layout
-    │   │   ├── crm/       ← contacts/, companies/, deals/, pipeline/
-    │   │   │   └── pipeline/ui/deal-details-modal.tsx  ← reusable Deal drawer
-    │   │   ├── marketing/ ← campaigns/, email/, templates/
-    │   │   ├── automation/← workflows/, triggers/, actions/
-    │   │   ├── operations/← service-orders/, tasks/, assets/, inventory/
-    │   │   ├── reporting/
-    │   │   ├── administration/ ← users/, audit/
-    │   │   ├── dashboard/
-    │   │   ├── settings/
-    │   │   └── layout/    ← CrmLayout, sidebar-nav, topbar, account-dropdown
-    │   └── system-admin/  ← Admin portal — dashboard/, tenants/, monitoring/, layout/
-    ├── shared/            ← Reusable UI: ui/, charts/, components/, hooks/, providers/
-    ├── store/             ← DataContext, AuthContext, types/, types.ts (shim), mockData/
-    ├── lib/               ← utils.ts, constants.ts, countries.ts
-    └── index.css          ← Global styles + Tailwind v4
-```
+| Domain | Canonical relationship or rule |
+| --- | --- |
+| Users and Groups | `TenantGroup` + `TenantGroupMember`; admin writes `groupIds`, reads return Group summaries; Profile is read-only; Workflows use the same membership pool |
+| Roles | `RoleDefinition`, `UserRole`, and `RolePermission`; metadata and permission replacement save in one transaction |
+| Customer records | Leads, Contacts, Accounts and their relationships share tenant validation, imports, file history, and CRM activity |
+| Deals | Canonical `accountId`; ordered Lead/Contact associations; current Product price snapshots at creation; governed stage changes |
+| Tasks | Ordered CRM associations, assigned user, activity/assignment history, shared Manila date conversion; unfinished work transfers during user deactivation |
+| Forms | Saved definitions and submissions; publish permission is separate from editing; submission-only fields are labeled clearly |
+| Reporting | Reports reuses Dashboard's authorized server aggregates, filters, real stage labels, and CSV definitions |
+| Gmail | Persisted scoped mailbox history and owned account; recipient/CRM assignment checks apply to manual, scheduled, and Workflow sends |
+| Campaigns | Durable submission lease and recipient attempt markers; provider webhooks record delivery; interrupted uncertain outcomes remain reviewable without automatic resend |
 
-### Key Rules
-- `app/page.tsx` dynamically imports `src/App` with `ssr: false` — the entire app is a client-side SPA
-- Navigation uses a `currentPath` string switch in `App.tsx` — no Next.js routing is used for page transitions
-- All data operations go through `DataContext` — never direct `localStorage` in components
-- All chart imports come from `src/shared/components/charts/ChartComponents.tsx`
-- All filter UI uses `<TrelloFilter>` — never raw `<select>`
-- `tenant` comes from `useAuth()` — never from `useData()`
-- Deal modal interactions use `DealDetailsModal` (`features/tenant/crm/pipeline/ui/deal-details-modal.tsx`) — never re-implement inline
-- `store/types.ts` is a re-export shim only — all canonical types live in `store/types/*.ts`
-- Task status uses `TaskStatus` type: `pending | in-progress | blocked | completed | cancelled`
-- `deal.contactIds` is always `string[]` — never use `deal.contactId` (singular) for new code
-- Stage history is automatic — `DataContext.updateDeal` appends `previousStageId` on every stage change
+The Department-to-Groups migration preserves all existing memberships and creates/reuses same-tenant Groups for nonblank legacy values before dropping the old field. It does not create a second assignment mechanism. Multiple Group memberships remain supported.
 
-### Tech Stack
-- **Framework:** Next.js 15 (App Router)
-- **Styling:** Tailwind CSS v4 — `@import "tailwindcss"` — NO `tailwind.config.js`
-- **UI:** ShadCN from `src/shared/components/ui/`
-- **Charts:** Chart.js via `ChartComponents.tsx`
-- **State:** React Context (AuthContext + DataContext)
-- **Animations:** `motion/react` — never `framer-motion`
-- **Drag & Drop:** @dnd-kit
-- **Toasts:** Sonner
+## Updates and background work
 
----
+Committed tenant revisions drive Dashboard SSE and the independent authorization stream. Group changes increment the existing access revision, so open User/Profile/Workflow views can refresh their current data. Pipeline metadata has its own authenticated revision stream. Mailbox uses persisted synchronization/version state and an authenticated event stream; opening Inbox does not force a provider reload.
 
-## Backend Architecture
+Workflows and notification delivery use their existing background services. Notification outbox defaults and raw SQL due/lease comparisons use explicit UTC so a non-UTC database session cannot claim reminders early. Historical timestamps remain preserved. Campaign submission recovery discovers bounded expired work, finalizes known unsent recipients, and flags uncertain outcomes `INTERRUPTED` for review. The obsolete campaign scheduler is removed. Inbox scheduling remains a separate Gmail-backed service; read/cancel operations are owner-scoped, and cancellation competes atomically with the transition to sending. Confirmed delivery is never requeued because later history cleanup fails.
 
-```
-backend/
-├── prisma/
-│   ├── schema.prisma      ← Single source of truth for all DB models
-│   ├── migrations/        ← Auto-generated by prisma migrate
-│   └── seed.ts
-└── src/
-    ├── modules/           ← Domain-driven business modules
-    │   ├── crm/           ← contacts, companies, deals, pipeline
-    │   ├── marketing/     ← campaigns, email, templates
-    │   ├── automation/    ← workflows, triggers, actions
-    │   ├── operations/    ← service-orders, tasks
-    │   ├── administration/ ← users, roles, role-permissions, audit
-    │   └── reporting/     ← reports
-    ├── integrations/      ← gmail/
-    ├── core/              ← auth/, permissions/, audit/, tenant/
-    ├── api/               ← middleware/, routes/
-    ├── config/            ← app, database, mail configs
-    ├── database/          ← seeders/
-    └── shared/            ← backend-only constants, helpers, errors
-```
+## Shared package
 
-### Module Layered Architecture
+`shared/src` defines reusable contracts, permission keys, canonical schemas, date helpers, and response types consumed by both workspaces. TypeScript is the source of truth. `npm --prefix shared run build` synchronizes compatibility JavaScript companions used by plain Node consumers; do not edit those generated files independently. Tests resolve TypeScript before JavaScript to avoid stale contract copies.
 
-Every module follows strict layering — no layer may reach past its boundary:
+## Deployment and verification
 
-| File | Responsibility | Rule |
-|---|---|---|
-| `*.controller.ts` | HTTP request/response only | Never touches DB |
-| `*.service.ts` | Business logic only | Never uses `req`/`res` |
-| `*.repository.ts` | DB queries only | Never has business logic |
-| `*.dto.ts` | Input/output shape + Zod validation | |
-| `*.types.ts` | Module-local TypeScript types | |
+Stop old backend processes and apply forward migrations before starting the matching backend. The current polish introduces `20261116000000_user_groups`, `20261117000000_campaign_submission_recovery`, `20261118000000_group_revisions` and `20261119000000_notification_utc_timestamps`. See the [rollout steps](../README.md#forward-rollout) and [system polish plan](plans/system-polish.md). Production database changes and provider sends require their own operational verification; source/tests are not evidence of a deployed release.
 
-### Tech Stack
-- **Runtime:** Node.js 20
-- **Framework:** Express.js
-- **ORM:** Prisma (PostgreSQL)
-- **Auth:** JWT via jsonwebtoken
-- **Validation:** Zod
-- **Password hashing:** bcryptjs (12 salt rounds)
+## References
 
----
-
-## Shared Package (`@leadcrm/shared`)
-
-```
-shared/src/
-├── types/        ← contact, company, deal, user, campaign, tenant, api
-├── constants/    ← roles.ts, permissions.ts (RBAC — defined once, used by both sides)
-├── contracts/    ← API shape contracts (what the API accepts and returns)
-└── validation/   ← Zod schemas (same schema used by frontend forms AND backend middleware)
-```
-
-### Import Examples
-
-```typescript
-// Backend
-import { ContactStatus, Permission } from '@leadcrm/shared';
-
-// Frontend
-import { ContactStatus, Role } from '@leadcrm/shared';
-
-// ✅ Single source of truth — never duplicated
-```
-
-### RBAC Pattern
-
-```typescript
-// ❌ Bad — fragile string comparison
-if (user.role === 'Admin') { ... }
-
-// ✅ Good — uses shared Role constant
-import { Role, Permission } from '@leadcrm/shared';
-if (user.role === Role.CLIENT_ADMIN) { ... }
-hasPermission(user, Permission.CONTACTS_CREATE);
-```
-
-**Permission model:** `RolePermission` table — one row per module per role with
-`canView`, `canCreate`, `canEdit`, `canDelete` booleans. Unique on `[roleId, module]`.
-
-```typescript
-// Backend middleware
-router.post('/contacts', rbac('contacts', 'canCreate'), controller.create);
-
-// Frontend guard
-const { canCreate } = useModulePermissions('contacts');
-{canCreate && <Button>Add Contact</Button>}
-
----
-
-## Multi-Tenancy Model
-
-Every data record that belongs to a tenant has a required `tenantId` field. This is enforced:
-- At the Prisma schema level (`tenantId String // REQUIRED`)
-- At the repository layer (every query filters by `tenantId`)
-- At the middleware level (`tenant.middleware.ts` verifies `req.user.tenantId`)
-- `tenantId` is **always** sourced from the JWT — never from the request body
-
-```typescript
-// ✅ Correct — tenantId from JWT, not client input
-const contact = await repo.createContact(req.user.tenantId, dto);
-```
-
----
-
-## Data Layer
-
-`DataContext` acts as the data access layer. All 30 entities are now in the Prisma schema.
-Set `NEXT_PUBLIC_USE_MOCK_DATA=false` in `.env.local` to switch from localStorage to real API calls.
-Each module migrates independently — only `DataContext` internals change, all components remain untouched.
-This is the Dependency Inversion Principle applied to the data layer.
-
-The Prisma schema includes active CRM and account-security models. Retired billing and configurable team-domain structures are removed by forward migrations. See [security cleanup](security-cleanup-mfa.md) and [CRM environments](crm-environments.md).
-
----
-
-## See Also
-
-- [STRUCTURE.md](./STRUCTURE.md) — detailed folder map
-- [API.md](./API.md) — backend API spec
-- [capstone-documentation.md](./capstone-documentation.md) — full project documentation
-- [dashboard-kpis.md](./dashboard-kpis.md) — KPI formulas and metric definitions
-- [database/erd.md](./database/erd.md) — entity relationships and Prisma model map
-- [security/permission-matrix.md](./security/permission-matrix.md) — RBAC role × module matrix
-- [security/audit-log-strategy.md](./security/audit-log-strategy.md) — what gets logged and how
-- [workflows/customer-lifecycle.md](./workflows/customer-lifecycle.md) — full customer journey
-- [workflows/lead-to-deal.md](./workflows/lead-to-deal.md) — lead capture to deal creation
-- [workflows/deal-to-payment.md](./workflows/deal-to-payment.md) — deal won to payment collected
-- [workflows/pipeline-stage-flow.md](./workflows/pipeline-stage-flow.md) — 4 pipelines, stage rules, velocity
-- [workflows/task-assignment.md](./workflows/task-assignment.md) — task ownership and audit trail
+- [API](API.md), [structure](STRUCTURE.md), [authentication](authentication.md)
+- [Dashboard definitions](dashboard-kpis.md), [normalization report](database/normalization-report.md), [entity relationships](database/normalization-erd.md)
+- [Security cleanup](security-cleanup-mfa.md), [CRM workspace](crm-environments.md), [retired features](retired-features-cleanup.md)
+- [Forms](forms-production-report.md), [Campaign delivery](campaign-email-delivery.md), [Workflow assignment/history](workflows/workflow-assignment-history.md)
+- [Engagement and Deal creation](engagement-deal-creation.md), [Custom Fields](custom-fields.md), [CRM archive behavior](crm-archive-verification.md)

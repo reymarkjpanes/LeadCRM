@@ -22,7 +22,7 @@ export const CreateAdministrationUserSchema = z.object({
   // The existing user service accepts the canonical RoleDefinition.name.
   role: cleanText(100).pipe(z.string().min(1, 'Role is required.')),
   jobTitle: cleanText(100).optional(),
-  department: cleanText(100).optional(),
+  groupIds: z.array(z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
 
 export const UpdateAdministrationUserSchema = CreateAdministrationUserSchema.omit({ email: true }).partial()

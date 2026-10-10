@@ -1,40 +1,13 @@
 'use client';
 
-/**
- * Converts a frontend status string to a backend status string (UPPERCASE).
- * Default fallback is 'WARM'.
- * 
- * @param {string | undefined} status Frontend status (e.g., 'Hot', 'Warm', 'Cold')
- * @returns {string} Backend status (e.g., 'HOT', 'WARM', 'COLD')
- */
-export function toBackendStatus(status?: string): string {
-  if (!status) return 'WARM';
-  const upper = status.toUpperCase();
-  if (['HOT', 'WARM', 'COLD', 'CANCELLED', 'CLOSED'].includes(upper)) {
-    return upper;
-  }
-  return 'WARM';
+import { CrmStatusSchema, normalizeCrmStatus, type CrmStatus } from '@leadcrm/shared';
+
+/** API writes must use the canonical contract; never silently replace invalid input. */
+export function toBackendStatus(status?: string): CrmStatus {
+  return CrmStatusSchema.parse(status ?? 'Warm');
 }
 
-/**
- * Converts a backend status string to a frontend status string (Title Case).
- * Default fallback is 'Warm'.
- * 
- * @param {string | undefined} status Backend status (e.g., 'HOT', 'WARM', 'COLD')
- * @returns {string} Frontend status (e.g., 'Hot', 'Warm', 'Cold')
- */
-export function toFrontendStatus(status?: string): string {
-  if (!status) return 'Warm';
-  const upper = status.toUpperCase();
-  switch (upper) {
-    case 'HOT': return 'Hot';
-    case 'WARM': return 'Warm';
-    case 'COLD': return 'Cold';
-    case 'CANCELLED': return 'Cancelled';
-    case 'CLOSED': return 'Closed';
-    default: return 'Warm';
-  }
-}
+export const toFrontendStatus = normalizeCrmStatus;
 
 /**
  * Splits a full name into first and last name.
@@ -67,6 +40,8 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
       };
 
   return {
+    customFieldValues: data.customFieldValues,
+    requestId: data.requestId,
     firstName,
     lastName,
     email: data.email || undefined,
@@ -94,6 +69,7 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
  */
 export function toBackendUpdateContact(data: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
+  if (data.customFieldValues !== undefined) result.customFieldValues = data.customFieldValues;
 
   if (data.contactPerson !== undefined || data.firstName !== undefined || data.lastName !== undefined) {
     if (data.contactPerson) {
@@ -106,16 +82,16 @@ export function toBackendUpdateContact(data: Record<string, any>): Record<string
     }
   }
 
-  if (data.email !== undefined) result.email = data.email || undefined;
-  if (data.phone !== undefined) result.phone = data.phone || undefined;
-  if (data.companyName !== undefined) result.companyName = data.companyName || undefined;
+  if (data.email !== undefined) result.email = data.email;
+  if (data.phone !== undefined) result.phone = data.phone ?? '';
+  if (data.companyName !== undefined) result.companyName = data.companyName ?? '';
   if (data.status !== undefined) result.status = toBackendStatus(data.status);
-  if (data.leadSource !== undefined || data.source !== undefined) result.source = data.leadSource || data.source || undefined;
-  if (data.accountId !== undefined) result.accountId = data.accountId || undefined;
-  if (data.assignedUserId !== undefined) result.assignedUserId = data.assignedUserId || undefined;
+  if (data.leadSource !== undefined || data.source !== undefined) result.source = data.leadSource ?? data.source ?? '';
+  if (data.accountId !== undefined) result.accountId = data.accountId || null;
+  if (data.assignedUserId !== undefined) result.assignedUserId = data.assignedUserId || null;
   if (data.productInterests !== undefined) result.productInterest = data.productInterests;
   else if (data.productInterest !== undefined) result.productInterest = data.productInterest ? (Array.isArray(data.productInterest) ? data.productInterest : [data.productInterest]) : [];
-  if (data.address !== undefined) result.address = data.address || undefined;
+  if (data.address !== undefined) result.address = data.address ?? '';
 
   return result;
 }
@@ -139,13 +115,16 @@ export function toFrontendContact(backendContact: any): Record<string, any> {
     tenantId: backendContact.tenantId || '',
     organizationId: backendContact.organizationId || backendContact.accountId || undefined,
     accountId: backendContact.accountId || undefined,
-    companyName: backendContact.companyName || backendContact.company || '',
+    contactId: backendContact.contactId,
+    convertedAt: backendContact.convertedAt,
+    companyName: backendContact.companyName || backendContact.company || backendContact.account?.name || backendContact.organization?.name || '',
     contactPerson: contactPerson || 'Unknown',
     firstName,
     lastName,
     jobTitle: backendContact.jobTitle || '',
     email: backendContact.email || '',
     phone: backendContact.phone || '',
+    productInterestIds: backendContact.productInterestIds,
     productInterests: Array.isArray(backendContact.productInterest)
       ? backendContact.productInterest
       : (Array.isArray(backendContact.productInterests) ? backendContact.productInterests : []),
@@ -158,6 +137,12 @@ export function toFrontendContact(backendContact: any): Record<string, any> {
     assignedUserId: backendContact.assignedUserId || '',
     expectedCloseDate: '', // Frontend only
     notes: backendContact.notes || '',
+    description: backendContact.description || '',
+    website: backendContact.website || '',
+    createdByUser: backendContact.createdBy || undefined,
+    updatedByUser: backendContact.updatedBy || undefined,
+    lastStatusChangedAt: backendContact.lastStatusChangedAt || undefined,
+    latestStatusChangeDate: backendContact.lastStatusChangedAt || undefined,
     status: toFrontendStatus(backendContact.status),
     score: typeof backendContact.score === 'number' ? backendContact.score : 0,
     createdAt: backendContact.createdAt || new Date().toISOString(),
@@ -166,6 +151,7 @@ export function toFrontendContact(backendContact: any): Record<string, any> {
     archivedAt: backendContact.deletedAt || undefined,
     archivedBy: backendContact.deletedBy || undefined,
     linkedin: backendContact.linkedinUrl || '',
+    linkedinUrl: backendContact.linkedinUrl || '',
     customerType: backendContact.accountId ? 'Organization' : 'Individual',
     address: backendContact.address || '',
     // Nested relation objects (when included by Prisma)

@@ -12,7 +12,7 @@ import type { Contact } from '@/store/types';
 export interface ContactsV2Response {
   success: boolean;
   data: Contact[];
-  meta: { total: number; page: number; limit: number; hasMore: boolean };
+  meta: { total: number; page: number; limit: number; hasMore: boolean; facets?: Record<string, number> };
 }
 
 export interface ContactV2Response {
@@ -28,7 +28,29 @@ export interface ContactV2Query {
   assignedUserId?: string;
   accountId?: string;
   archived?: boolean;
+  sort?: string;
+  filters?: import('@leadcrm/shared').FilterCondition[];
 }
+
+/** Contact screens still use display aliases; the Contact API uses canonical columns. */
+export function toContactWrite(data: Partial<Contact>): Record<string, unknown> {
+  const { companyName, leadSource, organizationId, productInterest, ...payload } = data;
+  return {
+    ...payload,
+    ...(companyName !== undefined ? { company: companyName } : {}),
+    ...(leadSource !== undefined ? { source: leadSource } : {}),
+    ...(organizationId !== undefined && data.accountId === undefined ? { accountId: organizationId || null } : {}),
+    ...(productInterest !== undefined && data.productInterests === undefined ? { productInterests: productInterest } : {}),
+  };
+}
+
+function contactDisplay(data: Contact): Contact {
+  const contact = data as Contact & { company?: string };
+  return { ...contact, companyName: contact.company ?? contact.companyName,
+    leadSource: contact.source ?? contact.leadSource, organizationId: contact.accountId ?? contact.organizationId };
+}
+
+const contactResponse = (response: ContactV2Response): ContactV2Response => ({ ...response, data: contactDisplay(response.data) });
 
 export const contactsV2Api = {
   list: (query: ContactV2Query = {}, signal?: AbortSignal): Promise<ContactsV2Response> => {
@@ -40,17 +62,22 @@ export const contactsV2Api = {
     if (query.status) params['status'] = query.status;
     if (query.assignedUserId) params['assignedUserId'] = query.assignedUserId;
     if (query.accountId) params['accountId'] = query.accountId;
-    return apiClient.get<ContactsV2Response>('/crm/contacts', { params, signal });
+    if (query.sort) params['sort'] = query.sort;
+    for (const filter of query.filters ?? []) {
+      const value = Array.isArray(filter.value) ? filter.value.join(',') : String(filter.value ?? '');
+      params[`filter[${filter.field}]`] = `${filter.operator}:${value}`;
+    }
+    return apiClient.get<ContactsV2Response>('/crm/contacts', { params, signal }).then(response => ({ ...response, data: response.data.map(contactDisplay) }));
   },
 
   get: (id: string, signal?: AbortSignal): Promise<ContactV2Response> =>
-    apiClient.get<ContactV2Response>(`/crm/contacts/${encodeURIComponent(id)}`, { signal }),
+    apiClient.get<ContactV2Response>(`/crm/contacts/${encodeURIComponent(id)}`, { signal }).then(contactResponse),
 
   create: (data: Partial<Contact>): Promise<ContactV2Response> =>
-    apiClient.post<ContactV2Response>('/crm/contacts', data),
+    apiClient.post<ContactV2Response>('/crm/contacts', toContactWrite(data)).then(contactResponse),
 
   update: (id: string, data: Partial<Contact>): Promise<ContactV2Response> =>
-    apiClient.put<ContactV2Response>(`/crm/contacts/${id}`, data),
+    apiClient.put<ContactV2Response>(`/crm/contacts/${id}`, toContactWrite(data)).then(contactResponse),
 
   archive: (id: string): Promise<{ success: boolean }> =>
     apiClient.patch<{ success: boolean }>(`/crm/contacts/${id}/archive`, {}),

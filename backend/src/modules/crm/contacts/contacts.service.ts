@@ -1,64 +1,32 @@
-import { Prisma, type Contact } from '@prisma/client';
 import * as repo from './contacts.repository';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError } from '../../../shared/errors/http-error';
-import { CreateContactDto, UpdateContactDto, ConvertContactDto } from './contacts.dto';
+import { CreateContactSchema, UpdateContactSchema, ConvertContactSchema, CreateContactDto, UpdateContactDto, ConvertContactDto } from './contacts.dto';
 import { paginate } from '../../../shared/helpers/pagination';
-import { fireLeadCreated, fireLeadStatusChanged, fireContactCreated, fireDealCreated } from '../../automation/triggers/triggers.service';
-import { createNotification } from '../../notifications/notifications.service';
-import prisma from '../../../config/database.config';
+import { fireLeadStatusChanged, fireContactCreated, fireContactStatusChanged, fireContactUpdated, fireDealUpdated } from '../../automation/triggers/triggers.service';
+import { salesTransaction } from '../leads/lead-automation.service';
+import { convertClosedLead } from '../leads/lead-conversion.service';
+import { assertClosedStatus, changeCustomerStatus } from '../engagement.service';
+import { normalizeCrmStatus } from '@leadcrm/shared';
+import { fireLeadUpdated } from '../../automation/triggers/triggers.service';
+import { recordChanges } from '../record-updates';
 
 export async function getContacts(tenantId: string, query: Record<string, unknown>) {
   const result = await repo.findAllContacts(tenantId, query);
-  return paginate(result.data, result.total, { page: result.page, limit: result.limit });
+  return { ...paginate(result.data, result.total, { page: result.page, limit: result.limit }), facets: result.facets };
 }
 
 export async function getContactById(id: string, tenantId: string) {
   const contact = await repo.findContactById(id, tenantId);
-  if (!contact) throw new NotFoundError('Contact');
+  if (!contact) throw new NotFoundError('Lead');
   return contact;
 }
 
 export async function createContact(tenantId: string, userId: string, dto: CreateContactDto) {
+  dto = CreateContactSchema.parse(dto);
   const contact = await repo.createContact(tenantId, dto, userId);
 
-  await writeAuditLog({
-    tenantId, userId,
-    action:     'contact.created',
-    entityType: 'Contact',
-    entityId:   contact.id,
-    after:      { firstName: dto.firstName, lastName: dto.lastName },
-  });
-
-  // This service owns Lead rows; Contact events come from contacts-v2.
-  await fireLeadCreated({
-    tenantId,
-    actorId: userId,
-    lead: {
-      id:             contact.id,
-      status:         String((contact as Record<string, unknown>).status ?? ''),
-      source:         (contact as Record<string, unknown>).source as string | null ?? null,
-      score:          Number((contact as Record<string, unknown>).score ?? 0),
-      assignedUserId: (contact as Record<string, unknown>).assignedUserId as string | null ?? null,
-      companyName:    (contact as Record<string, unknown>).companyName as string | null ?? null,
-    },
-  });
-
-  // Notify the assigned user when a lead is directly assigned to them on creation.
-  // Only fires when the creator is NOT the assignee (no self-notification).
-  if ((contact as Record<string, unknown>).assignedUserId &&
-      (contact as Record<string, unknown>).assignedUserId !== userId) {
-    createNotification({
-      tenantId,
-      userId:     String((contact as Record<string, unknown>).assignedUserId),
-      type:       'lead_assigned',
-      title:      `New lead assigned to you`,
-      body:       `${(contact as Record<string, unknown>).firstName ?? ''} ${(contact as Record<string, unknown>).lastName ?? ''}`.trim() ||
-                  'A new lead has been assigned to you.',
-      entityType: 'Lead',
-      entityId:   contact.id,
-    }).catch(() => {});
-  }
+  // The Lead transaction captures its assignment in NotificationEvent.
 
   return contact;
 }
@@ -66,53 +34,11 @@ export async function createContact(tenantId: string, userId: string, dto: Creat
 export async function updateContact(
   id: string, tenantId: string, userId: string, dto: UpdateContactDto,
 ) {
-  const before = await repo.findContactById(id, tenantId);
-  if (!before) throw new NotFoundError('Contact');
-
-  const contact = await repo.updateContact(id, tenantId, dto, userId, before.status);
-  if (!contact) throw new NotFoundError('Contact');
-
-  await writeAuditLog({
-    tenantId, userId,
-    action:     'contact.updated',
-    entityType: 'Contact',
-    entityId:   id,
+  dto = UpdateContactSchema.parse(dto);
+  return repo.updateContact(id, tenantId, dto, userId, undefined, async (before, contact, changes) => {
+    if (changes.changedFields.length) await fireLeadUpdated({ tenantId, actorId: userId, record: contact, changedFields: changes.changedFields, changes });
+    if (contact.status !== before.status) await fireLeadStatusChanged({ tenantId, actorId: userId, lead: contact, prevStatus: before.status });
   });
-
-  // This service owns Leads; Client Profile events belong to contacts-v2.
-  if (dto.status && dto.status !== before.status) {
-    await fireLeadStatusChanged({
-      tenantId,
-      actorId: userId,
-      lead: {
-        id:             id,
-        updatedAt:      (contact as Record<string, unknown>).updatedAt as Date,
-        status:         dto.status,
-        score:          Number((contact as Record<string, unknown>).score ?? 0),
-        assignedUserId: (contact as Record<string, unknown>).assignedUserId as string | null ?? null,
-      },
-      prevStatus: before.status,
-    });
-  }
-
-  // Notify the newly assigned user when a lead is reassigned to someone else.
-  // Guards: new assignee differs from previous, and is not the actor making the change.
-  const newAssignee = (dto as Record<string, unknown>).assignedUserId as string | undefined;
-  const prevAssignee = (before as Record<string, unknown>).assignedUserId as string | undefined;
-  if (newAssignee && newAssignee !== prevAssignee && newAssignee !== userId) {
-    const leadName = `${(contact as Record<string, unknown>).firstName ?? ''} ${(contact as Record<string, unknown>).lastName ?? ''}`.trim();
-    createNotification({
-      tenantId,
-      userId:     newAssignee,
-      type:       'lead_assigned',
-      title:      `Lead assigned to you`,
-      body:       leadName ? `"${leadName}" has been assigned to you.` : 'A lead has been assigned to you.',
-      entityType: 'Lead',
-      entityId:   id,
-    }).catch(() => {});
-  }
-
-  return contact;
 }
 
 export async function archiveContact(id: string, tenantId: string, userId: string) {
@@ -129,226 +55,50 @@ export async function restoreContact(id: string, tenantId: string, userId: strin
     entityType: 'Lead', entityId: id, after: { isArchived: false } });
 }
 
-/**
- * Convert a Lead into a full CRM record chain:
- * Lead → Contact (create/link) + Account (create/link) + optional Deal (create/link).
- *
- * After conversion:
- * - Lead.status = 'Converted'
- * - Lead.contactId = created/linked Contact ID
- * - Lead.convertedAt = now
- * - Lead.convertedById = userId
- * - Lead.accountId = resolved Account ID
- */
-export async function convertContact(
-  id: string, tenantId: string, userId: string, dto: ConvertContactDto,
-) {
-  const lead = await repo.findContactById(id, tenantId);
-  if (!lead) throw new NotFoundError('Contact');
-
-  // Prevent re-conversion
-  if (lead.status === 'Converted') {
-    throw new ValidationError('This lead has already been converted');
-  }
-
-  const now = new Date();
-
-  const result = await prisma.$transaction(async (tx) => {
-    // ─── 1. Resolve or create the Account ─────────────────────────────────
-    let accountId = dto.accountId;
-    let account: { id: string; name: string } | null = null;
-
-    if (accountId) {
-      account = await tx.account.findFirst({ where: { id: accountId, tenantId } });
-      if (!account) throw new NotFoundError('Account');
-    } else if (dto.accountName) {
-      account = await tx.account.create({
-        data: { tenantId, name: dto.accountName } as never,
-      });
-      accountId = account.id;
-    }
-
-    // ─── 2. Resolve or create the Contact ─────────────────────────────────
-    let contactId: string | null = null;
-    let contact: Pick<Contact, 'id' | 'firstName' | 'lastName' | 'status' | 'updatedAt'> | null = null;
-
-    if (dto.contactId) {
-      // Link to existing contact
-      contact = await tx.contact.findFirst({ where: { id: dto.contactId, tenantId } });
-      if (!contact) throw new NotFoundError('Contact');
-      contactId = contact.id;
-
-      // Update existing contact's accountId if not already set
-      if (accountId) {
-        await tx.contact.update({
-          where: { id: contactId } as never,
-          data: { accountId } as never,
-        });
-      }
-    } else if (dto.createContact !== false) {
-      // Create new Contact from Lead data.
-      //
-      // ── Field mapping (Lead → Contact) ───────────────────────────────────
-      // Lead.companyName     → Contact.company          (plain text; NOT a FK)
-      // Lead.productInterest → Contact.productInterests (String[] → String[])
-      // Lead.firstName/etc   → Contact.firstName/etc    (direct copy)
-      // accountId (resolved) → Contact.accountId        (FK → Account; canonical company link per ADR-001)
-      // lifecycleStage       → 'CUSTOMER'               (ContactLifecycleStage enum — requires migration 20260807110000)
-      // status               → 'WARM'                   (ContactStatus enum; indicates active lead-converted contact)
-      //
-      // The Prisma.ContactUncheckedCreateInput type annotation provides compile-time safety:
-      // any field-name drift (e.g. renaming productInterests) will be caught by tsc --noEmit.
-      const contactData: Prisma.ContactUncheckedCreateInput = {
-        tenantId,
-        firstName: lead.firstName,
-        lastName: lead.lastName,
-        email: lead.email,
-        phone: lead.phone,
-        company: lead.companyName ?? null,         // Lead.companyName → Contact.company ✓
-        address: lead.address,
-        source: lead.source,
-        productInterests: lead.productInterest ?? [],  // Lead.productInterest → Contact.productInterests ✓
-        assignedUserId: lead.assignedUserId,
-        accountId: accountId ?? null,              // resolved Account ID or null ✓
-        status: 'WARM',
-        lifecycleStage: 'CUSTOMER',                // requires ContactLifecycleStage enum in DB ✓
-        convertedAt: now,
-      };
-      contact = await tx.contact.create({ data: contactData });
-      contactId = contact.id;
-    }
-
-    // ─── 3. Resolve or create the Deal ────────────────────────────────────
-    let deal: { id: string; title: string } | null = null;
-
-    if (dto.dealId) {
-      // Link to existing deal
-      deal = await tx.deal.findFirst({
-        where: { id: dto.dealId, tenantId },
-        select: { id: true, title: true },
-      });
-      if (!deal) throw new NotFoundError('Deal');
-
-      // Create LeadDeal junction
-      await tx.leadDeal.create({
-        data: { tenantId, dealId: deal.id, leadId: id, addedById: userId } as never,
-      });
-
-      // Create ContactDeal junction if contact exists
-      if (contactId) {
-        await tx.contactDeal.create({
-          data: { tenantId, dealId: deal.id, contactId, addedById: userId } as never,
-        }).catch(() => {
-          // Ignore if junction already exists (unique constraint)
-        });
-      }
-
-      // Update deal accountId if not set
-      if (accountId) {
-        await tx.deal.update({
-          where: { id: deal.id } as never,
-          data: { accountId } as never,
-        });
-      }
-    } else if (dto.createDeal && dto.dealTitle) {
-      // Create new deal
-      const pipeline = dto.dealPipelineId
-        ? await tx.pipeline.findFirst({ where: { id: dto.dealPipelineId, tenantId, isArchived: false }, include: { stages: { orderBy: { order: 'asc' } } } })
-        : await tx.pipeline.findFirst({ where: { tenantId, isDefault: true, isArchived: false }, include: { stages: { orderBy: { order: 'asc' } } } });
-
-      if (!pipeline || pipeline.stages.length === 0) {
-        throw new ValidationError('No pipeline with stages available for deal creation');
-      }
-
-      const entryStage = pipeline.stages.find((s: { isDefault: boolean }) => s.isDefault) || pipeline.stages[0];
-
-      deal = await tx.deal.create({
-        data: {
-          tenantId,
-          pipelineId: pipeline.id,
-          stageId: entryStage.id,
-          accountId: accountId,
-          ownerId: userId,
-          assignedUserId: lead.assignedUserId || userId,
-          title: dto.dealTitle,
-          value: dto.dealValue,
-          priority: dto.dealPriority || 'MEDIUM',
-        } as never,
-      });
-
-      // LeadDeal junction
-      await tx.leadDeal.create({
-        data: { tenantId, dealId: deal.id, leadId: id, addedById: userId } as never,
-      });
-
-      // ContactDeal junction (if contact was created/linked)
-      if (contactId) {
-        await tx.contactDeal.create({
-          data: { tenantId, dealId: deal.id, contactId, addedById: userId } as never,
-        });
-      }
-
-      // Activity for deal creation — link to the deal only (exactly-one-FK rule).
-      const dealActivity: Prisma.ActivityUncheckedCreateInput = {
-        tenantId,
-        createdById: userId,
-        type: 'deal_created',
-        title: `Deal "${dto.dealTitle}" created via conversion`,
-        dealId: deal.id,
-      };
-      await tx.activity.create({ data: dealActivity });
-    }
-
-    // ─── 4. Update the Lead record ────────────────────────────────────────
-    const convertedLead = await tx.lead.update({
-      where: { id } as never,
-      data: {
-        status: 'Converted',
-        accountId: accountId,
-        contactId: contactId,
-        convertedAt: now,
-        convertedById: userId,
-      } as never,
-    });
-
-    // ─── 5. Activity for conversion ───────────────────────────────────────
-    // Activity uses typed FKs with the "exactly one non-null" rule (see Activity model).
-    // Link to the source Lead only; the account/contact names are captured in the title.
-    // (Matches the moveDealStage precedent that trims extra FKs to avoid P2003.)
-    const conversionActivity: Prisma.ActivityUncheckedCreateInput = {
-      tenantId,
-      createdById: userId,
-      type: 'conversion',
-      title: `Lead converted — linked to ${account?.name || 'Account'}${contact ? `, Contact ${contact.firstName} ${contact.lastName}` : ''}`,
-      leadId: id,
-    };
-    await tx.activity.create({ data: conversionActivity });
-
-    return { lead, contact, account, deal, convertedLead };
+/** The legacy endpoint uses the same successful-sales conversion transaction. */
+export async function convertContact(id: string, tenantId: string, userId: string, dto: ConvertContactDto) {
+  dto = ConvertContactSchema.parse(dto);
+  const committed = await salesTransaction(async tx => {
+    const lead = await tx.lead.findFirst({ where: { tenantId, id, isArchived: false, deletedAt: null } });
+    if (!lead) throw new NotFoundError('Lead');
+    if (dto.createDeal) throw new ValidationError('Complete an existing Deal before converting this Lead.');
+    if (dto.dealId && !await tx.deal.findFirst({ where: { tenantId, id: dto.dealId,
+      leadDeals: { some: { tenantId, leadId: id } } } })) throw new ValidationError('Choose a Deal already associated with this Lead.');
+    await assertClosedStatus(tx, tenantId, { leadId: id });
+    // Capture the records this conversion may link before any transaction writes.
+    const previousContacts = await tx.contact.findMany({ where: { tenantId, OR: [
+      { id: dto.contactId ?? lead.contactId ?? '' },
+      ...(lead.email?.trim() ? [{ email: { contains: lead.email.trim(), mode: 'insensitive' as const } }] : []),
+    ] } });
+    const previousDeals = await tx.deal.findMany({ where: { tenantId, leadDeals: { some: { tenantId, leadId: id } } } });
+    // Never replace the identity of a previously converted customer on a retry.
+    if (!lead.convertedAt) await tx.lead.update({ where: { tenantId, id }, data: {
+      ...(dto.contactId ? { contactId: dto.contactId } : {}), ...(dto.accountId ? { accountId: dto.accountId } : {}),
+      ...(!lead.companyName?.trim() && dto.accountName?.trim() ? { companyName: dto.accountName.trim() } : {}),
+    } });
+    if (!lead.convertedAt) await changeCustomerStatus(tx, tenantId, userId, { leadId: id }, 'Closed', 'Staff confirmed completed sales conversion.', new Date());
+    const converted = await convertClosedLead(tx, tenantId, id, userId);
+    const account = converted.accountId ? await tx.account.findFirst({ where: { tenantId, id: converted.accountId } }) : null;
+    const deal = dto.dealId ? await tx.deal.findFirst({ where: { tenantId, id: dto.dealId } }) : null;
+    const updatedDeals = await tx.deal.findMany({ where: { tenantId, id: { in: previousDeals.map(record => record.id) } } });
+    return { lead: converted.lead, contact: converted.contact, account, deal, previousLead: lead,
+      previousContact: previousContacts.find(record => record.id === converted.contact.id), previousDeals, updatedDeals };
   });
-
-  await writeAuditLog({
-    tenantId, userId,
-    action: 'contact.converted',
-    entityType: 'Contact',
-    entityId: id,
-    after: {
-      accountId: result.account?.id,
-      contactId: result.contact?.id,
-      dealId: result.deal?.id,
-      convertedAt: now.toISOString(),
-    },
-  });
-
-  // Emit only after the conversion transaction commits. Linking existing records
-  // is not a creation event; rolled-back conversions must never run automations.
-  await fireLeadStatusChanged({ tenantId, actorId: userId, lead: result.convertedLead, prevStatus: lead.status });
-  if (!dto.contactId && dto.createContact !== false && result.contact) {
-    await fireContactCreated({ tenantId, actorId: userId, contact: result.contact });
+  // Workflow side effects run only after a successful commit, never on a retry/rollback.
+  const { lead, contact, account, deal, previousLead, previousContact, previousDeals, updatedDeals } = committed;
+  const leadChanges = recordChanges(previousLead, lead);
+  if (leadChanges.changedFields.length) await fireLeadUpdated({ tenantId, actorId: userId, record: lead, changedFields: leadChanges.changedFields, changes: leadChanges });
+  await fireLeadStatusChanged({ tenantId, actorId: userId, lead, prevStatus: previousLead.status });
+  if (!previousContact) await fireContactCreated({ tenantId, actorId: userId, contact });
+  else {
+    const changes = recordChanges(previousContact, contact);
+    if (changes.changedFields.length) await fireContactUpdated({ tenantId, actorId: userId, record: contact, changedFields: changes.changedFields, changes });
+    await fireContactStatusChanged({ tenantId, actorId: userId, contact, prevStatus: previousContact.status });
   }
-  if (!dto.dealId && dto.createDeal && result.deal) {
-    await fireDealCreated({ tenantId, actorId: userId, deal: result.deal });
+  for (const record of updatedDeals) {
+    const previous = previousDeals.find(before => before.id === record.id)!;
+    const changes = recordChanges(previous, record);
+    if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, record, changedFields: changes.changedFields, changes });
   }
-  const { convertedLead: _convertedLead, ...response } = result;
-  return response;
+  return { lead, contact: { ...contact, status: normalizeCrmStatus(contact.status) }, account, deal };
 }

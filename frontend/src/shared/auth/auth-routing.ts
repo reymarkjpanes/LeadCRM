@@ -1,12 +1,11 @@
 import { isOnboardingComplete } from '@leadcrm/shared';
 import type { User } from '@/store/types';
-const ENTRY_ROUTES = ['/', '/login', '/register'];
-const SETUP_ROUTES = ['/change-password', '/onboarding', '/company-setup', '/auth/complete-profile', '/verify-email', '/email-verification'];
+const ENTRY_ROUTES = ['/', '/login'];
+const SETUP_ROUTES = ['/change-password', '/onboarding', '/company-setup', '/verify-email', '/email-verification'];
 export function getAccountDestination(user: User | null): string {
   if (!user) return '/login';
-  if (user.role === 'System Admin') return '/admin/dashboard';
   if (user.mustChangePassword) return '/change-password';
-  if (user.role === 'Client Admin' && !isOnboardingComplete(user)) return '/onboarding';
+  if (!isOnboardingComplete(user)) return '/onboarding';
   return '/dashboard';
 }
 export function resolveAuthRoute(user: User | null, pathname: string): string | null {
@@ -15,8 +14,7 @@ export function resolveAuthRoute(user: User | null, pathname: string): string | 
   if (ENTRY_ROUTES.includes(pathname) || SETUP_ROUTES.includes(pathname)) {
     return pathname === destination ? null : destination;
   }
-  if (user.role === 'System Admin') return pathname.startsWith('/admin/') ? null : destination;
-  if (destination !== '/dashboard' || pathname.startsWith('/admin')) return destination;
+  if (destination !== '/dashboard') return destination;
   return null;
 }
 export function getPostLoginDestination(user: User, _saved: string | null): string {

@@ -9,7 +9,7 @@ import React from 'react';
  *
  * These tests exercise the REAL `AuthProvider` (`@/store/AuthContext`) composed with the
  * REAL `AuthGuard` (`@/shared/providers/auth-guard`) end-to-end, mocking only the
- * transport/edge boundaries (`authApi`, `next-auth/react`, `next/navigation`). They verify
+ * transport/edge boundaries (`authApi`, `next/navigation`). They verify
  * the fixed flow at the integration level:
  *
  *   1. Full credentials-login flow (real-API mode): a verified, onboarded user logs in →
@@ -23,8 +23,6 @@ import React from 'react';
  *      a retry action, NOT a silent blank screen. `retryAuthInit` (with `me()` now succeeding)
  *      recovers to the authenticated state.
  *
- *   3. OAuth flow regression: Google sign-in still calls signIn('google', { callbackUrl: '/' })
- *      and hydration happens via /auth/me on re-mount — unchanged.
  *
  * **Validates: Requirements 2.1, 2.3, 2.4, 3.7, 3.8**
  *
@@ -53,14 +51,6 @@ vi.mock('@/shared/services/auth.api', () => ({
   },
 }));
 
-const nextAuthSignIn = vi.fn();
-const nextAuthSignOut = vi.fn();
-
-vi.mock('next-auth/react', () => ({
-  signIn: (...args: unknown[]) => nextAuthSignIn(...args),
-  signOut: (...args: unknown[]) => nextAuthSignOut(...args),
-  useSession: () => ({ data: null }),
-}));
 
 const routerReplace = vi.fn();
 let currentPathname = '/dashboard';
@@ -80,7 +70,7 @@ vi.mock('@/store/mockData', () => ({
 // ─────────────────────────────────────────────────────
 
 // The canonical /auth/me + aligned /auth/login user payload for a verified,
-// onboarded, non-System-Admin user (carries the complete gate fields).
+// onboarded, staff user (carries the complete gate fields).
 const VERIFIED_ONBOARDED_USER = {
   id: 'user-1',
   email: 'alice@democorp.com',
@@ -148,8 +138,6 @@ function resetAllMocks(): void {
   loginApiMock.mockReset();
   meApiMock.mockReset();
   logoutApiMock.mockReset();
-  nextAuthSignIn.mockReset();
-  nextAuthSignOut.mockReset();
   routerReplace.mockReset();
   currentPathname = '/dashboard';
   captured = null;
@@ -342,10 +330,10 @@ describe('Feature: auth-login-blank-screen-fix, Integration — auth-init failur
 });
 
 // ─────────────────────────────────────────────────────
-// TEST 3 — OAuth flow regression (Req 3.7)
+// TEST 3 — Existing cookie session restoration
 // ─────────────────────────────────────────────────────
 
-describe('Feature: auth-login-blank-screen-fix, Integration — Google OAuth flow unchanged (real API)', () => {
+describe('Feature: auth-login-blank-screen-fix, Integration — existing session restoration (real API)', () => {
   let auth: AuthModule;
 
   beforeEach(async () => {
@@ -369,21 +357,8 @@ describe('Feature: auth-login-blank-screen-fix, Integration — Google OAuth flo
     );
   }
 
-  it('loginWithGoogle still triggers signIn("google", { callbackUrl: "/" }) — unchanged', async () => {
-    nextAuthSignIn.mockResolvedValue(undefined);
-
-    renderProvider();
-    await waitFor(() => expect(captured?.isLoading).toBe(false));
-
-    await act(async () => {
-      await expect(captured!.loginWithGoogle()).rejects.toThrow('employee email');
-    });
-
-    expect(nextAuthSignIn).not.toHaveBeenCalled();
-  });
-
-  it('after the OAuth redirect completes, a fresh mount hydrates auth state via /auth/me', async () => {
-    // Simulate the post-OAuth re-mount: the backend has set the LeadCRM cookie,
+  it('a fresh mount hydrates the existing cookie session via /auth/me', async () => {
+    // Simulate the session re-mount: the backend has set the LeadCRM cookie,
     // so restoreSession() hydrates the user from /auth/me.
     meApiMock.mockReset();
     meApiMock.mockResolvedValueOnce(authResponse(VERIFIED_ONBOARDED_USER));

@@ -1,0 +1,102 @@
+[
+  {
+    "pageScroll": 1280,
+    "pagination": [
+      {
+        "scroll": 962,
+        "width": 962
+      },
+      {
+        "scroll": 558,
+        "width": 558
+      }
+    ],
+    "panel": [
+      {
+        "scroll": 575,
+        "width": 575
+      }
+    ],
+    "width": 1280
+  },
+  {
+    "pageScroll": 768,
+    "pagination": [
+      {
+        "scroll": 686,
+        "width": 686
+      },
+      {
+        "scroll": 558,
+        "width": 558
+      }
+    ],
+    "panel": [
+      {
+        "scroll": 575,
+        "width": 575
+      }
+    ],
+    "width": 768
+  },
+  {
+    "pageScroll": 390,
+    "pagination": [
+      {
+        "scroll": 333,
+        "width": 333
+      },
+      {
+        "scroll": 372,
+        "width": 372
+      }
+    ],
+    "panel": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "width": 390
+  },
+  {
+    "pageScroll": 375,
+    "pagination": [
+      {
+        "scroll": 318,
+        "width": 318
+      },
+      {
+        "scroll": 357,
+        "width": 357
+      }
+    ],
+    "panel": [
+      {
+        "scroll": 374,
+        "width": 374
+      }
+    ],
+    "width": 375
+  },
+  {
+    "pageScroll": 320,
+    "pagination": [
+      {
+        "scroll": 262,
+        "width": 262
+      },
+      {
+        "scroll": 302,
+        "width": 302
+      }
+    ],
+    "panel": [
+      {
+        "scroll": 319,
+        "width": 319
+      }
+    ],
+    "width": 320
+  }
+]

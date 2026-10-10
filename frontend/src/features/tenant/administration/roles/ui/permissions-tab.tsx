@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { PERMISSION_MODULES } from '@leadcrm/shared';
+import { PERMISSION_MODULES, PERMISSION_ACTIONS, PERMISSION_ACTION_LABELS } from '@leadcrm/shared';
 import { cn } from '@/lib/utils';
 
-const ACTION_LABELS = ['View', 'Create', 'Edit', 'Delete'];
+const ACTION_LABELS = PERMISSION_ACTIONS.map(action => PERMISSION_ACTION_LABELS[action]);
 
 /**
  * Static reference table showing all modules and which actions apply.
@@ -37,7 +37,7 @@ export function PermissionsTab(): React.ReactElement {
                 i % 2 === 0 ? 'bg-white dark:bg-transparent' : 'bg-slate-50/50 dark:bg-slate-800/20',
               )}>
                 <td className="px-4 py-2.5 text-[12.5px] font-medium text-slate-800 dark:text-slate-200">{mod.label}</td>
-                {(['canView', 'canCreate', 'canEdit', 'canDelete'] as const).map(action => (
+                {PERMISSION_ACTIONS.map(action => (
                   <td key={action} className="text-center px-4 py-2.5">
                     {mod.actions.includes(action) ? (
                       <span className="inline-block w-2 h-2 rounded-full bg-blue-500 dark:bg-blue-400" />

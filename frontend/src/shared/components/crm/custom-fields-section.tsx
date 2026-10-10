@@ -15,13 +15,14 @@ import {
   DialogClose,
 } from '@/shared/components/ui/dialog';
 import type { CustomFieldItem } from './moduleConfig';
+import { ConfirmActionDialog } from './confirm-action-dialog';
 
 interface CustomFieldsSectionProps {
   fields: CustomFieldItem[];
   canEdit: boolean;
   onAdd: (field: Omit<CustomFieldItem, 'id'>) => void;
   onUpdate: (fieldId: string, value: string) => void;
-  onDelete: (fieldId: string) => void;
+  onDelete: (fieldId: string) => void | Promise<void>;
 }
 
 export function CustomFieldsSection({
@@ -54,8 +55,8 @@ export function CustomFieldsSection({
     setEditValue('');
   }, []);
 
-  const handleConfirmDelete = useCallback((fieldId: string) => {
-    onDelete(fieldId);
+  const handleConfirmDelete = useCallback(async (fieldId: string) => {
+    await onDelete(fieldId);
     setDeleteConfirmId(null);
   }, [onDelete]);
 
@@ -164,20 +165,9 @@ export function CustomFieldsSection({
                       )}
 
                       {canEdit ? (
-                        deleteConfirmId === field.id ? (
-                          <span className="flex items-center gap-0.5">
-                            <button type="button" onClick={() => handleConfirmDelete(field.id)} className="grid h-6 w-6 place-items-center rounded text-destructive hover:bg-destructive/10" aria-label="Confirm delete">
-                              <Check className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" onClick={() => setDeleteConfirmId(null)} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-accent" aria-label="Cancel delete">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </span>
-                        ) : (
-                          <button type="button" onClick={() => setDeleteConfirmId(field.id)} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:text-destructive transition-colors" aria-label={`Delete ${field.name}`}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )
+                        <button type="button" onClick={() => setDeleteConfirmId(field.id)} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:text-destructive transition-colors" aria-label={`Delete ${field.name}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       ) : <span />}
                     </div>
                   ))}
@@ -189,6 +179,10 @@ export function CustomFieldsSection({
       </AnimatePresence>
 
       <AddFieldDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={onAdd} />
+      <ConfirmActionDialog open={!!deleteConfirmId} onOpenChange={open => { if (!open) setDeleteConfirmId(null); }}
+        title="Delete custom field?" description={`Delete “${fields.find(field => field.id === deleteConfirmId)?.name ?? ''}” from this record?`}
+        variant="destructive" confirmLabel="Delete" confirmDisabled={!canEdit}
+        onConfirm={async () => { if (deleteConfirmId) await handleConfirmDelete(deleteConfirmId); }} />
     </div>
   );
 }

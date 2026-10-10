@@ -1,39 +1,39 @@
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-vi.mock('@/store/DataContext', () => ({ useData: () => ({ pipelines: [{ id: 'pipeline', name: 'Sales', stages: [{ id: 'stage', name: 'New' }] }] }) }));
+const product = { id: '0ff82f9c-48e9-4e1c-8c77-8a30755d704c', name: 'CCTV', dealValue: 5000 };
+vi.mock('@/store/DataContext', () => ({ useData: () => ({ pipelines: [{ id: 'pipeline', name: 'Sales Pipeline', stages: [{ id: 'stage', name: 'Lead' }] }] }) }));
+vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [product, { id: 'e47c3b8e-0b85-4f11-b9a6-2aafdd587fe5', name: 'Biometrics', dealValue: 15000 }], loading: false, error: '' }) }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: () => true }));
+vi.mock('@/shared/hooks/use-cached-page', () => ({ useCachedPage: () => ({ data: { fields: [], values: {}, files: [] }, error: null, isInitialLoad: false }) }));
 vi.mock('./deal-account-field', () => ({ DealAccountField: () => null }));
 vi.mock('./deal-contacts-field', () => ({ DealContactsField: () => null }));
 vi.mock('./deal-leads-field', () => ({ DealLeadsField: () => null }));
 vi.mock('@/shared/components/entity-combobox', () => ({ EntityCombobox: () => null }));
 import { DealForm } from './deal-form';
 afterEach(cleanup);
-
-it('adds approved interests once, resets the select, removes chips and preserves the deal payload', async () => {
+it('requires a catalog product and submits its ID array without a manual value', async () => {
   const save = vi.fn().mockResolvedValue(undefined);
   render(<DealForm mode="create" preselect={{ pipelineId: 'pipeline', stageId: 'stage' }} onSubmit={save} onCancel={() => {}} />);
-  const select = screen.getByLabelText('Product Interests') as HTMLSelectElement;
-  const add = screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement;
-  expect(add.disabled).toBe(true);
-  expect(screen.queryByRole('button', { name: 'CCTV' })).toBeNull();
-  for (const value of ['CCTV', 'Biometrics']) {
-    fireEvent.change(select, { target: { value } });
-    expect(add.disabled).toBe(false);
-    fireEvent.click(add);
-    expect(select.value).toBe('');
-    expect(add.disabled).toBe(true);
-  }
-  fireEvent.change(select, { target: { value: 'CCTV' } });
-  expect(add.disabled).toBe(true);
-  fireEvent.click(add);
-  expect(screen.getAllByRole('button', { name: 'Remove CCTV' })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Biometrics' }));
-  fireEvent.change(select, { target: { value: '<script>invalid</script>' } });
-  expect(add.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Title *'), { target: { value: 'Camera installation' } });
-  fireEvent.change(screen.getByLabelText('Value'), { target: { value: '1000' } });
+  const selector = screen.getByRole('button', { name: 'Product Interest' });
+  expect(screen.queryByLabelText('Value')).toBeNull();
+  expect(screen.getByLabelText('Industry').tagName).toBe('SELECT');
+  fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Installation' } });
+  expect((screen.getByRole('button', { name: 'Create Deal' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(selector);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'CCTV' }));
+  expect(screen.getByText(/5,000.00/)).toBeTruthy();
+  expect((screen.getByRole('checkbox', { name: 'CCTV' }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText('Product Interests').closest('.space-y-4')?.textContent).toContain('Deal Information');
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Biometrics' }));
+  expect(screen.getByText('2 Deals will be created')).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole('group', { name: 'Product interests' }), { key: 'Escape' });
   await waitFor(() => expect((screen.getByRole('button', { name: 'Create Deal' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'Create Deal' }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ productInterests: ['CCTV'], pipelineId: 'pipeline', stageId: 'stage', currency: 'PHP' })));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ productInterestIds: [product.id, 'e47c3b8e-0b85-4f11-b9a6-2aafdd587fe5'], value: undefined, productInterests: undefined, currency: 'PHP' })));
+});
+it('keeps a historical Deal value when the catalog price is different', () => {
+  render(<DealForm mode="edit" initialData={{ title: 'History', value: 1200, productInterestId: product.id, productInterests: ['CCTV'] }} onSubmit={vi.fn()} onCancel={() => {}} />);
+  expect((screen.getByLabelText('Value') as HTMLInputElement).value).toBe('1,200.00');
+  expect((screen.getByLabelText('Value') as HTMLInputElement).readOnly).toBe(true);
 });

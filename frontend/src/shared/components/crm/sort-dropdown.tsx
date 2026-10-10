@@ -90,7 +90,7 @@ export function SortDropdown({
         className={cn(
           'inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border transition-colors',
           sort
-            ? 'bg-[#2563EB]/10 text-[#2563EB] dark:text-blue-400 border-[#2563EB]/30 hover:bg-[#2563EB]/20'
+            ? 'bg-primary/10 text-primary dark:text-primary border-primary/30 hover:bg-primary/20'
             : 'text-[#5A6B85] dark:text-slate-300 bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700',
         )}
         aria-expanded={isOpen}
@@ -109,7 +109,7 @@ export function SortDropdown({
                 e.stopPropagation();
                 handleClearSort();
               }}
-              className="ml-0.5 p-0.5 rounded hover:bg-[#2563EB]/20 transition-colors"
+              className="ml-0.5 p-0.5 rounded hover:bg-primary/20 transition-colors"
               aria-label="Clear sort"
             >
               <X size={11} />
@@ -147,7 +147,7 @@ export function SortDropdown({
                 className={cn(
                   'w-full flex items-center gap-2 px-3 py-2 text-[13px] font-medium transition-colors',
                   isActive
-                    ? 'text-[#2563EB] dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                    ? 'text-primary dark:text-primary bg-blue-50 dark:bg-primary/10'
                     : 'text-[#0F172A] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700',
                 )}
               >

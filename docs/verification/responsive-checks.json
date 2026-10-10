@@ -1,0 +1,2207 @@
+[
+  {
+    "createButtons": [
+      {
+        "label": "New Group",
+        "labelDisplay": "block",
+        "width": 109.1624984741211
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Team Groups",
+    "scroll": 1280,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Group",
+        "labelDisplay": "block",
+        "width": 133.41250610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Team Groups",
+    "scroll": 768,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Group",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Team Groups",
+    "scroll": 390,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Group",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Team Groups",
+    "scroll": 375,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Group",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Team Groups",
+    "scroll": 320,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Custom Role",
+        "labelDisplay": "block",
+        "width": 180.08750915527344
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Roles & Permissions",
+    "scroll": 1280,
+    "subtitle": "Manage team access and control what users can see and do.",
+    "title": "Roles & Permissions",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Custom Role",
+        "labelDisplay": "block",
+        "width": 197.2624969482422
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Roles & Permissions",
+    "scroll": 768,
+    "subtitle": "Manage team access and control what users can see and do.",
+    "title": "Roles & Permissions",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Custom Role",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Roles & Permissions",
+    "scroll": 390,
+    "subtitle": "Manage team access and control what users can see and do.",
+    "title": "Roles & Permissions",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Custom Role",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Roles & Permissions",
+    "scroll": 375,
+    "subtitle": "Manage team access and control what users can see and do.",
+    "title": "Roles & Permissions",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Custom Role",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Roles & Permissions",
+    "scroll": 320,
+    "subtitle": "Manage team access and control what users can see and do.",
+    "title": "Roles & Permissions",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add New Field",
+        "labelDisplay": "block",
+        "width": 137.5500030517578
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Custom Fields",
+    "scroll": 1280,
+    "subtitle": "Configure additional fields used throughout LeadCRM.",
+    "title": "Custom Fields",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add New Field",
+        "labelDisplay": "block",
+        "width": 155.65000915527344
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Custom Fields",
+    "scroll": 768,
+    "subtitle": "Configure additional fields used throughout LeadCRM.",
+    "title": "Custom Fields",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add New Field",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Custom Fields",
+    "scroll": 390,
+    "subtitle": "Configure additional fields used throughout LeadCRM.",
+    "title": "Custom Fields",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add New Field",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Custom Fields",
+    "scroll": 375,
+    "subtitle": "Configure additional fields used throughout LeadCRM.",
+    "title": "Custom Fields",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add New Field",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Custom Fields",
+    "scroll": 320,
+    "subtitle": "Configure additional fields used throughout LeadCRM.",
+    "title": "Custom Fields",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Archived Data",
+    "scroll": 1280,
+    "subtitle": null,
+    "title": "Archived Data",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Archived Data",
+    "scroll": 768,
+    "subtitle": null,
+    "title": "Archived Data",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Archived Data",
+    "scroll": 390,
+    "subtitle": null,
+    "title": "Archived Data",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Archived Data",
+    "scroll": 375,
+    "subtitle": null,
+    "title": "Archived Data",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Archived Data",
+    "scroll": 320,
+    "subtitle": null,
+    "title": "Archived Data",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Account Details",
+    "scroll": 1280,
+    "subtitle": "Manage your account and security information.",
+    "title": "Account Details",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Account Details",
+    "scroll": 768,
+    "subtitle": "Manage your account and security information.",
+    "title": "Account Details",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Account Details",
+    "scroll": 390,
+    "subtitle": "Manage your account and security information.",
+    "title": "Account Details",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Account Details",
+    "scroll": 375,
+    "subtitle": "Manage your account and security information.",
+    "title": "Account Details",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Account Details",
+    "scroll": 320,
+    "subtitle": "Manage your account and security information.",
+    "title": "Account Details",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Form",
+        "labelDisplay": "block",
+        "width": 111.8125
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Forms",
+    "scroll": 1280,
+    "subtitle": "Create and manage web forms used to capture inquiries and leads.",
+    "title": "Forms",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Form",
+        "labelDisplay": "block",
+        "width": 126.3125
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Forms",
+    "scroll": 768,
+    "subtitle": "Create and manage web forms used to capture inquiries and leads.",
+    "title": "Forms",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Form",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Forms",
+    "scroll": 390,
+    "subtitle": "Create and manage web forms used to capture inquiries and leads.",
+    "title": "Forms",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Form",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Forms",
+    "scroll": 375,
+    "subtitle": "Create and manage web forms used to capture inquiries and leads.",
+    "title": "Forms",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Form",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Forms",
+    "scroll": 320,
+    "subtitle": "Create and manage web forms used to capture inquiries and leads.",
+    "title": "Forms",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Lead",
+        "labelDisplay": "block",
+        "width": 151.02500915527344
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Leads",
+    "scroll": 1280,
+    "subtitle": "Manage and track potential customers and sales opportunities.",
+    "title": "Leads",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Lead",
+        "labelDisplay": "block",
+        "width": 165.75
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Leads",
+    "scroll": 768,
+    "subtitle": "Manage and track potential customers and sales opportunities.",
+    "title": "Leads",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Lead",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Leads",
+    "scroll": 390,
+    "subtitle": "Manage and track potential customers and sales opportunities.",
+    "title": "Leads",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Lead",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Leads",
+    "scroll": 375,
+    "subtitle": "Manage and track potential customers and sales opportunities.",
+    "title": "Leads",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Lead",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Leads",
+    "scroll": 320,
+    "subtitle": "Manage and track potential customers and sales opportunities.",
+    "title": "Leads",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Contact",
+        "labelDisplay": "block",
+        "width": 177.53750610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Contacts",
+    "scroll": 1280,
+    "subtitle": "Manage customer and business contact information.",
+    "title": "Contacts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Contact",
+        "labelDisplay": "block",
+        "width": 189.6625061035156
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Contacts",
+    "scroll": 768,
+    "subtitle": "Manage customer and business contact information.",
+    "title": "Contacts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Contact",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Contacts",
+    "scroll": 390,
+    "subtitle": "Manage customer and business contact information.",
+    "title": "Contacts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Contact",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Contacts",
+    "scroll": 375,
+    "subtitle": "Manage customer and business contact information.",
+    "title": "Contacts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Contact",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Contacts",
+    "scroll": 320,
+    "subtitle": "Manage customer and business contact information.",
+    "title": "Contacts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Account",
+        "labelDisplay": "block",
+        "width": 153.85000610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Accounts",
+    "scroll": 1280,
+    "subtitle": "Manage companies and organizations linked to CRM records.",
+    "title": "Accounts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Account",
+        "labelDisplay": "block",
+        "width": 171.85000610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Accounts",
+    "scroll": 768,
+    "subtitle": "Manage companies and organizations linked to CRM records.",
+    "title": "Accounts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Account",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Accounts",
+    "scroll": 390,
+    "subtitle": "Manage companies and organizations linked to CRM records.",
+    "title": "Accounts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Account",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Accounts",
+    "scroll": 375,
+    "subtitle": "Manage companies and organizations linked to CRM records.",
+    "title": "Accounts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Account",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Accounts",
+    "scroll": 320,
+    "subtitle": "Manage companies and organizations linked to CRM records.",
+    "title": "Accounts",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Deal",
+        "labelDisplay": "block",
+        "width": 138.28750610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Deals",
+    "scroll": 1280,
+    "subtitle": "Track opportunities throughout the Sales Pipeline.",
+    "title": "Deals",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Deal",
+        "labelDisplay": "block",
+        "width": 146.1374969482422
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Deals",
+    "scroll": 768,
+    "subtitle": "Track opportunities throughout the Sales Pipeline.",
+    "title": "Deals",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Deal",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Deals",
+    "scroll": 390,
+    "subtitle": "Track opportunities throughout the Sales Pipeline.",
+    "title": "Deals",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Deal",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Deals",
+    "scroll": 375,
+    "subtitle": "Track opportunities throughout the Sales Pipeline.",
+    "title": "Deals",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New Deal",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 305,
+        "width": 305
+      }
+    ],
+    "page": "Deals",
+    "scroll": 320,
+    "subtitle": "Track opportunities throughout the Sales Pipeline.",
+    "title": "Deals",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "block",
+        "width": 129.22500610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Tasks",
+    "scroll": 1280,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "block",
+        "width": 141.3000030517578
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Tasks",
+    "scroll": 768,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Tasks",
+    "scroll": 390,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Tasks",
+    "scroll": 375,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 305,
+        "width": 305
+      }
+    ],
+    "page": "Tasks",
+    "scroll": 320,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Campaign",
+        "labelDisplay": "block",
+        "width": 162.7375030517578
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Campaigns",
+    "scroll": 1280,
+    "subtitle": "Create, send, and monitor customer marketing campaigns.",
+    "title": "Campaigns",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Campaign",
+        "labelDisplay": "block",
+        "width": 183.7624969482422
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Campaigns",
+    "scroll": 768,
+    "subtitle": "Create, send, and monitor customer marketing campaigns.",
+    "title": "Campaigns",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Campaign",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Campaigns",
+    "scroll": 390,
+    "subtitle": "Create, send, and monitor customer marketing campaigns.",
+    "title": "Campaigns",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Campaign",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Campaigns",
+    "scroll": 375,
+    "subtitle": "Create, send, and monitor customer marketing campaigns.",
+    "title": "Campaigns",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Campaign",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Campaigns",
+    "scroll": 320,
+    "subtitle": "Create, send, and monitor customer marketing campaigns.",
+    "title": "Campaigns",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Workflow",
+        "labelDisplay": "block",
+        "width": 159.5625
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Workflows",
+    "scroll": 1280,
+    "subtitle": "Automate CRM actions based on triggers and conditions.",
+    "title": "Workflows",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Workflow",
+        "labelDisplay": "block",
+        "width": 174.41250610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Workflows",
+    "scroll": 768,
+    "subtitle": "Automate CRM actions based on triggers and conditions.",
+    "title": "Workflows",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Workflow",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Workflows",
+    "scroll": 390,
+    "subtitle": "Automate CRM actions based on triggers and conditions.",
+    "title": "Workflows",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Workflow",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Workflows",
+    "scroll": 375,
+    "subtitle": "Automate CRM actions based on triggers and conditions.",
+    "title": "Workflows",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Workflow",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Workflows",
+    "scroll": 320,
+    "subtitle": "Automate CRM actions based on triggers and conditions.",
+    "title": "Workflows",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Product",
+        "labelDisplay": "block",
+        "width": 141.10000610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Products",
+    "scroll": 1280,
+    "subtitle": "Manage products and their default Deal values.",
+    "title": "Products",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Product",
+        "labelDisplay": "block",
+        "width": 144.0500030517578
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Products",
+    "scroll": 768,
+    "subtitle": "Manage products and their default Deal values.",
+    "title": "Products",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Product",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Products",
+    "scroll": 390,
+    "subtitle": "Manage products and their default Deal values.",
+    "title": "Products",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Product",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Products",
+    "scroll": 375,
+    "subtitle": "Manage products and their default Deal values.",
+    "title": "Products",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Add Product",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Products",
+    "scroll": 320,
+    "subtitle": "Manage products and their default Deal values.",
+    "title": "Products",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "General",
+    "scroll": 1280,
+    "subtitle": "Manage your organization's profile and contact details.",
+    "title": "General",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "General",
+    "scroll": 768,
+    "subtitle": "Manage your organization's profile and contact details.",
+    "title": "General",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "General",
+    "scroll": 390,
+    "subtitle": "Manage your organization's profile and contact details.",
+    "title": "General",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "General",
+    "scroll": 375,
+    "subtitle": "Manage your organization's profile and contact details.",
+    "title": "General",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "General",
+    "scroll": 320,
+    "subtitle": "Manage your organization's profile and contact details.",
+    "title": "General",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New User",
+        "labelDisplay": "block",
+        "width": 103.5875015258789
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Team Users",
+    "scroll": 1280,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New User",
+        "labelDisplay": "block",
+        "width": 121.6624984741211
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Team Users",
+    "scroll": 768,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New User",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Team Users",
+    "scroll": 390,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New User",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Team Users",
+    "scroll": 375,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "New User",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Team Users",
+    "scroll": 320,
+    "subtitle": "Manage users and groups within Camxian Technologies.",
+    "title": "Team Management",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "block",
+        "width": 126.3000030517578
+      }
+    ],
+    "main": [
+      {
+        "scroll": 1060,
+        "width": 1060
+      }
+    ],
+    "page": "Tasks after height fix",
+    "scroll": 1280,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 1280
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "block",
+        "width": 141.22500610351562
+      }
+    ],
+    "main": [
+      {
+        "scroll": 768,
+        "width": 768
+      }
+    ],
+    "page": "Tasks after height fix",
+    "scroll": 768,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 768
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 390,
+        "width": 390
+      }
+    ],
+    "page": "Tasks after height fix",
+    "scroll": 390,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 390
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 375,
+        "width": 375
+      }
+    ],
+    "page": "Tasks after height fix",
+    "scroll": 375,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 375
+  },
+  {
+    "createButtons": [
+      {
+        "label": "Create Task",
+        "labelDisplay": "none",
+        "width": 36
+      }
+    ],
+    "main": [
+      {
+        "scroll": 320,
+        "width": 320
+      }
+    ],
+    "page": "Tasks after height fix",
+    "scroll": 320,
+    "subtitle": "Manage follow-ups and sales activities assigned to your team.",
+    "title": "Tasks",
+    "titleStyle": {
+      "color": "oklch(0.208 0.042 265.755)",
+      "font": "Inter, Poppins, ui-sans-serif, system-ui, sans-serif, Poppins, ui-sans-serif, system-ui, sans-serif",
+      "line": "28px",
+      "size": "20px",
+      "weight": "700"
+    },
+    "width": 320
+  }
+]

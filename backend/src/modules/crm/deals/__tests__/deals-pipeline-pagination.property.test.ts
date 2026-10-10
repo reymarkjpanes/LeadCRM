@@ -105,7 +105,7 @@ describe('Feature: deals-module-modernization, Property 15: Pipeline Pagination 
 
               // Create minimal deal objects for the page
               const deals = Array.from({ length: actualDealsReturned }, (_, idx) => ({
-                id: `deal-${sc.stageId}-${idx}`,
+                id: `deal-${sc.stageId}-${idx}`, leadDeals: [], contactDeals: [],
                 stageId: sc.stageId,
               }));
 
@@ -158,7 +158,7 @@ describe('Feature: deals-module-modernization, Property 15: Pipeline Pagination 
               const actualDealsReturned = Math.max(dealsInPage, 0);
 
               const deals = Array.from({ length: actualDealsReturned }, (_, idx) => ({
-                id: `deal-${sc.stageId}-${idx}`,
+                id: `deal-${sc.stageId}-${idx}`, leadDeals: [], contactDeals: [],
                 stageId: sc.stageId,
               }));
 
@@ -247,7 +247,7 @@ describe('Feature: deals-module-modernization, Property 15: Pipeline Pagination 
 
           vi.mocked(prisma.stage.findMany).mockResolvedValue([{ id: stageId }] as never);
           vi.mocked(prisma.deal.findMany).mockResolvedValueOnce(
-            Array.from({ length: PAGE_SIZE }, (_, i) => ({ id: `deal-${i}` })) as never,
+            Array.from({ length: PAGE_SIZE }, (_, i) => ({ id: `deal-${i}`, leadDeals: [], contactDeals: [] })) as never,
           );
           vi.mocked(prisma.deal.count).mockResolvedValueOnce(total);
 
@@ -271,7 +271,7 @@ describe('Feature: deals-module-modernization, Property 15: Pipeline Pagination 
 
           vi.mocked(prisma.stage.findMany).mockResolvedValue([{ id: stageId }] as never);
           vi.mocked(prisma.deal.findMany).mockResolvedValueOnce(
-            Array.from({ length: PAGE_SIZE }, (_, i) => ({ id: `deal-${i}` })) as never,
+            Array.from({ length: PAGE_SIZE }, (_, i) => ({ id: `deal-${i}`, leadDeals: [], contactDeals: [] })) as never,
           );
           vi.mocked(prisma.deal.count).mockResolvedValueOnce(total);
 

@@ -30,4 +30,11 @@ describe('workflow activation errors', () => {
     await expect(validateWorkflow({ ...draft, actions: [{ ...draft.actions[0], enabled: false }] }, 'tenant')).rejects.toThrow('Enable at least one action');
     await expect(validateWorkflow(draft, 'tenant')).resolves.toBeUndefined();
   });
+  it('blocks blank text activation, preserving empty operators and saved literal comparisons', async () => {
+    const conditions = { operator: 'AND' as const, conditions: [{ field: 'lead.firstName', operator: 'equals' as const, value: '' }] };
+    await expect(validateWorkflow({ ...draft, conditions }, 'tenant')).rejects.toThrow('Condition 1: Enter a value');
+    await expect(validateWorkflow({ ...draft, conditions }, 'tenant', conditions)).resolves.toBeUndefined();
+    await expect(validateWorkflow({ ...draft, conditions }, 'tenant', { ...conditions, conditions: [{ ...conditions.conditions[0], incompleteValue: true }] })).rejects.toThrow('Condition 1: Enter a value');
+    await expect(validateWorkflow({ ...draft, conditions: { operator: 'AND', conditions: [{ field: 'lead.firstName', operator: 'is_empty', value: null }] } }, 'tenant')).resolves.toBeUndefined();
+  });
 });

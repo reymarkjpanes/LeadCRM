@@ -68,17 +68,22 @@ export function toBackendCreateDeal(data: Partial<any>): any {
   }
 
   const result: any = {
+    customFieldValues: data.customFieldValues,
     pipelineId: data.pipelineId || '',
     stageId: data.stageId || '',
     title: data.title || 'Untitled Deal',
     value: typeof data.value === 'number' ? data.value : undefined,
     currency: 'PHP', // Default currency as per DTO
-    billingFrequency: data.billingFrequency || undefined,
     priority: toBackendPriority(data.priority),
     expectedCloseDate: toISODatetime(data.expectedCloseDate),
-    description: data.description || undefined,
     leadSource: data.leadSource || undefined,
-    organizationId: data.companyId || data.organizationId || undefined,
+    accountId: data.accountId || data.companyId || data.organizationId || undefined,
+    industry: data.industry || undefined,
+    address: data.address || undefined,
+    productInterests: data.productInterests,
+    productInterestId: data.productInterestId,
+    productInterestIds: data.productInterestIds,
+    productInterestOther: data.productInterestOther || undefined,
     assignedUserId: data.assignedUserId || undefined,
   };
 
@@ -98,6 +103,7 @@ export function toBackendCreateDeal(data: Partial<any>): any {
  */
 export function toBackendUpdateDeal(data: Partial<any>): any {
   const updateData: any = {};
+  if (data.customFieldValues !== undefined) updateData.customFieldValues = data.customFieldValues;
 
   // Note: stageId and pipelineId are intentionally excluded.
   // Stage changes MUST go through moveDealStage (PATCH /deals/:id/stage).
@@ -106,13 +112,13 @@ export function toBackendUpdateDeal(data: Partial<any>): any {
   if (data.value !== undefined) updateData.value = data.value;
   if (data.priority !== undefined) updateData.priority = toBackendPriority(data.priority);
   if (data.expectedCloseDate !== undefined) updateData.expectedCloseDate = toISODatetime(data.expectedCloseDate);
-  if (data.description !== undefined) updateData.description = data.description;
   if (data.leadSource !== undefined) updateData.leadSource = data.leadSource;
-  if (data.billingFrequency !== undefined) updateData.billingFrequency = data.billingFrequency;
 
   // Strip empty strings for optional UUID fields
-  const orgId = data.companyId || data.organizationId;
-  if (orgId) updateData.organizationId = orgId;
+  const orgId = data.accountId || data.companyId || data.organizationId;
+  if (orgId) updateData.accountId = orgId;
+  if (data.productInterestIds !== undefined) updateData.productInterestIds = data.productInterestIds;
+  if (data.productInterests !== undefined) updateData.productInterests = data.productInterests;
 
   if (data.assignedUserId) updateData.assignedUserId = data.assignedUserId;
 
@@ -138,7 +144,8 @@ export function toFrontendDeal(backendDeal: any): any {
   if (!backendDeal) return null;
 
   // Derive company name
-  const companyName = backendDeal.organization?.name || '';
+  const companyName = backendDeal.organization?.name || backendDeal.account?.name || '';
+  const accountId = backendDeal.accountId || backendDeal.organizationId || backendDeal.organization?.id || backendDeal.account?.id || undefined;
 
   // Extract leadIds from leadDeals junction
   let leadIds: string[] = [];
@@ -160,6 +167,11 @@ export function toFrontendDeal(backendDeal: any): any {
       };
     }
   }
+  if (!leadIds.length && (backendDeal.leadId || backendDeal.lead?.id)) {
+    leadIds = [backendDeal.leadId || backendDeal.lead.id];
+    leadId = leadIds[0];
+    if (backendDeal.lead) leadPerson = { id: leadId!, firstName: backendDeal.lead.firstName || '', lastName: backendDeal.lead.lastName || '' };
+  }
 
   // Derive contact person and contact IDs — use the ContactDeal junction
   let contactPerson = '';
@@ -176,6 +188,10 @@ export function toFrontendDeal(backendDeal: any): any {
         .filter(Boolean)
         .join(' ') || firstContact.email || '';
     }
+  }
+  if (!contactIds.length && (backendDeal.contactId || backendDeal.contact?.id)) {
+    contactIds = [backendDeal.contactId || backendDeal.contact.id];
+    if (backendDeal.contact) contactPerson = [backendDeal.contact.firstName, backendDeal.contact.lastName].filter(Boolean).join(' ');
   }
 
   // Process history and find last stage change date
@@ -200,25 +216,28 @@ export function toFrontendDeal(backendDeal: any): any {
 
   return {
     id: backendDeal.id || '',
+    productInterestId: backendDeal.productInterestId,
+    productInterestIds: backendDeal.productInterestIds?.length ? backendDeal.productInterestIds : backendDeal.productInterestId ? [backendDeal.productInterestId] : [],
     tenantId: backendDeal.tenantId || '',
     pipelineId: backendDeal.pipelineId || '',
     stageId: backendDeal.stageId || '',
     title: backendDeal.title || 'Untitled Deal',
-    organizationId: backendDeal.organizationId || backendDeal.organization?.id || undefined,
+    accountId,
+    organizationId: accountId,
     leadId: leadId,
     leadIds: leadIds.length > 0 ? leadIds : undefined,
     leadPerson: leadPerson,
     contactId: contactIds.length > 0 ? contactIds[0] : undefined,
     contactIds: contactIds,
-    companyId: backendDeal.organizationId || backendDeal.organization?.id || undefined,
+    companyId: accountId,
     companyName: companyName,
-    contactPerson: contactPerson,
+    contactPerson: contactPerson || (leadPerson ? [leadPerson.firstName, leadPerson.lastName].filter(Boolean).join(' ') : ''),
+    productInterests: Array.isArray(backendDeal.productInterests) ? backendDeal.productInterests : [],
     value: typeof backendDeal.value === 'number' ? backendDeal.value : 0,
     priority: toFrontendPriority(backendDeal.priority),
     expectedCloseDate: backendDeal.expectedCloseDate || '',
-    description: backendDeal.description || '',
     assignedUserId: backendDeal.assignedUserId || backendDeal.ownerId || '',
-    billingFrequency: backendDeal.billingFrequency || undefined,
+    assignedUser: backendDeal.assignedUser || undefined,
     lostReason: backendDeal.lostReason || undefined,
     order: typeof backendDeal.order === 'number' ? backendDeal.order : 0,
     createdAt: backendDeal.createdAt || new Date().toISOString(),

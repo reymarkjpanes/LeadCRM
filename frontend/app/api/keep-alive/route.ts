@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getBackendUrl } from '@/lib/server/backend-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,18 +15,18 @@ export const dynamic = 'force-dynamic';
  * returns a 502/503 to the user.
  */
 export async function GET(): Promise<NextResponse> {
-  const backendUrl =
-    process.env.API_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    'http://localhost:4000/api/v1';
+  let backendUrl: string;
+  try { backendUrl = getBackendUrl(); } catch {
+    return NextResponse.json({ status: 'error', message: 'Invalid API_URL configuration.' }, { status: 503 });
+  }
 
   // Derive the health endpoint from the API base URL
   // e.g. https://leadcrm-backend-os8d.onrender.com/api/v1 -> /health
   const healthUrl = backendUrl.replace(/\/api\/v1$/, '') + '/health';
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const res = await fetch(healthUrl, {
       method: 'GET',
@@ -35,16 +36,16 @@ export async function GET(): Promise<NextResponse> {
     clearTimeout(timeoutId);
 
     const status = res.ok ? 'ok' : 'degraded';
-    console.info('[KeepAlive] Render ping %s ? HTTP %d', status, res.status);
+    console.info('[KeepAlive] Backend ping %s: HTTP %d', status, res.status);
 
     return NextResponse.json({ status, httpStatus: res.status, ts: new Date().toISOString() });
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === 'AbortError';
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[KeepAlive] Render ping failed:', message);
+    console.error('[KeepAlive] Backend ping failed:', message);
     return NextResponse.json(
       { status: isTimeout ? 'timeout' : 'error', message },
       { status: 200 }, // always 200 so Vercel cron doesn't retry aggressively
     );
-  }
+  } finally { clearTimeout(timeoutId); }
 }

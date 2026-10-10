@@ -5,6 +5,9 @@ import { X, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GlobalOmnibox } from './global-omnibox';
 import { cn } from '@/lib/utils';
+import { useModalInteraction } from '@/shared/hooks/use-modal-interaction';
+import { useMediaQuery } from '@/shared/hooks/use-media-query';
+import { OverlayOwnerContext, ThemedPortal } from './theme-scope';
 
 interface MobileSearchOverlayProps {
   isOpen: boolean;
@@ -12,18 +15,18 @@ interface MobileSearchOverlayProps {
 }
 
 export function MobileSearchOverlay({ isOpen, onClose }: MobileSearchOverlayProps): React.ReactElement {
-  // Close on Escape key
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const owner = React.useId();
+  const compact = useMediaQuery('(max-width: 767px)');
+  const wasCompact = React.useRef(compact);
+  useModalInteraction({ open: isOpen && compact, panelRef, owner, onClose });
   React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+    if (isOpen && wasCompact.current && !compact) onClose();
+    wasCompact.current = compact;
+  }, [isOpen, compact, onClose]);
 
   return (
-    <AnimatePresence>
+    <OverlayOwnerContext.Provider value={owner}><ThemedPortal><AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop — closes on tap */}
@@ -39,6 +42,8 @@ export function MobileSearchOverlay({ isOpen, onClose }: MobileSearchOverlayProp
 
           {/* Slide-down panel */}
           <motion.div
+            ref={panelRef}
+            tabIndex={-1}
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
@@ -48,7 +53,8 @@ export function MobileSearchOverlay({ isOpen, onClose }: MobileSearchOverlayProp
               'bg-[var(--surface)] border-b border-[var(--border)]',
               'px-4 pt-3 pb-4 shadow-xl',
             )}
-            role="search"
+            role="dialog"
+            aria-modal="true"
             aria-label="Global search"
           >
             {/* Header row */}
@@ -72,6 +78,6 @@ export function MobileSearchOverlay({ isOpen, onClose }: MobileSearchOverlayProp
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence></ThemedPortal></OverlayOwnerContext.Provider>
   );
 }

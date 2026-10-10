@@ -5,14 +5,14 @@ const prisma = new PrismaClient();
 /**
  * Seeds rich demo data for the Demo Corp tenant (admin@democorp.com).
  * Run with: npx ts-node src/database/seeders/demo-rich.seed.ts
- * Or add to seed.ts main() after seedDemoAccounts().
+ * Requires an existing Demo Corp tenant.
  */
 export async function seedDemoRichData() {
   console.log('[Seed] Seeding rich demo data for Demo Corp...');
 
   // ── Resolve tenant and users ──────────────────────────────────────
   const tenant = await prisma.tenant.findUnique({ where: { slug: 'demo-corp' } });
-  if (!tenant) throw new Error('Demo Corp tenant not found — run seedDemoAccounts() first');
+  if (!tenant) throw new Error('Demo Corp tenant not found — provision the demo tenant first');
 
   const adminUser = await prisma.user.findFirst({
     where: { tenantId: tenant.id, email: 'admin@democorp.com' },
@@ -31,27 +31,27 @@ export async function seedDemoRichData() {
     prisma.account.upsert({
       where: { id: 'seed-org-techsol' },
       update: {},
-      create: { id: 'seed-org-techsol', tenantId: tId, assignedUserId: sId, name: 'Tech Solutions Inc.', industry: 'Information Technology', size: '51-200', website: 'https://techsolutions.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-techsol', tenantId: tId, assignedUserId: sId, name: 'Tech Solutions Inc.', industry: 'Information Technology', size: '51-200', website: 'https://techsolutions.ph', address: 'BGC, Taguig, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-nexus' },
       update: {},
-      create: { id: 'seed-org-nexus', tenantId: tId, assignedUserId: aId, name: 'Nexus Digital Corp', industry: 'Software Development', size: '11-50', website: 'https://nexusdigital.ph', address: 'Ortigas, Pasig, Metro Manila', country: 'Philippines', customerType: 'Prospect' },
+      create: { id: 'seed-org-nexus', tenantId: tId, assignedUserId: aId, name: 'Nexus Digital Corp', industry: 'Software Development', size: '11-50', website: 'https://nexusdigital.ph', address: 'Ortigas, Pasig, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-skynet' },
       update: {},
-      create: { id: 'seed-org-skynet', tenantId: tId, assignedUserId: sId, name: 'Skynet Telecom', industry: 'Telecommunications', size: '200+', website: 'https://skynettelecom.ph', address: 'Makati CBD, Metro Manila', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-skynet', tenantId: tId, assignedUserId: sId, name: 'Skynet Telecom', industry: 'Telecommunications', size: '200+', website: 'https://skynettelecom.ph', address: 'Makati CBD, Metro Manila', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-greenpeak' },
       update: {},
-      create: { id: 'seed-org-greenpeak', tenantId: tId, assignedUserId: aId, name: 'Green Peak Energy', industry: 'Renewable Energy', size: '11-50', address: 'Cebu City, Cebu', country: 'Philippines', customerType: 'Prospect' },
+      create: { id: 'seed-org-greenpeak', tenantId: tId, assignedUserId: aId, name: 'Green Peak Energy', industry: 'Renewable Energy', size: '11-50', address: 'Cebu City, Cebu', country: 'Philippines' },
     }),
     prisma.account.upsert({
       where: { id: 'seed-org-firstbpo' },
       update: {},
-      create: { id: 'seed-org-firstbpo', tenantId: tId, assignedUserId: sId, name: 'FirstBPO Services', industry: 'Business Process Outsourcing', size: '200+', website: 'https://firstbpo.com.ph', address: 'Eastwood, Quezon City', country: 'Philippines', customerType: 'Active Customer' },
+      create: { id: 'seed-org-firstbpo', tenantId: tId, assignedUserId: sId, name: 'FirstBPO Services', industry: 'Business Process Outsourcing', size: '200+', website: 'https://firstbpo.com.ph', address: 'Eastwood, Quezon City', country: 'Philippines' },
     }),
   ]);
 
@@ -100,7 +100,7 @@ export async function seedDemoRichData() {
         assignedUserId: sId, title: 'CRM Enterprise — Tech Solutions',
         value: 450000, currency: 'PHP', priority: 'HIGH',
         expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        contactId: contacts[0].id,
+        contactDeals: { create: { contactId: contacts[0].id, position: 0 } },
       },
     }),
     prisma.deal.upsert({
@@ -112,7 +112,7 @@ export async function seedDemoRichData() {
         assignedUserId: aId, title: 'CRM Pro — Nexus Digital',
         value: 180000, currency: 'PHP', priority: 'MEDIUM',
         expectedCloseDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000),
-        contactId: contacts[1].id,
+        contactDeals: { create: { contactId: contacts[1].id, position: 0 } },
       },
     }),
     prisma.deal.upsert({
@@ -124,7 +124,7 @@ export async function seedDemoRichData() {
         assignedUserId: sId, title: 'Telecom CRM Suite — Skynet',
         value: 750000, currency: 'PHP', priority: 'HIGH',
         expectedCloseDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-        contactId: contacts[2].id,
+        contactDeals: { create: { contactId: contacts[2].id, position: 0 } },
       },
     }),
     prisma.deal.upsert({
@@ -136,7 +136,7 @@ export async function seedDemoRichData() {
         assignedUserId: aId, title: 'CRM Pro — Green Peak Energy',
         value: 95000, currency: 'PHP', priority: 'LOW',
         expectedCloseDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
-        contactId: contacts[3].id,
+        contactDeals: { create: { contactId: contacts[3].id, position: 0 } },
       },
     }),
     prisma.deal.upsert({
@@ -148,7 +148,7 @@ export async function seedDemoRichData() {
         assignedUserId: sId, title: 'CRM Enterprise + Marketing — FirstBPO',
         value: 920000, currency: 'PHP', priority: 'HIGH',
         expectedCloseDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-        contactId: contacts[4].id,
+        contactDeals: { create: { contactId: contacts[4].id, position: 0 } },
       },
     }),
   ]);
@@ -163,7 +163,7 @@ export async function seedDemoRichData() {
         title: 'Follow up with Maria Santos re: Enterprise demo',
         status: 'pending', priority: 'High',
         dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        contactId: contacts[0].id, dealId: deals[0].id,
+        contactLinks: { create: { contactId: contacts[0].id, position: 0 } }, dealLinks: { create: { dealId: deals[0].id, position: 0 } },
       },
     }),
     prisma.task.upsert({
@@ -172,9 +172,9 @@ export async function seedDemoRichData() {
       create: {
         id: 'seed-task-2', tenantId: tId, assignedUserId: aId, assignedById: aId,
         title: 'Prepare proposal for Nexus Digital',
-        status: 'in-progress', priority: 'Medium',
+        status: 'in_progress', priority: 'Medium',
         dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-        contactId: contacts[1].id, dealId: deals[1].id,
+        contactLinks: { create: { contactId: contacts[1].id, position: 0 } }, dealLinks: { create: { dealId: deals[1].id, position: 0 } },
       },
     }),
     prisma.task.upsert({
@@ -185,7 +185,7 @@ export async function seedDemoRichData() {
         title: 'Contract review call — Skynet Telecom',
         status: 'pending', priority: 'High',
         dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-        contactId: contacts[2].id, dealId: deals[2].id,
+        contactLinks: { create: { contactId: contacts[2].id, position: 0 } }, dealLinks: { create: { dealId: deals[2].id, position: 0 } },
       },
     }),
     prisma.task.upsert({
@@ -196,7 +196,7 @@ export async function seedDemoRichData() {
         title: 'Send onboarding documentation — FirstBPO',
         status: 'completed', priority: 'Medium',
         dueDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-        contactId: contacts[4].id, dealId: deals[4].id,
+        contactLinks: { create: { contactId: contacts[4].id, position: 0 } }, dealLinks: { create: { dealId: deals[4].id, position: 0 } },
       },
     }),
   ]);

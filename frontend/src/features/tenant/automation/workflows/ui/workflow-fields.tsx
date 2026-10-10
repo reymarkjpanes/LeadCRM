@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import type {
   ActionDefinition,
   WorkflowAction,
@@ -8,10 +9,11 @@ import type {
   TriggerDefinition,
   WorkflowEntity,
 } from '@leadcrm/shared';
-import { workflowOperators } from '@leadcrm/shared';
+import { getWorkflowUpdateFields, workflowOperators, WORKFLOW_MESSAGE_VARIABLES } from '@leadcrm/shared';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
-import { operatorLabels, references } from '../services/workflow-editor';
+import { operatorLabels, references, retiredActionLabels } from '../services/workflow-editor';
+import { WorkflowAssignmentFields } from './workflow-assignment-fields';
 export const workflowControl =
   'w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]';
 export const emptyOptions: WorkflowOptions = {
@@ -21,6 +23,66 @@ export const emptyOptions: WorkflowOptions = {
   campaigns: [],
 };
 export const referenceOptions = references;
+
+function UpdateFieldFields({ action, options, entity, onChange }: {
+  action: WorkflowAction; options: WorkflowOptions; entity?: WorkflowEntity;
+  onChange: (config: Record<string, unknown>) => void;
+}) {
+  const fields = entity ? getWorkflowUpdateFields(entity, options.customFields) : [];
+  const field = fields.find((entry) => entry.field === action.config.field);
+  const [group, setGroup] = useState<'standard' | 'custom'>(field?.group === 'custom' ? 'custom' : 'standard');
+  const selectedGroup = field?.group ?? group;
+  const value = action.config.value;
+  const change = (patch: Record<string, unknown>) => onChange({ ...action.config, ...patch });
+  const optionsForField = field?.options?.map((option) => ({ id: option, name: field?.optionLabels?.[option] ?? option })) ?? references(field?.type ?? '', options);
+  const multiple = ['products', 'contacts', 'leads'].includes(field?.type ?? '');
+  const choices = optionsForField;
+  const selected = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+  const othersSelected = field?.type === 'products' && choices?.some((choice) => choice.name.trim().toLowerCase() === 'others' && selected.includes(choice.id));
+  return <div className="space-y-4">
+    <label className="block space-y-1">Field group
+      <select aria-label="Field group" className={workflowControl} value={selectedGroup} onChange={(event) => {
+        setGroup(event.target.value as 'standard' | 'custom');
+        onChange({ field: '', value: '' });
+      }}>
+        <option value="standard">Standard Fields</option>
+        {fields.some((entry) => entry.group === 'custom') && <option value="custom">Custom Fields</option>}
+      </select>
+    </label>
+    <label className="block space-y-1">Field
+      <select aria-label="Field" className={workflowControl} value={String(action.config.field ?? '')} onChange={(event) => {
+        const next = fields.find((entry) => entry.field === event.target.value);
+        onChange({ field: event.target.value, value: next?.type === 'boolean' ? false : ['products', 'contacts', 'leads'].includes(next?.type ?? '') ? [] : '' });
+      }}>
+        <option value="">Choose a field</option>
+        {fields.filter((entry) => (entry.group ?? 'standard') === selectedGroup).map((entry) => <option key={entry.field} value={entry.field}>{entry.label}</option>)}
+        {action.config.field && !field ? <option value={String(action.config.field)}>Unavailable field</option> : null}
+      </select>
+    </label>
+    {!!action.config.field && !field && <p role="status" className="text-sm text-[var(--muted-foreground)]">This field is no longer available. Choose a supported field, disable the action, or remove it before activating.</p>}
+    {entity === 'lead' && !!action.config.otherDetails && <div role="status" className="text-sm text-[var(--muted-foreground)]">Additional Product details are retired for Leads. Saved setting: {String(action.config.otherDetails)} <Button type="button" variant="outline" onClick={() => { const { otherDetails: _retired, ...config } = action.config; onChange(config); }}>Remove retired setting</Button></div>}
+    {entity === 'deal' && <p className="text-xs text-[var(--muted-foreground)]">A Deal keeps its original Product and value. Create a new Deal for a new opportunity.</p>}
+    {field && !field.required && <label className="flex items-center gap-2"><input type="checkbox" checked={!!action.config.clear} onChange={(event) => change({ clear: event.target.checked })} />Clear this field</label>}
+    {field && !action.config.clear && <div className="space-y-2">
+      {multiple ? <fieldset className="space-y-2"><legend className="mb-2">New value</legend><div className="max-h-56 overflow-auto rounded-lg border border-[var(--border)] p-2">
+        {choices?.map((choice) => <label className="flex min-h-10 items-center gap-2" key={choice.id}><input type="checkbox" checked={selected.includes(choice.id)} onChange={(event) => {
+          const next = event.target.checked ? [...selected, choice.id] : selected.filter((entry) => entry !== choice.id);
+          change({ value: next, ...(choice.name.trim().toLowerCase() === 'others' && !event.target.checked ? { otherDetails: '' } : {}) });
+        }} /><span className="min-w-0 break-words">{choice.name}</span></label>)}
+        {selected.filter(id => !choices?.some(choice => choice.id === id)).map(id => <label key={id} className="flex min-h-10 items-center gap-2"><input type="checkbox" checked onChange={() => change({ value: selected.filter(value => value !== id) })} />Unavailable selection</label>)}
+        {!choices?.length && <p className="text-xs text-[var(--muted-foreground)]">No available selections.</p>}
+      </div></fieldset> : <label className="block space-y-1">New value
+        {field.type === 'boolean' ? <select aria-label="New value" className={workflowControl} value={String(value ?? false)} onChange={(event) => change({ value: event.target.value === 'true' })}><option value="true">Yes</option><option value="false">No</option></select>
+          : choices ? <select aria-label="New value" className={workflowControl} value={String(value ?? '')} onChange={(event) => change({ value: event.target.value })}><option value="">Choose…</option>{value && !choices.some(choice => choice.id === value) ? <option value={String(value)}>Unavailable selection</option> : null}{choices.map((choice) => <option key={choice.id} value={choice.id}>{choice.name}</option>)}</select>
+            : field.type === 'list' ? <textarea aria-label="New value" className={workflowControl} rows={4} placeholder="One value per line" value={Array.isArray(value) ? value.join('\n') : ''} onChange={(event) => change({ value: event.target.value.split('\n') })} />
+            : ['number', 'date'].includes(field.type) ? <Input aria-label="New value" type={field.type === 'number' ? 'number' : 'date'} step="any" value={String(value ?? '')} onChange={(event) => change({ value: field.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value })} />
+              : <textarea aria-label="New value" className={workflowControl} rows={field.multiline ? 4 : 2} maxLength={field.maxLength ?? 1000} value={String(value ?? '')} onChange={(event) => change({ value: event.target.value })} />}
+      </label>}
+      {entity !== 'lead' && othersSelected && <label className="block space-y-1">Specify (optional)<Input aria-label="Specify (optional)" maxLength={1000} value={String(action.config.otherDetails ?? '')} onChange={(event) => change({ otherDetails: event.target.value })} /><span className="block text-xs text-[var(--muted-foreground)]">Others counts as a selected interest even without additional details.</span></label>}
+      {field.type === 'stage' && <label className="block space-y-1">Lost reason (for a lost stage)<Input aria-label="Lost reason" value={String(action.config.lostReason ?? '')} onChange={(event) => change({ lostReason: event.target.value })} /></label>}
+    </div>}
+  </div>;
+}
 export function ConditionFields({
   value,
   trigger,
@@ -51,9 +113,10 @@ export function ConditionFields({
         const field = trigger?.fields.find(
           (field) => field.field === rule.field,
         );
-        const choices =
-          field?.options?.map((option) => ({ id: option, name: option })) ??
+        const rawChoices =
+          field?.options?.map((option) => ({ id: option, name: field?.optionLabels?.[option] ?? option })) ??
           references(field?.type ?? '', options);
+        const choices = rawChoices;
         const update = (patch: Partial<typeof rule>) =>
           onChange({
             ...value,
@@ -66,13 +129,17 @@ export function ConditionFields({
             key={index}
             className="space-y-3 rounded-xl border border-[var(--border)] p-3"
           >
-            <p className="text-xs font-semibold text-[var(--muted-foreground)]">
-              Condition {index + 1}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[var(--muted-foreground)]">Condition {index + 1}</p>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => onChange({ ...value, conditions: value.conditions.filter((_, i) => i !== index) })} aria-label={`Remove condition ${index + 1}`} title="Remove condition">
+                <Trash2 size={16} aria-hidden="true" />
+              </Button>
+            </div>
             <label className="block">
-              Field
+              <span>Field <span className="text-red-500" aria-hidden="true">*</span></span>
               <select
                 aria-label={`Condition ${index + 1} field`}
+                aria-required="true"
                 className={workflowControl}
                 value={rule.field}
                 onChange={(event) => {
@@ -81,7 +148,7 @@ export function ConditionFields({
                   );
                   update({
                     field: event.target.value,
-                    operator: 'equals',
+                    operator: workflowOperators(next?.type ?? 'string')[0],
                     value:
                       next?.type === 'number'
                         ? 0
@@ -92,11 +159,8 @@ export function ConditionFields({
                 }}
               >
                 <option value="">Choose a field</option>
-                {trigger?.fields.map((field) => (
-                  <option key={field.field} value={field.field}>
-                    {field.label}
-                  </option>
-                ))}
+                {rule.field && !field && <option value={rule.field}>Unavailable field — repair required</option>}
+                {(['standard', 'custom'] as const).map(group => <optgroup key={group} label={group === 'custom' ? 'Custom Fields' : 'Standard Fields'}>{trigger?.fields.filter(field => (field.group ?? 'standard') === group).map(field => <option key={field.field} value={field.field}>{field.label}</option>)}</optgroup>)}
               </select>
             </label>
             <label className="block">
@@ -120,11 +184,12 @@ export function ConditionFields({
             </label>
             {!['is_empty', 'is_not_empty'].includes(rule.operator) && (
               <label className="block">
-                Value
+                <span>Value <span className="text-red-500" aria-hidden="true">*</span></span>
                 {field?.type === 'boolean' ? (
                   <select
                     className={workflowControl}
                     aria-label={`Condition ${index + 1} value`}
+                    aria-required="true"
                     value={String(rule.value)}
                     onChange={(event) =>
                       update({ value: event.target.value === 'true' })
@@ -136,20 +201,23 @@ export function ConditionFields({
                 ) : choices ? (
                   <select
                     aria-label={`Condition ${index + 1} value`}
+                    aria-required="true"
                     className={workflowControl}
                     value={String(rule.value ?? '')}
                     onChange={(event) => update({ value: event.target.value })}
                   >
                     <option value="">Choose…</option>
+                    {rule.value && !choices.some(choice => choice.id === rule.value) ? <option value={String(rule.value)}>Unavailable selection</option> : null}
                     {choices.map((choice) => (
                       <option key={choice.id} value={choice.id}>
                         {choice.name}
                       </option>
                     ))}
                   </select>
-                ) : (
+                ) : field?.multiline ? <textarea aria-label={`Condition ${index + 1} value`} aria-required="true" className={workflowControl} rows={4} maxLength={field.maxLength} value={String(rule.value ?? '')} onChange={event => update({ value: event.target.value })} /> : (
                   <Input
                     aria-label={`Condition ${index + 1} value`}
+                    aria-required="true"
                     type={
                       field?.type === 'number'
                         ? 'number'
@@ -157,7 +225,7 @@ export function ConditionFields({
                           ? 'date'
                           : 'text'
                     }
-                    maxLength={1000}
+                    maxLength={field?.maxLength ?? 1000}
                     value={String(rule.value ?? '')}
                     onChange={(event) =>
                       update({
@@ -171,25 +239,12 @@ export function ConditionFields({
                 )}
               </label>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                onChange({
-                  ...value,
-                  conditions: value.conditions.filter((_, i) => i !== index),
-                })
-              }
-            >
-              Remove condition
-            </Button>
           </div>
         );
       })}
       <Button
         type="button"
-        variant="outline"
+        variant="default"
         onClick={() =>
           onChange({
             ...value,
@@ -197,7 +252,7 @@ export function ConditionFields({
               ...value.conditions,
               {
                 field: trigger?.fields[0]?.field ?? '',
-                operator: 'equals',
+                operator: workflowOperators(trigger?.fields[0]?.type ?? 'string')[0],
                 value: trigger?.fields[0]?.type === 'number' ? 0 : '',
               },
             ],
@@ -228,9 +283,13 @@ export function ActionFields({
     options.pipelines.find((entry) =>
       entry.stages.some((stage) => stage.id === action.config.stageId),
     )?.id ?? pipeline;
+  if (retiredActionLabels[action.type]) return <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">{action.type === 'create_notification' ? 'Notifications are automatic.' : 'Send Campaign is no longer available in workflows.'} This saved step is preserved. Disable or remove it before activating the workflow.</p>;
+  if (action.type === 'update_field') return <UpdateFieldFields action={action} options={options} entity={entity} onChange={onChange} />;
   return (
     <div className="space-y-4 text-sm">
       <p className="text-[var(--muted-foreground)]">{definition?.description}</p>
+      {['create_task', 'assign_owner'].includes(action.type) && <WorkflowAssignmentFields action={action} entity={entity} options={options} className={workflowControl} onChange={onChange} />}
+      {action.type === 'send_sms' && options.smsConfigured === false && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">SMS is not configured. You can save this draft and connect SMS before activating it.</p>}
       {action.type === 'move_deal_stage' && (
         <label className="block space-y-1">
           Pipeline
@@ -239,7 +298,7 @@ export function ActionFields({
             value={selectedPipeline}
             onChange={(event) => {
               setPipeline(event.target.value);
-              onChange({ ...action.config, stageId: '' });
+              onChange({ ...action.config, stageId: '', currentStageId: '' });
             }}
           >
             <option value="">All pipelines</option>
@@ -250,29 +309,26 @@ export function ActionFields({
             ))}
           </select>
           <span className="block text-xs text-[var(--muted-foreground)]">
-            Stage entry requirements are checked by the Deal service.
+            The deal must meet the selected stage’s entry requirements.
           </span>
         </label>
       )}
       {Object.entries(definition?.configSchema ?? {}).map(([key, field]) => {
-        let choices =
+        if (field.type === 'assignment' || (action.type === 'create_task' && key === 'assignedUserId') || (action.type === 'assign_owner' && key === 'userId')) return null;
+        if (action.type === 'move_deal_stage' && entity === 'deal' && ['targetMode', 'productInterestId', 'currentStageId'].includes(key)) return null;
+        let choices = key === 'senderUserId' ? options.senders ?? [] :
           references(field.type, options) ??
           field.options?.map((option) => ({ id: option, name: option }));
-        if (key === 'stageId' && selectedPipeline)
+        if (['stageId', 'currentStageId'].includes(key) && selectedPipeline)
           choices =
             options.pipelines.find((entry) => entry.id === selectedPipeline)
               ?.stages ?? [];
-        if (action.type === 'update_field' && key === 'field')
-          choices = [
-            {
-              id: entity === 'contact' ? 'notes' : 'description',
-              name: entity === 'contact' ? 'Notes' : 'Description',
-            },
-          ];
+        if (action.type === 'send_sms' && key === 'recipient') choices = (choices ?? []).filter((choice) => entity === 'deal' ? choice.id !== 'record' : entity === 'account' ? choice.id === 'primary_contact' : choice.id === 'record').map((choice) => ({ ...choice, name: choice.id === 'record' ? 'Triggering record' : choice.id === 'primary_contact' ? 'Primary contact' : 'Primary lead' }));
+        if (key === 'targetMode') choices = [{ id: 'single_match', name: 'One matching Deal (default)' }, { id: 'all_matching', name: 'All matching related Deals' }];
         const change = (value: unknown) =>
           onChange({ ...action.config, [key]: value });
         const value = String(action.config[key] ?? '');
-        const variable = ['title', 'description', 'subject', 'body'].includes(
+        const variable = ['title', 'description', 'subject', 'body', 'message'].includes(
           key,
         );
         return (
@@ -292,7 +348,7 @@ export function ActionFields({
                   <option value="">
                     {['assignedUserId', 'userId'].includes(key) &&
                     !field.required
-                      ? 'Current record owner'
+                      ? 'Current record agent'
                       : 'Choose…'}
                   </option>
                   {value && !choices.some((choice) => choice.id === value) && (
@@ -304,7 +360,7 @@ export function ActionFields({
                     </option>
                   ))}
                 </select>
-              ) : ['body', 'description', 'value'].includes(key) ? (
+              ) : ['body', 'description', 'value', 'message'].includes(key) ? (
                 <textarea
                   aria-label={field.label}
                   className={workflowControl}
@@ -346,12 +402,7 @@ export function ActionFields({
                 className="flex flex-wrap gap-1"
                 aria-label={`Personalize ${field.label}`}
               >
-                {[
-                  ['first_name', 'First name'],
-                  ['last_name', 'Last name'],
-                  ['email', 'Email'],
-                  ['company', 'Company'],
-                ].map(([token, label]) => (
+                {WORKFLOW_MESSAGE_VARIABLES.map(({ token, label }) => (
                   <button
                     key={token}
                     type="button"

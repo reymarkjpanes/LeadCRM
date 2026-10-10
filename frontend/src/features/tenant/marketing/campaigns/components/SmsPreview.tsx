@@ -32,7 +32,7 @@ export function SmsPreview({ sender = 'LeadCRM', message, className }: SmsPrevie
 
   return (
     <div className={cn('flex flex-col items-center w-full max-w-sm mx-auto', className)}>
-      <div className="relative w-[300px] h-[600px] bg-gray-900 rounded-[3rem] border-[8px] border-gray-800 shadow-xl overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-[300px] aspect-[1/2] bg-gray-900 rounded-[3rem] border-[8px] border-gray-800 shadow-xl overflow-hidden flex flex-col">
         {/* Dynamic Island / Notch */}
         <div className="absolute top-0 inset-x-0 h-6 flex justify-center z-10">
           <div className="w-24 h-6 bg-gray-800 rounded-b-3xl"></div>
@@ -61,7 +61,7 @@ export function SmsPreview({ sender = 'LeadCRM', message, className }: SmsPrevie
       </div>
 
       {/* Stats Below Phone */}
-      <div className="w-[300px] mt-4 space-y-2">
+      <div className="w-full max-w-[300px] mt-4 space-y-2">
         <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <Info className="w-4 h-4" />

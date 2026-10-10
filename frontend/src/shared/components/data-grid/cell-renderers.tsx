@@ -22,7 +22,8 @@
 'use client';
 
 import React from 'react';
-import { StatusBadge } from '@/shared/components/crm';
+import { StatusBadge } from '@/shared/components/crm/record-drawer';
+import { MANILA_TIME_ZONE } from '@/lib/manila-time';
 
 // ─── Date Renderer ───────────────────────────────────────────────────────────
 
@@ -38,6 +39,22 @@ export function formatDate(value: string | Date | null | undefined): string {
   const date = value instanceof Date ? value : new Date(value);
   if (isNaN(date.getTime())) return '—';
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+const dateTimeFormatters = [false, true].map(seconds => new Intl.DateTimeFormat('en-US', {
+  timeZone: MANILA_TIME_ZONE,
+  month: 'short', day: 'numeric', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' as const } : {}),
+  hourCycle: 'h12',
+}));
+
+/** Manila presentation only: MMM D, YYYY hh:mm[:ss] A. */
+export function formatDateTime(value: string | Date | null | undefined, options: { seconds?: boolean } = {}): string {
+  if (!value) return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return '—';
+  const parts = Object.fromEntries(dateTimeFormatters[options.seconds ? 1 : 0].formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute}${options.seconds ? `:${parts.second}` : ''} ${parts.dayPeriod}`;
 }
 
 /**
@@ -103,19 +120,8 @@ export const LEAD_STATUS_VARIANTS: Record<string, StatusVariant> = {
   Cold: 'neutral',
 };
 
-export const CONTACT_STATUS_VARIANTS: Record<string, StatusVariant> = {
-  Active: 'success',
-  Inactive: 'danger',
-  Lead: 'info',
-};
+export const CONTACT_STATUS_VARIANTS = LEAD_STATUS_VARIANTS;
 
-export const ACCOUNT_TYPE_VARIANTS: Record<string, StatusVariant> = {
-  Customer: 'success',
-  Active: 'success',
-  Prospect: 'info',
-  Partner: 'purple',
-  Churned: 'danger',
-};
 
 export const DEAL_PRIORITY_VARIANTS: Record<string, StatusVariant> = {
   High: 'danger',

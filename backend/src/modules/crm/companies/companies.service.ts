@@ -3,6 +3,8 @@ import { writeAuditLog, buildChangeset } from '../../../core/audit/audit.service
 import { NotFoundError } from '../../../shared/errors/http-error';
 import { CreateCompanyDto, UpdateCompanyDto, CreateCompanySchema, UpdateCompanySchema } from './companies.dto';
 import { paginate } from '../../../shared/helpers/pagination';
+import { fireAccountUpdated } from '../../automation/triggers/triggers.service';
+import { recordChanges, customFieldChangeTracker } from '../record-updates';
 
 export async function getCompanies(tenantId: string, query: Record<string, unknown>) {
   const result = await repo.findAllCompanies(tenantId, query);
@@ -17,7 +19,7 @@ export async function getCompanyById(id: string, tenantId: string) {
 
 export async function createCompany(tenantId: string, userId: string, dto: CreateCompanyDto) {
   dto = CreateCompanySchema.parse(dto);
-  const company = await repo.createCompany(tenantId, dto);
+  const company = await repo.createCompany(tenantId, dto, userId);
   await writeAuditLog({
     tenantId, userId,
     action: 'account.created', entityType: 'Account', entityId: company.id,
@@ -32,8 +34,9 @@ export async function updateCompany(
   dto = UpdateCompanySchema.parse(dto);
   const before = await repo.findCompanyById(id, tenantId);
   if (!before) throw new NotFoundError('Company');
+  const withCustomChanges = await customFieldChangeTracker(tenantId, 'accounts', id, dto.customFieldValues);
 
-  const company = await repo.updateCompany(id, tenantId, dto);
+  const company = await repo.updateCompany(id, tenantId, dto, userId);
   if (!company) throw new NotFoundError('Company');
 
   const { before: cb, after: ca } = buildChangeset(
@@ -45,6 +48,8 @@ export async function updateCompany(
     action: 'account.updated', entityType: 'Account', entityId: id,
     before: cb, after: ca,
   });
+  const changes = await withCustomChanges(recordChanges(before, company));
+  if (changes.changedFields.length) await fireAccountUpdated({ tenantId, actorId: userId, record: company, changedFields: changes.changedFields, changes });
   return company;
 }
 

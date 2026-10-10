@@ -1,67 +1,7 @@
-# LeadCRM — Portal Separation Guide
+# LeadCRM workspace access
 
-## Why Two Portals?
+LeadCRM has one tenant-scoped CRM workspace. Frontend routes live in `frontend/app/(tenant)` and domain UI lives in `frontend/src/features/tenant`. Shared components remain in `frontend/src/shared`.
 
-LeadCRM serves two completely different user types with different data access, layouts, and capabilities.
+Client Admin manages the current workspace and its team. Staff access uses the workspace role and permission assignments. Backend authentication, tenant context, and permission middleware enforce the same tenant boundary.
 
-### CRM Portal (`frontend/src/features/tenant/`)
-- **Who:** Any company that subscribes to LeadCRM (our clients / tenants)
-- **Roles:** Client Admin, Sales Rep, Viewer, Technician
-- **What they do:** Manage their own contacts, deals, campaigns, workflows, service orders
-- **They never see:** Other companies' data, platform controls, tenant management
-
-### Admin Portal (`frontend/src/features/system-admin/`)
-- **Who:** LeadCRM's own internal team (System Admin role only)
-- **What they do:** Provision employee workspaces, manage account access, and monitor infrastructure health
-- **They never see:** CRM module data (contacts, pipeline, etc.) — they have no tenant context
-
----
-
-## Physical Separation (Not Just Route Groups)
-
-The portals are separated at the **file system level**, not just in routing.
-
-```
-frontend/src/features/
-├── tenant/       ← CRM portal — all CRM page components and logic live here
-└── system-admin/ ← Admin portal — completely separate, no shared pages
-```
-
-This means it is **structurally impossible** to accidentally import a CRM page into the admin portal. The import would require crossing the `features/tenant/` ↔ `features/system-admin/` boundary, which is immediately obvious in code review.
-
-Shared components (TrelloFilter, SideSheet, charts, ShadCN primitives) live in `src/shared/` and are available to both portals.
-
----
-
-## How Routing Works
-
-The App Router uses two route groups:
-- `app/(tenant)/` — CRM portal routes (no URL segment added)
-- `app/(system-admin)/` — Admin portal routes (URLs: `/admin/*`)
-
-Each group has its own `layout.tsx` which applies the correct portal layout via `CrmLayout` or `AdminLayout`.
-
-Role-based redirect:
-- `System Admin` → `/admin/dashboard`
-- All other roles → `/dashboard`
-
----
-
-## SaaS Analogy
-
-| LeadCRM | Real-world equivalent |
-|---|---|
-| `features/system-admin/` | Platform operations — manage employee workspaces |
-| `features/tenant/` | Tenant CRM — manage your operational records |
-
-The two portals share zero page-level components. They may share UI primitives from `src/shared/`.
-
----
-
-## Rules
-
-1. **Never import a CRM page inside `features/system-admin/`**
-2. **Never import an admin page inside `features/tenant/`**
-3. Shared UI components only — import from `src/shared/`
-4. RBAC is always checked — `System Admin` is the only cross-tenant role
-5. `tenantId` must be on every piece of data — System Admin is the only one who can query across tenants
+See [authentication](authentication.md), [architecture](ARCHITECTURE.md), [roles](user-roles.md), and the [feature retirement report](retired-features-cleanup.md) for current behavior.

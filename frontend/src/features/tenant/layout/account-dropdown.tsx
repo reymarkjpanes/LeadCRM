@@ -6,6 +6,7 @@ import { Shield, LogOut, Check } from 'lucide-react';
 import { useAuth } from '@/store/AuthContext';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { USE_MOCK_AUTH } from '@/lib/config';
 
 // â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -30,10 +31,8 @@ interface AccountDropdownProps {
 // Passwords are the seeded values; OTP is always '000000' in DEMO_MODE.
 
 const SWITCH_ACCOUNTS: SwitchAccount[] = [
-  { email: 'admin@gmail.com',    password: 'admin123', label: 'System Admin',  role: 'System Admin', initials: 'SA' },
-  { email: 'super@leadcrm.com', password: 'admin123', label: 'System Admin',  role: 'System Admin', initials: 'SA' },
   { email: 'admin@camxian.com', password: 'admin123', label: 'Alice Admin',   role: 'Client Admin', initials: 'AA' },
-  { email: 'bob@camxian.com',   password: 'admin123', label: 'Bob Sales',     role: 'User',         initials: 'BS' },
+  { email: 'bob@camxian.com',   password: 'admin123', label: 'Bob Sales',     role: 'Sales',        initials: 'BS' },
 ];
 
 // â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -70,7 +69,7 @@ export default function AccountDropdown({
         <button
           onClick={onToggle}
           title={`${user?.firstName ?? ''} ${user?.lastName ?? ''} Â· ${user?.role ?? ''}`}
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] flex items-center justify-center text-white font-bold text-[11px] cursor-pointer hover:ring-2 hover:ring-[#3B82F6]/40 transition-all"
+          className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] flex items-center justify-center text-white font-bold text-[11px] cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all"
         >
           <UserAvatar user={user} />
         </button>
@@ -156,6 +155,7 @@ function DropdownContent({ user, initials, onSwitch, onLogout }: DropdownContent
         </div>
       </div>
 
+      {USE_MOCK_AUTH && <>
       {/* Section label */}
       <div className="px-4 pt-1.5 pb-1">
         <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
@@ -174,7 +174,7 @@ function DropdownContent({ user, initials, onSwitch, onLogout }: DropdownContent
               className={cn(
                 'w-full text-left px-4 py-2 transition-colors flex items-center justify-between gap-2 cursor-pointer',
                 isCurrent
-                  ? 'bg-[#3B82F6]/5 dark:bg-[#3B82F6]/10'
+                  ? 'bg-primary/5 dark:bg-primary/10'
                   : 'hover:bg-slate-50 dark:hover:bg-white/[0.03]',
               )}
             >
@@ -182,7 +182,7 @@ function DropdownContent({ user, initials, onSwitch, onLogout }: DropdownContent
                 <div className={cn(
                   'w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0',
                   isCurrent
-                    ? 'bg-[#3B82F6] text-white'
+                    ? 'bg-primary text-white'
                     : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
                 )}>
                   {acc.initials}
@@ -190,20 +190,21 @@ function DropdownContent({ user, initials, onSwitch, onLogout }: DropdownContent
                 <div className="min-w-0">
                   <p className={cn(
                     'text-xs font-semibold truncate',
-                    isCurrent ? 'text-[#3B82F6] dark:text-[#60A5FA]' : 'text-slate-800 dark:text-slate-200',
+                    isCurrent ? 'text-primary dark:text-primary' : 'text-slate-800 dark:text-slate-200',
                   )}>
                     {acc.label}
                   </p>
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{acc.role}</p>
                 </div>
               </div>
-              {isCurrent && <Check size={12} className="text-[#3B82F6] dark:text-[#60A5FA] shrink-0" />}
+              {isCurrent && <Check size={12} className="text-primary dark:text-primary shrink-0" />}
             </button>
           );
         })}
       </div>
 
       <div className="h-px bg-slate-100 dark:bg-white/[0.06] my-1" />
+      </>}
 
       {/* Logout */}
       <button

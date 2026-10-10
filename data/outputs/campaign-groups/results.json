@@ -1,0 +1,1665 @@
+{
+  "checks": [
+    {
+      "label": "campaign-list",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "campaign-list",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "campaign-list",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "campaign-list",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "campaign-list",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "create-campaign-flow",
+      "opened": true
+    },
+    {
+      "label": "campaign-report",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "campaign-report",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "campaign-report",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "campaign-report",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "campaign-report",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "Recipient performance-table-scroll",
+      "width": 1440,
+      "client": 1170,
+      "content": 1170,
+      "left": 0
+    },
+    {
+      "label": "Top links clicked-table-scroll",
+      "width": 1440,
+      "client": 1170,
+      "content": 1170,
+      "left": 0
+    },
+    {
+      "label": "Recipient performance-table-scroll",
+      "width": 768,
+      "client": 734,
+      "content": 1131,
+      "left": 397
+    },
+    {
+      "label": "Top links clicked-table-scroll",
+      "width": 768,
+      "client": 734,
+      "content": 971,
+      "left": 237
+    },
+    {
+      "label": "Recipient performance-table-scroll",
+      "width": 390,
+      "client": 364,
+      "content": 1131,
+      "left": 767
+    },
+    {
+      "label": "Top links clicked-table-scroll",
+      "width": 390,
+      "client": 364,
+      "content": 971,
+      "left": 607
+    },
+    {
+      "label": "Recipient performance-table-scroll",
+      "width": 375,
+      "client": 349,
+      "content": 1131,
+      "left": 782
+    },
+    {
+      "label": "Top links clicked-table-scroll",
+      "width": 375,
+      "client": 349,
+      "content": 971,
+      "left": 622
+    },
+    {
+      "label": "Recipient performance-table-scroll",
+      "width": 320,
+      "client": 294,
+      "content": 1131,
+      "left": 837
+    },
+    {
+      "label": "Top links clicked-table-scroll",
+      "width": 320,
+      "client": 294,
+      "content": 971,
+      "left": 677
+    },
+    {
+      "label": "role-skeleton",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "roles",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "roles",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "roles",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "roles",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "roles",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "role-skeleton",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "role-skeleton",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "role-skeleton",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "role-skeleton",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "role-skeleton",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "group-skeleton",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "groups",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "groups",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "groups",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "groups",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "groups",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "group-skeleton",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "group-skeleton",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "group-skeleton",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "group-skeleton",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "group-skeleton",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "new-group-modal",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "new-group-modal",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "new-group-modal",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "new-group-modal",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "new-group-modal",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "dialog-focus-trap",
+      "width": 320
+    },
+    {
+      "label": "group-members",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "group-members",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "group-members",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "group-members",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "group-members",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "remove-member-dialog",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "remove-member-dialog",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "remove-member-dialog",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "remove-member-dialog",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "remove-member-dialog",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "alertdialog-focus-trap",
+      "width": 320
+    },
+    {
+      "label": "delete-group-dialog",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "delete-group-dialog",
+      "width": 768,
+      "scroll": 768
+    },
+    {
+      "label": "delete-group-dialog",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "label": "delete-group-dialog",
+      "width": 375,
+      "scroll": 375
+    },
+    {
+      "label": "delete-group-dialog",
+      "width": 320,
+      "scroll": 320
+    },
+    {
+      "label": "alertdialog-focus-trap",
+      "width": 320
+    }
+  ],
+  "requests": [
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/templates",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/metrics",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/templates",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/metrics",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/audiences",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/audiences",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/templates",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/metrics",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/templates",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/metrics",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/campaigns",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/marketing/campaigns/campaign/report",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-admin/permissions",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/users",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "POST"
+    },
+    {
+      "path": "/administration/groups/group-1",
+      "method": "PUT"
+    },
+    {
+      "path": "/administration/groups/group-1/members",
+      "method": "POST"
+    },
+    {
+      "path": "/administration/groups",
+      "method": "GET"
+    },
+    {
+      "path": "/administration/groups/group-1/members/julie",
+      "method": "DELETE"
+    },
+    {
+      "path": "/administration/groups/group-1",
+      "method": "DELETE"
+    }
+  ],
+  "errors": []
+}

@@ -1,198 +1,78 @@
-# Dashboard KPI Definitions — LeadCRM
+# Dashboard reporting definitions
 
-## Purpose
+Dashboard, CSV and compatibility endpoints use `dashboard.service.ts` and the shared Dashboard contract. Browser collection loaders are not analytics sources. Each report is a repeatable-read snapshot; access is checked again before release.
 
-This document defines every metric displayed on the LeadCRM dashboard. Exact formulas are specified so that all developers, QA, and mentors can verify the numbers are calculated consistently and correctly.
+## Authorization and population
 
----
+The authenticated session supplies workspace/user. `dashboard.view` is the existing organization analytics permission and is mandatory. Module `deals.view`, `leads.view`, `tasks.view` grants enable dependent report data. Client Admin and other authorized roles, including custom roles, receive organization-wide aggregates within that tenant, regardless of assignment/owner/creator. Missing module permissions yield unavailable metrics rather than personal substitutes or zero. CSV and streams enforce current authorization. No permissions are automatically granted by this change.
 
-## CRM KPIs
+Eligible Deals belong to the one active **Sales Pipeline**, are unarchived and not deleted. Authoritative Stage rows must have ordered names Lead, Contacted, Qualified, Closed Won, Closed Lost and matching terminal flags. IDs, order, configured probabilities and colors come from these rows. Ambiguous/invalid configuration returns 409 without rewriting history. Other pipelines are excluded with a warning.
 
-### Total Contacts
-```
-Total Contacts = COUNT(contacts WHERE isArchived = false AND tenantId = current)
-```
-Includes all statuses: Hot, Warm, Cold, Cancelled, Closed.
+Eligible Leads are unconverted, unarchived and not deleted, separate from the Deals pipeline's Lead stage.
 
----
+## Dates
 
-### Hot Leads
-```
-Hot Leads = COUNT(contacts WHERE status = 'Hot' AND isArchived = false)
-```
-Contacts with the highest conversion probability. These appear at the top of the Client Profiles table.
+Default: This Month. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
 
----
+| Option | Inclusive calendar interval |
+| --- | --- |
+| Today | Today |
+| Last 7 / 30 Days | Today and preceding 6 / 29 days |
+| This Month | First day of this month through today |
+| Last Month | Entire previous calendar month |
+| Last 3 / 6 Months | First day two / five calendar months ago through today |
+| This Year | January 1 through today |
+| Custom | Valid ordered start and end, maximum 732 days |
 
-### Conversion Rate
-```
-Conversion Rate = (Closed Won Deals ÷ Total Deals) × 100
+Revenue Trend defaults to calendar Month. Week (Monday start), Month and Year group identical eligible closures inside the global date interval; they never change that interval. Only calendar buckets intersecting the selected period are generated. Empty successful buckets are zero. Query failures do not produce empty reports. Prisma timestamps store UTC without timezone; SQL explicitly casts input boundaries to UTC and groups closing dates in Manila. Asia/Manila is the existing shared reporting convention; there is no tenant-specific timezone field.
 
-Where:
-  Total Deals       = COUNT(deals WHERE isArchived = false)
-  Closed Won Deals  = COUNT(deals WHERE stageId matches a 'Closed Won' stage name)
-```
-Expressed as a percentage. A deal is "Closed Won" when its current stage name is `Closed Won` (case-sensitive stage name lookup via pipeline definition).
+## KPIs and charts
 
----
+| Metric | Formula and time basis |
+| --- | --- |
+| Total Revenue | Sum tenant-currency amounts of currently Closed Won eligible Deals with valid `closedAt` in period |
+| Revenue Trend | Identical revenue grouped by `closedAt`; sum reconciles with Total Revenue |
+| Forecasted Revenue | Current open amount × configured Stage probability / 100, summed; expectedCloseDate does not narrow current forecast |
+| Active Deals | Distinct currently Lead, Contacted or Qualified Deals |
+| Total Leads | Current eligible Leads-module population |
+| Win Rate | Period Won / (Won + Lost) × 100; no outcomes means unavailable |
+| Average Deal Velocity | Mean fractional days from creation to eligible period Won closure, rounded to one decimal; no wins means unavailable |
+| Won vs. Lost | Current terminal outcomes grouped by valid `closedAt`, matching Win Rate population |
+| Pipeline Distribution | Current counts in three official open stages; sum equals Active Deals |
+| Pipeline Value by Stage | Current tenant-currency open amounts in those stages; sum equals Open Pipeline Value |
 
-### Win Rate
-```
-Win Rate = Won Deals ÷ (Won Deals + Lost Deals) × 100
+Valid closure means `createdAt <= closedAt <= generatedAt`. Missing/invalid closing timestamps are excluded and disclosed. Repeated same-stage closure preserves one timestamp and transition. Existing rules prohibit reopening Won; never-won Lost Deals may reopen into Qualified. Reopening clears `closedAt`, removes period outcome and restores current pipeline. Historical Lost milestones remain in conversion history.
 
-Where:
-  Won Deals  = COUNT(deals WHERE stage name = 'Closed Won')
-  Lost Deals = COUNT(deals WHERE stage name = 'Closed Lost')
-```
-Excludes open/active deals from the denominator. This is the classic sales Win Rate formula.
+Currencies are never converted or mixed. Money uses tenant currency (PHP when unset); other/unknown currencies are excluded and warned, while counts remain currency-independent. Reporting normalizes each stored amount to two decimal places before summing, consistent with the Product price contract and currency presentation. This keeps bucket/stage sums reconciled even for legacy Float values with extra precision; stored amounts are not rewritten. Negative/nonfinite/missing same-currency amounts make affected monetary totals unavailable. Missing/invalid probability makes forecast unavailable. Configured zero is valid, never replaced with invented probability. Existing CRM APIs protect immutable Product/value snapshots; subscriptions also cover committed integration/database corrections.
 
----
+## Deal Pipeline Conversion Funnel
 
-## Pipeline KPIs
+Cohort: eligible organization Deals **created in the independent funnel interval**. Default Month, Week (Monday start), and Year run from their calendar start through today in Manila. Custom From/To dates must be valid, ordered, historical and at most 732 days; both browser and server enforce this. Milestones count distinct Deals with actual `DealStageHistory.newStageId` events from creation through the earlier of report generation and the end of the selected To day (23:59:59.999 Manila). Custom reports therefore exclude later events. The response and CSV carry the actual observation cutoff. Current stage alone is not proof. Verified start has null previous stage and timestamp matching creation. The existing migration records future starts with a valid actor/owner/assignee. Old events are never reconstructed.
 
-### Pipeline Value
-```
-Pipeline Value = SUM(deal.value WHERE deal is active AND isArchived = false)
+Open milestones are Lead → Contacted → Qualified. Won and Lost are separate branches. Repeated/backward/reopened transitions count each milestone once; skipped stages are not inferred.
 
-Active = stageId does NOT belong to a Closed Won or Closed Lost stage
-```
-Represents total potential revenue still in progress. Closed deals are excluded.
+Rates use intersections: Lead-and-Contacted / Lead; Contacted-and-Qualified / Contacted; Qualified-and-Won / Qualified; Qualified-and-Lost / Qualified. These describe cohort milestone attainment, not strict consecutive movement order. If any cohort Deal lacks a verified start, counts show only recorded events and progression rates are unavailable. Empty denominators are unavailable.
 
----
+## Sales Leaderboard
 
-### Total Deal Value
-```
-Total Deal Value = SUM(deal.value WHERE isArchived = false)
-```
-All deals including won, lost, and active. Used for revenue forecasting.
+At first future transition into Won, the database captures assigned agent and eligibility in `revenueOwnerId` / `revenueOwnerEligible`. Eligibility follows active assignment rules: non-administrative, non-Guest with actual active-role Lead and Deal view/edit grants. Reassignment cannot rewrite captured achievement. Deactivated agents retain credit. Legacy unknown attribution is disclosed and omitted, without guessing from mutable `ownerId`.
 
----
+Revenue uses the same period/currency eligibility as Total Revenue. Rank: revenue descending, won count descending, stable user ID; top five across all organization agents. Organization revenue may exceed leaderboard sums when historical attribution is unknown, administrative/ineligible, or outside the displayed top five.
 
-### Average Deal Value
-```
-Average Deal Value = Total Deal Value ÷ Total Deals
-```
+## Action Center
 
----
+Action Center retains a separate operational scope: Client Admin receives permitted tenant actions; other roles receive permitted assigned actions. Current nonarchived tasks exclude completed/cancelled; overdue tasks precede high-priority tasks, then Hot Leads and configured stale Deals. Display is bounded to six tasks, three eligible Hot Leads and three open Deals exceeding official stage `rottenAfterDays`. The list uses natural page scrolling without a constrained inner scroll area. Qualifying action count controls empty state. Existing taskboard/CRM routes are destinations. Contacts, Accounts, Inbox and Campaigns have no synthetic metric; their existing actions update Dashboard when they mutate supported Task/Lead/Deal records.
 
-### Deals by Stage
-```
-For each stage in active pipeline:
-  Count = COUNT(deals WHERE stageId = stage.id AND isArchived = false)
-  Value = SUM(deal.value WHERE stageId = stage.id AND isArchived = false)
-```
-Shown as a Kanban board or bar chart per stage.
+## Automatic updates and recovery
 
----
+Database triggers update tenant revisions in the same transaction as Deal/Stage/Pipeline/history, Lead, Task and access changes. Rollback removes counter changes. Counters survive replica/process restarts. This extends existing bounded Inbox SSE, without another event service.
 
-### Stage Velocity (Average Days per Stage)
-```
-For each stage transition in deal.history[]:
-  Duration = timestamp[next entry] - timestamp[this entry]  (in days)
+Streams observe committed counters every three seconds, heartbeat and end at 45 seconds. EventSource reconnects after three seconds. Sessions/RBAC are revalidated every observation; payloads contain counters only. Next preserves streaming/no-buffer headers. Auth access subscriptions remain outside module guards so revocation and later grants refresh existing permissions.
 
-Stage Velocity = AVG(Duration) per stageId across all deals
-```
+The hook batches bursts, ignores identical notifications, refreshes authoritative aggregates on connection/reconnect/focus/wake/online, and reconciles every 30 seconds while foregrounded. Changing chart filters does not create another subscription. Request generation/cancellation prevent stale identity/filter responses. Failed data requests preserve the prior report with an error; access loss clears it. The connection-status subtitle is removed. No frontend metric persistence or incremental event arithmetic. Sync Metrics is a read-only fallback. CSV takes a fresh authorized snapshot using identical definitions, selected chart filters, observation cutoff, diagnostic warnings, time bases and formula-injection escaping.
 
-Color thresholds:
-| Days | Status | Color |
-|---|---|---|
-| ≤ 5 | Healthy | Green |
-| 6–14 | Slow | Amber |
-| > 14 | Bottleneck | Red |
+## Stage colors
 
-Also triggers deal aging indicators on Kanban cards (7d = amber, 14d+ = red).
+`Stage.color` is the existing database field. Existing `deals.manage_stages` writes validate six-digit hex using a shared schema. Saved values take precedence over shared defaults, also used by Deals adapters and Dashboard charts. The management dialog exposes color picker, hex value and preview; failed writes revert the edited stage and concurrent saves are blocked. Official Sales Pipeline names, IDs, order and terminal outcomes are protected. Color updates do not write Deals or history. A separate, single shared Deals metadata subscription uses the existing authenticated SSE lifecycle, emitting a hash of authorized stage metadata only; unrelated Deal writes do not trigger selector refreshes. Reconnection and focus reconcile metadata. Dashboard uses its existing committed analytics revision.
 
----
-
-## Revenue KPIs
-
-### Monthly Revenue
-```
-Monthly Revenue = SUM(invoice.amount WHERE invoice.status = 'Paid'
-                  AND invoice.paidAt is within current calendar month)
-```
-
----
-
-### Revenue Growth (Month-over-Month)
-```
-MoM Growth = ((This Month Revenue - Last Month Revenue) ÷ Last Month Revenue) × 100
-```
-Expressed as a percentage with + or - indicator.
-
----
-
-### Outstanding Revenue
-```
-Outstanding = SUM(invoice.amount WHERE invoice.status IN ('Sent', 'Overdue'))
-```
-Money owed but not yet received.
-
----
-
-### Overdue Revenue
-```
-Overdue = SUM(invoice.amount WHERE invoice.status = 'Overdue')
-```
-Subset of Outstanding where payment is past the due date.
-
----
-
-## Task KPIs
-
-### Open Tasks
-```
-Open Tasks = COUNT(tasks WHERE status NOT IN ('completed', 'cancelled')
-             AND tenantId = current)
-```
-
-### Overdue Tasks
-```
-Overdue Tasks = COUNT(tasks WHERE dueDate < TODAY()
-                AND status NOT IN ('completed', 'cancelled'))
-```
-
-### Task Completion Rate
-```
-Task Completion Rate = (Completed Tasks ÷ Total Tasks) × 100
-
-Where:
-  Completed Tasks = COUNT(tasks WHERE status = 'completed')
-  Total Tasks     = COUNT(tasks WHERE status != 'cancelled')
-```
-
----
-
-## Campaign KPIs
-
-### Email Open Rate
-```
-Open Rate = (openedCount ÷ sentCount) × 100
-```
-
-### Click-Through Rate (CTR)
-```
-CTR = (clickedCount ÷ sentCount) × 100
-```
-
-### Campaign Engagement Rate
-```
-Engagement Rate = ((openedCount + clickedCount) ÷ (sentCount × 2)) × 100
-```
-Combined metric weighting opens and clicks equally.
-
----
-
-## Implementation Notes
-
-- All KPIs are computed from `DataContext` state (localStorage phase) — no separate API call
-- Use `useMemo` for any KPI computation over arrays > 50 items
-- Currency display: **₱** (Philippine Peso) — use `toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })`
-- Percentages: round to 1 decimal place — `Math.round(value * 10) / 10`
-- Never show `NaN` or `Infinity` — guard with `|| 0` on division
-
----
-
-## See Also
-- [customer-lifecycle.md](./workflows/customer-lifecycle.md)
-- [pipeline-stage-flow.md](./workflows/pipeline-stage-flow.md)
+See [current implementation evidence](dashboard-organization-refinements.md), [API](API.md), [architecture](ARCHITECTURE.md) and [Coolify deployment](setup/coolify-production.md).

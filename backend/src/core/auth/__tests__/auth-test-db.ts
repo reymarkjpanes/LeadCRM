@@ -9,6 +9,7 @@ export const user = {
   id: 'user-1', tenantId: tenant.id, email: 'alice@gmail.com', firstName: 'Alice',
   lastName: 'Owner', role: 'Sales', status: 'ACTIVE', emailVerified: new Date('2026-01-01'),
   mustChangePassword: false,
+  onboardingCompletedAt: null as Date | null,
   passwordHash: 'hash', avatarUrl: null, tenant,
 };
 const model = () => ({
@@ -16,26 +17,29 @@ const model = () => ({
   create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn(),
 });
 export const db = {
-  mfaChallenge: model(), mfaRecoveryCode: model(),
   user: model(), tenant: model(), roleDefinition: model(), rolePermission: model(),
   userRole: model(), pipeline: model(), account: { ...model(), count: vi.fn() },
-  oAuthAccount: model(), tenantInvitation: model(), registrationOtpToken: model(),
-  passwordResetToken: model(), emailVerificationToken: model(), auditLog: model(), session: model(), $transaction: vi.fn(),
+  passwordResetToken: model(), auditLog: model(), session: model(), $transaction: vi.fn(),
 };
 
 export function resetDb() {
   vi.resetAllMocks();
   Object.assign(tenant, {
+    status: 'SANDBOX',
     ownerUserId: user.id, onboardingStep: 0, onboardingCompletedAt: null,
     name: 'Workspace', industry: null, companySize: null, website: null,
   });
-  Object.assign(user, { email: 'alice@camxian.com', mustChangePassword: false, role: 'Sales', status: 'ACTIVE', emailVerified: new Date('2026-01-01') });
+  Object.assign(user, { email: 'alice@camxian.com', mustChangePassword: false, onboardingCompletedAt: null, role: 'Sales', status: 'ACTIVE', emailVerified: new Date('2026-01-01') });
   db.$transaction.mockImplementation(work => work(db));
   db.user.findFirst.mockResolvedValue(user);
   db.user.findMany.mockResolvedValue([user]);
   db.user.findUnique.mockResolvedValue(user);
   db.user.findUniqueOrThrow.mockResolvedValue(user);
-  db.user.updateMany.mockResolvedValue({ count: 1 });
+  db.user.updateMany.mockImplementation(({ where, data }) => {
+    if (where.onboardingCompletedAt === null && user.onboardingCompletedAt !== null) return { count: 0 };
+    Object.assign(user, data);
+    return { count: 1 };
+  });
   db.user.create.mockImplementation(({ data }) => ({ ...user, ...data }));
   db.tenant.create.mockResolvedValue(tenant);
   db.tenant.updateMany.mockImplementation(({ where, data }) => {
@@ -48,5 +52,4 @@ export function resetDb() {
   db.roleDefinition.findUniqueOrThrow.mockResolvedValue({ id: 'sales-role', tenantId: tenant.id });
   // Existing sandbox seeder is tested independently; avoid creating sample data in service tests.
   db.account.count.mockResolvedValue(1);
-  db.oAuthAccount.findUnique.mockResolvedValue(null);
 }

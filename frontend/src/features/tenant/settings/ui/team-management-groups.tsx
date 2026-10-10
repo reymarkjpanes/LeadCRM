@@ -1,433 +1,223 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, X, Edit2, Trash2, MoreHorizontal, Users, ArrowLeft, Copy } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Copy, Edit2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { GroupNameSchema, type TenantGroupMember } from '@leadcrm/shared';
 import { useAuth } from '@/store/AuthContext';
-import { groupsApi, TenantGroup } from '@/shared/services/groups.api';
-import { cn } from '@/lib/utils';
 import type { User } from '@/store/types';
+import { groupsApi, type TenantGroup } from '@/shared/services/groups.api';
 import { USE_MOCK_DATA } from '@/lib/config';
-
-// ── Avatar ─────────────────────────────────────────────────────────────────
-
-function UserAvatar({ firstName, lastName, size = 8 }: { firstName: string; lastName: string; size?: number }): React.ReactElement {
-  const initials = `${firstName?.charAt(0) ?? ''}${lastName?.charAt(0) ?? ''}`.toUpperCase();
-  const px = size * 4;
-  return (
-    <div style={{ width: px, height: px, minWidth: px }}
-      className="rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shrink-0 text-[10px]">
-      {initials || '?'}
-    </div>
-  );
-}
+import { Button, CreateButton } from '@/shared/components/ui/button';
+import { Card } from '@/shared/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/shared/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/shared/components/ui/dropdown-menu';
+import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
+import { ModuleSearchInput } from '@/shared/components/crm/module-search-input';
+import { RecordBackButton } from '@/shared/components/crm/record-back-button';
+import { AvatarCell } from '@/shared/components/crm/avatar-cell';
+import { DataLoadingSkeleton } from '@/shared/components/crm/data-view-states';
+import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
+import { useConfirmDialog } from '@/shared/hooks/use-confirm-dialog';
+import { DataGrid, type DataGridColumnDef } from '@/shared/components/data-grid';
 
 interface GroupsSubTabProps {
   tenantUsers: User[];
+  renderHeader?: (action: React.ReactNode) => React.ReactNode;
 }
+const memberName = (user: TenantGroupMember['user']) => `${user.firstName} ${user.lastName}`.trim();
+const initials = (user: TenantGroupMember['user']) => `${user.firstName[0] ?? ''}${user.lastName[0] ?? ''}`;
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unable to update group. Please try again.';
 
-export function GroupsSubTab({ tenantUsers }: GroupsSubTabProps): React.ReactElement {
-  const { userCan } = useAuth();
-  const canManage = userCan('users', 'canEdit');
-
+export function GroupsSubTab({ tenantUsers, renderHeader }: GroupsSubTabProps): React.ReactElement {
+  const { user, userCan } = useAuth();
+  const canManage = userCan('groups', 'canEdit'), canCreate = userCan('groups', 'canCreate'), canDelete = userCan('groups', 'canDelete');
+  const canManageMembers = user?.role?.trim().toLowerCase() === 'client admin';
   const [groups, setGroups] = useState<TenantGroup[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeGroup, setActiveGroup] = useState<TenantGroup | null>(null);
-
-  // List view state
-  const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newSelectedIds, setNewSelectedIds] = useState<string[]>([]);
-  const [newMemberSearch, setNewMemberSearch] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-
-  // Detail view state
-  const [groupMemberSearch, setGroupMemberSearch] = useState('');
-  const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
-  const [addMemberSelected, setAddMemberSelected] = useState<string[]>([]);
-  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [isEditNameOpen, setIsEditNameOpen] = useState(false);
-  const [editGroupName, setEditGroupName] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-
-  useEffect(() => {
-    if (USE_MOCK_DATA) return;
-    loadGroups();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const [search, setSearch] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [loading, setLoading] = useState(!USE_MOCK_DATA);
+  const [loaded, setLoaded] = useState(USE_MOCK_DATA);
+  const [loadError, setLoadError] = useState('');
+  const loadingRef = useRef(false);
+  const reloadPending = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [modal, setModal] = useState<'create' | 'rename' | 'members' | null>(null);
+  const [name, setName] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [saveError, setSaveError] = useState('');
+  const { confirm, close, dialogProps } = useConfirmDialog();
+  const active = groups.find(group => group.id === activeId);
+  const loadGroups = useCallback(async () => {
+    if (loadingRef.current) { reloadPending.current = true; return; }
+    loadingRef.current = true; setLoading(true); setLoadError('');
+    try {
+      do {
+        reloadPending.current = false;
+        const result = await groupsApi.getAll();
+        if (!mounted.current) return;
+        setGroups(result.data); setLoaded(true);
+      } while (reloadPending.current && mounted.current);
+    }
+    catch (error) { if (mounted.current) { setLoadError(errorMessage(error)); if ([401, 403].includes((error as { status?: number }).status ?? 0)) { setGroups([]); setLoaded(false); } } }
+    finally { loadingRef.current = false; if (mounted.current) setLoading(false); }
   }, []);
+  useEffect(() => { if (!USE_MOCK_DATA) void loadGroups(); }, [loadGroups]);
+  useEffect(() => { const changed = () => { if (!USE_MOCK_DATA) void loadGroups(); }; window.addEventListener('leadcrm:groups-changed', changed); return () => window.removeEventListener('leadcrm:groups-changed', changed); }, [loadGroups]);
 
-  const loadGroups = async () => {
-    setIsLoading(true);
-    try {
-      const res = await groupsApi.getAll();
-      setGroups(res.data ?? []);
-    } catch {
-      // non-critical — stays empty
-    } finally {
-      setIsLoading(false);
+  const mutate = async (action: () => Promise<void>, propagateError = false) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setSaveError('');
+    try { await action(); }
+    catch (error) { const message = errorMessage(error); setSaveError(message); if (propagateError) throw new Error(message); toast.error(message); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const openModal = (value: typeof modal) => {
+    setModal(value); setName(value === 'rename' ? active?.name ?? '' : '');
+    setNameError(''); setSaveError(''); setSelectedIds([]); setUserSearch('');
+  };
+  const addMembers = async (groupId: string, ids: string[]) => {
+    const results = await Promise.allSettled([...new Set(ids)].map(id => groupsApi.addMember(groupId, id)));
+    const added = ids.filter((_, index) => results[index]?.status === 'fulfilled');
+    if (added.length) toast.success('Member added successfully.');
+    await loadGroups();
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') {
+      setSelectedIds(ids.filter(id => !added.includes(id)));
+      throw new Error(errorMessage(failed.reason));
     }
   };
-
-  // Sync activeGroup from the groups list so member counts stay fresh
-  useEffect(() => {
-    if (activeGroup) {
-      const fresh = groups.find((g) => g.id === activeGroup.id);
-      if (fresh) setActiveGroup(fresh);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups]);
-
-  const handleCreateGroup = async () => {
-    if (!newGroupName.trim()) { toast.error('Group name is required'); return; }
-    setIsCreating(true);
-    try {
-      const res = await groupsApi.create(newGroupName.trim());
-      const created = res.data;
-      // Add selected members
-      await Promise.all(newSelectedIds.map((uid) => groupsApi.addMember(created.id, uid).catch(() => null)));
-      await loadGroups();
-      const fresh = (await groupsApi.getAll()).data.find((g) => g.id === created.id) ?? created;
-      setSuccessMsg(`The group "${fresh.name}" was successfully created.`);
-      setActiveGroup(fresh);
-      setIsNewGroupOpen(false); setNewGroupName(''); setNewSelectedIds([]); setNewMemberSearch('');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create group');
-    } finally {
-      setIsCreating(false);
-    }
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const parsed = GroupNameSchema.safeParse(name);
+    if (modal !== 'members' && !parsed.success) { setNameError(parsed.error.issues[0].message); return; }
+    await mutate(async () => {
+      if (modal === 'create' && canCreate && parsed.success) {
+        const created = (await groupsApi.create(parsed.data)).data;
+        setGroups(previous => [...previous, created]); setLoaded(true); setActiveId(created.id); setMemberSearch('');
+        toast.success('Group created successfully.');
+        // Creation is committed even if an optional member operation fails.
+        setModal('members');
+        if (canManageMembers && selectedIds.length) await addMembers(created.id, selectedIds);
+      } else if (modal === 'rename' && active && canManage && parsed.success) {
+        const updated = (await groupsApi.update(active.id, parsed.data)).data;
+        setGroups(previous => previous.map(group => group.id === active.id ? updated : group));
+        toast.success('Group name updated');
+      } else if (modal === 'members' && active && canManageMembers) {
+        await addMembers(active.id, selectedIds.filter(id => !active.members.some(member => member.userId === id)));
+      }
+      setModal(null);
+    });
   };
-
-  const handleDeleteGroup = async (id: string) => {
-    try {
-      await groupsApi.remove(id);
-      setGroups((prev) => prev.filter((g) => g.id !== id));
-      if (activeGroup?.id === id) setActiveGroup(null);
-      toast.success('Group deleted');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete group');
-    }
+  const requestDelete = (group: TenantGroup) => {
+    if (!canDelete) return;
+    if (group.members.length) { toast.error('Remove all members from this group before deleting it.'); return; }
+    confirm({ title: 'Delete group?', description: 'Are you sure you want to delete this group? This action cannot be undone.',
+      confirmLabel: 'Delete Group', variant: 'destructive', onConfirm: () => mutate(async () => {
+        await groupsApi.remove(group.id);
+        setGroups(previous => previous.filter(row => row.id !== group.id));
+        if (activeId === group.id) setActiveId(null);
+        close(); toast.success('Group deleted successfully.');
+      }, true) });
   };
-
-  const handleDuplicateGroup = async (group: TenantGroup) => {
-    try {
-      const res = await groupsApi.create(`${group.name} (Copy)`);
-      const dup = res.data;
-      await Promise.all(group.members.map((m) => groupsApi.addMember(dup.id, m.userId).catch(() => null)));
-      await loadGroups();
-      toast.success('Group duplicated');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to duplicate group');
-    }
+  const requestRemove = (member: TenantGroupMember) => {
+    if (!active || !canManageMembers) return;
+    const groupId = active.id;
+    confirm({ title: 'Remove member?', description: `Are you sure you want to remove ${memberName(member.user)} from this group?`,
+      confirmLabel: 'Remove Member', variant: 'destructive', onConfirm: () => mutate(async () => {
+        await groupsApi.removeMember(groupId, member.userId);
+        setGroups(previous => previous.map(group => group.id === groupId ? { ...group, members: group.members.filter(row => row.userId !== member.userId) } : group));
+        close(); toast.success('Member removed successfully.');
+      }, true) });
   };
+  const duplicate = (group: TenantGroup) => mutate(async () => {
+    const created = (await groupsApi.create(`${group.name.slice(0, 93)} (Copy)`)).data;
+    setGroups(previous => [...previous, created]);
+    if (canManageMembers && group.members.length) await addMembers(created.id, group.members.map(member => member.userId));
+    toast.success('Group duplicated');
+  });
+  const visibleGroups = groups.filter(group => group.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const members = active?.members ?? [];
+  const visibleMembers = members.filter(member => `${memberName(member.user)} ${member.user.email} ${member.user.role}`.toLowerCase().includes(memberSearch.trim().toLowerCase()));
+  const availableUsers = tenantUsers.filter(user => (modal === 'create' || !members.some(member => member.userId === user.id)) &&
+    `${user.firstName} ${user.lastName} ${user.email} ${user.role}`.toLowerCase().includes(userSearch.trim().toLowerCase()));
+  const columns: DataGridColumnDef<TenantGroupMember>[] = [
+    { id: 'name', header: `${members.length} Member${members.length === 1 ? '' : 's'}`, accessor: member => memberName(member.user), width: 250,
+      cell: (_, member) => <AvatarCell name={memberName(member.user)} initials={initials(member.user)} /> },
+    { id: 'role', header: 'Role', accessor: member => member.user.role, width: 180 },
+    { id: 'email', header: 'Email', accessor: member => member.user.email, width: 260 },
+    ...(canManageMembers ? [{ id: 'actions', header: 'Actions', accessor: () => '', width: 80,
+      cell: (_: unknown, member: TenantGroupMember) => <Button variant="ghost" size="icon" disabled={busy} aria-label={`Remove ${memberName(member.user)}`} title="Remove member" onClick={() => requestRemove(member)}><X size={14} /></Button> }] : []),
+  ];
+  const createAction = canCreate && <CreateButton label="New Group" onClick={() => openModal('create')} />;
+  const header = renderHeader ? renderHeader(createAction) : <div className="flex justify-end">{createAction}</div>;
 
-  const handleRemoveMember = async (groupId: string, userId: string) => {
-    try {
-      await groupsApi.removeMember(groupId, userId);
-      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, members: g.members.filter((m) => m.userId !== userId) } : g));
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove member');
-    }
-  };
-
-  const handleAddMembers = async () => {
-    if (!activeGroup) return;
-    try {
-      await Promise.all(addMemberSelected.map((uid) => groupsApi.addMember(activeGroup.id, uid)));
-      await loadGroups();
-      setAddMemberSelected([]); setIsAddMembersOpen(false);
-      toast.success('Members added');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add members');
-    }
-  };
-
-  const handleSaveGroupName = async () => {
-    if (!activeGroup || !editGroupName.trim()) return;
-    try {
-      await groupsApi.update(activeGroup.id, editGroupName.trim());
-      await loadGroups();
-      setIsEditNameOpen(false);
-      toast.success('Group name updated');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update name');
-    }
-  };
-
-  const availableForNew = useMemo(
-    () => tenantUsers.filter((u) => !newSelectedIds.includes(u.id) && `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(newMemberSearch.toLowerCase())),
-    [tenantUsers, newSelectedIds, newMemberSearch],
-  );
-
-  // ── Detail view ────────────────────────────────────────────────────────────
-  if (activeGroup) {
-    const groupData = groups.find((g) => g.id === activeGroup.id) ?? activeGroup;
-    const memberUserIds = groupData.members.map((m) => m.userId);
-    const members = tenantUsers.filter((u) => memberUserIds.includes(u.id));
-    const filteredMembers = members.filter((u) => `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(groupMemberSearch.toLowerCase()));
-    const available = tenantUsers.filter((u) => !memberUserIds.includes(u.id) && `${u.firstName} ${u.lastName}`.toLowerCase().includes(newMemberSearch.toLowerCase()));
-
-    return (
-      <div className="space-y-4">
-        {/* Back + title */}
-        <div className="flex items-center justify-between">
-          <div>
-            <button onClick={() => { setActiveGroup(null); setSuccessMsg(''); }} className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer mb-1">
-              <ArrowLeft size={13} /> Groups
-            </button>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{groupData.name}</h2>
-          </div>
-          {canManage && (
-            <div className="flex items-center gap-2">
-              <button onClick={() => { setEditGroupName(groupData.name); setIsEditNameOpen(true); }} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"><Edit2 size={15} /></button>
-              <div className="relative">
-                <button onClick={() => setIsMoreMenuOpen((v) => !v)} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"><MoreHorizontal size={15} /></button>
-                <AnimatePresence>
-                  {isMoreMenuOpen && (
-                    <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                      className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-lg z-20 py-1"
-                      onMouseLeave={() => setIsMoreMenuOpen(false)}>
-                      <button onClick={() => { handleDuplicateGroup(groupData); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] cursor-pointer"><Copy size={12} /> Duplicate</button>
-                      <button onClick={() => { handleDeleteGroup(groupData.id); setIsMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"><Trash2 size={12} /> Delete</button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          )}
+  return <div className="w-full min-w-0 space-y-4">
+    {header}
+    {loadError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 p-3 text-sm text-rose-600"><p className="min-w-0 flex-1">{loadError}</p><Button variant="outline" onClick={loadGroups} disabled={loading}>Retry</Button></div>}
+    {active ? <>
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0"><RecordBackButton label="Groups" onClick={() => setActiveId(null)} /><h2 className="break-words text-xl font-bold text-slate-900 dark:text-white">{active.name}</h2></div>
+        <div className="flex shrink-0 gap-1">
+          {canManage && <Button variant="ghost" size="icon" title="Edit group" aria-label="Edit group" onClick={() => openModal('rename')}><Edit2 size={16} /></Button>}
+          {(canCreate || canDelete) && <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Group actions" title="Group actions"><MoreHorizontal size={16} /></Button></DropdownMenuTrigger><DropdownMenuContent>
+            {canCreate && <DropdownMenuItem disabled={busy || (!canManageMembers && !!active.members.length)} onSelect={() => void duplicate(active)}><Copy size={14} />Duplicate</DropdownMenuItem>}
+            {canDelete && <DropdownMenuItem destructive onSelect={() => requestDelete(active)}><Trash2 size={14} />Delete Group</DropdownMenuItem>}
+          </DropdownMenuContent></DropdownMenu>}
         </div>
-
-        {/* Success banner */}
-        <AnimatePresence>
-          {successMsg && (
-            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{successMsg}</p>
-              <button onClick={() => setSuccessMsg('')} className="text-amber-500 cursor-pointer"><X size={13} /></button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Filter + add members */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Filter members..." value={groupMemberSearch} onChange={(e) => setGroupMemberSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-white/[0.08] text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors placeholder-slate-400" />
-          </div>
-          {canManage && (
-            <div className="relative ml-auto">
-              <button onClick={() => { setIsAddMembersOpen((v) => !v); setAddMemberSelected([]); setNewMemberSearch(''); }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold cursor-pointer">
-                <Plus size={13} /> Add Members
-              </button>
-              <AnimatePresence>
-                {isAddMembersOpen && (
-                  <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                    className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-lg z-20 overflow-hidden"
-                    onClick={(e) => e.stopPropagation()}>
-                    <div className="p-2 border-b border-gray-100 dark:border-white/[0.05] max-h-52 overflow-y-auto custom-scrollbar">
-                      <label className="flex items-center gap-2 px-2 py-1.5 cursor-pointer text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04] rounded">
-                        <input type="checkbox" checked={addMemberSelected.length === available.length && available.length > 0}
-                          onChange={(e) => setAddMemberSelected(e.target.checked ? available.map((u) => u.id) : [])}
-                          className="w-3.5 h-3.5 accent-blue-500" />
-                        Select all
-                      </label>
-                      {available.map((u) => (
-                        <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/[0.04] rounded">
-                          <input type="checkbox" checked={addMemberSelected.includes(u.id)}
-                            onChange={() => setAddMemberSelected((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
-                            className="w-3.5 h-3.5 accent-blue-500" />
-                          <UserAvatar firstName={u.firstName ?? ''} lastName={u.lastName ?? ''} size={6} />
-                          <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{u.firstName} {u.lastName}</span>
-                        </label>
-                      ))}
-                      {available.length === 0 && <p className="px-2 py-2 text-xs text-slate-400">No users to add</p>}
-                    </div>
-                    <div className="flex gap-2 justify-end p-2">
-                      <button onClick={() => setIsAddMembersOpen(false)} className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer">Cancel</button>
-                      <button onClick={handleAddMembers} className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg cursor-pointer">Add</button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
-
-        {/* Members table */}
-        <div className="bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-white/[0.07] rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <div className="grid grid-cols-[minmax(140px,2fr)_minmax(80px,1fr)_minmax(160px,2fr)_36px] gap-3 px-4 py-2.5 border-b border-gray-100 dark:border-white/[0.05] min-w-[440px]">
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{members.length} Member{members.length !== 1 ? 's' : ''}</span>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Role</span>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email</span>
-              <span />
-            </div>
-            {filteredMembers.length === 0 ? (
-              <div className="py-16 flex flex-col items-center justify-center gap-2 min-w-[440px]">
-                <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><Users size={24} className="text-slate-400" /></div>
-                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">No members yet</p>
-                <p className="text-xs text-slate-400">Use &quot;Add Members&quot; to add users to this group.</p>
-              </div>
-            ) : filteredMembers.map((u) => (
-              <div key={u.id} className="grid grid-cols-[minmax(140px,2fr)_minmax(80px,1fr)_minmax(160px,2fr)_36px] gap-3 px-4 py-3 items-center border-b border-gray-100 dark:border-white/[0.04] last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors min-w-[440px]">
-                <div className="flex items-center gap-2.5">
-                  <UserAvatar firstName={u.firstName ?? ''} lastName={u.lastName ?? ''} size={8} />
-                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{u.firstName} {u.lastName}</span>
-                </div>
-                <span className="text-xs text-slate-600 dark:text-slate-300">{u.role}</span>
-                <span className="text-xs text-blue-500 truncate">{u.email}</span>
-                {canManage && (
-                  <button onClick={() => handleRemoveMember(groupData.id, u.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded cursor-pointer transition-colors"><X size={12} /></button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Edit name modal */}
-        <AnimatePresence>
-          {isEditNameOpen && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => setIsEditNameOpen(false)}>
-              <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
-                onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-white/[0.07]">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Rename Group</h3>
-                  <button onClick={() => setIsEditNameOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"><X size={16} /></button>
-                </div>
-                <div className="px-6 py-5">
-                  <input type="text" value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} autoFocus
-                    onKeyDown={(e) => e.key === 'Enter' && handleSaveGroupName()}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500" />
-                </div>
-                <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-white/[0.07]">
-                  <button onClick={() => setIsEditNameOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer">Cancel</button>
-                  <button onClick={handleSaveGroupName} className="px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg cursor-pointer">Save</button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
-    );
-  }
-
-  // ── Groups list view ────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-4">
-      {canManage && (
-        <div className="flex justify-end">
-          <button onClick={() => { setIsNewGroupOpen(true); setNewGroupName(''); setNewSelectedIds([]); setNewMemberSearch(''); }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer">
-            <Plus size={13} /> New Group
+      <div className="flex flex-wrap items-center gap-2">
+        <ModuleSearchInput value={memberSearch} onChange={setMemberSearch} placeholder="Search members..." />
+        {canManageMembers && <Button variant="outline" size="sm" className="ml-auto" disabled={busy} onClick={() => openModal('members')}><Plus size={14} />Add Members</Button>}
+      </div>
+      <DataGrid ariaLabel="Group members" columns={columns} data={visibleMembers} getRowId={member => member.id} height="auto" emptyMessage={members.length ? 'No members match your search.' : canManageMembers ? 'No members yet. Use Add Members to add users to this group.' : 'No members yet.'} />
+    </> : <>
+      <ModuleTableToolbar label="Groups" search={search} onSearch={setSearch} placeholder="Search groups..." refreshing={loading} onRefresh={loadGroups} />
+      {loading && !loaded ? <Card role="status" aria-label="Loading groups" className="rounded-xl shadow-none overflow-hidden"><div aria-hidden="true"><DataLoadingSkeleton rowCount={4} columnCount={2} rowHeight={64} /></div></Card> : loaded && <Card className="rounded-xl shadow-none overflow-hidden" aria-busy={loading}>
+        {visibleGroups.map(group => <div key={group.id} className="flex min-w-0 items-center gap-2 border-b border-slate-100 dark:border-slate-800 last:border-0 px-3 py-2">
+          <button aria-label={`Open ${group.name}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left hover:bg-slate-50 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => { setActiveId(group.id); setMemberSearch(''); }}>
+            <span className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2 text-blue-500"><Users size={16} /></span>
+            <span className="min-w-0"><span className="block break-words text-sm font-semibold text-slate-900 dark:text-white">{group.name}</span><span className="text-xs text-slate-500">{group.members.length} member{group.members.length === 1 ? '' : 's'}</span></span>
           </button>
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="py-20 text-center text-xs text-slate-400">Loading groups…</div>
-      ) : groups.length === 0 ? (
-        <div className="py-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-          <Users size={36} className="text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-1">No groups yet</p>
-          <p className="text-xs text-slate-400 mb-4">Create groups to organise your team members.</p>
-          {canManage && (
-            <button onClick={() => setIsNewGroupOpen(true)} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg cursor-pointer mx-auto">
-              <Plus size={13} /> Create Group
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-white/[0.07] rounded-xl overflow-hidden">
-          {groups.map((g, idx) => (
-            <div key={g.id} className={cn('flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer group', idx !== 0 && 'border-t border-gray-100 dark:border-white/[0.04]')}
-              onClick={() => { setActiveGroup(g); setGroupMemberSearch(''); }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center"><Users size={14} className="text-blue-500" /></div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white">{g.name}</p>
-                  <p className="text-[10px] text-slate-400">{g.members.length} member{g.members.length !== 1 ? 's' : ''}</p>
-                </div>
-              </div>
-              {canManage && (
-                <button onClick={(e) => { e.stopPropagation(); handleDeleteGroup(g.id); }} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button>
-              )}
+          {canDelete && <Button variant="ghost" size="icon" className="shrink-0" aria-label={`Delete ${group.name}`} title={group.members.length ? 'Remove all members from this group before deleting it.' : 'Delete group'} disabled={busy} onClick={() => requestDelete(group)}><Trash2 size={14} /></Button>}
+        </div>)}
+        {!visibleGroups.length && <div className="p-8 text-center text-sm text-slate-500"><Users size={28} className="mx-auto mb-3" /><p>{groups.length ? 'No groups match your search.' : 'No groups yet.'}</p>{!groups.length && canCreate && <Button size="sm" className="mt-3" onClick={() => openModal('create')}><Plus size={14} />Create Group</Button>}</div>}
+      </Card>}
+    </>}
+    <Dialog open={!!modal} onOpenChange={open => { if (!open && !busy) setModal(null); }}>
+      <DialogContent trapFocus className="max-h-[90dvh] overflow-y-auto p-4 sm:p-6" aria-labelledby="group-modal-title" showClose={!busy}>
+        <DialogHeader><DialogTitle id="group-modal-title">{modal === 'create' ? 'New Group' : modal === 'rename' ? 'Rename Group' : 'Add Members'}</DialogTitle></DialogHeader>
+        <form onSubmit={save} noValidate className="mt-5 space-y-4">
+          {modal !== 'members' && <div><label htmlFor="group-name" className="mb-2 block text-xs font-semibold text-slate-700 dark:text-slate-300">Name <span className="text-red-500" aria-hidden="true">*</span></label>
+            <input id="group-name" required autoFocus maxLength={100} disabled={busy} value={name} onChange={event => { setName(event.target.value); setNameError(''); }} aria-invalid={!!nameError} aria-describedby={nameError ? 'group-name-error' : undefined}
+              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
+            {nameError && <p id="group-name-error" role="alert" className="mt-1 text-xs text-red-500">{nameError}</p>}
+          </div>}
+          {modal !== 'rename' && canManageMembers && <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Add Members {modal === 'create' && <span className="font-normal text-slate-400">(optional)</span>}</p>
+            <ModuleSearchInput value={userSearch} onChange={setUserSearch} placeholder="Search users..." disabled={busy} />
+            <div className="max-h-52 overflow-y-auto space-y-1">
+              {availableUsers.map(user => <label key={user.id} className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-2 hover:bg-slate-50 dark:hover:bg-slate-800">
+                <input type="checkbox" disabled={busy} checked={selectedIds.includes(user.id)} onChange={() => setSelectedIds(previous => previous.includes(user.id) ? previous.filter(id => id !== user.id) : [...previous, user.id])} aria-label={`Select ${user.firstName} ${user.lastName}`} className="shrink-0 accent-primary" />
+                <AvatarCell name={`${user.firstName} ${user.lastName}`} subtitle={user.email} initials={`${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`} />
+              </label>)}
+              {!availableUsers.length && <p className="py-3 text-xs text-slate-500">No users available.</p>}
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* New group modal */}
-      <AnimatePresence>
-        {isNewGroupOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setIsNewGroupOpen(false)}>
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-              className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/[0.08] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
-              onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-white/[0.07]">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">New Group</h3>
-                <button onClick={() => setIsNewGroupOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"><X size={16} /></button>
-              </div>
-              <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Name</label>
-                  <input type="text" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} autoFocus
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Add Members <span className="font-normal text-slate-400">(optional)</span></label>
-                  {newSelectedIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {newSelectedIds.map((id) => {
-                        const u = tenantUsers.find((x) => x.id === id);
-                        if (!u) return null;
-                        return (
-                          <span key={id} className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium">
-                            {u.firstName} {u.lastName}
-                            <button onClick={() => setNewSelectedIds((p) => p.filter((x) => x !== id))} className="cursor-pointer hover:text-rose-500"><X size={10} /></button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <input type="text" placeholder="Search users…" value={newMemberSearch} onChange={(e) => setNewMemberSearch(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-xs focus:outline-none focus:border-blue-500 mb-2" />
-                  <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
-                    {availableForNew.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-2 text-center">No users available</p>
-                    ) : availableForNew.map((u) => (
-                      <button key={u.id} onClick={() => setNewSelectedIds((p) => p.includes(u.id) ? p.filter((x) => x !== u.id) : [...p, u.id])}
-                        className="w-full flex items-center gap-3 px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer transition-colors text-left">
-                        <UserAvatar firstName={u.firstName ?? ''} lastName={u.lastName ?? ''} size={8} />
-                        <div>
-                          <p className="text-xs font-semibold text-slate-900 dark:text-white">{u.firstName} {u.lastName}</p>
-                          <p className="text-[10px] text-slate-400">{u.email}</p>
-                        </div>
-                        {newSelectedIds.includes(u.id) && <div className="ml-auto w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center"><div className="w-2 h-2 bg-white rounded-full" /></div>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-white/[0.07]">
-                <button onClick={() => setIsNewGroupOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer">Cancel</button>
-                <button onClick={handleCreateGroup} disabled={isCreating}
-                  className="px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg shadow-md shadow-blue-500/20 cursor-pointer">
-                  {isCreating ? 'Creating…' : 'Create Group'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
+          </div>}
+          {saveError && <p role="alert" className="text-sm text-red-500">{saveError}</p>}
+          <DialogFooter className="flex-wrap gap-2 border-t border-slate-100 dark:border-slate-800 pt-4">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setModal(null)}>Cancel</Button>
+            <Button type="submit" disabled={busy || (modal === 'members' && !selectedIds.length)}>{busy ? 'Saving…' : modal === 'create' ? 'Create Group' : modal === 'rename' ? 'Save' : 'Add Members'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    <ConfirmActionDialog {...dialogProps} />
+  </div>;
 }

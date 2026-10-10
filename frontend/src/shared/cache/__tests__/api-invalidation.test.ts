@@ -5,13 +5,14 @@ import { clearPageCache, getPageCache, setPageCache } from '../page-cache';
 beforeEach(() => {
   clearPageCache();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true }) }));
-  for (const module of ['leads', 'contacts', 'accounts', 'campaigns', 'reports', 'activities', 'notifications', 'archived-crm', 'counts-leads', 'counts-contacts', 'counts-accounts']) {
+  for (const module of ['settings', 'deals', 'leads', 'contacts', 'accounts', 'campaigns', 'templates', 'pipeline', 'pipelines', 'workflows', 'reports', 'activities', 'notifications', 'archived-crm', 'counts-leads', 'counts-contacts', 'counts-accounts']) {
     setPageCache(module, 'tenant-a', {}, ['before-write']);
   }
 });
 afterEach(() => { vi.unstubAllGlobals(); clearPageCache(); });
 
 it.each([
+  ['/administration/closing-requirements/123', ['settings', 'leads', 'contacts', 'accounts', 'deals']],
   ['/crm/contacts/123/archive', ['contacts', 'leads', 'accounts', 'reports', 'activities']],
   ['/crm/leads/123/restore', ['leads', 'counts-leads', 'archived-crm']],
   ['/crm/contacts/123/restore', ['contacts', 'counts-contacts', 'archived-crm']],
@@ -19,6 +20,10 @@ it.each([
   ['/crm/leads/123/convert', ['contacts', 'leads', 'accounts']],
   ['/marketing/templates/123', ['campaigns']],
   ['/notifications/123/read', ['notifications']],
+  ['/administration/archived-data/Pipeline/123/restore', ['archived-crm', 'pipeline', 'pipelines']],
+  ['/administration/archived-data/Workflow/123/restore', ['archived-crm', 'workflows']],
+  ['/administration/archived-data/Task/123/restore', ['archived-crm', 'activities', 'reports']],
+  ['/administration/archived-data/Template/123/restore', ['archived-crm', 'campaigns', 'templates']],
 ])('invalidates caches after a successful mutation to %s', async (path, modules) => {
   await apiClient.patch(path);
   for (const module of modules) expect(getPageCache(module, 'tenant-a', {})).toBeNull();

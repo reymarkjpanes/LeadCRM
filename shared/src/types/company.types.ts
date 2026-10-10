@@ -6,12 +6,6 @@
  * detection of field name mismatches via TypeScript strict mode.
  */
 
-/** Possible customer type values for an Account. */
-export type CustomerType =
-  | 'Prospect'
-  | 'Active Customer'
-  | 'Inactive Customer'
-  | 'Former Customer';
 
 /** Possible company size categories. */
 export type CompanySize = '1-10' | '11-50' | '51-200' | '200+';
@@ -27,7 +21,6 @@ export interface Company {
   industry?: string;
   size?: CompanySize;
   website?: string;
-  taxId?: string;
   tags?: string[];
   address?: string;
   city?: string;
@@ -37,8 +30,6 @@ export interface Company {
   notes?: string;
   internalNotes?: string;
   productInterests?: string[];
-  customerType?: CustomerType;
-  customerSince?: string;
   activeProducts?: string[];
   createdAt: string;
   updatedAt?: string;
@@ -56,7 +47,6 @@ export interface CreateCompanyRequest {
   industry?: string;
   size?: CompanySize;
   website?: string;
-  taxId?: string;
   tags?: string[];
   address?: string;
   city?: string;
@@ -66,8 +56,6 @@ export interface CreateCompanyRequest {
   notes?: string;
   internalNotes?: string;
   productInterests?: string[];
-  customerType?: CustomerType;
-  customerSince?: string;
   activeProducts?: string[];
 }
 

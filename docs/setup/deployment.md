@@ -1,5 +1,9 @@
 # Internal CRM deployment update
 
+For the Hostinger/Coolify deployment and the source-derived variable contract,
+see [Coolify production configuration](coolify-production.md). `API_URL` is now
+the only server-side backend authority; `NEXT_PUBLIC_API_URL` is not consumed.
+
 Deploy the backend and frontend from the same reviewed revision. A successful Vercel frontend deployment does not deploy Render. The Vercel server-only `API_URL` must target that backend's `/api/v1`; keep production mock flags disabled. Use the root workspace lockfile, `render.yaml` build/start commands, and confirm required migrations are applied before accepting traffic. Do not reset or drop historical data.
 
 Before accepting a release, run this read-only check with the intended full Git SHA:
@@ -11,6 +15,10 @@ node scripts/verify-deployment.cjs https://lead-crm-frontend-pi.vercel.app <expe
 The check reads `/api/proxy/health`, so it verifies the backend actually selected by Vercel. A 404 HTML response from `PATCH /api/proxy/auth/environment` with a matched proxy route indicates a missing upstream route; check backend revision and `API_URL` before changing authentication or dataset logic. Current backend unauthenticated environment requests are rejected by authentication, not by a missing route.
 
 Service worker updates bypass the browser HTTP cache and are checked on load and when returning to a visible tab. Version changes purge older LeadCRM asset caches and offer a refresh after saving work. API/RSC responses are never cached by the worker. An already-open application remains its loaded version until refreshed.
+
+While canonical relationship retirement is deferred, `db:deploy` applies the reviewed independent migrations `20261103000000_reply_engagement_deal_batches` and `20261104000000_user_first_login_onboarding` without running `20261102000000_retire_relationship_compatibility`. Existing relationship columns and bridges remain intact. Unknown later migrations stop deployment for dependency review; the separate authenticated retirement command is unchanged.
+
+The independent migration list also includes `20261105000000_module_custom_fields` and additive `20261106000000_campaign_sms_snapshots`. The SMS migration adds nullable phone/submission/provider timestamps without depending on relationship retirement. Configure UniSMS backend variables and its webhook as described in [Campaigns deployment notes](../campaign-sms-improvements.md).
 
 Apply `20260919000000_internal_accounts` before deploying the new backend. Public signup, Google account authentication, OTP, subscriptions, pricing, and SaaS billing are retired. Gmail integration credentials remain separate. Follow [current authentication deployment requirements](../authentication.md#deployment). The older rollout notes below are historical.
 
@@ -37,14 +45,11 @@ both depend on shared source under `shared/`. Keep the repository root lockfile.
 
 Local backend settings include APP_URL=http://localhost:3000 and
 ALLOWED_ORIGINS=http://localhost:3000. The frontend's server-only API_URL must be
-http://localhost:4000/api/v1. NEXT_PUBLIC_API_URL remains a legacy fallback; do not
-omit /api/v1 when using it.
+http://localhost:4000/api/v1. Production build/start requires an explicit HTTPS
+API_URL ending in /api/v1. NEXT_PUBLIC_API_URL is not a fallback.
 
 Use NEXT_PUBLIC_USE_MOCK_AUTH=false and NEXT_PUBLIC_USE_MOCK_DATA=false to verify
-real authentication. NextAuth needs NEXTAUTH_URL, NEXTAUTH_SECRET and the Google
-client ID/secret. Backend Google token verification uses GOOGLE_CLIENT_ID, with
-GOOGLE_OAUTH_CLIENT_ID supported for existing installations. It must identify the
-same Google application as the frontend.
+real password authentication. Gmail connection credentials are configured only on the backend; see the work email OAuth section below.
 
 ### Build output isolation
 
@@ -76,6 +81,19 @@ Use the repository's `render.yaml`, or configure equivalent settings:
 | NODE_ENV | `production` |
 | SKIP_DEMO_TENANTS | `true` |
 
+`db:deploy` uses the phased CRM import migration runner. It applies expansion
+before startup and defers legacy-table retirement until the deployed import APIs
+have been verified. Do not substitute `npx prisma migrate deploy` in Render's
+saved commands: that attempts retirement before the new server can start.
+See [CRM import rollout and recovery](../csv-import-normalization.md).
+
+If the retirement migration failed during an older Render build, run
+`npm --prefix backend run db:imports:recover` once. Recovery checks migration
+checksums (allowing Git's LF/CRLF difference), retained source tables, write
+guards and exact historical payloads before marking that failed attempt rolled
+back through Prisma. It never marks unexecuted SQL as applied. Then deploy with
+the commands above. Unrelated failed migrations remain blocking errors.
+
 Do not set rootDir to backend: the compilation needs ../shared, tsconfig.base.json,
 and the workspace lockfile. Files outside a Render root directory are unavailable
 to that service. See [Render monorepo support](https://render.com/docs/monorepo-support).
@@ -91,16 +109,11 @@ Configure these secrets and settings in Render, not in committed files:
 - JWT_SECRET: a strong unique secret.
 - APP_URL: the exact public frontend origin.
 - ALLOWED_ORIGINS: comma-separated permitted frontend origins; do not use * with cookies.
-- GOOGLE_CLIENT_ID: the same client ID used by the frontend.
 - BREVO_API_KEY and BREVO_FROM_EMAIL; BREVO_FROM_NAME if desired.
   The existing production server requires a valid Brevo configuration.
-- SYSTEM_ADMIN_EMAIL and a strong SYSTEM_ADMIN_PASSWORD for the existing
-  startup seeder. Do not use default/demo credentials.
-- Gmail and operational payment settings used by enabled features.
+- GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and GMAIL_REDIRECT_URI for work email.
 
-Render provides PORT; the backend reads it. Do not enable DEV_OTP_BYPASS or
-DEMO_MODE in production. The existing server bootstrap handles its account seed;
-the Render command does not invoke a second seeder.
+Render provides PORT; the backend reads it. Startup does not seed accounts or reset passwords.
 
 Before updating an existing Render service, correct its saved Root Directory and
 commands too: committing a Blueprint does not guarantee that a manually configured
@@ -122,10 +135,6 @@ See [Vercel monorepo settings](https://vercel.com/docs/monorepos/monorepo-faq).
 | API_URL | https://your-backend.onrender.com/api/v1 |
 | NEXT_PUBLIC_USE_MOCK_AUTH | false |
 | NEXT_PUBLIC_USE_MOCK_DATA | false |
-| NEXTAUTH_URL | https://your-frontend.vercel.app |
-| NEXTAUTH_SECRET | Strong random secret |
-| GOOGLE_CLIENT_ID | Google web application client ID |
-| GOOGLE_CLIENT_SECRET | Google web application client secret |
 
 Use the appropriate environment values for preview and production deployments.
 Redeploy after changing build-time NEXT_PUBLIC variables. Keep secrets out of
@@ -135,25 +144,17 @@ The browser sends API requests to same-origin /api/proxy; Next.js forwards the
 LeadCRM session cookie to Render. This avoids depending on third-party browser
 cookies. AuthGuard controls page navigation; backend middleware enforces access.
 
-## Google and verification URLs
+## Work email OAuth
 
-Configure Google authorized redirect URIs for both environments:
-
-- http://localhost:3000/api/auth/callback/google
-- https://your-frontend.vercel.app/api/auth/callback/google
-
-Set backend APP_URL to the corresponding frontend origin. Email verification
-uses /api/verify-email on that origin, then normal account/onboarding routing.
-See [authentication and onboarding](../authentication.md).
+Configure the Google authorized redirect URI to match backend `GMAIL_REDIRECT_URI`, normally `https://your-backend.onrender.com/api/v1/integrations/gmail/callback`. Gmail uses `EmailAccount` and one-time mailbox connection state; it does not authenticate application users.
 
 ## Release smoke checks
 
-- /, /login and /register render successfully in the browser.
+- / and /login render successfully in the browser.
 - Backend /health returns 200.
 - An anonymous /api/proxy/auth/me request returns 401 JSON, not HTML/500.
-- Public signup and Google account provisioning are disabled. System Admin provisions Client Admin accounts; Client Admin selects custom roles for users.
-- Verification, refresh, logout/login, company completion and dashboard access
-  follow the [lifecycle acceptance matrix](../plans/auth-onboarding-lifecycle.md).
+- Public signup and Google account provisioning are disabled. Client Admin selects custom roles for users.
+- Password login, password recovery, session restoration, logout and Client Admin onboarding follow [authentication](../authentication.md).
 - Confirm Render can read the migrated schema and that real Google/email
   credentials work. A local build alone does not prove hosted deployment success.
 

@@ -29,16 +29,6 @@ export const ACCOUNTS_MODULE_CONFIG: ModuleConfig = {
         { id: 'other', label: 'Other' },
       ],
     },
-    {
-      id: 'customerType',
-      label: 'Account Type',
-      items: [
-        { id: 'enterprise', label: 'Enterprise' },
-        { id: 'mid-market', label: 'Mid-Market' },
-        { id: 'small-business', label: 'Small Business' },
-        { id: 'startup', label: 'Startup' },
-      ],
-    },
   ],
   rowActions: [
     { id: 'view', label: 'View' },

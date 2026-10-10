@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AccountsDataGrid — Accounts table implemented with the shared DataGrid component.
  *
  * This replaces the legacy flex-based inline layout for the "table" view type,
@@ -17,7 +17,6 @@
 'use client';
 
 import React, { useMemo, useCallback } from 'react';
-import { StatusBadge } from '@/shared/components/crm';
 import {
   DataGrid,
   useDataGridColumns,
@@ -25,7 +24,6 @@ import {
   renderDate,
   renderLink,
   MODULE_ACCENT_COLORS,
-  ACCOUNT_TYPE_VARIANTS,
 } from '@/shared/components/data-grid';
 import type { SortState, RowActionItem } from '@/shared/components/data-grid';
 import type { CellRendererMap } from '@/shared/components/data-grid';
@@ -72,7 +70,6 @@ interface AccountsDataGridProps {
   highlightRowId?: string;
 }
 
-// ─── Account Type Variant (uses shared ACCOUNT_TYPE_VARIANTS) ────────────────
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -107,11 +104,11 @@ export function AccountsDataGrid({
 
       return (
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`w-8 h-8 rounded-full ${MODULE_ACCENT_COLORS.accounts} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
+          <div className={`w-7 h-7 rounded-full ${MODULE_ACCENT_COLORS.leads} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[#0F172A] dark:text-white truncate leading-tight">
+            <p className="text-[13px] font-medium text-[#1a73e8] dark:text-blue-400 truncate leading-tight hover:underline cursor-pointer">
               {row.name}
             </p>
             {row.city && (
@@ -125,40 +122,33 @@ export function AccountsDataGrid({
     },
 
     industry: (_value: unknown, row: Account) => (
-      <p className="text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate">
+      <p className="text-[12.5px] text-[#3C4858] dark:text-slate-200 truncate">
         {row.industry ?? '—'}
       </p>
     ),
 
-    customerType: (_value: unknown, row: Account) => (
-      <StatusBadge
-        label={row.customerType ?? 'Prospect'}
-        variant={ACCOUNT_TYPE_VARIANTS[row.customerType ?? 'Prospect'] ?? 'neutral'}
-        dot={false}
-      />
-    ),
 
     size: (_value: unknown, row: Account) => (
-      <p className="text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate">
+      <p className="text-[12.5px] text-[#3C4858] dark:text-slate-200 truncate">
         {row.size ?? '—'}
       </p>
     ),
 
     city: (_value: unknown, row: Account) => (
-      <p className="text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate">
+      <p className="text-[12.5px] text-[#3C4858] dark:text-slate-200 truncate">
         {row.city ?? '—'}
       </p>
     ),
 
     country: (_value: unknown, row: Account) => (
-      <p className="text-[12.5px] text-[#0F172A] dark:text-slate-200 truncate">
+      <p className="text-[12.5px] text-[#3C4858] dark:text-slate-200 truncate">
         {row.country ?? '—'}
       </p>
     ),
 
     assignedUserId: (_value: unknown, row: Account) => (
       <p className="text-[12px] text-[#5A6B85] dark:text-slate-400 truncate">
-        {getOwnerName(row.assignedUserId)}
+        {row.assignedUser ? `${row.assignedUser.firstName} ${row.assignedUser.lastName}`.trim() : getOwnerName(row.assignedUserId)}
       </p>
     ),
 
@@ -180,14 +170,13 @@ export function AccountsDataGrid({
     effectiveColumns,
     cellRenderers,
     sortableColumns: [
-      'name', 'industry', 'customerType', 'size',
+      'name', 'industry', 'size',
       'city', 'country', 'createdAt',
     ],
     resizableColumns: 'all',
     defaultWidths: {
       name: 240,
       industry: 160,
-      customerType: 140,
       size: 140,
       city: 140,
       country: 140,
@@ -225,7 +214,7 @@ export function AccountsDataGrid({
       columns={gridColumns}
       data={accounts}
       getRowId={getRowId}
-      height={600}
+      height="auto"
       selectable
       selectedIds={selectedIds}
       onSelectionChange={onSelectionChange}

@@ -11,8 +11,6 @@ export { PaginationControls } from './pagination-controls';
 export type { PaginationControlsProps } from './pagination-controls';
 export { BulkSelectionBar } from './bulk-selection-bar';
 export type { BulkSelectionBarProps, BulkAction, BulkActionResult } from './bulk-selection-bar';
-export { RecordPanel, SectionCard, IconButton, SmallAction, Chip } from './RecordPanel';
-export type { RecordPanelProps } from './RecordPanel';
 export { LeadPanel, ContactPanel, AccountPanel, DealPanel } from './RecordPanelWrappers';
 export type { LeadPanelProps, ContactPanelProps, AccountPanelProps, DealPanelProps } from './RecordPanelWrappers';
 export {

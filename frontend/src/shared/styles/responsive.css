@@ -1,0 +1,128 @@
+:root {
+  --pwa-banner-height: 0px;
+  --app-viewport-height: calc(100dvh - var(--pwa-banner-height));
+}
+
+.pwa-install-banner {
+  --pwa-banner-background: #EBF2FE;
+  --pwa-banner-border: #BDD3F3;
+  --pwa-banner-foreground: #18202B;
+  --pwa-banner-action: #1E64EF;
+  --pwa-banner-action-foreground: #FAFBFD;
+  --pwa-banner-dismiss: #62748E;
+  --pwa-banner-dismiss-hover: color-mix(in srgb, var(--pwa-banner-dismiss) 10%, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  padding-top: env(safe-area-inset-top);
+  border-bottom: 1px solid var(--pwa-banner-border);
+  background: var(--pwa-banner-background);
+  color: var(--pwa-banner-foreground);
+}
+.theme-dark .pwa-install-banner {
+  --pwa-banner-background: #161D2A;
+  --pwa-banner-border: #303E55;
+  --pwa-banner-foreground: #F0F2F4;
+  --pwa-banner-action: #4384FF;
+  --pwa-banner-action-foreground: #FFFFFF;
+  --pwa-banner-dismiss: #9099A7;
+}
+.pwa-install-banner__content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  padding: 4px 12px;
+}
+.pwa-install-banner__message {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.pwa-install-banner__actions { display: flex; flex-shrink: 0; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.pwa-install-banner__install, .pwa-install-banner__dismiss {
+  min-height: 44px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.pwa-install-banner__install {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--pwa-banner-action);
+  color: var(--pwa-banner-action-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.pwa-install-banner__install:hover { filter: brightness(0.95); }
+.pwa-install-banner__dismiss { display: grid; flex-shrink: 0; width: 44px; place-items: center; color: var(--pwa-banner-dismiss); }
+.pwa-install-banner__dismiss:hover { background: var(--pwa-banner-dismiss-hover); }
+.pwa-install-banner__install:focus-visible, .pwa-install-banner__dismiss:focus-visible {
+  outline: 2px solid var(--pwa-banner-foreground);
+  outline-offset: 2px;
+}
+@media (width >= 640px) {
+  .pwa-install-banner__content { flex-direction: row; align-items: center; gap: 16px; padding-inline: 20px; }
+  .pwa-install-banner__message { font-size: 14px; }
+}
+
+.crm-shell { height: var(--app-viewport-height); min-height: 0; }
+.navigation-slot { width: 220px; flex-shrink: 0; transition: width 200ms ease; }
+.navigation-slot[data-collapsed="true"] { width: 56px; }
+.navigation-slot[data-hidden="true"] { width: 0; }
+.navigation-sidebar { position: relative; height: 100%; width: 100%; display: flex; flex-direction: column; }
+.navigation-sidebar[data-hidden="true"] { display: none; }
+.navigation-sidebar[data-overlay="true"] {
+  position: fixed;
+  top: var(--pwa-banner-height);
+  bottom: 0;
+  left: 0;
+  height: var(--app-viewport-height);
+  width: min(280px, calc(100vw - 48px));
+  transform: translateX(0);
+  visibility: visible;
+}
+.navigation-collapse { display: flex; }
+.navigation-menu-trigger { display: none; }
+
+@media (768px <= width < 1025px) {
+  .navigation-slot { width: 56px; transition: none; }
+  .navigation-slot[data-hidden="true"] { width: 0; }
+  .navigation-menu-trigger { display: flex; }
+}
+@media (width < 768px) {
+  .navigation-slot, .navigation-slot[data-collapsed="true"] { width: 0; transition: none; }
+  .navigation-sidebar {
+    position: fixed;
+    top: var(--pwa-banner-height);
+    bottom: 0;
+    left: 0;
+    width: min(280px, calc(100vw - 48px));
+    height: var(--app-viewport-height);
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+  .navigation-sidebar[data-overlay="true"] { transform: translateX(0); visibility: visible; }
+  .navigation-menu-trigger { display: flex; }
+  .navigation-collapse { display: none; }
+}
+
+@media (pointer: coarse) {
+  [data-theme-container] :is([data-page-actions], [data-selection-toolbar], [role="toolbar"]) :is(button, [role="button"]) { min-height: 44px; }
+}
+@media (width < 640px) {
+  :is(input, select, textarea):not([type="checkbox"], [type="radio"]) { font-size: max(1rem, 16px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .navigation-slot, .navigation-sidebar { transition: none; }
+}

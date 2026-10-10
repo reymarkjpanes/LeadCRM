@@ -1,4 +1,11 @@
 'use client';
+import { CreateLeadSchema, LEAD_SOURCES, LeadNameSchema, OptionalLeadSourceSchema } from '@leadcrm/shared';
+import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
+import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
+import { CrmEmailSchema } from '@leadcrm/shared';
+
+import { LeadStatusSchema, LEAD_STATUSES, normalizeCrmStatus } from '@leadcrm/shared';
+import { useProductInterests } from '@/shared/hooks/use-product-interests';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
@@ -11,6 +18,7 @@ import { useScrollToError } from '@/shared/hooks/use-scroll-to-error';
 import { useDuplicateCheck } from '@/shared/hooks/use-duplicate-check';
 import { DuplicateWarning } from '@/shared/components/crm/duplicate-warning';
 import { EntityCombobox } from '@/shared/components/entity-combobox';
+import { AssignedAgentSelect } from '@/shared/components/crm/assigned-agent-select';
 import { PhilippinePhoneInput } from '@/shared/components/philippine-phone-input';
 import { toE164, validatePhMobile, normalizePhInput } from '@/shared/utils/ph-phone';
 import {
@@ -20,69 +28,28 @@ import {
   ChevronDown,
 } from 'lucide-react';
 
-// ── Zod schemas mirroring backend CreateContactSchema / UpdateContactSchema ──
-// Backend route POST /crm/leads validates against CreateContactSchema from contacts.dto.ts.
-
-// Unified form schema — used for both Create and Edit.
-// On create: firstName + lastName are required (min 1).
-// On edit: all fields pre-populated, same constraints apply for non-empty values.
-// Backend UpdateContactSchema makes all fields optional, but the form always
-// sends populated values (pre-filled from initialData), so using the Create schema
-// for validation is correct for both modes.
+// Shared Lead constraints; controls use empty strings for unselected relationships.
 const LeadFormSchema = z.object({
-  firstName: z.string().min(1, 'First name is required').max(100, 'Max 100 characters'),
-  lastName: z.string().min(1, 'Last name is required').max(100, 'Max 100 characters'),
-  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  firstName: LeadNameSchema,
+  lastName: LeadNameSchema,
+  email: CrmEmailSchema,
   phone: z.string().optional(),
-  companyName: z.string().optional(),
-  status: z.string().min(1),
-  source: z.string().optional(),
+  companyName: CreateLeadSchema.shape.companyName,
+  status: LeadStatusSchema,
+  source: OptionalLeadSourceSchema.optional(),
   accountId: z.string().optional(),
   assignedUserId: z.string().optional(),
-  productInterest: z.array(z.string()).optional(),
-  address: z.string().optional(),
+  productInterest: CreateLeadSchema.shape.productInterest,
+  address: CreateLeadSchema.shape.address,
 });
 
 type LeadFormData = z.infer<typeof LeadFormSchema>;
 
-const PRODUCTS = [
-  'CCTV',
-  'Biometrics',
-  'Door Access',
-  'Door access/Biometrics',
-  'Network/Structured Cabling',
-  'FDAS',
-  'PABX',
-  'PC/Laptop/Server Assembly',
-  'Software/Web Development',
-  'Others',
-];
 
-const STATUS_OPTIONS = [
-  { value: 'Inquiry', label: 'Inquiry' },
-  { value: 'Hot', label: 'Hot' },
-  { value: 'Warm', label: 'Warm' },
-  { value: 'Cold', label: 'Cold' },
-  { value: 'Closed', label: 'Closed' },
-  { value: 'Cancelled', label: 'Cancelled' },
-];
 
-const SOURCE_OPTIONS = [
-  'Google Ads',
-  'Referral',
-  'Email Campaign',
-  'Website',
-  'LinkedIn Ads',
-  'Webinar',
-  'Social Media Advertisement',
-  'Partner Referral',
-  'Direct Mail',
-  'Cold Call',
-  'Content Marketing',
-  'YouTube Ads',
-  'SEO / Organic Search',
-  'Others',
-];
+const STATUS_OPTIONS = LEAD_STATUSES.map(value => ({ value, label: value }));
+
+const SOURCE_OPTIONS = LEAD_SOURCES;
 
 interface LeadFormProps {
   initialData?: Lead;
@@ -98,8 +65,11 @@ interface AddLeadFormProps {
 }
 
 export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps) {
+  const customFields = useRecordCustomFields('leads', initialData?.id);
   const { users } = useData();
   const isEdit = !!initialData;
+  const requestId = useRef<string | undefined>(undefined);
+  const { products: productRecords, error: productError, loading: productsLoading } = useProductInterests();
 
   const {
     register,
@@ -118,7 +88,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
       email: '',
       phone: '',
       companyName: '',
-      status: 'Inquiry',
+      status: 'Warm',
       source: '',
       accountId: '',
       assignedUserId: '',
@@ -128,9 +98,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
   });
 
   // Product interest state (for custom dropdown UX)
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [customProduct, setCustomProduct] = useState<string>('');
-  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
 
   // Philippine phone — local 10-digit number, no country code
   const [phoneLocal, setPhoneLocal] = useState('');
@@ -160,35 +128,23 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
       const phone = initialData.phone || '';
       setPhoneLocal(normalizePhInput(phone));
 
-      // Determine product interest from existing data
-      const prod = initialData.productInterests?.[0] || initialData.productInterest?.[0] || '';
-      if (prod) {
-        const matched = PRODUCTS.find((p) => p.toLowerCase() === prod.toLowerCase());
-        if (matched) {
-          setSelectedProduct(matched);
-          setCustomProduct('');
-        } else {
-          setSelectedProduct('Others');
-          setCustomProduct(prod);
-        }
-      }
-
+      setSelectedProducts(initialData.productInterestIds ?? []);
       reset({
         firstName: initialData.firstName || '',
         lastName: initialData.lastName || '',
         email: initialData.email || '',
         phone: phone,
         companyName: initialData.companyName || '',
-        status: initialData.status || 'Inquiry',
-        source: initialData.leadSource || initialData.source || '',
+        status: normalizeCrmStatus(initialData.status),
+        source: OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').data ?? '',
         accountId: initialData.accountId || initialData.organizationId || '',
         assignedUserId: initialData.assignedUserId || '',
         productInterest: initialData.productInterests || initialData.productInterest || [],
         address: initialData.address || '',
       });
     } else {
-      setSelectedProduct('');
-      setCustomProduct('');
+      setSelectedProducts([]);
+
       setPhoneLocal('');
       setPhoneTouched(false);
       reset({
@@ -197,7 +153,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         email: '',
         phone: '',
         companyName: '',
-        status: 'Inquiry',
+        status: 'Warm',
         source: '',
         accountId: '',
         assignedUserId: '',
@@ -208,35 +164,38 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
   }, [initialData, reset]);
 
   const onFormSubmit = (data: LeadFormData): void => {
+    setPhoneTouched(true);
+    if (validatePhMobile(phoneLocal) || !customFields.validate()) return;
     // Build phone in E.164 format from local 10-digit number
     const fullPhone = phoneLocal ? toE164(phoneLocal) : '';
 
-    // Build productInterest array
-    const finalProduct = selectedProduct === 'Others' ? customProduct : selectedProduct;
-    const productInterest = finalProduct ? [finalProduct] : [];
-
+    const productInterest = selectedProducts;
+    if (productsLoading || productError) return;
+    if (!isEdit) requestId.current ??= crypto.randomUUID();
     // Build payload matching backend CreateContactSchema field names exactly.
     // No phantom fields — adapter handles any remaining mapping.
     const payload: Partial<Lead> = {
+      customFieldValues: customFields.payload(),
+      ...(!isEdit ? { requestId: requestId.current } : {}),
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email || undefined,
-      phone: fullPhone || undefined,
-      companyName: data.companyName || undefined,
-      status: data.status || 'Inquiry',
-      source: data.source || undefined,
-      accountId: data.accountId || undefined,
-      assignedUserId: data.assignedUserId || undefined,
+      phone: fullPhone,
+      companyName: data.companyName?.trim() ?? '',
+      status: data.status || 'Warm',
+      ...((data.source || !initialData || OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').success) ? { source: data.source ?? '' } : {}),
+      accountId: data.accountId || (isEdit ? '' : undefined),
+      assignedUserId: data.assignedUserId || (isEdit ? '' : undefined),
       productInterest: productInterest,
-      address: data.address || undefined,
+      address: data.address?.trim() ?? '',
     };
 
     onSave(payload);
   };
 
   // Shared field classes
-  const inputCls = 'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none transition-all focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
-  const selectCls = 'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl pl-3.5 pr-8 py-2.5 text-sm text-slate-900 dark:text-white outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all [&>option]:bg-white dark:[&>option]:bg-slate-900';
+  const inputCls = 'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none transition-all focus:ring-2 focus:ring-primary/20 focus:border-primary';
+  const selectCls = 'w-full bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl pl-3.5 pr-8 py-2.5 text-sm text-slate-900 dark:text-white outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all [&>option]:bg-white dark:[&>option]:bg-slate-900';
   const errorInputCls = '!border-red-500 focus:!ring-red-500/20';
 
   return (
@@ -247,10 +206,10 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         {/* Section 1: Basic Information */}
         <div className="space-y-4">
           <SectionHeader num={1} title="Basic Information" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap label="First Name *" htmlFor={`${fieldId}-firstName`} error={errors.firstName?.message}>
               <input
-                {...register('firstName')}
+                {...register('firstName')} maxLength={100} required aria-required="true"
                 id={`${fieldId}-firstName`}
                 aria-invalid={!!errors.firstName}
                 aria-describedby={errors.firstName ? `${fieldId}-firstName-error` : undefined}
@@ -260,7 +219,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
             </FieldWrap>
             <FieldWrap label="Last Name *" htmlFor={`${fieldId}-lastName`} error={errors.lastName?.message}>
               <input
-                {...register('lastName')}
+                {...register('lastName')} maxLength={100} required aria-required="true"
                 id={`${fieldId}-lastName`}
                 aria-invalid={!!errors.lastName}
                 aria-describedby={errors.lastName ? `${fieldId}-lastName-error` : undefined}
@@ -269,13 +228,13 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               />
             </FieldWrap>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <FieldWrap label="Email" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FieldWrap label="Email *" htmlFor={`${fieldId}-email`} error={errors.email?.message}>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="email"
-                  {...register('email')}
+                  {...register('email')} required aria-required="true" maxLength={254}
                   id={`${fieldId}-email`}
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? `${fieldId}-email-error` : undefined}
@@ -294,7 +253,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
           </div>
           <FieldWrap htmlFor={`${fieldId}-companyName`} error={errors.companyName?.message} label="Company Name">
             <input
-              {...register('companyName')}
+              {...register('companyName')} maxLength={2000}
               id={`${fieldId}-companyName`}
               aria-invalid={!!errors.companyName}
               aria-describedby={errors.companyName ? `${fieldId}-companyName-error` : undefined}
@@ -302,6 +261,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               placeholder="Enter company name"
             />
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Basic Information" />
         </div>
 
         {/* Duplicate Detection Warning */}
@@ -316,7 +276,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         {/* Section 2: Status & Interest */}
         <div className="space-y-4">
           <SectionHeader num={2} title="Status & Interest" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap htmlFor={`${fieldId}-status`} error={errors.status?.message} label="Status">
               <div className="relative">
                 <select
@@ -334,52 +294,11 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               </div>
             </FieldWrap>
             <FieldWrap label="Product Interest">
-              <div className="space-y-2">
-                <div className="relative">
-                  <div
-                    className={`${inputCls} flex items-center justify-between cursor-pointer select-none`}
-                    onClick={() => setIsProductDropdownOpen(!isProductDropdownOpen)}
-                  >
-                    <span className={selectedProduct ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-                      {selectedProduct || 'Select product...'}
-                    </span>
-                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${isProductDropdownOpen ? 'rotate-180' : ''}`} />
-                  </div>
-                  {isProductDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsProductDropdownOpen(false)} />
-                      <div className="absolute z-50 w-full mt-1.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-white/[0.08] rounded-xl shadow-xl shadow-blue-900/5 dark:shadow-black/40 py-1 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 max-h-60 overflow-y-auto">
-                        {PRODUCTS.map((p) => (
-                          <div
-                            key={p}
-                            className={`px-3.5 py-2.5 text-sm cursor-pointer transition-colors ${selectedProduct === p ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}
-                            onClick={() => {
-                              setSelectedProduct(p);
-                              setIsProductDropdownOpen(false);
-                            }}
-                          >
-                            {p}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {selectedProduct === 'Others' && (
-                  <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                    <input
-                      type="text"
-                      autoFocus
-                      className="w-full bg-white dark:bg-white/[0.04] border border-blue-400 dark:border-blue-500/60 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm shadow-blue-500/10"
-                      placeholder="Specify product or service"
-                      value={customProduct}
-                      onChange={(e) => setCustomProduct(e.target.value)}
-                    />
-                  </div>
-                )}
-              </div>
-            </FieldWrap>
+<ProductInterestSelect products={productRecords} values={selectedProducts} onChange={setSelectedProducts} disabled={productsLoading || !!productError} labels={Object.fromEntries((initialData?.productInterestIds ?? []).map((id: string, i: number) => [id, initialData?.productInterests?.[i] ?? "Unavailable product"]))} />
+{productError && <p role="alert" className="text-xs text-destructive">{productError}</p>}
+</FieldWrap>
           </div>
+          <CustomFieldGroup form={customFields} group="Status & Interest" />
         </div>
 
         {/* Section 3: Organization */}
@@ -400,12 +319,13 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               )}
             />
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Organization" />
         </div>
 
         {/* Section 4: Additional Information */}
         <div className="space-y-4">
           <SectionHeader num={4} title="Additional Information" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap htmlFor={`${fieldId}-source`} error={errors.source?.message} label="Lead Source">
               <div className="relative">
                 <select
@@ -424,33 +344,36 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               </div>
             </FieldWrap>
             <FieldWrap htmlFor={`${fieldId}-assignedUserId`} error={errors.assignedUserId?.message} label="Assigned Agent">
-              <div className="relative">
-                <select
-                  {...register('assignedUserId')}
-                  id={`${fieldId}-assignedUserId`}
-                  aria-invalid={!!errors.assignedUserId}
-                  aria-describedby={errors.assignedUserId ? `${fieldId}-assignedUserId-error` : undefined}
-                  className={selectCls}
-                >
-                  <option value="">Unassigned</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
+              <Controller
+                name="assignedUserId"
+                control={control}
+                render={({ field }) => (
+                  <AssignedAgentSelect
+                    id={`${fieldId}-assignedUserId`}
+                    value={field.value ?? ''}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                    users={users}
+                    placeholder={isEdit ? 'Unassigned' : 'Assign automatically'}
+                    className={selectCls}
+                    invalid={!!errors.assignedUserId}
+                    describedBy={errors.assignedUserId ? `${fieldId}-assignedUserId-error` : undefined}
+                  />
+                )}
+              />
             </FieldWrap>
           </div>
           <FieldWrap htmlFor={`${fieldId}-address`} error={errors.address?.message} label="Full Address">
             <div className="relative">
               <MapPin className="absolute left-3.5 top-3 text-slate-400" size={14} />
               <textarea
-                {...register('address')}
+                {...register('address')} maxLength={2000}
                 id={`${fieldId}-address`}
                 aria-invalid={!!errors.address}
                 aria-describedby={errors.address ? `${fieldId}-address-error` : undefined}
                 rows={3}
-                className="w-full pl-9 pr-4 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none overflow-hidden"
+                className="w-full pl-9 pr-4 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] rounded-xl py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-none overflow-hidden"
                 placeholder="123 Main St, Apt 4B, City, State, Zip Code"
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
@@ -460,7 +383,9 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
               />
             </div>
           </FieldWrap>
+          <CustomFieldGroup form={customFields} group="Additional Information" />
         </div>
+        <CustomFieldExtraGroups form={customFields} startNumber={5} />
 
       </div>{/* end scrollable body */}
 
@@ -475,7 +400,8 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
         </button>
         <button
           type="submit"
-          className="px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl transition-all shadow-lg shadow-blue-500/25"
+          disabled={customFields.blocked || productsLoading || !!productError}
+          className="px-6 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary/90 active:scale-95 rounded-xl transition-all shadow-lg shadow-primary/25"
         >
           {isEdit ? 'Save Changes' : 'Create Lead'}
         </button>
@@ -489,7 +415,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
 function SectionHeader({ num, title }: { num: number; title: string }): React.ReactElement {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-[11px] font-bold shrink-0">
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-[11px] font-bold shrink-0">
         {num}
       </div>
       <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-wide">{title}</h3>

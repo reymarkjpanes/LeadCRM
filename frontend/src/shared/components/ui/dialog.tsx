@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { createPortal } from 'react-dom';
+import { useModalInteraction } from '@/shared/hooks/use-modal-interaction';
+import { OverlayOwnerContext, ThemedPortal } from '@/shared/components/theme-scope';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -90,36 +91,30 @@ export function DialogTrigger({
 
 export interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
   showClose?: boolean;
+  trapFocus?: boolean;
+  closeClassName?: string;
   children: React.ReactNode;
 }
 
 export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
-  ({ className, children, showClose = true, ...props }, ref) => {
+  ({ className, children, showClose = true, trapFocus = true, closeClassName, ...props }, ref) => {
     const { open, onOpenChange } = useDialog();
     const [mounted, setMounted] = React.useState(false);
+    const panelRef = React.useRef<HTMLDivElement | null>(null);
+    const owner = React.useId();
 
     React.useEffect(() => {
       setMounted(true);
     }, []);
 
-    // Handle Escape key
-    React.useEffect(() => {
-      if (!open) return;
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          onOpenChange(false);
-        }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [open, onOpenChange]);
+    useModalInteraction({ open: open && mounted, panelRef, owner, trapFocus, onClose: () => onOpenChange(false) });
 
     if (!mounted) return null;
 
     const content = (
       <AnimatePresence>
         {open && (
-          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-2 sm:p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -133,7 +128,12 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
 
             {/* Dialog Panel */}
             <motion.div
-              ref={ref}
+              ref={node => {
+                panelRef.current = node;
+                if (typeof ref === 'function') ref(node);
+                else if (ref) ref.current = node;
+              }}
+              tabIndex={trapFocus ? -1 : undefined}
               role="dialog"
               aria-modal="true"
               initial={{ opacity: 0, scale: 0.95, y: 8 }}
@@ -141,7 +141,7 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
               exit={{ opacity: 0, scale: 0.95, y: 8 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className={cn(
-                'relative z-[260] w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-2xl',
+                'relative z-[260] min-w-0 w-full max-w-lg max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-4 sm:p-6 text-card-foreground shadow-2xl',
                 className
               )}
               {...(props as any)}
@@ -151,7 +151,7 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
                   type="button"
                   onClick={() => onOpenChange(false)}
                   aria-label="Close dialog"
-                  className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn('absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', closeClassName)}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -163,7 +163,7 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
       </AnimatePresence>
     );
 
-    return createPortal(content, document.body);
+    return <OverlayOwnerContext.Provider value={owner}><ThemedPortal>{content}</ThemedPortal></OverlayOwnerContext.Provider>;
   }
 );
 DialogContent.displayName = 'DialogContent';
@@ -213,7 +213,7 @@ export function DialogFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('mt-6 flex items-center justify-end space-x-2', className)}
+      className={cn('mt-6 flex flex-wrap items-center justify-end gap-2', className)}
       {...props}
     />
   );

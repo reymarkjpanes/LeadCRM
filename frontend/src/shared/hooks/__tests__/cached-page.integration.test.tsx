@@ -6,7 +6,7 @@ import { useModuleCounts } from '../use-module-counts';
 import { clearPageCache, getPageCacheSize, invalidatePageCache } from '@/shared/cache/page-cache';
 
 const mocks = vi.hoisted(() => ({
-  auth: { tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } },
+  auth: { isLoading: false, authError: null as string | null, tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } },
   get: vi.fn(),
 }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => mocks.auth }));
@@ -27,11 +27,39 @@ const response = (page: number) => ({
 beforeEach(() => {
   clearPageCache();
   mocks.get.mockReset();
-  mocks.auth = { tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } };
+  mocks.auth = { isLoading: false, authError: null, tenant: { id: 'tenant-a' }, user: { id: 'user-a', role: 'Sales Rep' } };
 });
 afterEach(() => { cleanup(); clearPageCache(); });
 
 describe('real cached request lifecycle', () => {
+  it('restarts an in-flight workflow list after an authorization refresh clears the cache', async () => {
+    const old = deferred<string[]>(), fresh = deferred<string[]>();
+    const fetchFn = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    const hook = renderHook(() => useCachedPage({ module: 'workflows', params: {}, fetchFn }));
+    act(() => clearPageCache(true));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    await act(async () => { old.resolve(['obsolete-workflow']); });
+    expect(hook.result.current.data).toBeUndefined();
+    expect(hook.result.current.isInitialLoad).toBe(true);
+    await act(async () => { fresh.resolve(['saved-workflow']); });
+    expect(hook.result.current.data).toEqual(['saved-workflow']);
+  });
+
+  it('hides previously loaded data during access refresh and ignores the result after access is revoked', async () => {
+    const fresh = deferred<string[]>();
+    const fetchFn = vi.fn().mockResolvedValueOnce(['private-workflow']).mockReturnValueOnce(fresh.promise);
+    const hook = renderHook(({ disabled }) => useCachedPage({ module: 'workflows', params: {}, fetchFn, disabled }), { initialProps: { disabled: false } });
+    await waitFor(() => expect(hook.result.current.data).toEqual(['private-workflow']));
+    act(() => clearPageCache(true));
+    expect(hook.result.current.data).toBeUndefined();
+    hook.rerender({ disabled: true });
+    await act(async () => { fresh.resolve(['revoked-workflow']); });
+    expect(hook.result.current.data).toBeUndefined();
+    expect(getPageCacheSize()).toBe(0);
+    act(() => clearPageCache(true));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['leads', 'contacts', 'accounts'])('refreshes an open %s table when a panel mutation invalidates it', async moduleId => {
     mocks.get.mockResolvedValueOnce(response(1));
     const hook = renderHook(() => useModuleData({ moduleId, page: 1, pageSize: 25 }));
@@ -160,4 +188,20 @@ it.each(['leads', 'accounts', 'deals'])('loads a selected %s by ID independently
   await waitFor(() => expect(hook.result.current.data[0]?.id).toBe('selected'));
   expect(mocks.get).toHaveBeenCalledWith(`/crm/${moduleId}/selected`, { signal: expect.any(AbortSignal) });
   expect(hook.result.current.meta).toMatchObject({ page: 1, total: 1 });
+});
+
+
+it('waits for auth initialization even when a previous user remains in context', async () => {
+  mocks.auth.isLoading = true;
+  mocks.get.mockResolvedValue(response(1));
+  const hook = renderHook(() => useModuleData({ moduleId: 'leads', page: 1, pageSize: 25 }));
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(mocks.get).not.toHaveBeenCalled();
+  mocks.auth.isLoading = false;
+  mocks.auth.authError = 'Session restore unavailable';
+  hook.rerender();
+  expect(mocks.get).not.toHaveBeenCalled();
+  mocks.auth.authError = null;
+  hook.rerender();
+  await waitFor(() => expect(mocks.get).toHaveBeenCalledOnce());
 });

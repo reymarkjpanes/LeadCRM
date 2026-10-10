@@ -1,33 +1,7 @@
 'use client';
-
-import { useEffect } from 'react';
-import { applyAccentColor, ACCENT_KEY } from '@/lib/accent-colors';
-
-/**
- * ThemeProvider — applies saved font-size and accent color settings on mount.
- * Dark mode is scoped to the tenant CRM layout container (not <html>),
- * so public pages (landing, login, register, onboarding) always stay light.
- * Theme is managed by the `useTheme` hook and stored in localStorage.
- */
+import { useTheme } from '@/shared/hooks/use-theme';
+/** Initializes shared device preferences; CSS appearance is applied only by ThemeScope. */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    const apply = () => {
-      const savedFontSize = localStorage.getItem('app_font_size') || 'Medium';
-      const sizeMap: Record<string, string> = { Small: '14px', Medium: '16px', Large: '18px' };
-      document.documentElement.style.fontSize = sizeMap[savedFontSize] ?? '16px';
-
-      const savedAccent = localStorage.getItem(ACCENT_KEY) || 'blue';
-      applyAccentColor(savedAccent);
-
-      // Remove any dark/theme class from <html> — dark mode is tenant-only (applied on
-      // the CrmLayout wrapper element, not documentElement).
-      document.documentElement.classList.remove('dark', 'light', 'theme-classic', 'theme-light', 'theme-dark');
-    };
-
-    apply();
-    window.addEventListener('themechange', apply);
-    return () => window.removeEventListener('themechange', apply);
-  }, []);
-
+  useTheme();
   return <>{children}</>;
 }

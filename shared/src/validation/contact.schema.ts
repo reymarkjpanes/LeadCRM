@@ -1,12 +1,14 @@
+import { CrmEmailSchema } from './crm-email';
 import { z } from 'zod';
+import { CrmStatusSchema } from '../contracts/record-experience';
 
 export const ContactSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
   lastName: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  email: CrmEmailSchema,
   phone: z.string().optional(),
   company: z.string().optional(),
-  status: z.enum(['HOT', 'WARM', 'COLD', 'CANCELLED', 'CLOSED']).default('WARM'),
+  status: CrmStatusSchema.default('Warm'),
   source: z.string().optional(),
   notes: z.string().optional(),
 });

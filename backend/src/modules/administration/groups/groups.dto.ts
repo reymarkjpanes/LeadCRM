@@ -1,12 +1,6 @@
 import { z } from 'zod';
-
-export const CreateGroupSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or fewer').trim(),
-});
-
-export const UpdateGroupSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or fewer').trim(),
-});
+import { CreateGroupSchema, UpdateGroupSchema } from '@leadcrm/shared';
+export { CreateGroupSchema, UpdateGroupSchema };
 
 export const GroupMemberSchema = z.object({
   userId: z.string().uuid('Invalid user ID'),

@@ -24,6 +24,7 @@ export interface FormResponse {
 // ─── Update payload — only what can change after creation ────────────────────
 
 export interface UpdateFormPayload {
+  revision: number;
   name?:     string;
   fields?:   FormField[];
   design?:   FormDesign;
@@ -37,8 +38,10 @@ export const formsApi = {
    * List all non-archived forms for the authenticated tenant.
    * Backend returns newest-first, paginated (default limit 20).
    */
-  list: () =>
-    apiClient.get<FormsListResponse>('/marketing/forms'),
+  list: (page = 1) =>
+    apiClient.get<FormsListResponse>(`/marketing/forms?page=${page}&limit=100`),
+  duplicate: (id: string) => apiClient.post<FormResponse>(`/marketing/forms/${id}/duplicate`, {}),
+  submissions: (id: string, page = 1, signal?: AbortSignal) => apiClient.get<{ data: import('@leadcrm/shared').FormSubmissionRecord[]; meta: { hasMore: boolean } }>(`/marketing/forms/${id}/submissions?page=${page}&limit=20`, { signal }),
 
   /**
    * Fetch a single form by id.
@@ -49,7 +52,7 @@ export const formsApi = {
 
   /**
    * Create a new draft form with the given name.
-   * Fields / design / settings start empty and are populated via update().
+   * Backend persists an independent Contact Us template.
    */
   create: (name: string) =>
     apiClient.post<FormResponse>('/marketing/forms', { name }),
@@ -67,10 +70,6 @@ export const formsApi = {
   publish: (id: string) =>
     apiClient.patch<FormResponse>(`/marketing/forms/${id}/publish`),
 
-  /**
-   * Soft-delete — marks the form as archived (isArchived = true).
-   * Returns 204 No Content on success.
-   */
-  archive: (id: string) =>
-    apiClient.patch<void>(`/marketing/forms/${id}/archive`),
+  delete: (id: string) => apiClient.delete<{ success: boolean }>(`/marketing/forms/${id}`),
+  unpublish: (id: string) => apiClient.patch<FormResponse>(`/marketing/forms/${id}/unpublish`),
 };

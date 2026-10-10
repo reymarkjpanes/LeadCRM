@@ -43,6 +43,7 @@ export interface Pipeline extends Omit<SharedPipeline, 'stages' | 'createdAt'> {
  * The core API fields come from @leadcrm/shared.
  */
 export interface Deal extends Omit<SharedDeal, 'priority' | 'value' | 'order'> {
+  customFieldValues?: import('@leadcrm/shared').ClosingValues;
   // Value is treated as required in frontend (defaults to 0 for display)
   value: number;
   // Order is required for kanban drag-and-drop positioning

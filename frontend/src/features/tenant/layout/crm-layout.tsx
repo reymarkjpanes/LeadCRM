@@ -1,12 +1,14 @@
 ﻿'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
+import { ThemeScope } from '@/shared/components/theme-scope';
+import { ModuleAccessGuard } from '@/shared/providers/module-access-guard';
 import SidebarNav from './sidebar-nav';
 import Topbar from './topbar';
 import { useLayout } from './use-layout';
 import { useAuth } from '@/store/AuthContext';
-
-const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
+import { useResponsiveNavigation } from './use-responsive-navigation';
 
 /**
  * CrmLayout — tenant portal shell.
@@ -17,130 +19,63 @@ const SIDEBAR_COLLAPSED_KEY = 'leadcrm_sidebar_collapsed';
  */
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const { navigate } = useLayout();
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
+  const nav = useResponsiveNavigation(user?.id, tenant?.id);
+  const pathname = usePathname();
+  const previousPath = useRef(pathname);
+  const mainRef = useRef<HTMLElement>(null);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);       // mobile overlay open
-  const [isCollapsed, setIsCollapsed] = useState(false);       // desktop collapsed
-  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
-
-  // Restore collapse preference from localStorage
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
-      if (stored !== null) setIsCollapsed(stored === 'true');
-    } catch { /* noop */ }
-  }, []);
-
-  // Sync theme to this container on mount (useTheme hook handles updates via themechange event)
-  useEffect(() => {
-    if (containerRef.current) {
-      const saved = localStorage.getItem('app_theme') || 'Light';
-      // Remove all theme classes first
-      containerRef.current.classList.remove('dark', 'theme-classic', 'theme-light', 'theme-dark');
-
-      if (saved === 'Dark') {
-        containerRef.current.classList.add('dark', 'theme-dark');
-      } else if (saved === 'Classic') {
-        containerRef.current.classList.add('theme-classic');
-      } else if (saved === 'System') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (prefersDark) {
-          containerRef.current.classList.add('dark', 'theme-dark');
-        } else {
-          containerRef.current.classList.add('theme-light');
-        }
-      } else {
-        containerRef.current.classList.add('theme-light');
-      }
-    }
-
-    // Listen for theme changes from useTheme hook
-    const handleThemeChange = (e: Event) => {
-      const customEvent = e as CustomEvent<{ theme: string; mode: string }>;
-      if (containerRef.current) {
-        containerRef.current.classList.remove('dark', 'theme-classic', 'theme-light', 'theme-dark');
-        const resolved = customEvent.detail?.theme;
-        if (resolved === 'dark') {
-          containerRef.current.classList.add('dark', 'theme-dark');
-        } else if (resolved === 'classic') {
-          containerRef.current.classList.add('theme-classic');
-        } else {
-          containerRef.current.classList.add('theme-light');
-        }
-      }
-    };
-
-    window.addEventListener('themechange', handleThemeChange);
-    return () => window.removeEventListener('themechange', handleThemeChange);
-  }, []);
-
-  // Listen for OS preference changes when theme is "System"
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-    const handleOsChange = () => {
-      // Only respond if current theme is System
-      const current = localStorage.getItem('app_theme');
-      if (current !== 'System') return;
-
-      if (containerRef.current) {
-        containerRef.current.classList.remove('dark', 'theme-classic', 'theme-light', 'theme-dark');
-        if (mediaQuery.matches) {
-          containerRef.current.classList.add('dark', 'theme-dark');
-        } else {
-          containerRef.current.classList.add('theme-light');
-        }
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleOsChange);
-    return () => mediaQuery.removeEventListener('change', handleOsChange);
-  }, []);
-
-  const handleToggleCollapse = () => {
-    setIsCollapsed((prev) => {
-      const next = !prev;
-      try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next)); } catch { /* noop */ }
-      return next;
+    if (previousPath.current === pathname) return;
+    previousPath.current = pathname;
+    const frame = requestAnimationFrame(() => {
+      const target = mainRef.current?.querySelector<HTMLElement>('h1') ?? mainRef.current;
+      if (target && !target.closest('[inert]')) { target.tabIndex = -1; target.focus({ preventScroll: true }); }
     });
-  };
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
 
   return (
-    <div ref={containerRef} data-theme-container className="flex h-screen overflow-hidden bg-[var(--background)] transition-colors duration-200">
+    <ThemeScope className="crm-shell flex overflow-hidden bg-[var(--background)] transition-colors duration-200">
+      <div data-navigation-slot data-collapsed={nav.railCollapsed} data-hidden={nav.focusMode} className="navigation-slot">
       <SidebarNav
-        sidebarOpen={sidebarOpen}
-        onCloseSidebar={() => setSidebarOpen(false)}
+        sidebarOpen={nav.drawerOpen}
+        onCloseSidebar={nav.closeDrawer}
         navigate={navigate}
-        isAccountDropdownOpen={isAccountDropdownOpen}
-        onToggleAccountDropdown={() => setIsAccountDropdownOpen((prev) => !prev)}
-        isCollapsed={isCollapsed}
-        onToggleCollapse={handleToggleCollapse}
+        isAccountDropdownOpen={false}
+        onToggleAccountDropdown={() => {}}
+        isCollapsed={nav.isCollapsed}
+        onToggleCollapse={nav.toggleCollapse}
+        mode={nav.mode}
+        hidden={nav.focusMode}
       />
+      </div>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar
-          onOpenSidebar={() => setSidebarOpen(true)}
+          onOpenSidebar={nav.openDrawer}
+          sidebarOpen={nav.drawerOpen}
           onOpenInbox={() => navigate('inbox')}
         />
 
 
 
-        <main key={`${user?.id}:${user?.activeEnvironment}`} className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
-          {children}
+        <main key={`${user?.id}`} ref={mainRef} tabIndex={-1} data-app-scroll className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 outline-none">
+          <ModuleAccessGuard>{children}</ModuleAccessGuard>
         </main>
       </div>
 
       {/* Mobile sidebar backdrop */}
-      {sidebarOpen && (
+      {nav.drawerOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          data-overlay-backdrop
+          className="fixed inset-0 z-40 bg-black/50"
+          onClick={nav.closeDrawer}
           aria-hidden="true"
         />
       )}
 
 
-    </div>
+    </ThemeScope>
   );
 }

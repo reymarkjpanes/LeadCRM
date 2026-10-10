@@ -292,7 +292,7 @@ export function ClientDetailSheet({
           setConfirmOpen(false);
           onClose();
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : 'Failed to archive record');
+          throw new Error(error instanceof Error ? error.message : 'Failed to archive record');
         }
       }}
     />

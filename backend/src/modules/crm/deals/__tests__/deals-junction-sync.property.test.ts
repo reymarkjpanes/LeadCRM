@@ -17,6 +17,7 @@ import * as fc from 'fast-check';
 // ─────────────────────────────────────────────────────
 
 const mockLeadDeal = {
+  updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   findMany: vi.fn(),
   deleteMany: vi.fn(),
   createMany: vi.fn(),
@@ -71,6 +72,7 @@ const contactIdSetArb = fc.uniqueArray(fc.uuid(), { minLength: 0, maxLength: 20 
 function setupMocksForIteration(currentIds: string[], targetIds: string[], currentSet: Set<string>): void {
   mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<void>) => {
     const txClient = {
+      deal: { findFirstOrThrow: vi.fn().mockResolvedValue({}) },
       leadDeal: mockLeadDeal,
       lead: mockLead,
     };
@@ -173,6 +175,7 @@ describe('Feature: deals-module-modernization, Property 10: Junction Sync Set Eq
                   dealId,
                   tenantId,
                   addedById: userId,
+                  position: targetIds.indexOf(leadId),
                 })),
                 skipDuplicates: true,
               });

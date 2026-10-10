@@ -42,9 +42,12 @@ it('serves a cached static asset when the background network request fails', asy
 
 it('only removes old LeadCRM caches on activation', async () => {
   const { handlers, caches } = worker();
-  caches.keys.mockResolvedValue(['leadcrm-cache-v3', 'leadcrm-cache-v4', 'another-app-cache']);
+  caches.keys.mockResolvedValue(['leadcrm-cache-v3', 'leadcrm-cache-v4', 'leadcrm-cache-v5', 'another-app-cache']);
   let pending!: Promise<void>;
   handlers.activate({ waitUntil: (value: Promise<void>) => { pending = value; } });
   await pending;
-  expect(caches.delete).toHaveBeenCalledExactlyOnceWith('leadcrm-cache-v3');
+  expect(caches.delete).toHaveBeenCalledTimes(2);
+  expect(caches.delete).toHaveBeenCalledWith('leadcrm-cache-v3');
+  expect(caches.delete).toHaveBeenCalledWith('leadcrm-cache-v4');
+  expect(caches.delete).not.toHaveBeenCalledWith('another-app-cache');
 });

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LeadsDataGrid — Leads table implemented with the shared DataGrid component.
  *
  * Close.com-style features:
@@ -11,6 +11,8 @@
 
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { recordEmailComposeHref } from '@/features/tenant/inbox/services/compose-navigation';
 import React, { useMemo, useCallback } from 'react';
 import { Phone, Mail, ExternalLink, GitMerge } from 'lucide-react';
 import {
@@ -21,25 +23,16 @@ import {
   renderDate,
   MODULE_ACCENT_COLORS,
 } from '@/shared/components/data-grid';
-import type { QuickAction, SortState, RowActionItem } from '@/shared/components/data-grid';
+import type { SortState, RowActionItem } from '@/shared/components/data-grid';
 import type { CellRendererMap } from '@/shared/components/data-grid';
 import { LEADS_COLUMN_REGISTRY } from '@/shared/constants/column-registries';
 import type { ColumnConfigItem } from '@leadcrm/shared';
+import { CrmStatusIndicator } from '@/shared/components/crm/crm-status';
 import type { Lead } from '@/store/types';
 
 // ─── Status Dot Colors (Close.com style) ─────────────────────────────────────
 
-const STATUS_DOT_COLORS: Record<string, string> = {
-  Inquiry:   '#94a3b8',
-  Qualified: '#22c55e',
-  HOT:       '#ef4444',
-  WARM:      '#f59e0b',
-  COLD:      '#3b82f6',
-  CANCELLED: '#6b7280',
-  CLOSED:    '#8b5cf6',
-  Converted: '#8b5cf6',
-  Archived:  '#d1d5db',
-};
+
 
 // ─── Helper: Render user with avatar initials ─────────────────────────────────
 
@@ -139,6 +132,7 @@ export function LeadsDataGrid({
 }: LeadsDataGridProps): React.ReactElement {
   // ─── Cell Renderers ────────────────────────────────────────────────────
 
+  const router = useRouter();
   const cellRenderers: CellRendererMap<Lead> = useMemo(() => ({
 
     // ── Name (pinned left) ─────────────────────────────────────────────
@@ -188,7 +182,7 @@ export function LeadsDataGrid({
       if (!row.email) return <span className="text-[#d1d5db] select-none text-center block">—</span>;
       return (
         <a
-          href={`mailto:${row.email}`}
+          href={recordEmailComposeHref(row.email ?? '') ?? undefined}
           title={row.email}
           onClick={(e) => e.stopPropagation()}
           className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[#5A6B85] hover:text-[#1a73e8] hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
@@ -211,15 +205,7 @@ export function LeadsDataGrid({
     ),
 
     // ── Status: Close.com dot + plain text ────────────────────────────
-    status: (_value: unknown, row: Lead) => {
-      const dotColor = STATUS_DOT_COLORS[row.status] ?? '#94a3b8';
-      return (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-          <span className="text-[13px] text-[#3C4858] dark:text-slate-300 truncate">{row.status}</span>
-        </div>
-      );
-    },
+    status: (_value: unknown, row: Lead) => <CrmStatusIndicator status={row.status} />,
 
     source: (_value: unknown, row: Lead) => (
       <p className="text-[12px] text-[#8899a6] dark:text-slate-400 truncate">{row.leadSource ?? row.source ?? '—'}</p>
@@ -228,10 +214,14 @@ export function LeadsDataGrid({
     assignedUserId: (_value: unknown, row: Lead) => (
       <div className="flex items-center gap-1.5">
         <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center text-[9px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
-          {getOwnerInitials(row.assignedUserId)}
+          {row.assignedUser
+            ? `${row.assignedUser.firstName?.[0] ?? ''}${row.assignedUser.lastName?.[0] ?? ''}` || getOwnerInitials(row.assignedUserId)
+            : getOwnerInitials(row.assignedUserId)}
         </div>
         <span className="text-[12px] text-[#3C4858] dark:text-slate-400 truncate max-w-[100px]">
-          {getOwnerName(row.assignedUserId)}
+          {row.assignedUser
+            ? `${row.assignedUser.firstName} ${row.assignedUser.lastName}`.trim() || getOwnerName(row.assignedUserId)
+            : getOwnerName(row.assignedUserId)}
         </span>
       </div>
     ),
@@ -283,7 +273,8 @@ export function LeadsDataGrid({
     },
 
     productInterest: (_value: unknown, row: Lead) => {
-      const interests = row.productInterest ?? row.productInterests ?? [];
+      const interests = row.productInterests ?? (Array.isArray(row.productInterest)
+        ? row.productInterest : row.productInterest ? [row.productInterest] : []);
       if (!interests.length) return <span className="text-[12px] text-[#94a3b8]">—</span>;
       return (
         <div className="flex flex-wrap gap-1 min-w-0">
@@ -336,25 +327,6 @@ export function LeadsDataGrid({
     },
   });
 
-  // ─── Quick Actions ─────────────────────────────────────────────────────
-
-  const quickActions: QuickAction<Lead>[] = useMemo(() => [
-    {
-      id: 'call',
-      label: 'Call',
-      icon: <Phone size={14} />,
-      onClick: (lead: Lead) => { if (lead.phone) window.open(`tel:${lead.phone}`, '_self'); },
-      visible: (lead: Lead) => Boolean(lead.phone),
-    },
-    {
-      id: 'email',
-      label: 'Email',
-      icon: <Mail size={14} />,
-      onClick: (lead: Lead) => { if (lead.email) window.open(`mailto:${lead.email}`, '_self'); },
-      visible: (lead: Lead) => Boolean(lead.email),
-    },
-  ], []);
-
   // ─── Stable Callbacks ────────────────────────────────────────────────
 
   const getRowId = useCallback((lead: Lead) => lead.id, []);
@@ -365,7 +337,7 @@ export function LeadsDataGrid({
     const actions = buildDefaultRowActions({
       onView: () => onRowClick(lead),
       onEdit: onEdit ? () => onEdit(lead) : undefined,
-      onSendEmail: lead.email ? () => window.open(`mailto:${lead.email}`, '_self') : undefined,
+      onSendEmail: lead.email ? () => router.push(recordEmailComposeHref(lead.email ?? '') ?? '/inbox') : undefined,
       onConvert: canEdit && onConvert ? () => onConvert(lead) : undefined,
       onArchive: onArchive ? () => onArchive(lead) : undefined,
       onCopyUrl: () => {
@@ -409,7 +381,7 @@ export function LeadsDataGrid({
         columns={gridColumns}
         data={leads}
         getRowId={getRowId}
-        height={600}
+        height="auto"
         selectable
         selectedIds={selectedIds}
         onSelectionChange={onSelectionChange}
@@ -417,7 +389,6 @@ export function LeadsDataGrid({
         sort={sort}
         onSortChange={onSortChange}
         onRowClick={onRowClick}
-        quickActions={quickActions}
         onHideColumn={onHideColumn}
         rowActions={getRowActions}
         onSettingsClick={onManageColumns}

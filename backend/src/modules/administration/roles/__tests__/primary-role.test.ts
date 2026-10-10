@@ -16,9 +16,3 @@ it.each(['user', 'role'])('rejects a missing or cross-tenant %s before changing 
   await expect(replaceUserRole(tx as never, 'u', 'tenant', 'Sales')).rejects.toThrow();
   expect(tx.userRole.deleteMany).not.toHaveBeenCalled();
 });
-it.each(['user', 'role'])('prevents System Admin promotion or modification through the %s record', async target => {
-  if (target === 'user') tx.user.findFirst.mockResolvedValue({ id: 'u', role: 'System Admin' });
-  else tx.roleDefinition.findFirst.mockResolvedValue({ id: 'r', name: 'System Admin' });
-  await expect(replaceUserRole(tx as never, 'u', 'tenant', 'Sales')).rejects.toThrow();
-  expect(tx.user.update).not.toHaveBeenCalled();
-});

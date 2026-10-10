@@ -3,17 +3,14 @@ import { render, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
 /**
- * Preservation Tests — AuthContext logout + OAuth
+ * Preservation Tests — AuthContext logout and session state
  *
  * **Property 4: Preservation — Non-Buggy Auth Scenarios Are Unchanged**
  *
  * These tests observe and lock in the CURRENT (unfixed) AuthContext behavior
  * for scenarios where `isBugCondition(X)` is false:
  *   - Logout clears auth state, revokes the backend session/cookie (authApi.logout),
- *     clears the NextAuth session (signOut), clears onboarding flags + saved redirect,
  *     and leaves user === null (the AuthGuard then routes to /login).
- *   - Google OAuth entry triggers the NextAuth signIn flow (hydration happens later
- *     via /auth/me on re-mount) — the loginWithGoogle path is unchanged.
  *   - Mock-mode logout still clears local state (no backend calls required).
  *
  * **Validates: Requirements 3.6, 3.7**
@@ -37,13 +34,6 @@ vi.mock('@/shared/services/auth.api', () => ({
   },
 }));
 
-const nextAuthSignIn = vi.fn();
-const nextAuthSignOut = vi.fn();
-
-vi.mock('next-auth/react', () => ({
-  signIn: (...args: unknown[]) => nextAuthSignIn(...args),
-  signOut: (...args: unknown[]) => nextAuthSignOut(...args),
-}));
 
 vi.mock('@/store/mockData', () => ({
   MOCK_USERS: [],
@@ -92,13 +82,10 @@ describe('Feature: auth-login-blank-screen-fix, Property 4: Preservation — Aut
     logoutApiMock.mockReset();
     loginApiMock.mockReset();
     meApiMock.mockReset();
-    nextAuthSignIn.mockReset();
-    nextAuthSignOut.mockReset();
     captured = null;
     // No session on mount for these tests.
     meApiMock.mockRejectedValue(new Error('401 no session'));
     logoutApiMock.mockResolvedValue({ data: { success: true } });
-    nextAuthSignOut.mockResolvedValue(undefined);
     try {
       window.localStorage.clear();
       window.sessionStorage.clear();
@@ -121,22 +108,21 @@ describe('Feature: auth-login-blank-screen-fix, Property 4: Preservation — Aut
     );
   }
 
-  it('logout revokes the backend session, clears local state without calling retired OAuth routes', async () => {
+  it('logout revokes the backend session and clears local state', async () => {
     renderProvider();
     await waitFor(() => expect(captured?.isLoading).toBe(false));
 
     // Seed some session-scoped storage that logout must clear.
     window.localStorage.setItem('leadcrm_onboarding_complete', '1');
     window.localStorage.setItem('leadcrm_needs_company_setup', '1');
-    window.sessionStorage.setItem('leadcrm_redirect_after_login', '/admin/dashboard');
+    window.sessionStorage.setItem('leadcrm_redirect_after_login', '/settings');
 
     await act(async () => {
       await captured!.logout();
     });
 
-    // Backend session revoked (cookie cleared server-side) + NextAuth cleared.
+    // Backend session revoked (cookie cleared server-side).
     expect(logoutApiMock).toHaveBeenCalledTimes(1);
-    expect(nextAuthSignOut).not.toHaveBeenCalled();
 
     // Auth state cleared -> user === null (AuthGuard will route to /login).
     expect(captured?.user).toBeNull();
@@ -155,20 +141,6 @@ describe('Feature: auth-login-blank-screen-fix, Property 4: Preservation — Aut
     await act(async () => {
       await expect(captured!.logout()).rejects.toThrow('network down');
     });
-    expect(nextAuthSignOut).not.toHaveBeenCalled();
-  });
-
-  it('loginWithGoogle triggers the NextAuth signIn flow with the / callback', async () => {
-    nextAuthSignIn.mockResolvedValue(undefined);
-
-    renderProvider();
-    await waitFor(() => expect(captured?.isLoading).toBe(false));
-
-    await act(async () => {
-      await expect(captured!.loginWithGoogle()).rejects.toThrow('employee email');
-    });
-
-    expect(nextAuthSignIn).not.toHaveBeenCalled();
   });
 });
 
@@ -184,7 +156,6 @@ describe('Feature: auth-login-blank-screen-fix, Property 4: Preservation — Aut
 
   beforeEach(async () => {
     logoutApiMock.mockReset();
-    nextAuthSignOut.mockReset();
     captured = null;
     try {
       window.localStorage.clear();
@@ -219,9 +190,8 @@ describe('Feature: auth-login-blank-screen-fix, Property 4: Preservation — Aut
       await captured!.logout();
     });
 
-    // Mock mode must NOT hit the backend or NextAuth.
+    // Mock mode must NOT hit the backend.
     expect(logoutApiMock).not.toHaveBeenCalled();
-    expect(nextAuthSignOut).not.toHaveBeenCalled();
 
     expect(captured?.user).toBeNull();
     expect(window.localStorage.getItem('leadcrm_user')).toBeNull();

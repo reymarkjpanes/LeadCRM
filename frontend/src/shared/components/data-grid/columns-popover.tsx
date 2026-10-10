@@ -122,8 +122,8 @@ export function ColumnsPopover({
         className={[
           'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[12px] font-medium transition-all duration-150',
           open
-            ? 'bg-[#EBF0FF] border-[#2563EB] text-[#2563EB] dark:bg-blue-900/30 dark:border-blue-500 dark:text-blue-400'
-            : 'bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-400 hover:border-[#2563EB] hover:text-[#2563EB] dark:hover:text-blue-400',
+            ? 'bg-[#EBF0FF] border-primary text-primary dark:bg-blue-900/30 dark:border-primary dark:text-primary'
+            : 'bg-white dark:bg-slate-800 border-[#E4E9F0] dark:border-slate-700 text-[#5A6B85] dark:text-slate-400 hover:border-primary hover:text-primary dark:hover:text-blue-400',
         ].join(' ')}
         aria-label="Manage columns"
         aria-expanded={open}
@@ -131,7 +131,7 @@ export function ColumnsPopover({
         <Columns3 size={13} />
         <span>Columns</span>
         {hiddenCount !== undefined && hiddenCount > 0 && (
-          <span className="ml-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-[#2563EB] text-white text-[9px] font-bold leading-none">
+          <span className="ml-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold leading-none">
             {hiddenCount}
           </span>
         )}
@@ -170,7 +170,7 @@ export function ColumnsPopover({
                 placeholder="Search columns..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-7 pl-7 pr-3 text-[12px] rounded-md border border-[#E4E9F0] dark:border-slate-600 bg-[#F6F8FB] dark:bg-slate-900 text-[#0F172A] dark:text-slate-200 placeholder:text-[#8899a6] focus:outline-none focus:ring-1 focus:ring-[#2563EB] focus:border-[#2563EB]"
+                className="w-full h-7 pl-7 pr-3 text-[12px] rounded-md border border-[#E4E9F0] dark:border-slate-600 bg-[#F6F8FB] dark:bg-slate-900 text-[#0F172A] dark:text-slate-200 placeholder:text-[#8899a6] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 autoFocus
               />
             </div>
@@ -212,7 +212,7 @@ export function ColumnsPopover({
                             isRequired
                               ? 'bg-[#E4E9F0] dark:bg-slate-600 border-[#E4E9F0] dark:border-slate-600'
                               : isVisible
-                                ? 'bg-[#2563EB] border-[#2563EB]'
+                                ? 'bg-primary border-primary'
                                 : 'bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-600',
                           ].join(' ')}
                         >
@@ -266,7 +266,7 @@ export function ColumnsPopover({
               </button>
               <button
                 onClick={handleApply}
-                className="h-7 px-3 text-[12px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-md transition-colors"
+                className="h-7 px-3 text-[12px] font-semibold text-white bg-primary hover:bg-primary/90 rounded-md transition-colors"
               >
                 Apply
               </button>

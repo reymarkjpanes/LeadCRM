@@ -1,508 +1,267 @@
 'use client';
+import { useNotificationRecordLink } from '@/features/tenant/notifications/hooks/use-notification-record-link';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Inbox, Mail, ChevronDown, Check, Filter, ArrowDownAZ, Loader2, Pencil, Tag, Users, Info } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useReducedMotion } from 'motion/react';
+import { Mail, Check, Filter, ArrowDownAZ, Loader2, Pencil, Search } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import { cn } from '@/lib/utils';
-import { getGmailStatus, fetchGmailEmails, GmailConnectionStatus, GmailEmail } from '../services/gmail.service';
+import { getGmailStatus, fetchGmailEmails, fetchGmailThread, syncGmail, disconnectGmail, GmailConnectionStatus, GmailEmail } from '../services/gmail.service';
 import InboxCurrentEmpty from './inbox-current-empty';
-import InboxDoneEmpty from './inbox-done-empty';
-import InboxFutureEmpty from './inbox-future-empty';
 import InboxEmailList from './inbox-email-list';
-import EmailDetailView from './email-detail-view';
+import EmailConversationView from './email-conversation-view';
 import ComposeModal from './compose-modal';
+import { ScheduledEmailDialog } from './scheduled-email-dialog';
+import type { ApiRequestError } from '@/lib/api/client';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
+import { consumeRecordEmailCompose } from '../services/compose-navigation';
+import type { MailboxListOptions } from '@leadcrm/shared';
 
-type InboxView = 'current' | 'done' | 'future' | 'drafts';
-type InboxCategory = 'primary' | 'promotions' | 'social' | 'updates';
-
-const VIEW_OPTIONS: { id: InboxView; label: string }[] = [
-  { id: 'current', label: 'Current' },
-  { id: 'done', label: 'Done' },
-  { id: 'future', label: 'Future' },
-  { id: 'drafts', label: 'Drafts' },
-];
+const FILTERS = [{ id: 'all', label: 'All emails' }, { id: 'unread', label: 'Unread only' }, { id: 'sent', label: 'Sent' }, { id: 'scheduled', label: 'Scheduled' }, { id: 'drafts', label: 'Drafts only' }] as const;
+const SORTS = [{ id: 'newest', label: 'Newest first' }, { id: 'oldest', label: 'Oldest first' }, { id: 'unread', label: 'Unread first' }] as const;
+const control = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50';
 
 export default function InboxPage(): React.ReactElement {
-  const [activeView, setActiveView] = useState<InboxView>('current');
-  const [activeCategory, setActiveCategory] = useState<InboxCategory>('primary');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const searchParams = useSearchParams(), router = useRouter();
+  const [filter, setFilter] = useState<NonNullable<MailboxListOptions['filter']>>('all');
+  const [sort, setSort] = useState<NonNullable<MailboxListOptions['sort']>>('newest');
   const [connectionStatus, setConnectionStatus] = useState<GmailConnectionStatus | null>(null);
-  const [emails, setEmails] = useState<GmailEmail[]>([]);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const [isLoadingEmails, setIsLoadingEmails] = useState(false);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isSortOpen, setIsSortOpen] = useState(false);
-  const [filterQuery, setFilterQuery] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'unread'>('newest');
+  const [emails, setEmails] = useState<GmailEmail[]>([]), [unreadCount, setUnreadCount] = useState<number>();
+  const [isLoadingStatus, setIsLoadingStatus] = useState(true), [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false), [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const disconnectPending = useRef(false);
+  const [error, setError] = useState(''), [syncError, setSyncError] = useState('');
+  const [menu, setMenu] = useState<'filter' | 'sort' | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [search, setSearch] = useState(''), [debouncedSearch, setDebouncedSearch] = useState('');
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<{ to: string; subject: string; body: string; draftId?: string } | null>(null);
-  const [selectedEmail, setSelectedEmail] = useState<GmailEmail | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
-  const [currentPage, setCurrentPage] = useState(1);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
-  const sortRef = useRef<HTMLDivElement>(null);
-  const shouldReduceMotion = useReducedMotion();
-
-  // Fetch connection status on mount
   useEffect(() => {
-    setIsLoadingStatus(true);
-    getGmailStatus()
-      .then((status) => {
-        setConnectionStatus(status);
-        if (status.isConnected) {
-          loadEmails('current', 'primary');
-        }
-      })
-      .catch(() => {
-        setConnectionStatus({ isConnected: false, email: null, connectedAt: null, lastSyncAt: null });
-      })
-      .finally(() => setIsLoadingStatus(false));
+    const request = consumeRecordEmailCompose(new URL(window.location.href));
+    if (!request) return;
+    // Remove the request synchronously so refresh and Strict Mode cannot replay it.
+    window.history.replaceState(window.history.state, '', request.url);
+    // Keep Next's canonical URL in sync so a later render cannot restore the consumed query.
+    router.replace(`${request.url.pathname}${request.url.search}${request.url.hash}`, { scroll: false });
+    if (!request.to) { toast.error('Please enter a valid email address'); return; }
+    setComposeDraft({ to: request.to, subject: request.subject, body: '' });
+    setIsComposeOpen(true);
+  }, [searchParams, router]);
+
+  const [selectedEmail, setSelectedEmail] = useState<GmailEmail | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<string>();
+  useNotificationRecordLink('threadId', connectionStatus?.email ?? '', !!connectionStatus?.isConnected,
+    async id => { const response = await fetchGmailThread(id); const latest = response.emails[response.emails.length - 1]; if (!latest) throw new Error('Unavailable'); return latest; }, setSelectedEmail);
+  const [revision, setRevision] = useState(0);
+  const [nextPageToken, setNextPageToken] = useState<string>();
+  const [page, setPage] = useState(1);
+  const pageRef = useRef(1), tokenRef = useRef<string | undefined>(undefined);
+  const pageTokens = useRef<Array<string | undefined>>([undefined]);
+  const loaded = useRef(false), syncPending = useRef(false);
+  const request = useRef<{ key: string; controller: AbortController; promise: Promise<void> } | null>(null);
+  const requestId = useRef(0);
+  const shouldReduceMotion = useReducedMotion();
+  const [retryAt, setRetryAt] = useState(0);
+  const [apiCooldownUntil, setApiCooldownUntil] = useState(0);
+  const cooldownRef = useRef(0);
+  const reconnectAfterRef = useRef(0);
+  const applyApiCooldown = useCallback((error: ApiRequestError) => {
+    // Provider throttling pauses synchronization only; persisted mail stays usable.
+    if (error.status !== 429 || error.code === 'GMAIL_RATE_LIMITED') return;
+    const until = Date.parse(error.retryAt ?? '');
+    cooldownRef.current = Math.max(cooldownRef.current, Number.isFinite(until) && until > Date.now() ? until : Date.now() + 60_000);
+    setApiCooldownUntil(cooldownRef.current);
+    setError('Too many requests. Inbox updates will resume automatically.');
   }, []);
 
-  // Reload emails when view or category changes
+  useEffect(() => { const timer = setTimeout(() => setDebouncedSearch(search), 400); return () => clearTimeout(timer); }, [search]);
   useEffect(() => {
-    if (connectionStatus?.isConnected) {
-      loadEmails(activeView, activeCategory);
+    let active = true;
+    const url = new URL(window.location.href);
+    setError(url.searchParams.get('gmail_error') ?? '');
+    if (url.searchParams.has('gmail_error') || url.searchParams.has('gmail_connected')) {
+      url.searchParams.delete('gmail_error'); url.searchParams.delete('gmail_connected'); window.history.replaceState(window.history.state, '', url);
     }
-  }, [activeView, activeCategory, filterQuery, connectionStatus?.isConnected]);
-
-  const getQueryForViewAndCategory = (view: InboxView, category: InboxCategory): string => {
-    let baseQuery = '';
-
-    if (view === 'done') baseQuery = 'is:read -in:inbox';
-    else if (view === 'future') baseQuery = 'in:snoozed OR in:scheduled';
-    else if (view === 'drafts') baseQuery = 'in:drafts';
-    else {
-      // Current view — filter by category
-      switch (category) {
-        case 'primary':
-          baseQuery = 'in:inbox category:primary';
-          break;
-        case 'promotions':
-          baseQuery = 'in:inbox category:promotions';
-          break;
-        case 'social':
-          baseQuery = 'in:inbox category:social';
-          break;
-        case 'updates':
-          baseQuery = 'in:inbox category:updates';
-          break;
-        default:
-          baseQuery = 'in:inbox';
-      }
-    }
-
-    // Append filter query if set
-    if (filterQuery) {
-      baseQuery = `${baseQuery} ${filterQuery}`;
-    }
-
-    return baseQuery;
-  };
-
-  const loadEmails = useCallback(async (view?: InboxView, category?: InboxCategory, pageToken?: string): Promise<void> => {
-    setIsLoadingEmails(true);
-    setEmailError(null);
-    try {
-      const query = getQueryForViewAndCategory(view ?? activeView, category ?? activeCategory);
-      const result = await fetchGmailEmails({ maxResults: 30, query, pageToken });
-      setEmails(result.emails);
-      setNextPageToken(result.nextPageToken);
-    } catch (err) {
-      setEmailError(err instanceof Error ? err.message : 'Failed to load emails');
-    } finally {
-      setIsLoadingEmails(false);
-    }
-  }, [activeView, activeCategory, filterQuery]);
-
-  // Close dropdown on outside click
+    getGmailStatus().then(status => { if (active) { setConnectionStatus(status); setSyncError(status.syncError ?? ''); setRetryAt(Date.parse(status.retryAt ?? '') || 0); } })
+      .catch(error => { if (active) { setError(error.message); applyApiCooldown(error); } }).finally(() => { if (active) setIsLoadingStatus(false); });
+    return () => { active = false; };
+  }, [applyApiCooldown]);
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
+    const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(null); };
+    if (menu) document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menu]);
+  useEffect(() => { if (!retryAt) return; const timer = setTimeout(() => setRetryAt(0), Math.max(0, retryAt - Date.now())); return () => clearTimeout(timer); }, [retryAt]);
+
+  const loadEmails = useCallback((pageToken?: string, targetPage = 1): Promise<void> => {
+    if (Date.now() < cooldownRef.current) return Promise.resolve();
+    const key = JSON.stringify([filter, sort, debouncedSearch, pageToken]);
+    if (request.current?.key === key) return request.current.promise;
+    request.current?.controller.abort();
+    const controller = new AbortController(), id = ++requestId.current;
+    setRefreshing(true); if (!loaded.current) setInitialLoading(true);
+    const promise = (async () => {
+      try {
+        const options = { filter, sort, query: debouncedSearch.trim(), maxResults: 30, pageToken };
+        let currentToken = pageToken, currentPage = targetPage;
+        const result = await fetchGmailEmails(options, controller.signal).catch(async error => {
+          if (!pageToken || (error as ApiRequestError).code !== 'MAILBOX_PAGE_CHANGED' || controller.signal.aborted || id !== requestId.current) throw error;
+          // A cursor from revoked assignments is no longer valid cached data.
+          setEmails([]); setSelectedEmail(null); setInitialLoading(true);
+          currentToken = undefined; currentPage = 1;
+          return fetchGmailEmails({ ...options, pageToken: undefined }, controller.signal);
+        });
+        if (controller.signal.aborted || id !== requestId.current) return;
+        setEmails(result.emails); setUnreadCount(result.unreadCount); setNextPageToken(result.nextPageToken); setError('');
+        if (result.unreadCount !== undefined) window.dispatchEvent(new CustomEvent('mailbox-unread-change', { detail: result.unreadCount }));
+        loaded.current = true; pageRef.current = currentPage; tokenRef.current = currentToken; setPage(currentPage);
+        if (currentPage === 1) pageTokens.current = [undefined];
+        pageTokens.current[currentPage - 1] = currentToken;
+      } catch (error) {
+        if (controller.signal.aborted || id !== requestId.current) return;
+        const apiError = error as ApiRequestError;
+        if (apiError.status === 429) {
+          applyApiCooldown(apiError);
+        } else {
+          setError(error instanceof Error ? error.message : 'Unable to load emails.');
+        }
+        if ([401, 403, 409].includes((error as ApiRequestError).status ?? 0)) { setEmails([]); setSelectedEmail(null); }
+      } finally {
+        if (id === requestId.current) { request.current = null; setRefreshing(false); setInitialLoading(false); }
       }
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setIsFilterOpen(false);
-      }
-      if (sortRef.current && !sortRef.current.contains(event.target as Node)) {
-        setIsSortOpen(false);
-      }
+    })();
+    request.current = { key, controller, promise };
+    return promise;
+  }, [filter, sort, debouncedSearch, applyApiCooldown]);
+  useEffect(() => {
+    if (connectionStatus?.isConnected) void loadEmails();
+    return () => { request.current?.controller.abort(); request.current = null; requestId.current++; };
+  }, [connectionStatus?.isConnected, loadEmails]);
+
+  useEffect(() => {
+    if (!connectionStatus?.isConnected || apiCooldownUntil > Date.now()) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    const refresh = () => {
+      if (!active || document.visibilityState === 'hidden' || Date.now() < cooldownRef.current) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!active || document.visibilityState === 'hidden' || Date.now() < cooldownRef.current) return;
+        void loadEmails(tokenRef.current, pageRef.current);
+        setRevision(value => value + 1);
+        void getGmailStatus().then(status => {
+          if (active) {
+            setConnectionStatus(status);
+            setSyncError(status.syncError ?? '');
+            setRetryAt(Date.parse(status.retryAt ?? '') || 0);
+          }
+        }).catch(error => { if (active) applyApiCooldown(error); });
+      }, 250);
     };
-    if (isDropdownOpen || isFilterOpen || isSortOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isDropdownOpen, isFilterOpen, isSortOpen]);
-
-  const activeViewLabel = VIEW_OPTIONS.find((v) => v.id === activeView)?.label ?? 'Current';
-  const isConnected = connectionStatus?.isConnected === true;
-  const emailCount = emails.length;
-
-  // Sort emails based on sortOrder
-  const sortedEmails = [...emails].sort((a, b) => {
-    if (sortOrder === 'oldest') {
-      return new Date(a.date).getTime() - new Date(b.date).getTime();
-    }
-    if (sortOrder === 'unread') {
-      if (!a.isRead && b.isRead) return -1;
-      if (a.isRead && !b.isRead) return 1;
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
-    }
-    // newest first (default)
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
-  });
-
-  const handleNextPage = (): void => {
-    if (nextPageToken) {
-      setCurrentPage((p) => p + 1);
-      loadEmails(undefined, undefined, nextPageToken);
-    }
-  };
-
-  const handlePrevPage = (): void => {
-    if (currentPage > 1) {
-      setCurrentPage(1);
-      loadEmails();
-    }
-  };
-
-  const handleEmailClick = (email: GmailEmail): void => {
-    if (activeView === 'drafts') {
-      // Open compose modal pre-filled with draft content
-      setComposeDraft({
-        to: email.to.join(', '),
-        subject: email.subject,
-        body: email.body,
-        draftId: email.id,
+    const visible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', visible);
+    // The connection may fail (404 during a partial deployment, or 429).
+    // Do not let EventSource's automatic 3-second retry loop hammer the API.
+    let events: EventSource | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
+    const connect = () => {
+      if (!active || events || document.visibilityState === 'hidden' || Date.now() < cooldownRef.current || Date.now() < reconnectAfterRef.current || typeof EventSource === 'undefined') return;
+      events = new EventSource('/api/proxy/integrations/gmail/events');
+      events.addEventListener('mailbox-change', refresh);
+      events.addEventListener('mailbox-access-changed', () => { setEmails([]); setSelectedEmail(null); refresh(); });
+      events.addEventListener('error', () => {
+        events?.close();
+        events = null;
+        reconnectAfterRef.current = Date.now() + 60_000;
+        reconnect = setTimeout(() => { refresh(); connect(); }, 60_000);
       });
-      setIsComposeOpen(true);
-    } else {
-      setSelectedEmail(email);
-    }
-  };
+    };
+    connect();
+    // Retry even intentional server expiry, but never in a rapid reconnect loop.
+    // Persisted fallback reads never start a Gmail provider synchronization.
+    const poll = window.setInterval(() => { if (!events) { refresh(); connect(); } }, 60_000);
+    return () => {
+      active = false;
+      events?.close();
+      if (poll !== undefined) window.clearInterval(poll);
+      clearTimeout(timer);
+      clearTimeout(reconnect);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [connectionStatus?.isConnected, loadEmails, apiCooldownUntil, applyApiCooldown]);
 
-  const contentAnimation = shouldReduceMotion
-    ? {}
-    : { initial: { opacity: 0, y: 15 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4 } };
-
-  const renderContent = (): React.ReactElement => {
-    if (isLoadingStatus) {
-      return (
-        <div className="flex items-center justify-center h-96">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-        </div>
-      );
-    }
-
-    // Not connected — show connect empty state
-    if (!isConnected) return <InboxCurrentEmpty />;
-
-    if (isLoadingEmails) {
-      return (
-        <div className="flex flex-col items-center justify-center h-96 gap-3">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Loading emails...</p>
-        </div>
-      );
-    }
-
-    if (emailError) {
-      return (
-        <div className="flex flex-col items-center justify-center h-96 px-6 text-center">
-          <p className="text-sm text-red-500 dark:text-red-400 mb-3">{emailError}</p>
-          <button
-            onClick={() => loadEmails()}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-          >
-            Try again
-          </button>
-        </div>
-      );
-    }
-
-    // Show empty states only when there are no emails
-    if (emails.length === 0) {
-      if (activeView === 'done') return <InboxDoneEmpty />;
-      if (activeView === 'future') return <InboxFutureEmpty />;
-      if (activeView === 'drafts') {
-        return (
-          <div className="flex flex-col items-center justify-center h-full px-6 py-16">
-            <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-500/10 border border-slate-500/20 mb-6">
-              <svg className="w-8 h-8 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                <polyline points="17 21 17 13 7 13 7 21" />
-                <polyline points="7 3 7 8 15 8" />
-              </svg>
-            </div>
-            <h3 className="font-display text-xl font-bold tracking-tight text-slate-900 dark:text-white mb-3">
-              No drafts
-            </h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-              Saved drafts will appear here. Click Compose to start writing.
-            </p>
-          </div>
-        );
+  useEffect(() => {
+    if (!apiCooldownUntil) return;
+    const delay = Math.max(0, apiCooldownUntil - Date.now());
+    const timer = window.setTimeout(() => {
+      if (Date.now() >= cooldownRef.current) {
+        cooldownRef.current = 0;
+        setApiCooldownUntil(0);
+        if (document.visibilityState !== 'hidden') {
+          if (connectionStatus?.isConnected) void loadEmails(tokenRef.current, pageRef.current);
+          else void getGmailStatus().then(setConnectionStatus).catch(applyApiCooldown);
+        }
       }
-    }
+    }, delay + 25);
+    return () => window.clearTimeout(timer);
+  }, [apiCooldownUntil, connectionStatus?.isConnected, loadEmails, applyApiCooldown]);
 
-    return <InboxEmailList emails={sortedEmails} onEmailsChanged={() => loadEmails()} totalCount={emailCount} onEmailClick={handleEmailClick} currentPage={currentPage} hasNextPage={!!nextPageToken} onNextPage={handleNextPage} onPrevPage={handlePrevPage} />;
+  const sync = async () => {
+    if (syncPending.current || disconnectPending.current || refreshing || retryAt > Date.now() || Date.now() < cooldownRef.current) return;
+    syncPending.current = true; setSyncing(true); setSyncError('');
+    try {
+      const result = await syncGmail();
+      setRetryAt(Date.parse(result.retryAt ?? '') || 0);
+      setSyncError(result.retryAt ? 'Gmail updates are temporarily paused. Saved emails remain available.' : result.hasMore ? 'Email updates are continuing in the background.' : '');
+      await loadEmails(tokenRef.current, pageRef.current);
+    } catch (error) {
+      applyApiCooldown(error as ApiRequestError);
+      setSyncError((error as ApiRequestError).code === 'GMAIL_RATE_LIMITED' ? 'Gmail updates are temporarily paused. Saved emails remain available.' : error instanceof Error ? error.message : 'Email updates are delayed.');
+      setRetryAt(Date.parse((error as ApiRequestError).retryAt ?? '') || 0);
+    } finally { syncPending.current = false; setSyncing(false); }
   };
-
-  // If an email is selected, show the detail view
-  if (selectedEmail) {
-    return (
-      <motion.div {...contentAnimation} className="flex flex-col h-full -m-4 lg:-m-6">
-        <div className="flex-1 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/[0.05] bg-white dark:bg-white/[0.02] mx-6 mt-6">
-          <EmailDetailView
-            email={selectedEmail}
-            onBack={() => setSelectedEmail(null)}
-            onEmailsChanged={() => { loadEmails(); setSelectedEmail(null); }}
-          />
+  const disconnect = async () => {
+    if (disconnectPending.current || syncPending.current || refreshing) return;
+    disconnectPending.current = true; setDisconnecting(true);
+    try {
+      await disconnectGmail();
+      request.current?.controller.abort(); request.current = null; requestId.current++;
+      setConnectionStatus(null); setEmails([]); setUnreadCount(undefined); setSelectedEmail(null);
+      loaded.current = false;
+      window.dispatchEvent(new CustomEvent('mailbox-unread-change', { detail: 0 }));
+    } catch (error) { setError(error instanceof Error ? error.message : 'Unable to disconnect your mailbox.'); }
+    finally { disconnectPending.current = false; setDisconnecting(false); }
+  };
+  const openEmail = (email: GmailEmail) => {
+    if (email.scheduledStatus) { setSelectedSchedule(email.id); return; }
+    if (filter === 'drafts') { setComposeDraft({ to: email.to.join(', '), subject: email.subject, body: email.body, draftId: email.draftId }); setIsComposeOpen(true); }
+    else setSelectedEmail(email);
+  };
+  const animation = shouldReduceMotion ? {} : { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.2 } };
+  if (selectedEmail) return <motion.div {...animation} className="flex h-full min-h-0 min-w-0 flex-col rounded-xl border border-border bg-card">
+    <EmailConversationView key={selectedEmail.conversationId ?? selectedEmail.threadId} email={selectedEmail} mailboxEmail={connectionStatus?.email ?? undefined} revision={revision} retryAt={retryAt} onBack={message => { setSelectedEmail(null); if (message) setError(message); }} onEmailsChanged={() => { void loadEmails(tokenRef.current, pageRef.current); setRevision(value => value + 1); }} />
+  </motion.div>;
+  return <motion.div {...animation} className="flex h-full min-h-0 min-w-0 flex-col gap-4 pb-16">
+    <header><h1 className="font-display text-2xl font-bold tracking-tight">Inbox</h1>{unreadCount !== undefined && connectionStatus?.isConnected && <p className="mt-1 text-xs text-muted-foreground">{unreadCount} unread {unreadCount === 1 ? 'conversation' : 'conversations'}</p>}</header>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card">
+      {connectionStatus?.isConnected && <>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-4 sm:px-5">
+          <div className="flex min-w-0 items-center gap-3"><span className="shrink-0 rounded-full bg-[var(--color-brand-light)] p-2 text-[var(--primary)]"><Mail size={18} /></span><div className="min-w-0"><p className="text-sm font-semibold">Work email</p><p className="break-all text-xs text-muted-foreground">{connectionStatus.email}</p></div></div>
+          <div className="flex items-center gap-2"><button className={control} disabled={syncing || refreshing || disconnecting || retryAt > Date.now() || apiCooldownUntil > Date.now()} onClick={() => void sync()}>{syncing && <Loader2 size={14} className="animate-spin" />}Sync now</button><button className={control} disabled={syncing || refreshing || disconnecting} onClick={() => void disconnect()}>{disconnecting && <Loader2 size={14} className="animate-spin" />}Disconnect</button></div>
         </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div {...contentAnimation} className="flex flex-col h-full -m-4 lg:-m-6">
-      {/* Page Header */}
-      <div className="px-6 pt-6 pb-0 shrink-0">
-        {/* Title row */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Inbox
-            </h1>
-
-            {/* View dropdown */}
-            <div className="relative" ref={dropdownRef}>
-              <button
-                onClick={() => setIsDropdownOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-transparent text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                aria-haspopup="listbox"
-                aria-expanded={isDropdownOpen}
-                aria-label={`View: ${activeViewLabel}`}
-              >
-                <span>{activeViewLabel}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-
-              <AnimatePresence>
-                {isDropdownOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.97, y: 4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.97, y: 4 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute top-full left-0 mt-1.5 w-44 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg py-1 z-10"
-                    role="listbox"
-                    aria-label="Inbox view options"
-                  >
-                    {VIEW_OPTIONS.map((option) => {
-                      const isActive = activeView === option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          onClick={() => {
-                            setActiveView(option.id);
-                            setIsDropdownOpen(false);
-                          }}
-                          className={`
-                            w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors cursor-pointer
-                            ${isActive
-                              ? 'bg-blue-600/10 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium'
-                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05]'}
-                          `}
-                          role="option"
-                          aria-selected={isActive}
-                        >
-                          {isActive && <Check className="w-4 h-4 text-blue-500" />}
-                          {!isActive && <span className="w-4" />}
-                          <span>{option.label}</span>
-                        </button>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-
-          {/* Header actions — Filter & Sort */}
-          <div className="flex items-center gap-2">
-            {/* Filter dropdown */}
-            <div className="relative" ref={filterRef}>
-              <button
-                onClick={() => { setIsFilterOpen((prev) => !prev); setIsSortOpen(false); }}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer border',
-                  filterQuery
-                    ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
-                    : 'border-gray-200 dark:border-white/[0.08] bg-white dark:bg-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/[0.05]',
-                )}
-                aria-label="Filter emails"
-              >
-                <Filter className="w-3.5 h-3.5" />
-                <span>Filter</span>
-                {filterQuery && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
-              </button>
-
-              <AnimatePresence>
-                {isFilterOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.97, y: 4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.97, y: 4 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute top-full right-0 mt-1.5 w-56 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg py-1 z-10"
-                  >
-                    <p className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                      Filter by
-                    </p>
-                    {[
-                      { label: 'All emails', query: '' },
-                      { label: 'Unread only', query: 'is:unread' },
-                      { label: 'Has attachment', query: 'has:attachment' },
-                      { label: 'From me', query: 'from:me' },
-                    ].map((option) => (
-                      <button
-                        key={option.label}
-                        onClick={() => {
-                          setFilterQuery(option.query);
-                          setIsFilterOpen(false);
-                          loadEmails();
-                        }}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors cursor-pointer',
-                          filterQuery === option.query
-                            ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 font-medium'
-                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05]',
-                        )}
-                      >
-                        {filterQuery === option.query && <Check className="w-3.5 h-3.5 text-blue-500" />}
-                        {filterQuery !== option.query && <span className="w-3.5" />}
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Sort dropdown */}
-            <div className="relative" ref={sortRef}>
-              <button
-                onClick={() => { setIsSortOpen((prev) => !prev); setIsFilterOpen(false); }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-transparent text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer"
-                aria-label="Sort emails"
-              >
-                <ArrowDownAZ className="w-3.5 h-3.5" />
-                <span>Sort</span>
-              </button>
-
-              <AnimatePresence>
-                {isSortOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.97, y: 4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.97, y: 4 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute top-full right-0 mt-1.5 w-48 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-slate-800 shadow-lg py-1 z-10"
-                  >
-                    <p className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                      Sort by
-                    </p>
-                    {[
-                      { label: 'Newest first', value: 'newest' as const },
-                      { label: 'Oldest first', value: 'oldest' as const },
-                      { label: 'Unread first', value: 'unread' as const },
-                    ].map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setSortOrder(option.value);
-                          setIsSortOpen(false);
-                        }}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors cursor-pointer',
-                          sortOrder === option.value
-                            ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 font-medium'
-                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05]',
-                        )}
-                      >
-                        {sortOrder === option.value && <Check className="w-3.5 h-3.5 text-blue-500" />}
-                        {sortOrder !== option.value && <span className="w-3.5" />}
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
+        <div ref={menuRef} className="flex flex-wrap items-center gap-2 border-b border-border p-3 sm:px-5" onKeyDown={event => { if (event.key === 'Escape') setMenu(null); }}>
+          <label className="flex min-h-10 min-w-0 basis-full items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 sm:flex-1 sm:basis-auto"><Search size={16} className="shrink-0 text-muted-foreground" /><input aria-label="Search email" placeholder="Search email..." value={search} onChange={event => setSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none" /></label>
+          <div className="relative"><button className={control} aria-label="Filter emails" aria-expanded={menu === 'filter'} aria-haspopup="menu" onClick={() => setMenu(menu === 'filter' ? null : 'filter')}><Filter size={14} />Filter</button>{menu === 'filter' && <div role="menu" aria-label="Filter by" className="absolute left-0 top-full z-20 mt-2 w-48 rounded-xl border border-border bg-card py-2 shadow-lg"><p className="px-4 py-1 text-[10px] font-bold uppercase text-muted-foreground">Filter by</p>{FILTERS.map(option => <button key={option.id} role="menuitemradio" aria-checked={filter === option.id} className={cn('flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted', filter === option.id && 'bg-[var(--color-brand-light)] text-[var(--primary)]')} onClick={() => { setFilter(option.id); setMenu(null); }}><Check size={14} className={filter === option.id ? '' : 'invisible'} />{option.label}</button>)}</div>}</div>
+          <div className="relative"><button className={control} aria-label="Sort emails" aria-expanded={menu === 'sort'} aria-haspopup="menu" onClick={() => setMenu(menu === 'sort' ? null : 'sort')}><ArrowDownAZ size={14} />Sort</button>{menu === 'sort' && <div role="menu" aria-label="Sort by" className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-border bg-card py-2 shadow-lg">{SORTS.map(option => <button key={option.id} role="menuitemradio" aria-checked={sort === option.id} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted" onClick={() => { setSort(option.id); setMenu(null); }}><Check size={14} className={sort === option.id ? '' : 'invisible'} />{option.label}</button>)}</div>}</div>
         </div>
-
-        {/* Category chips — LeadCRM style */}
-        {isConnected && activeView === 'current' && (
-          <div className="flex items-center gap-2 mt-3">
-            {[
-              { id: 'primary' as const, label: 'Primary', icon: Inbox, color: 'blue' },
-              { id: 'promotions' as const, label: 'Promotions', icon: Tag, color: 'emerald' },
-              { id: 'social' as const, label: 'Social', icon: Users, color: 'violet' },
-              { id: 'updates' as const, label: 'Updates', icon: Info, color: 'amber' },
-            ].map((tab) => {
-              const isActive = activeCategory === tab.id;
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveCategory(tab.id)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer border',
-                    isActive && tab.color === 'blue' && 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/60',
-                    isActive && tab.color === 'emerald' && 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60',
-                    isActive && tab.color === 'violet' && 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800/60',
-                    isActive && tab.color === 'amber' && 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/60',
-                    !isActive && 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] hover:text-slate-700 dark:hover:text-slate-300',
-                  )}
-                  aria-label={tab.label}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Content area */}
-      <div className="flex-1 overflow-y-auto rounded-t-2xl border border-gray-200 dark:border-white/[0.05] bg-white dark:bg-white/[0.02] mx-6">
-        {renderContent()}
-      </div>
-
-      {/* Floating Compose Button — hide when compose is open */}
-      {isConnected && !isComposeOpen && (
-        <button
-          onClick={() => setIsComposeOpen(true)}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2.5 h-14 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-xl shadow-blue-500/30 active:scale-95 transition-all cursor-pointer"
-          aria-label="Compose new email"
-        >
-          <Pencil className="w-5 h-5" />
-          <span className="hidden sm:inline">Compose</span>
-        </button>
-      )}
-
-      {/* Compose Modal */}
-      <ComposeModal
-        isOpen={isComposeOpen}
-        onClose={() => { setIsComposeOpen(false); setComposeDraft(null); }}
-        onSent={() => loadEmails()}
-        initialDraft={composeDraft}
-      />
-    </motion.div>
-  );
+      </>}
+      {syncError && <p role="status" className="border-b border-border px-4 py-2 text-xs text-muted-foreground">{syncError}</p>}
+      {error && <p role="alert" className="px-4 py-3 text-sm text-red-600">{error}</p>}
+      {isLoadingStatus ? <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Loading emails...</div> : !connectionStatus?.isConnected ? <InboxCurrentEmpty /> : <InboxEmailList emails={emails} onEmailClick={openEmail} loading={initialLoading} hasLoadError={!!error} refreshDisabled={refreshing || syncing || disconnecting || apiCooldownUntil > Date.now()} onEmailsChanged={() => loadEmails(tokenRef.current, pageRef.current)} totalCount={emails.length} currentPage={page} hasNextPage={!!nextPageToken} onNextPage={() => { if (nextPageToken) void loadEmails(nextPageToken, page + 1); }} onPrevPage={() => void loadEmails(pageTokens.current[Math.max(0, page - 2)], Math.max(1, page - 1))} />}
+    </section>
+    {connectionStatus?.isConnected && !isComposeOpen && <button aria-label="Compose new email" onClick={() => { setComposeDraft(null); setIsComposeOpen(true); }} className="fixed bottom-4 right-3 z-40 inline-flex min-h-11 items-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-foreground)] shadow-lg sm:bottom-6 sm:right-6 sm:px-6"><Pencil size={18} />Compose</button>}
+    {connectionStatus?.isConnected && selectedSchedule && <ScheduledEmailDialog key={selectedSchedule} id={selectedSchedule} onClose={() => setSelectedSchedule(undefined)} onCancelled={() => { void loadEmails(tokenRef.current, pageRef.current); toast.success('Scheduled send cancelled. The email is available in Drafts.'); }} />}
+    <ComposeModal isOpen={isComposeOpen} retryAt={retryAt} onClose={() => { setIsComposeOpen(false); setComposeDraft(null); }} onSent={() => void loadEmails()} initialDraft={composeDraft} />
+  </motion.div>;
 }

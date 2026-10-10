@@ -210,6 +210,33 @@ describe('ManageColumnsDrawer — save, retry, and unsaved-changes guard', () =>
   });
 
   describe('Requirement 5.7: Confirmation dialog on close with unsaved changes', () => {
+    it('Escape dismisses the discard confirmation without also closing its drawer', async () => {
+      const onClose = vi.fn();
+      renderDrawer({ onClose });
+      await act(async () => { fireEvent.click(screen.getByLabelText('Toggle Email visibility')); });
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+      expect(screen.getByText('Discard changes?')).toBeTruthy();
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+      expect(screen.queryByText('Discard changes?')).toBeNull();
+      expect(screen.getByRole('dialog', { name: 'Manage Columns - leads' })).toBeTruthy();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('does not close or open a discard dialog while a save is pending', async () => {
+      let finishSave: () => void;
+      const onSave = vi.fn(() => new Promise<void>(resolve => { finishSave = resolve; }));
+      const onClose = vi.fn();
+      renderDrawer({ onSave, onClose });
+      await act(async () => { fireEvent.click(screen.getByLabelText('Toggle Email visibility')); });
+      await act(async () => { fireEvent.click(screen.getByText('Save')); });
+      expect((screen.getByLabelText('Close drawer') as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+      expect(screen.queryByText('Discard changes?')).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+      await act(async () => finishSave());
+      expect(screen.getByText('Saved')).toBeTruthy();
+    });
+
     it('shows confirmation dialog when closing with unsaved changes', async () => {
       const onClose = vi.fn();
       renderDrawer({ onClose });

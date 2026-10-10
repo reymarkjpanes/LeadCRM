@@ -60,7 +60,7 @@ export function LeadActivitiesTab({
                 onClick={() => onSetLogType(type)}
                 className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all ${
                   logType === type
-                    ? 'bg-blue-500 text-white border-blue-500'
+                    ? 'bg-primary text-white border-primary'
                     : 'bg-white dark:bg-white/5 text-slate-600 dark:text-slate-400 border-gray-200 dark:border-white/5'
                 }`}
               >
@@ -80,7 +80,7 @@ export function LeadActivitiesTab({
           />
           <button
             type="submit"
-            className="bg-blue-500 hover:bg-blue-600 font-semibold text-white px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors"
+            className="bg-primary hover:bg-primary/90 font-semibold text-white px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors"
           >
             <CheckCircle size={13} /> Log
           </button>

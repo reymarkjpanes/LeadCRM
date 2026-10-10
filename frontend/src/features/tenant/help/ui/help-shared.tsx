@@ -24,5 +24,5 @@ export function ArticleResult({ article }: { article: HelpArticle }) {
 }
 
 export function HelpFooter() {
-  return <p className={styles.footer}>Guides for the current LeadCRM workspace. Available controls depend on your role and environment.</p>;
+  return <p className={styles.footer}>Guides for the current LeadCRM workspace. Available controls depend on your role.</p>;
 }

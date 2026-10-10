@@ -1,0 +1,2327 @@
+{
+  "checks": [
+    {
+      "label": "workflow-runs",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "workflow-runs",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "workflow-runs",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "workflow-runs",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "workflow-runs",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "leads-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "leads-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "leads-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "leads-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "leads-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "contacts-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "contacts-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "contacts-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "contacts-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "contacts-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "accounts-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "accounts-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "accounts-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "accounts-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "accounts-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "deals-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "deals-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "deals-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "deals-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "deals-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "leads-create-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "leads-create-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "leads-create-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "leads-create-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "leads-create-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "contacts-create-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "contacts-create-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "contacts-create-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "contacts-create-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "contacts-create-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "accounts-create-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "accounts-create-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "accounts-create-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "accounts-create-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "accounts-create-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    },
+    {
+      "label": "deals-create-products",
+      "width": 320,
+      "viewport": 320,
+      "scroll": 320
+    },
+    {
+      "label": "deals-create-products",
+      "width": 375,
+      "viewport": 375,
+      "scroll": 375
+    },
+    {
+      "label": "deals-create-products",
+      "width": 390,
+      "viewport": 390,
+      "scroll": 390
+    },
+    {
+      "label": "deals-create-products",
+      "width": 768,
+      "viewport": 768,
+      "scroll": 768
+    },
+    {
+      "label": "deals-create-products",
+      "width": 1440,
+      "viewport": 1440,
+      "scroll": 1440
+    }
+  ],
+  "requests": [
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/leads/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/contacts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/accounts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/invitations",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/invitations",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/triggers",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/actions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows/wf/executions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows/wf/executions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads/one",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/activities",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads/one/relationships",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts/one",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts/one/relationships",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts/one",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/activities",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts/one/relationships",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals/one",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals/one/closing-requirements",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/activities",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals/one/closing-requirements",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/operations/tasks/summary",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/leads/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/contacts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/preferences/table/accounts/filters",
+      "authenticated": true,
+      "method": "PUT"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts/view-type",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/columns/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/preferences/table/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/product-interests",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/roles",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/pipelines",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/users/qa-user/permissions",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/leads",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/contacts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/accounts",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/crm/deals",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/automation/workflows",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/integrations/gmail/status",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/notifications",
+      "authenticated": true,
+      "method": "GET"
+    },
+    {
+      "path": "/administration/closing-requirements",
+      "authenticated": true,
+      "method": "GET"
+    }
+  ],
+  "clientPaths": [
+    "/api/proxy/auth/me",
+    "/api/proxy/administration/roles",
+    "/api/proxy/administration/permissions",
+    "/api/proxy/crm/accounts",
+    "/api/proxy/crm/deals",
+    "/api/proxy/crm/pipelines",
+    "/api/proxy/administration/users",
+    "/api/proxy/crm/leads",
+    "/api/proxy/crm/contacts",
+    "/api/proxy/notifications",
+    "/api/proxy/integrations/gmail/status",
+    "/api/proxy/administration/users/qa-user/permissions",
+    "/api/proxy/automation/workflows",
+    "/api/proxy/preferences/table/leads/view-type",
+    "/api/proxy/preferences/columns/leads",
+    "/api/proxy/preferences/table/leads",
+    "/api/proxy/preferences/table/leads/filters",
+    "/api/proxy/preferences/table/contacts/view-type",
+    "/api/proxy/preferences/columns/contacts",
+    "/api/proxy/preferences/table/contacts",
+    "/api/proxy/preferences/table/contacts/filters",
+    "/api/proxy/preferences/table/accounts/view-type",
+    "/api/proxy/preferences/columns/accounts",
+    "/api/proxy/preferences/table/accounts",
+    "/api/proxy/preferences/table/accounts/filters",
+    "/api/proxy/invitations",
+    "/api/proxy/automation/triggers",
+    "/api/proxy/automation/actions",
+    "/api/proxy/automation/workflows/wf/executions",
+    "/api/proxy/crm/leads/one",
+    "/api/proxy/operations/tasks",
+    "/api/proxy/operations/tasks/summary",
+    "/api/proxy/crm/activities",
+    "/api/proxy/crm/leads/one/relationships",
+    "/api/proxy/administration/product-interests",
+    "/api/proxy/crm/contacts/one",
+    "/api/proxy/crm/contacts/one/relationships",
+    "/api/proxy/crm/accounts/one",
+    "/api/proxy/crm/accounts/one/relationships",
+    "/api/proxy/crm/deals/one",
+    "/api/proxy/crm/deals/one/closing-requirements",
+    "/api/proxy/administration/closing-requirements"
+  ],
+  "signedOutStatus": 401,
+  "pageErrors": []
+}

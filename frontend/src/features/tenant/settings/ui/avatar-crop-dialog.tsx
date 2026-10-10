@@ -51,7 +51,7 @@ export function AvatarCropDialog({ file, onClose, onApply }: { file: File; onClo
       </label>
       <div className="flex justify-end gap-2">
         <button type="button" disabled={saving} onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cancel</button>
-        <button type="button" disabled={saving || !area} onClick={apply} className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Uploading…' : 'Apply picture'}</button>
+        <button type="button" disabled={saving || !area} onClick={apply} className="rounded-lg bg-primary text-white px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Uploading…' : 'Apply picture'}</button>
       </div>
     </DialogContent>
   </Dialog>;

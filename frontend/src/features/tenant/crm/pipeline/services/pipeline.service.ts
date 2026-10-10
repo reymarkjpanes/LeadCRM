@@ -1,7 +1,7 @@
 'use client';
 
 import { apiClient } from '@/lib/api/client';
-import type { ApiResponse, PaginatedResponse } from '@leadcrm/shared';
+import type { ApiResponse, PaginatedResponse, ClosedWonConfirmation, CreateDealBatchInput, DealBatchResult } from '@leadcrm/shared';
 import type { Deal, Pipeline } from '@/store/types';
 
 export const pipelineService = {
@@ -16,13 +16,16 @@ export const pipelineService = {
     return apiClient.get<PaginatedResponse<Deal>>(`/crm/deals${qs}`);
   },
 
+  createDeals: (data: CreateDealBatchInput): Promise<ApiResponse<DealBatchResult<Deal>>> =>
+    apiClient.post('/crm/deals/batch', data),
+
   createDeal: (data: Partial<Deal>): Promise<ApiResponse<Deal>> =>
     apiClient.post<ApiResponse<Deal>>('/crm/deals', data),
 
   updateDeal: (id: string, data: Partial<Deal>): Promise<ApiResponse<Deal>> =>
     apiClient.put<ApiResponse<Deal>>(`/crm/deals/${id}`, data),
 
-  moveDealStage: (id: string, data: { stageId: string; note?: string; lostReason?: string; handoff?: any }): Promise<ApiResponse<Deal>> =>
+  moveDealStage: (id: string, data: { stageId: string; note?: string; lostReason?: string; handoff?: any; confirmation?: ClosedWonConfirmation }): Promise<ApiResponse<Deal>> =>
     apiClient.patch<ApiResponse<Deal>>(`/crm/deals/${id}/stage`, data),
 
   archiveDeal: (id: string): Promise<void> =>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -35,7 +35,7 @@ interface ApiResultRow {
   id: string;
   importId: string;
   rowNumber: number;
-  status: 'imported' | 'failed';
+  status: 'imported' | 'failed' | 'duplicate';
   remarks: string | null;
   createdAt: string;
   [key: string]: unknown;
@@ -64,7 +64,7 @@ function getStatusBadge(status: string): { label: string; className: string } {
       return { label: 'Failed', className: 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400' };
     case 'pending':
     case 'importing':
-      return { label: 'In Progress', className: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400' };
+      return { label: 'In Progress', className: 'bg-blue-100 dark:bg-primary/20 text-blue-700 dark:text-primary' };
     default:
       return { label: status, className: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400' };
   }
@@ -80,11 +80,13 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
   const [results, setResults] = useState<ApiResultRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [resultsLoading, setResultsLoading] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+  const resultRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'imported' | 'failed'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'imported' | 'failed' | 'duplicate'>('all');
 
   const pageSize = 25;
 
@@ -110,7 +112,9 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
   // ── Fetch Results ──────────────────────────────────────────────────────
 
   const fetchResults = useCallback(async () => {
+    const version = ++resultRequest.current;
     setResultsLoading(true);
+    setResultsError(null);
     try {
       const params: Record<string, unknown> = { page, limit: pageSize };
       if (statusFilter !== 'all') params.status = statusFilter;
@@ -119,14 +123,17 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
         `${config.importApiPath}/${importId}/results`,
         { params },
       );
+      if (version !== resultRequest.current) return;
       setResults(response.data);
       setTotalResults(response.meta.total);
       setTotalPages(Math.ceil(response.meta.total / pageSize) || 1);
     } catch (err) {
+      if (version !== resultRequest.current) return;
       const message = err instanceof Error ? err.message : 'Failed to load results';
+      setResultsError(message);
       toast.error(message);
     } finally {
-      setResultsLoading(false);
+      if (version === resultRequest.current) setResultsLoading(false);
     }
   }, [config.importApiPath, importId, page, statusFilter]);
 
@@ -136,19 +143,15 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
 
   useEffect(() => {
     if (importData) fetchResults();
+    return () => { resultRequest.current++; };
   }, [fetchResults, importData]);
-
-  // Reset page when filter changes
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter]);
 
   // ── Get display columns from result data ───────────────────────────────
 
   const displayFields = useMemo(() => {
     const allFields = [...config.requiredFields, ...config.optionalFields];
     // Show up to 6 fields in the results table
-    return allFields.slice(0, 6);
+    return allFields.filter((f, index) => index < 6 || f.key === 'productInterest');
   }, [config]);
 
   // ── Back route (to the import page, not module list) ───────────────────
@@ -192,7 +195,7 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
         </p>
         <button
           onClick={() => router.push(backToImport)}
-          className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 text-[13px] font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors"
         >
           <ArrowLeft size={14} />
           Back to Import
@@ -228,6 +231,14 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
               </span>
             </div>
             <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-1" style={{ overflowWrap: 'anywhere' }}>{importData.fileName}</p>
+            {importData.status === 'importing' && importData.idempotencyKey && (
+              <div className="mt-3 text-[13px] text-slate-500">
+                <p>The original importer can resume by uploading the same CSV with the same column mapping.</p>
+                <button onClick={() => router.push(`${backToImport}?importKey=${encodeURIComponent(importData.idempotencyKey!)}`)} className="mt-2 text-primary font-medium cursor-pointer">
+                  Resume import <ArrowLeft size={13} className="inline rotate-180" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Summary Cards */}
@@ -247,6 +258,7 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
             <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-700/50 rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-2"><CheckCircle2 size={15} className="text-emerald-500" /><span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Records</span></div>
               <p className="text-[13px] font-bold text-slate-900 dark:text-white">{importData.successfulRecords} / {importData.totalRecords}</p>
+              {(importData.duplicateRecords ?? 0) > 0 && <p className="text-[11px] text-amber-600">{importData.duplicateRecords} duplicates</p>}
               {importData.failedRecords > 0 && <p className="text-[11px] text-red-500 mt-0.5">{importData.failedRecords} failed</p>}
             </div>
           </div>
@@ -255,13 +267,13 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/60 rounded-2xl min-w-0 px-3 sm:px-6 py-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Import Results</h3>
-              <div className="flex items-center gap-0.5 border border-slate-200 dark:border-slate-700 rounded-lg p-[2px]">
-                {(['all', 'imported', 'failed'] as const).map((filter) => {
-                  const labels = { all: 'All', imported: 'Imported', failed: 'Failed' };
+              <div className="flex flex-wrap items-center gap-0.5 border border-slate-200 dark:border-slate-700 rounded-lg p-[2px]">
+                {(['all', 'imported', 'failed', 'duplicate'] as const).map((filter) => {
+                  const labels = { all: 'All', imported: 'Imported', failed: 'Failed', duplicate: 'Duplicate' };
                   return (
                     <button
                       key={filter}
-                      onClick={() => setStatusFilter(filter)}
+                      onClick={() => { setPage(1); setStatusFilter(filter); }}
                       className={cn(
                         'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                         statusFilter === filter
@@ -280,6 +292,11 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
             {resultsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 size={20} className="animate-spin text-slate-400" />
+              </div>
+            ) : resultsError ? (
+              <div role="alert" className="py-8 text-center text-sm text-red-600">
+                <p>{resultsError}</p>
+                <button onClick={fetchResults} className="mt-3 text-primary font-medium cursor-pointer"><RefreshCw size={13} className="inline" /> Retry results</button>
               </div>
             ) : results.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -316,12 +333,12 @@ export default function ImportDetailsPage({ moduleKey, importId }: ImportDetails
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 dark:text-red-400">
-                              <CircleX size={11} /> Failed
+                              <CircleX size={11} /> {row.status === 'duplicate' ? 'Duplicate' : 'Failed'}
                             </span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400">
-                          {row.status === 'imported' ? 'Successfully imported' : (row.remarks || '—')}
+                          {row.status === 'imported' ? ('Successfully imported' + (row.resolvedValue === undefined ? '' : ' · Product value: ₱' + Number(row.resolvedValue).toLocaleString('en-PH')))  : (row.remarks || '—')}
                         </td>
                       </tr>
                     ))}

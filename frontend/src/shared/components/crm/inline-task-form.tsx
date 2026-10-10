@@ -11,6 +11,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Checkbox } from '@/shared/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { useData } from '@/store/DataContext';
+import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ export function InlineTaskForm({
           className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground"
         >
           <option value="">Assignee (Default)</option>
-          {users.map((user) => (
+          {getAssignableAgents(users).map((user) => (
             <option key={user.id} value={user.id}>
               {user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.email}
             </option>
