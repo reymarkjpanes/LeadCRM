@@ -52,7 +52,7 @@ export async function verifyTableControls({ page, base, prisma, tenant, foreignT
       const date = new Date(Date.UTC(2026, index % 3, 1 + index % 20));
       const values = {
         leads: { firstName: index % 2 ? 'josh' : 'Josh', companyName: text, phone: text ? `+63917${index % 3}123456` : text, source: ['Website', 'Referral', 'Google Ads', null][index % 4], status: statuses[index % 3], createdAt: date, updatedAt: date },
-        contacts: { firstName: index % 2 ? 'search target' : 'Search Target', company: text, accountId: index % 2 ? null : linkedAccount.id,
+        contacts: { firstName: index % 2 ? 'search target' : 'Search Target', companyName: text, accountId: index % 2 ? null : linkedAccount.id,
           phone: text ? `+63917${index % 3}123456` : text, email: text ? `person${index % 3}@example.test` : text, source: ['Website', 'Referral', null][index % 3], status: statuses[index % 3].toUpperCase(), createdAt: date },
         accounts: { industry: text, size: ['200+', '1-10', '51-200', '11-50', null][index % 5], address: text, createdAt: date },
         tasks: { dueDate: date, createdAt: date, updatedAt: date },
@@ -67,7 +67,7 @@ export async function verifyTableControls({ page, base, prisma, tenant, foreignT
   const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
   const displayedValue = (module, row, field) => {
     if (field === 'name' && ['leads', 'users'].includes(module)) return [row.firstName?.trim(), row.lastName?.trim()].filter(Boolean).join(' ');
-    if (module === 'contacts' && field === 'companyName') return row.company;
+    if (module === 'contacts' && field === 'companyName') return row.companyName;
     if (module === 'workflows' && field === 'status') return row.status === 'DRAFT' ? 'Draft' : row.isActive ? 'Active' : 'Paused';
     if (module === 'users' && field === 'groups') return (row.groups ?? []).map(group => group.name).sort().join(', ');
     if (['createdAt', 'updatedAt', 'dueDate'].includes(field)) return row[field] ? Date.parse(row[field]) : null;

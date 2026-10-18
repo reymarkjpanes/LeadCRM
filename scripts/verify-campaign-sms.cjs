@@ -27,7 +27,7 @@ const server = http.createServer(async(req,res)=>{
   else if(p==='/marketing/audiences/preview'){
     const total=28,page=body.page||1,limit=body.limit||25;
     data={matched:total,eligible:total,missingEmail:0,invalidEmail:0,duplicateEmail:0,staffEmail:0,unsubscribed:0,blocked:0,inactive:0,recipientNotAllowed:0,missingPhone:0,invalidPhone:0,duplicatePhone:0,doNotContact:0,
-      recipients:Array.from({length:Math.max(0,Math.min(limit,total-(page-1)*limit))},(_,i)=>({id:id(100+(page-1)*limit+i),name:'Recipient '+((page-1)*limit+i+1),recordType:i%2?'Lead':'Contact',company:'Example Company',email:'customer@example.test',phone:'+639171234567'})),meta:{page,limit,total,hasMore:page*limit<total}};
+      recipients:Array.from({length:Math.max(0,Math.min(limit,total-(page-1)*limit))},(_,i)=>({id:id(100+(page-1)*limit+i),name:'Recipient '+((page-1)*limit+i+1),recordType:i%2?'Lead':'Contact',companyName:'Example Company',email:'customer@example.test',phone:'+639171234567'})),meta:{page,limit,total,hasMore:page*limit<total}};
   }else if(p==='/marketing/audiences'){if(req.method==='POST'){data={...body,id:id(50)};audiences.push(data);}else data=audiences;}
   else if(p.startsWith('/preferences/'))data={columns:[],pageSize:25,viewMode:'wrap',sort:null,viewType:'table'};
   else if(p==='/integrations/gmail/status'){res.end(JSON.stringify({isConnected:false}));return;}
@@ -101,7 +101,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   assert.deepEqual(await value.locator('option').allTextContents(),['Select status','Hot','Warm','Cold','Closed','Cancelled']);
   await value.selectOption('Hot');check('canonical-status');
   await field.selectOption('source');assert.equal(await value.locator('option').count(),10);await value.selectOption('Website');check('canonical-source');
-  await field.selectOption('company');await page.locator('input[id^="value-"]').fill('Example');check('company-text');
+  await field.selectOption('companyName');await page.locator('input[id^="value-"]').fill('Example');check('company-text');
   await field.selectOption('assignedUserId');await page.getByRole('combobox',{name:'Select Assigned Agent'}).click();
   await page.getByRole('option',{name:/Valid Agent/}).click();assert.equal(await page.getByRole('option',{name:/Local QA/}).count(),0);check('agent-name');
   await field.selectOption('productInterest');await page.getByRole('button',{name:'Product Interest',exact:true}).click();

@@ -53,3 +53,5 @@ export * from './contracts/condition-operators';
 export * from './contracts/account-retirement';
 export * from './contracts/organization';
 export * from './contracts/crm-export';
+export * from './contracts/quotation.contract';
+export * from './utils/currency';

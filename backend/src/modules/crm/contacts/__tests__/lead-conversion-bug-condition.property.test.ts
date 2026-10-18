@@ -15,7 +15,7 @@ it('converts varied company names on the fully migrated schema without unknown C
     const existing = accounts.get(identity);
     const { lead, deal } = await fixture.inquiry(name);
     const result = await fixture.convert(lead.id);
-    expect(result.contact.company).toBe(name);
+    expect(result.contact.companyName).toBe(name);
     // Case/whitespace variants reuse the Account without rewriting its saved name.
     expect(result.account?.name).toBe(existing?.name ?? normalizedName);
     expect(result.account).not.toBeNull();

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { EmailAccount, MailboxSendReceipt, Prisma } from '@prisma/client';
 import { z } from 'zod';
-import type { MailboxComposeMode } from '@leadcrm/shared';
+import type { MailboxComposeMode, QuotationDocument, QuotationDraft } from '@leadcrm/shared';
 import prisma from '../../config/database.config';
 import { AppError } from '../../shared/errors/app-error';
 import { authorizedMailbox } from './mailbox-store';
@@ -9,6 +9,7 @@ import { assertStoredMessages, mailboxAddress } from './mailbox-scope';
 import { assertMailboxRecipients } from './mailbox-recipient-access';
 
 export type MailboxOperation = 'send' | 'draft' | 'schedule' | 'delete';
+export interface MailboxQuotationContext { draft: QuotationDraft; document: QuotationDocument; fingerprint: string; subject: string; body: string }
 export interface MailboxOperationContext {
   recipients: string[];
   replyToMessageId?: string;
@@ -16,6 +17,7 @@ export interface MailboxOperationContext {
   draftId?: string;
   threadId?: string;
   composeMode?: MailboxComposeMode;
+  quotation?: MailboxQuotationContext;
 }
 export interface MailboxOperationClaim {
   receipt: MailboxSendReceipt;
@@ -38,6 +40,15 @@ export function normalizedRecipients(recipients: string[]) {
 export async function authorizeMailboxOperation(account: Pick<EmailAccount, 'id' | 'tenantId' | 'userId'>, context: MailboxOperationContext) {
   const current = await authorizedMailbox(account.tenantId, account.userId);
   if (current.account.id !== account.id) throw new AppError('Mailbox changed. Refresh your Inbox.', 409, 'MAILBOX_SCOPE_CHANGED');
+  if (context.quotation) {
+    const { recipientId, recipientType } = context.quotation.draft;
+    const where = { id: recipientId, tenantId: account.tenantId, isArchived: false, deletedAt: null };
+    const select = { assignedUserId: true, email: true };
+    const recipient = recipientType === 'Lead' ? await prisma.lead.findFirst({ where, select }) : await prisma.contact.findFirst({ where, select });
+    if (!recipient || recipient.assignedUserId !== account.userId || context.recipients.length !== 1 || mailboxAddress(recipient.email ?? '') !== context.recipients[0]) {
+      throw new AppError('You can only send quotations to the selected CRM record while it is assigned to you.', 403, 'CRM_ASSIGNMENT_REQUIRED');
+    }
+  }
   const sources = [context.replyToMessageId, context.forwardSourceMessageId].filter((id): id is string => !!id);
   if (sources.length) await assertStoredMessages(current.account, current.scope, sources, true);
   let threadId = context.threadId ?? '';

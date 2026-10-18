@@ -39,6 +39,8 @@ import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dial
 import { ModuleTableToolbar } from '@/shared/components/crm/module-table-toolbar';
 import { useModuleTableColumns } from '@/shared/hooks/use-module-table-columns';
 import { CAMPAIGNS_TABLE_COLUMNS } from '@leadcrm/shared';
+import { ModuleTabs } from '@/shared/components/crm/module-tabs';
+import { QuotationTemplates } from './quotation-templates';
 import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
 
@@ -54,7 +56,7 @@ export default function CampaignsPage() {
   const templateLock = useRef(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'all' | 'email' | 'sms'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'email' | 'sms' | 'quotation'>('all');
   const [showBuilder, setShowBuilder] = useState(false);
   const [selectedCampaignForReport, setSelectedCampaignForReport] = useState<Campaign | null>(null);
   const [builderInitialType, setBuilderInitialType] = useState<string | undefined>();
@@ -233,89 +235,15 @@ export default function CampaignsPage() {
 
       {/* 1. Standardized Header Row */}
       <PageHeader title="Campaigns" subtitle="Create, send, and monitor customer marketing campaigns." badge={<span className="text-xs text-slate-500">{isInitialLoad ? '…' : totalItems} total</span>}
-        actions={canCreateCampaign && <CreateActionDropdown primaryActionLabel="Create Campaign" onPrimaryAction={() => {
+        actions={canCreateCampaign && activeTab !== 'quotation' && <CreateActionDropdown primaryActionLabel="Create Campaign" onPrimaryAction={() => {
           setEditingCampaign(undefined); setBuilderInitialType('Email'); setBuilderInitialContent(undefined); setBuilderSubject(''); setShowBuilder(true);
         }} />} />
 
-      {/* Tabs + contextual action per active tab */}
-      <div className="flex items-center justify-between gap-2">
-        {/* Tab strip */}
-        <div className="flex items-center gap-1 bg-white dark:bg-white/2 p-1 rounded-lg w-fit border border-gray-200 dark:border-white/5">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setActiveTab('all')}
-                  aria-label="All Campaigns"
-                  className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors ${activeTab === 'all' ? 'bg-white/10 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                >
-                  <BarChart2 size={16} aria-hidden="true" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>All Campaigns</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setActiveTab('email')}
-                  aria-label="Email Templates"
-                  className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors ${activeTab === 'email' ? 'bg-white/10 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                >
-                  <Mail size={16} aria-hidden="true" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Email Templates</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setActiveTab('sms')}
-                  aria-label="SMS Templates"
-                  className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors ${activeTab === 'sms' ? 'bg-white/10 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                >
-                  <MessageSquare size={16} aria-hidden="true" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>SMS Templates</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-
-        {/* Contextual [+] button — changes with active tab, mobile-primary action */}
-        {canCreateCampaign && (
-          <TooltipProvider>
-            {activeTab === 'email' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => { setNewTemplateType('Email'); setIsTemplateModalOpen(true); }}
-                    aria-label="New Email Template"
-                    className="h-8 w-8 flex items-center justify-center bg-primary text-white rounded-md hover:bg-primary/90 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer md:hidden"
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>New Email Template</TooltipContent>
-              </Tooltip>
-            )}
-            {activeTab === 'sms' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => { setNewTemplateType('SMS'); setIsTemplateModalOpen(true); }}
-                    aria-label="New SMS Template"
-                    className="h-8 w-8 flex items-center justify-center bg-primary text-white rounded-md hover:bg-primary/90 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer md:hidden"
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>New SMS Template</TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
-        )}
-      </div>
-
+      <ModuleTabs<'all' | 'email' | 'sms' | 'quotation'> ariaLabel="Campaign views" activeTab={activeTab} onTabChange={setActiveTab} tabs={[
+        { id: 'all', label: 'All Campaigns' }, { id: 'email', label: 'Email Templates' },
+        { id: 'sms', label: 'SMS Templates' }, { id: 'quotation', label: 'Quotation Templates' },
+      ]} />
+      {activeTab === 'quotation' && <QuotationTemplates />}
       {activeTab === 'all' && <>
         {tableColumns.drawer}
         <ModuleTableToolbar stackSearchOnMobile label="Campaigns" search={searchTerm} onSearch={setSearchTerm} placeholder="Search campaigns..."
@@ -410,7 +338,7 @@ export default function CampaignsPage() {
           <div className="flex justify-end mb-4">
             <button
               onClick={() => { setNewTemplateType('Email'); setIsTemplateModalOpen(true); }}
-              className="hidden md:flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+              className="flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
             >
               <Plus size={16} aria-hidden="true" /> New Email Template
             </button>
@@ -465,7 +393,7 @@ export default function CampaignsPage() {
           <div className="flex justify-end mb-4">
             <button
               onClick={() => { setNewTemplateType('SMS'); setIsTemplateModalOpen(true); }}
-              className="hidden md:flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+              className="flex items-center gap-2 bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
             >
               <Plus size={16} aria-hidden="true" /> New SMS Template
             </button>

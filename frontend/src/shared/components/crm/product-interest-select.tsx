@@ -15,14 +15,15 @@ interface Props {
   single?: boolean;
   labels?: Record<string, string>;
   ariaLabel?: string;
+  searchable?: boolean;
 }
 
 /** One catalog-backed selector; name mode preserves the Contact/Account snapshot API. */
-export function ProductInterestSelect({ id, values, onChange, products, valueMode = 'id', disabled, single = false, labels = {}, ariaLabel = 'Product Interest' }: Props) {
+export function ProductInterestSelect({ id, values, onChange, products, valueMode = 'id', disabled, single = false, labels = {}, ariaLabel = 'Product Interest', searchable = false }: Props) {
   const selected = [...new Set(values)];
   const options = products.map(p => ({ value: valueMode === 'id' ? p.id : p.name, label: p.name }));
   for (const value of selected) if (!options.some(p => p.value === value)) options.push({ value, label: labels[value] || (valueMode === 'name' ? value : 'Unavailable product') });
-  return <CheckboxDropdownSelect id={id} values={values} options={options} onChange={onChange} disabled={disabled} single={single} ariaLabel={ariaLabel} contentAriaLabel="Product interests" placeholder="Select product interests…" emptyMessage="No configured Product Interests." />;
+  return <CheckboxDropdownSelect id={id} values={values} options={options} onChange={onChange} disabled={disabled} single={single} searchable={searchable} ariaLabel={ariaLabel} contentAriaLabel="Product interests" placeholder="Select product interests…" emptyMessage="No configured Product Interests." />;
 }
 
 export function CatalogProductInterestSelect(props: Omit<Props, 'products'>) {

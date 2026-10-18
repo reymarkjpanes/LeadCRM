@@ -10,7 +10,7 @@ vi.mock('@/shared/components/crm/product-interest-select', () => ({ CatalogProdu
 vi.mock('@/shared/components/entity-combobox', () => ({ EntityCombobox: () => <button>Agents</button> }));
 import { AudiencePanel } from '../audience-panel';
 import { campaignSampleValues } from '../campaign-variable-picker';
-const preview = { matched: 1, eligible: 1, missingEmail: 0, invalidEmail: 0, duplicateEmail: 0, staffEmail: 0, unsubscribed: 0, blocked: 0, inactive: 0, recipientNotAllowed: 0, recipients: [{ id: 'person', name: 'Saved recipient', recordType: 'Lead', email: 'one@example.test', company: '', phone: null }], meta: { page: 1, limit: 25, total: 1, hasMore: false } };
+const preview = { matched: 1, eligible: 1, missingEmail: 0, invalidEmail: 0, duplicateEmail: 0, staffEmail: 0, unsubscribed: 0, blocked: 0, inactive: 0, recipientNotAllowed: 0, recipients: [{ id: 'person', name: 'Saved recipient', recordType: 'Lead', email: 'one@example.test', companyName: '', phone: null }], meta: { page: 1, limit: 25, total: 1, hasMore: false } };
 beforeEach(() => { vi.clearAllMocks(); api.fields.mockImplementation(async source => ({ data: campaignFields(source) })); api.preview.mockResolvedValue({ data: preview }); });
 afterEach(cleanup);
 it('displays the readable option for a saved UUID rule without rewriting the rule and previews both tokens', async () => {
@@ -38,9 +38,12 @@ it('offers one source, flat typed rules, and AND/OR rather than a mixed audience
   await waitFor(() => expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ conditions: [{ field: 'status', operator: 'equals', value: 'Warm' }] })));
 });
 it('keeps incompatible source fields visible for correction instead of dropping criteria', async () => {
+  const definition = { id:'lead-only',name:'Lead Only',module:'leads',group:'Contact Details',type:'Text',active:true,visibleInForm:true,visibleInDetails:true,required:false,order:0 };
+  api.fields.mockResolvedValueOnce({ data: campaignFields('LEADS', [definition as never]) });
   render(<AudiencePanel onClose={vi.fn()} onCreated={vi.fn()} />);
   fireEvent.click(screen.getByText('+ Add Condition'));
-  fireEvent.change(screen.getByLabelText('Condition 1 field'), { target: { value: 'companyName' } });
+  await screen.findByRole('option', { name: 'Lead Only' });
+  fireEvent.change(screen.getByLabelText('Condition 1 field'), { target: { value: 'customFieldValues.lead-only' } });
   fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: 'Acme' } });
   fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'CONTACTS' } });
   fireEvent.click(screen.getByText('Create Audience'));

@@ -291,7 +291,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
           <SectionHeader num={3} title="Organization" />
 
           {/* Account (organization) selector */}
-          <div data-crm-field-key="company" data-crm-secondary-field-key="accountId" className="sm:col-span-2"><OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={customFields.layout?.fields.company?.label ?? 'Company Name'} showCompany={customFields.layout?.fields.company?.visibleInForm !== false} showAccount={configuredFields.layout?.fields.accountId?.visibleInForm !== false} /></div>
+          <div data-crm-field-key="companyName" data-crm-secondary-field-key="accountId" className="sm:col-span-2"><OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={customFields.layout?.fields.companyName?.label ?? 'Company'} showCompany={customFields.layout?.fields.companyName?.visibleInForm !== false} showAccount={configuredFields.layout?.fields.accountId?.visibleInForm !== false} /></div>
 
           <CustomFieldGroup form={customFields} group="Organization" />
         </div>

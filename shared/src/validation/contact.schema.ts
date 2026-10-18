@@ -7,11 +7,11 @@ export const ContactSchema = z.object({
   lastName: z.string().min(1, 'Last name is required').max(100),
   email: CrmEmailSchema,
   phone: z.string().optional(),
-  company: z.string().optional(),
+  companyName: z.string().optional(),
   status: CrmStatusSchema.default('Warm'),
   source: z.string().optional(),
   notes: z.string().optional(),
-});
+}).strict();
 
 export const UpdateContactSchema = ContactSchema.partial();
 

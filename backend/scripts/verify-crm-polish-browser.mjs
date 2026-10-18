@@ -43,7 +43,7 @@ try {
   const { token } = await issueAuthSession(admin);
   const account = await prisma.account.create({ data: { tenantId, name: 'Polish Company', industry: 'Technology', size: '11-50', website: 'https://company.test' } });
   const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Polish', lastName: 'Lead', email: 'polish-lead@example.test', accountId: account.id, companyName: 'Old company text' } });
-  const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Polish', lastName: 'Contact', email: 'polish-contact@example.test', accountId: account.id, company: 'Old company text' } });
+  const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Polish', lastName: 'Contact', email: 'polish-contact@example.test', accountId: account.id, companyName: 'Old company text' } });
   const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Polish Pipeline' } });
   const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Lead', order: 0, isDefault: true, requiredFields: [] } });
   const product = await prisma.productInterest.create({ data: { tenantId, name: 'Polish Product', dealValue: 2500 } });

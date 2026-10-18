@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { MarketingTemplateSchema } from '@leadcrm/shared';
+import { MarketingTemplateSchema, defaultQuotationContent } from '@leadcrm/shared';
 
 export const DEFAULT_CAMXIAN_TEMPLATES = [
   { name: 'Lead Inquiry Acknowledgment', type: 'Email', category: 'Sales', subject: 'Thanks for your inquiry, {{firstName}}', content: `Hi {{firstName}},
@@ -41,7 +41,17 @@ Camxian Technologies` },
   { name: 'Proposal Ready', type: 'SMS', category: 'Sales', content: 'Hi {{firstName}}, your requested proposal from Camxian Technologies is ready. Please check your email for the details.' },
 ] as const;
 
-export async function seedCampaignTemplates(db: PrismaClient, tenantId: string) {
+export const DEFAULT_QUOTATION_TEMPLATES = [
+  ['Standard Sales Quotation', 'Sales', 'Complete quotation for product sales including company details, products and totals.'],
+  ['Service Quotation', 'Services', 'Quotation template for IT and technical services.'],
+  ['Software Implementation', 'Software', 'Quotation for software implementation and licenses.'],
+  ['Annual Maintenance', 'Maintenance', 'Quotation for annual maintenance and support services.'],
+  ['Product Quotation', 'Product', 'Quotation template for hardware and equipment.'],
+  ['Custom Quotation', 'Custom', 'General quotation template for custom requests.'],
+].map(([name, category, description]) => ({ name, type: 'Quotation' as const, category, content: JSON.stringify({ ...defaultQuotationContent(),
+  introduction: `Dear {{firstName}},\n\n${description}\nPlease see the details prepared for {{companyName}} below.` }) }));
+
+export async function seedCampaignTemplates(db: PrismaClient, tenantId: string, includeQuotations = false) {
   return db.$transaction(async tx => {
     // Serialize concurrent seeds without adding a uniqueness constraint to user templates.
     await tx.$queryRaw`SELECT "id" FROM "Tenant" WHERE "id" = ${tenantId} FOR UPDATE`;
@@ -57,7 +67,7 @@ export async function seedCampaignTemplates(db: PrismaClient, tenantId: string) 
           OR strpos(template.content, '{{first_name}}') > 0 OR strpos(template.content, '{{company_name}}') > 0)
     `);
     let created = 0;
-    for (const sample of DEFAULT_CAMXIAN_TEMPLATES) {
+    for (const sample of [...DEFAULT_CAMXIAN_TEMPLATES, ...(includeQuotations ? DEFAULT_QUOTATION_TEMPLATES : [])]) {
       // Archived and edited records keep their identity; never overwrite user content.
       if (await tx.template.findFirst({ where: { tenantId, name: sample.name, type: sample.type } })) continue;
       await tx.template.create({ data: { tenantId, ...MarketingTemplateSchema.parse(sample) } });

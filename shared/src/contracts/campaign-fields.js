@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CAMPAIGN_VARIABLE_CATEGORIES = void 0;
+exports.quotationVariableChoices = quotationVariableChoices;
 exports.campaignPersonalizationAvailable = campaignPersonalizationAvailable;
 exports.campaignVariableChoices = campaignVariableChoices;
 exports.campaignApprovedVariableKeys = campaignApprovedVariableKeys;
@@ -11,7 +12,26 @@ exports.campaignFieldOperators = campaignFieldOperators;
 exports.campaignConditionError = campaignConditionError;
 const field_catalog_1 = require("./field-catalog");
 const condition_operators_1 = require("./condition-operators");
+const quotation_contract_1 = require("./quotation.contract");
 exports.CAMPAIGN_VARIABLE_CATEGORIES = ['Standard Fields', 'Custom Fields', 'Sender'];
+/** Quotation grouping uses the same approved origins and tokens as Campaigns. */
+function quotationVariableChoices(fields, source) {
+    const leads = campaignVariableChoices(fields, source ?? 'LEADS', { forInsertion: true });
+    const contacts = campaignVariableChoices(fields, 'CONTACTS', { forInsertion: true });
+    const recipient = leads.filter(choice => choice.origins.length && !choice.origins.some(origin => origin.type === 'products')).map(choice => {
+        const alternative = contacts.find(other => other.id === choice.id);
+        const selected = !source && !choice.personalizationAvailable && alternative?.personalizationAvailable ? alternative : choice;
+        return { ...selected, category: 'Recipient (Lead / Contact)' };
+    });
+    const context = Object.entries(quotation_contract_1.QUOTATION_CONTEXT_VARIABLES).map(([technicalKey, category]) => {
+        const accountKey = technicalKey === 'accountName' ? 'name' : technicalKey === 'accountAddress' ? 'address' : undefined;
+        const accountField = accountKey ? fields.find(field => field.module === 'accounts' && field.technicalKey === accountKey) : undefined;
+        const available = !accountKey || !!accountField && campaignPersonalizationAvailable(accountField);
+        return { id: `quotation:${technicalKey}`, technicalKey, label: technicalKey.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, value => value.toUpperCase()), category,
+            origins: accountField ? [accountField] : [], personalizationAvailable: available, unavailableReason: available ? undefined : 'This Account field is unavailable.' };
+    });
+    return [...recipient, ...context];
+}
 function supportedModules(source) {
     if (!source)
         return [];
@@ -67,7 +87,7 @@ function campaignVariableChoices(fields, source, { forInsertion = false } = {}) 
 function campaignApprovedVariableKeys(fields, source) {
     const selected = source ? campaignVariableChoices(fields, source).filter(choice => choice.personalizationAvailable).flatMap(choice => choice.origins.filter(origin => originSupported(origin, source))) : fields.filter(campaignPersonalizationAvailable);
     const keys = new Set(['sender_name', 'sender_email', ...selected.flatMap(field => [field.technicalKey, ...(field.canonicalTechnicalKey ? [field.canonicalTechnicalKey] : [])])]);
-    const aliases = { first_name: ['firstName'], last_name: ['lastName'], company_name: ['companyName', 'company'], contact_number: ['phone'] };
+    const aliases = { first_name: ['firstName'], last_name: ['lastName'], company_name: ['companyName'], contact_number: ['phone'] };
     for (const [alias, nativeKeys] of Object.entries(aliases))
         if (nativeKeys.some(key => keys.has(key)))
             keys.add(alias);
@@ -87,7 +107,7 @@ function campaignFields(source, definitions = [], layout) {
     return fields;
 }
 function campaignConditionField(key, fields) {
-    const native = key === 'productInterest' ? 'productInterestIds' : key === 'company' ? (fields[0]?.module === 'leads' ? 'companyName' : 'company') : key;
+    const native = key === 'productInterest' ? 'productInterestIds' : key;
     return fields.find(field => field.technicalKey === native || field.canonicalTechnicalKey === native);
 }
 function campaignFieldOperators(field) {

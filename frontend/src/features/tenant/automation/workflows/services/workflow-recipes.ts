@@ -163,7 +163,7 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
     trigger: 'contact.created',
     isActive: false,
     actions: [
-      { type: 'send_email', config: { subject: 'Welcome to our platform, {{first_name}}!', body: '<p>Hello {{first_name}},</p><p>Welcome! We are excited to partner with {{company}}. Please let us know if you have any questions as you get started.</p>' } },
+      { type: 'send_email', config: { subject: 'Welcome to our platform, {{first_name}}!', body: '<p>Hello {{first_name}},</p><p>Welcome! We are excited to partner with {{companyName}}. Please let us know if you have any questions as you get started.</p>' } },
     ],
   },
 

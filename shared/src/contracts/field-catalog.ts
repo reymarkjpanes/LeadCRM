@@ -37,7 +37,7 @@ type NativeInput = [key: string, label: string, type: CrmFieldType, group: numbe
 const person: NativeInput[] = [['firstName', 'First Name', 'text', 0, true], ['lastName', 'Last Name', 'text', 0, true], ['email', 'Email', 'text', 0, true], ['phone', 'Phone', 'text', 0], ['status', 'Status', 'dropdown', 1, false, CRM_STATUSES], ['productInterestIds', 'Product Interest', 'products', 1], ['source', 'Lead Source', 'dropdown', 3, false, LEAD_SOURCES], ['assignedUserId', 'Assigned Agent', 'reference', 4, false, undefined, 'user'], ['address', 'Full Address', 'longText', 3]];
 const native: Record<CustomFieldModule, NativeInput[]> = {
   leads: [...person, ['companyName', 'Company Name', 'text', 2], ['accountId', 'Account', 'reference', 2, false, undefined, 'account']],
-  contacts: [...person, ['company', 'Company Name', 'text', 2], ['accountId', 'Account', 'reference', 2, false, undefined, 'account'], ['notes', 'Notes', 'longText', 3]],
+  contacts: [...person, ['companyName', 'Company', 'text', 2], ['accountId', 'Account', 'reference', 2, false, undefined, 'account'], ['notes', 'Notes', 'longText', 3]],
   accounts: [['name', 'Account Name', 'text', 0, true], ['industry', 'Industry', 'dropdown', 0, false, COMPANY_INDUSTRIES], ['size', 'Company Size', 'dropdown', 0, false, COMPANY_SIZE_OPTIONS], ['website', 'Website', 'text', 0], ['address', 'Full Address', 'longText', 1]],
   deals: [['title', 'Title', 'text', 0, true], ['value', 'Deal Value', 'number', 0], ['productInterestIds', 'Product Interest', 'products', 0, true], ['pipelineId', 'Pipeline', 'reference', 0, true, undefined, 'pipeline'], ['stageId', 'Stage', 'reference', 0, true, undefined, 'stage'], ['priority', 'Priority', 'dropdown', 0, false, ['LOW', 'MEDIUM', 'HIGH']], ['expectedCloseDate', 'Expected Close Date', 'date', 2], ['assignedUserId', 'Assigned Agent', 'reference', 4, false, undefined, 'user'], ['accountId', 'Account', 'reference', 1, false, undefined, 'account'], ['leadSource', 'Lead Source', 'dropdown', 2, false, LEAD_SOURCES], ['industry', 'Industry', 'dropdown', 2, false, COMPANY_INDUSTRIES], ['address', 'Address', 'longText', 2]],
 };
@@ -66,7 +66,7 @@ export function upgradeAssignmentLayout(layout: FieldLayout, definitions: Closin
   const next = structuredClone(upgradeAccountFieldLayout(layout));
   const module = layout.module;
   if (module === 'leads' || module === 'contacts') {
-    const company = next.fields[module === 'leads' ? 'companyName' : 'company'];
+    const company = next.fields.companyName;
     if (company?.groupId === `${module}:section:0`) company.groupId = `${module}:section:2`;
   }
   if (module === 'accounts') for (const key of ['city', 'province', 'country']) delete next.fields[key];

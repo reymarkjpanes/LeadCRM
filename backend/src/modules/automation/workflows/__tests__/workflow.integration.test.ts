@@ -199,8 +199,8 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
   });
 
   it.each(['lead', 'contact'] as const)('renders email with canonical and legacy variables for %s', async entity => {
-    const company = entity === 'lead' ? 'companyName' : 'company';
-    await create([{ type: 'send_email', config: { subject: `Follow up with {{firstName}} {{lastName}} {{${company}}}`, body: '<p>Legacy {{first_name}} {{last_name}} {{company}} {{email}}</p>' } }], { trigger: `${entity}.created` });
+    const company = 'companyName';
+    await create([{ type: 'send_email', config: { subject: `Follow up with {{firstName}} {{lastName}} {{${company}}}`, body: '<p>Legacy {{first_name}} {{last_name}} {{companyName}} {{email}}</p>' } }], { trigger: `${entity}.created` });
     const response = await call(entity === 'lead' ? '/crm/leads' : '/crm/contacts', 'POST', { firstName: 'Josh', lastName: 'Variable', email: `${randomUUID()}@example.test`, [company]: 'Catalog Company',
       assignedUserId: owner.id, [entity === 'lead' ? 'productInterest' : 'productInterestIds']: [product.id] });
     expect(response.status, JSON.stringify(response.body)).toBe(201);
@@ -275,7 +275,7 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     const record = await scope(async () => {
       const customer = { tenantId, firstName: 'Recipe', lastName: 'Recipient', email: 'recipe@example.test', phone: '+639171234567', assignedUserId: owner.id };
       if (entity === 'lead') return prisma.lead.create({ data: { ...customer, source: 'Website', status: String(status ?? 'Warm'), productInterest: [] } });
-      if (entity === 'contact') return prisma.contact.create({ data: { ...customer, company: 'Example', status: String(status ?? 'Warm').toUpperCase() as 'HOT', productInterests: [] } });
+      if (entity === 'contact') return prisma.contact.create({ data: { ...customer, companyName: 'Example', status: String(status ?? 'Warm').toUpperCase() as 'HOT', productInterests: [] } });
       if (entity === 'account') return prisma.account.create({ data: { tenantId, name: 'Ownerless recipe Account' } });
       return prisma.deal.create({ data: { tenantId, title: 'Catalog opportunity', pipelineId: deal.pipelineId, stageId: isStageEvent(draft.trigger) ? deal.stageId : stageId,
         assignedUserId: owner.id, value: 300000, priority: 'HIGH', tags: [], productInterests: [], wonHistoryVerified: true,

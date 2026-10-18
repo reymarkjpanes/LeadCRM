@@ -1,3 +1,5 @@
+import { formatMoney } from '@leadcrm/shared';
+
 interface CurrencyConfig {
   code: string;   // ISO 4217 (e.g. 'PHP', 'USD')
   symbol: string; // Display symbol (e.g. '₱', '$')
@@ -16,8 +18,8 @@ export function getTenantCurrency(tenant: { currency?: string } | null): Currenc
   return { code, symbol };
 }
 
-export function formatCurrency(value: number, config: CurrencyConfig = DEFAULT_CURRENCY): string {
-  return `${config.symbol}${Math.round(value).toLocaleString('en-PH')}`;
+export function formatCurrency(value: number, config: CurrencyConfig = DEFAULT_CURRENCY, fractionDigits = 0): string {
+  return formatMoney(fractionDigits ? value : Math.round(value), config.symbol, fractionDigits);
 }
 
 export { CURRENCY_MAP, DEFAULT_CURRENCY };

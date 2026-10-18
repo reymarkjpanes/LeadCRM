@@ -8,7 +8,7 @@ vi.mock('../leads/lead-automation.service', () => ({ salesTransaction: async (ca
 vi.mock('./merge.repository', () => ({ reassignContactRelationships: mocks.reassign }));
 import { execute, preview } from './merge.service';
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.db.contact.findFirst.mockImplementation(({ where }: any) => Promise.resolve({ id: where.id, firstName: where.id, lastName: 'Contact', status: 'WARM', company: where.id + ' company' }));
+  vi.clearAllMocks(); mocks.db.contact.findFirst.mockImplementation(({ where }: any) => Promise.resolve({ id: where.id, firstName: where.id, lastName: 'Contact', status: 'WARM', companyName: where.id + ' company' }));
   mocks.validateOwner.mockResolvedValue({ id: 'valid-owner' });
   mocks.db.contact.update.mockImplementation(({ where, data }: any) => Promise.resolve({ ...data, id: where.id }));
   mocks.reassign.mockResolvedValue({ deals: 2 });
@@ -36,10 +36,10 @@ it('does not copy absent required identity fields from a legacy source', async (
   expect(mocks.db.contact.update).toHaveBeenCalledWith({ where: { id: 'primary', tenantId: 'tenant' }, data: {} });
 });
 it('merges canonical fields and archives the secondary without changing its customer status', async () => {
-  const result = await execute({ tenantId: 'tenant', userId: 'actor', entityType: 'contact', primaryId: 'primary', secondaryId: 'secondary', fieldResolutions: { company: 'secondary' } });
+  const result = await execute({ tenantId: 'tenant', userId: 'actor', entityType: 'contact', primaryId: 'primary', secondaryId: 'secondary', fieldResolutions: { companyName: 'secondary' } });
   expect(result.archivedRecordId).toBe('secondary');
   expect(mocks.db.contact.findFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant', id: 'primary', isArchived: false, deletedAt: null } });
-  expect(mocks.db.contact.update).toHaveBeenCalledWith({ where: { id: 'primary', tenantId: 'tenant' }, data: { company: 'secondary company' } });
+  expect(mocks.db.contact.update).toHaveBeenCalledWith({ where: { id: 'primary', tenantId: 'tenant' }, data: { companyName: 'secondary company' } });
   expect(mocks.db.contact.update).toHaveBeenCalledWith({ where: { id: 'secondary', tenantId: 'tenant' }, data: { isArchived: true, deletedAt: expect.any(Date), deletedBy: 'actor' } });
   expect(mocks.db.auditLog.create).toHaveBeenCalledOnce();
 });

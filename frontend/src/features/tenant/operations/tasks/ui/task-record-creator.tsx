@@ -120,7 +120,7 @@ export function TaskRecordCreator({
             onSave={(data) => {
               const payload = {
                 ...data,
-                company: (data as any).companyName || (data as any).company,
+                companyName: (data as any).companyName,
                 source: (data as any).leadSource || (data as any).source,
                 productInterests: (data as any).productInterest || (data as any).productInterests,
               };

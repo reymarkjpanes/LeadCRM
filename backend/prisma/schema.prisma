@@ -507,7 +507,7 @@ model Contact {
   lastName            String
   email               String?
   phone               String?
-  company             String?
+  companyName         String?
   // Retain provenance even after unlinking; copied Account text keeps its View boundary.
   companyFromAccount  Boolean              @default(false)
   status              ContactStatus        @default(WARM)

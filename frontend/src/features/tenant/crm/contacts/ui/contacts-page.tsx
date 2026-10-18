@@ -195,8 +195,8 @@ export default function ContactsPage(): React.ReactElement {
 
   const getAccountName = useCallback((contact: Contact): string => {
     const linked = organizations.find(org => org.id === (contact.accountId ?? contact.organizationId));
-    const apiContact = contact as Contact & { account?: { name: string }; company?: string };
-    return apiContact.account?.name || linked?.name || contact.companyName || apiContact.company || '—';
+    const apiContact = contact as Contact & { account?: { name: string } };
+    return apiContact.account?.name || linked?.name || contact.companyName || '—';
   }, [organizations]);
 
   // ── Pagination ───────────────────────────────────────────────────────

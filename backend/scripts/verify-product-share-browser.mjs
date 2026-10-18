@@ -42,7 +42,7 @@ try {
   const won = await prisma.stage.findFirstOrThrow({ where: { pipelineId: pipeline.id, isWon: true } });
   const account = await prisma.account.create({ data: { tenantId: tenant.id, name: 'Customer Company' } });
   const lead = await prisma.lead.create({ data: { tenantId: tenant.id, firstName: 'Lead', lastName: 'Customer', email: 'lead@example.test' } });
-  const contact = await prisma.contact.create({ data: { tenantId: tenant.id, firstName: 'Contact', lastName: 'Customer', email: 'contact+sales@example.test', company: account.name } });
+  const contact = await prisma.contact.create({ data: { tenantId: tenant.id, firstName: 'Contact', lastName: 'Customer', email: 'contact+sales@example.test', companyName: account.name } });
   const cctvDeal = await prisma.deal.create({ data: { tenantId: tenant.id, title: 'Historical CCTV price', pipelineId: pipeline.id, stageId: won.id, productInterestId: cctv.id, productsNormalized: true, value: 3210.75, currency: 'PHP', accountId: account.id, assignedUserId: admin.id, leadDeals: { create: { leadId: lead.id, position: 0 } }, contactDeals: { create: { contactId: contact.id, position: 0 } } } });
   for (let index = 0; index < 26; index++) await prisma.deal.create({ data: { tenantId: tenant.id, title: `Historical Laptop Deal ${index + 1}`, pipelineId: pipeline.id, stageId: won.id, productInterestId: products[1].id, productsNormalized: true, value: 41000.75, currency: 'PHP', accountId: account.id, assignedUserId: admin.id, closedAt: new Date('2026-10-06T10:00:00Z'), contactDeals: { create: { contactId: contact.id, position: 0 } } } });
   const deals = [];

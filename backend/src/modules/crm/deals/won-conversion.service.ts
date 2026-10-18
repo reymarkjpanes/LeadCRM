@@ -22,8 +22,8 @@ export async function resolveWonRelationships(tx: Prisma.TransactionClient, deal
     if (contact.isArchived) throw conflict();
     if (contact.accountId && accountId && contact.accountId !== accountId) throw conflict();
     let linkedAccount = contact.accountId ?? accountId;
-    if (!linkedAccount && contact.company?.trim()) {
-      const name = contact.company.trim().replace(/\s+/g, ' ');
+    if (!linkedAccount && contact.companyName?.trim()) {
+      const name = contact.companyName.trim().replace(/\s+/g, ' ');
       const matches = (await tx.account.findMany({ where: { ...scope, name: { contains: name.split(' ')[0], mode: 'insensitive' } } })).filter(account => account.name.trim().replace(/\s+/g, ' ').toLowerCase() === name.toLowerCase());
       if (matches.length > 1 || matches[0]?.isArchived) throw conflict();
       linkedAccount = matches[0]?.id ?? (await tx.account.create({ data: { ...scope, name, tags: [] } })).id;

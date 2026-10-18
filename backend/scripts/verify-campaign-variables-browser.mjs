@@ -151,7 +151,7 @@ try {
     await page.getByLabel('Task title', { exact: true }).fill('Follow up with ');
     await shortcuts.getByRole('button', { name: 'First Name', exact: true }).click();
     await shortcuts.getByRole('button', { name: 'Company Name', exact: true }).click();
-    assert.equal(await page.getByLabel('Task title', { exact: true }).inputValue(), `Follow up with {{firstName}}{{${entity === 'lead' ? 'companyName' : 'company'}}}`);
+    assert.equal(await page.getByLabel('Task title', { exact: true }).inputValue(), `Follow up with {{firstName}}{{companyName}}`);
     assert.equal(await page.getByLabel('Description', { exact: true }).inputValue(), 'Legacy {{first_name}}');
     for await (const { theme, width } of responsiveMatrix(page)) {
       await page.setViewportSize({ width, height: 900 });

@@ -38,7 +38,7 @@ export interface Template {
   id: string;
   tenantId: string;
   name: string;
-  type: 'Email' | 'SMS';
+  type: 'Email' | 'SMS' | 'Quotation';
   category: string;
   subject?: string;
   content: string;

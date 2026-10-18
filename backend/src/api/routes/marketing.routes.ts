@@ -7,6 +7,7 @@ import { authorize, authorizeArchivedQuery } from '../middleware/rbac.middleware
 import { validate } from '../middleware/validate.middleware';
 import * as campaignController from '../../modules/marketing/campaigns/campaigns.controller';
 import * as templateController from '../../modules/marketing/templates/templates.controller';
+import * as quotationController from '../../modules/marketing/campaigns/quotations.controller';
 import * as formController from '../../modules/marketing/forms/forms.controller';
 import { CreateFormSchema, UpdateFormSchema } from '../../modules/marketing/forms/forms.dto';
 
@@ -23,6 +24,8 @@ router.get('/campaigns/metrics', authorize('campaigns.view_reports'), campaignCo
 router.get('/campaigns/sms-settings', authorize('campaigns.view'), campaignController.getSmsSettings);
 router.get('/campaigns/email-settings', authorize('campaigns.view'), campaignController.getEmailSettings);
 router.get('/campaigns/variable-fields', authorize('campaigns.view'), audienceController.campaignVariableFields);
+router.post('/campaigns/quotations/preview', authorize('campaigns.view'), writeLimiter, quotationController.preview);
+router.post('/campaigns/quotations/send', authorize('campaigns.send'), sendLimiter, quotationController.send);
 router.get('/audiences/fields', authorize('campaigns.view'), audienceController.audienceFields);
 router.get('/audiences/companies', authorize('campaigns.view'), audienceController.audienceCompanies);
 router.get('/audiences', authorize('campaigns.view'), audienceController.getAudiences);
@@ -45,6 +48,7 @@ router.post('/campaigns/:id/duplicate', authorize('campaigns.duplicate'), writeL
 
 router.get(   '/templates',             authorize('campaigns.view'),   templateController.getTemplates);
 router.get(   '/templates/:id',         authorize('campaigns.view'),   templateController.getTemplateById);
+router.get('/templates/:id/pdf', authorize('campaigns.view'), quotationController.templatePdf);
 router.post(  '/templates',             authorize('campaigns.create'), writeLimiter, templateController.createTemplate);
 router.put(   '/templates/:id',         authorize('campaigns.edit'), writeLimiter, templateController.updateTemplate);
 router.patch( '/templates/:id/archive', authorize('campaigns.archive'), templateController.archiveTemplate);

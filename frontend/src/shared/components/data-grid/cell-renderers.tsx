@@ -14,7 +14,7 @@
  * const cellRenderers = {
  *   createdAt: (_v, row) => renderDate(row.createdAt),
  *   website: (_v, row) => renderLink(row.website),
- *   firstName: (_v, row) => renderAvatar({ name: row.firstName, subtitle: row.company, accentColor: 'bg-blue-500' }),
+ *   firstName: (_v, row) => renderAvatar({ name: row.firstName, subtitle: row.companyName, accentColor: 'bg-blue-500' }),
  * };
  * ```
  */

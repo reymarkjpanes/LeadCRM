@@ -42,21 +42,21 @@ it.each(['firstName', 'Customer Age', 'sender', 'Custom Fields', 'Contacts'])('s
   expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
   if (search === 'sender') expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Sender Name{{sender_name}}', 'Sender Email{{sender_email}}']);
 });
-it('inserts the displayed key and keeps different company keys and definition identities distinct', () => {
+it('inserts one shared company key and keeps custom definition identities distinct', () => {
   const onInsert = vi.fn(), choices = insertionChoices(fields, 'CONTACTS');
   render(<CampaignVariablePicker choices={choices} onInsert={onInsert} />);
-  fireEvent.click(screen.getByRole('button', { name: /Company Name.*\{\{company\}\}.*Contacts/ }));
-  expect(onInsert).toHaveBeenLastCalledWith('{{company}}');
+  fireEvent.click(screen.getByRole('button', { name: /Company.*\{\{companyName\}\}.*Leads, Contacts/ }));
+  expect(onInsert).toHaveBeenLastCalledWith('{{companyName}}');
   fireEvent.click(screen.getByRole('button', { name: /Age.*customFieldValues.age.*Contacts/ }));
   expect(onInsert).toHaveBeenLastCalledWith('{{customFieldValues.age}}');
   expect(choices.filter(choice => choice.technicalKey === 'customFieldValues.age').map(choice => choice.origins[0].customFieldId)).toEqual(definitions.slice(0, 2).map(field => field.id));
-  expect(choices.filter(choice => ['companyName', 'company'].includes(choice.technicalKey)).map(choice => choice.technicalKey)).toEqual(['companyName', 'company']);
+  expect(choices.filter(choice => choice.technicalKey === 'companyName').map(choice => choice.technicalKey)).toEqual(['companyName']);
 });
 
 it.each(['LEADS', 'CONTACTS'] as const)('inserts the catalog company key for %s without a legacy alias', source => {
   const onInsert = vi.fn(), choices = insertionChoices(fields, source);
   render(<CampaignVariablePicker choices={choices} onInsert={onInsert} />);
-  const key = source === 'LEADS' ? 'companyName' : 'company';
+  const key = 'companyName';
   fireEvent.click(screen.getByText(`{{${key}}}`).closest('button')!);
   expect(onInsert).toHaveBeenCalledExactlyOnceWith(`{{${key}}}`);
   expect(screen.queryByText('{{company_name}}')).toBeNull();
@@ -72,8 +72,7 @@ it.each(['LEADS', 'CONTACTS'] as const)('deduplicates equivalent system keys and
     expect(matching[0].personalizationAvailable).toBe(true);
   }
   expect(choices.find(choice => choice.technicalKey === 'firstName')?.label).toBe(source === 'CONTACTS' ? 'Contact First Name' : 'First Name');
-  expect(choices.find(choice => choice.technicalKey === 'company')?.personalizationAvailable).toBe(source === 'CONTACTS');
-  expect(choices.find(choice => choice.technicalKey === 'companyName')?.personalizationAvailable).toBe(source === 'LEADS');
+  expect(choices.find(choice => choice.technicalKey === 'companyName')?.personalizationAvailable).toBe(true);
 });
 it('excludes inactive custom definitions and preserves hidden/unsupported field restrictions', () => {
   const catalog = fields.map(field => field.module === 'contacts' && field.customFieldId ? { ...field, active: false } : field.module === 'leads' && field.customFieldId ? { ...field, visibleInForm: false, visibleInDetails: false } : field);

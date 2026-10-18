@@ -391,7 +391,7 @@ describe('campaign composer', () => {
     expect(body.placeholder).toContain('{{firstName}}');
     expect(body.placeholder).not.toContain('{{first_name}}');
     if (type === 'Email') expect((screen.getByLabelText(/Subject Line/) as HTMLInputElement).placeholder).toContain('{{firstName}}');
-    const companyKey = source === 'LEADS' ? 'companyName' : 'company';
+    const companyKey = 'companyName';
     for (const key of ['firstName', companyKey, 'sender_name', 'sender_email']) {
       fireEvent.change(body, { target: { value: '' } });
       fireEvent.focus(body);
@@ -423,7 +423,7 @@ describe('campaign composer', () => {
       expect(picker.textContent).not.toMatch(/Accounts|Deals/);
       for (const key of ['website', 'value', 'industry', 'pipelineId', 'stageId']) expect(within(picker as HTMLElement).queryByText(`{{${key}}}`)).toBeNull();
       expect(within(picker as HTMLElement).getAllByText('{{firstName}}')).toHaveLength(1);
-      expect(screen.getByRole('button', { name: source === 'LEADS' ? '{{companyName}}' : '{{company}}' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: source === 'LEADS' ? '{{companyName}}' : '{{companyName}}' })).toBeTruthy();
       expect(within(picker as HTMLElement).getByText('{{sender_name}}')).toBeTruthy();
       expect(within(picker as HTMLElement).getByText('{{sender_email}}')).toBeTruthy();
     }

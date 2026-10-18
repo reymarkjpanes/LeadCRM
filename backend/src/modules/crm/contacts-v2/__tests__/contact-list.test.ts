@@ -43,8 +43,8 @@ it('sorts date pages in the database without reading the full collection', async
 
 it('sorts the displayed Company instead of the linked Account name', async () => {
   db.contact.findMany.mockResolvedValueOnce([
-    { id: 'b', company: 'Alpha', account: { name: 'Zebra' } },
-    { id: 'a', company: 'Zebra', account: { name: 'Alpha' } },
+    { id: 'b', companyName: 'Alpha', account: { name: 'Zebra' } },
+    { id: 'a', companyName: 'Zebra', account: { name: 'Alpha' } },
   ]).mockResolvedValueOnce([{ id: 'b' }, { id: 'a' }]);
   const result = await findAllContacts('tenant', { sort: 'companyName:asc' });
   expect(result.data.map(row => row.id)).toEqual(['b', 'a']);

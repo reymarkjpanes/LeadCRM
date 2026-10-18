@@ -9,9 +9,9 @@ exports.ContactSchema = zod_1.z.object({
     lastName: zod_1.z.string().min(1, 'Last name is required').max(100),
     email: crm_email_1.CrmEmailSchema,
     phone: zod_1.z.string().optional(),
-    company: zod_1.z.string().optional(),
+    companyName: zod_1.z.string().optional(),
     status: record_experience_1.CrmStatusSchema.default('Warm'),
     source: zod_1.z.string().optional(),
     notes: zod_1.z.string().optional(),
-});
+}).strict();
 exports.UpdateContactSchema = exports.ContactSchema.partial();

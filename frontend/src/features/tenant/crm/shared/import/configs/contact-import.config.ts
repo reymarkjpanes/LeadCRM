@@ -51,7 +51,7 @@ export const contactImportConfig: ImportModuleConfig = {
     },
     {
       key: 'companyName',
-      label: 'Company Name',
+      label: 'Company',
       required: true,
       type: 'text',
       autoMapPatterns: ['company name', 'company', 'company_name', 'organization', 'org', 'organisation'],

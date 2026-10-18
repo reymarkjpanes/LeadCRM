@@ -180,7 +180,7 @@ it.each(['Email', 'SMS'] as const)('searches and inserts approved Lead/Contact f
   expect(within(picker).getAllByText('{{sender_name}}')).toHaveLength(1);
   expect(within(picker).getAllByText('{{sender_email}}')).toHaveLength(1);
   const search = within(picker).getByLabelText('Search variables');
-  for (const [query, key] of [['leads Custom', 'customFieldValues.leadsCustom'], ['customFieldValues.contactsCustom', 'customFieldValues.contactsCustom'], ['Leads', 'companyName'], ['Contacts', 'company'], ['Standard Fields', 'firstName']]) {
+  for (const [query, key] of [['leads Custom', 'customFieldValues.leadsCustom'], ['customFieldValues.contactsCustom', 'customFieldValues.contactsCustom'], ['Leads', 'companyName'], ['Contacts', 'companyName'], ['Standard Fields', 'firstName']]) {
     fireEvent.change(search, { target: { value: query } });
     expect(within(picker).getByText(`{{${key}}}`)).toBeTruthy();
   }
@@ -237,14 +237,14 @@ it.each(['Email', 'SMS'] as const)('previews %s templates with current configure
 
 it.each(['Email', 'SMS'] as const)('previews canonical standard and custom fields from both modules in %s templates', async type => {
   mocks.variableFields.mockResolvedValue({ success: true, data: CUSTOM_FIELD_MODULES.flatMap(module => getCrmFieldCatalog(module, templateDefinitions)) });
-  mocks.templates = [{ id: 'template', name: 'Combined variables', type, category: 'Marketing', subject: 'Hello {{firstName}} {{lastName}} at {{company}}', content: '{{firstName}} {{lastName}} | {{email}} | {{phone}} | {{companyName}} | {{company}} | {{customFieldValues.leadsCustom}} | {{customFieldValues.contactsCustom}} | {{customFieldValues.definition-0}} | {{customFieldValues.definition-1}} | {{sender_name}} {{sender_email}}' }];
+  mocks.templates = [{ id: 'template', name: 'Combined variables', type, category: 'Marketing', subject: 'Hello {{firstName}} {{lastName}} at {{companyName}}', content: '{{firstName}} {{lastName}} | {{email}} | {{phone}} | {{companyName}} | {{companyName}} | {{customFieldValues.leadsCustom}} | {{customFieldValues.contactsCustom}} | {{customFieldValues.definition-0}} | {{customFieldValues.definition-1}} | {{sender_name}} {{sender_email}}' }];
   render(<CampaignsPage />);
   fireEvent.click(screen.getByRole('button', { name: `${type} Templates` }));
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
   const preview = screen.getByRole('dialog', { name: 'Template Preview' });
   const sender = type === 'Email' ? 'Provider sender provider@example.test' : 'SMS organization contact@example.test';
-  await waitFor(() => expect(preview.textContent).toContain(`John Doe | Example Email | Example Phone | Example Company Name | Example Company Name | Example leads Custom | Example contacts Custom | Example leads Custom | Example contacts Custom | ${sender}`));
-  if (type === 'Email') expect(preview.textContent).toContain('Hello John Doe at Example Company Name');
+  await waitFor(() => expect(preview.textContent).toContain(`John Doe | Example Email | Example Phone | Example Company | Example Company | Example leads Custom | Example contacts Custom | Example leads Custom | Example contacts Custom | ${sender}`));
+  if (type === 'Email') expect(preview.textContent).toContain('Hello John Doe at Example Company');
   expect(preview.textContent).not.toContain('{{');
 });
 
@@ -261,7 +261,7 @@ it.each(['Email', 'SMS'] as const)('validates and saves a new %s template throug
   fireEvent.change(within(panel).getByLabelText(/Template Name/), { target: { value: `Saved ${type} template` } });
   fireEvent.change(within(panel).getByLabelText('Category'), { target: { value: 'Sales' } });
   if (type === 'Email') fireEvent.change(within(panel).getByLabelText(/Subject Line/), { target: { value: 'Hello {{firstName}}' } });
-  const content = type === 'Email' ? '<p>Hello {{firstName}} at {{companyName}}</p><script>alert("ignored")</script>' : 'Hi {{firstName}}, {{phone}}\n{{company}} {{customFieldValues.contactsCustom}}';
+  const content = type === 'Email' ? '<p>Hello {{firstName}} at {{companyName}}</p><script>alert("ignored")</script>' : 'Hi {{firstName}}, {{phone}}\n{{companyName}} {{customFieldValues.contactsCustom}}';
   fireEvent.change(within(panel).getByLabelText(/Message Content/), { target: { value: content } });
   fireEvent.click(within(panel).getByRole('button', { name: 'Save Template' }));
   await waitFor(() => expect(mocks.templateCreate).toHaveBeenCalledExactlyOnceWith({
@@ -301,8 +301,8 @@ it.each(persistedDefaults)('displays canonical persisted $name content in its ca
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
   const preview = screen.getByRole('dialog', { name: 'Template Preview' });
   const sender = type === 'Email' ? 'Provider sender provider@example.test' : 'SMS organization contact@example.test';
-  await waitFor(() => expect(preview.textContent).toContain(`Hi John, please call us tomorrow for Example Company Name. ${sender}`));
-  if (template.subject) expect(preview.textContent).toContain('Thank you, John — next steps for Example Company Name');
+  await waitFor(() => expect(preview.textContent).toContain(`Hi John, please call us tomorrow for Example Company. ${sender}`));
+  if (template.subject) expect(preview.textContent).toContain('Thank you, John — next steps for Example Company');
   expect(preview.textContent).not.toContain('{{');
   fireEvent.click(within(preview).getByRole('button', { name: 'Use Template' }));
   expect(mocks.builder).toHaveBeenLastCalledWith(expect.objectContaining({ initialType: type, initialSubject: template.subject ?? '', initialContent: template.content }));
@@ -325,7 +325,7 @@ it.each(['Email', 'SMS'] as const)('inserts canonical first-name and source-spec
   const content = screen.getByLabelText(/Message Content/) as HTMLTextAreaElement;
   expect(content.placeholder).toContain('{{firstName}}');
   expect(content.placeholder).not.toContain('{{first_name}}');
-  for (const key of ['firstName', 'lastName', 'email', 'phone', 'companyName', 'company', 'sender_name', 'sender_email']) {
+  for (const key of ['firstName', 'lastName', 'email', 'phone', 'companyName', 'sender_name', 'sender_email']) {
     fireEvent.change(content, { target: { value: '' } });
     fireEvent.focus(content);
     fireEvent.click(screen.getByRole('button', { name: 'Insert Variable' }));

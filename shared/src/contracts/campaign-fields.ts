@@ -2,6 +2,7 @@ import { getCrmFieldCatalog, type CrmFieldCatalogEntry, type FieldLayout } from 
 import type { ClosingField, CustomFieldModule } from './closing-requirements';
 import type { AudienceCondition } from './campaign-email';
 import { conditionFieldKind, conditionOperators, validConditionScalar } from './condition-operators';
+import { QUOTATION_CONTEXT_VARIABLES } from './quotation.contract';
 
 export const CAMPAIGN_VARIABLE_CATEGORIES = ['Standard Fields', 'Custom Fields', 'Sender'] as const;
 export interface CampaignVariableChoice {
@@ -9,6 +10,26 @@ export interface CampaignVariableChoice {
   category: typeof CAMPAIGN_VARIABLE_CATEGORIES[number];
   origins: CrmFieldCatalogEntry[];
   personalizationAvailable: boolean; unavailableReason?: string;
+}
+export type GroupedCampaignVariableChoice = Omit<CampaignVariableChoice, 'category'> & { category: string };
+
+/** Quotation grouping uses the same approved origins and tokens as Campaigns. */
+export function quotationVariableChoices(fields: CrmFieldCatalogEntry[], source?: 'LEADS' | 'CONTACTS'): GroupedCampaignVariableChoice[] {
+  const leads = campaignVariableChoices(fields, source ?? 'LEADS', { forInsertion: true });
+  const contacts = campaignVariableChoices(fields, 'CONTACTS', { forInsertion: true });
+  const recipient = leads.filter(choice => choice.origins.length && !choice.origins.some(origin => origin.type === 'products')).map(choice => {
+    const alternative = contacts.find(other => other.id === choice.id);
+    const selected = !source && !choice.personalizationAvailable && alternative?.personalizationAvailable ? alternative : choice;
+    return { ...selected, category: 'Recipient (Lead / Contact)' };
+  });
+  const context = Object.entries(QUOTATION_CONTEXT_VARIABLES).map(([technicalKey, category]) => {
+    const accountKey = technicalKey === 'accountName' ? 'name' : technicalKey === 'accountAddress' ? 'address' : undefined;
+    const accountField = accountKey ? fields.find(field => field.module === 'accounts' && field.technicalKey === accountKey) : undefined;
+    const available = !accountKey || !!accountField && campaignPersonalizationAvailable(accountField);
+    return { id: `quotation:${technicalKey}`, technicalKey, label: technicalKey.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, value => value.toUpperCase()), category,
+      origins: accountField ? [accountField] : [], personalizationAvailable: available, unavailableReason: available ? undefined : 'This Account field is unavailable.' };
+  });
+  return [...recipient, ...context];
 }
 function supportedModules(source?: 'LEADS' | 'CONTACTS'): CustomFieldModule[] {
   if (!source) return [];
@@ -58,7 +79,7 @@ export function campaignVariableChoices(fields: CrmFieldCatalogEntry[], source?:
 export function campaignApprovedVariableKeys(fields: CrmFieldCatalogEntry[], source?: 'LEADS' | 'CONTACTS'): Set<string> {
   const selected = source ? campaignVariableChoices(fields, source).filter(choice => choice.personalizationAvailable).flatMap(choice => choice.origins.filter(origin => originSupported(origin, source))) : fields.filter(campaignPersonalizationAvailable);
   const keys = new Set(['sender_name', 'sender_email', ...selected.flatMap(field => [field.technicalKey, ...(field.canonicalTechnicalKey ? [field.canonicalTechnicalKey] : [])])]);
-  const aliases = { first_name: ['firstName'], last_name: ['lastName'], company_name: ['companyName', 'company'], contact_number: ['phone'] };
+  const aliases = { first_name: ['firstName'], last_name: ['lastName'], company_name: ['companyName'], contact_number: ['phone'] };
   for (const [alias, nativeKeys] of Object.entries(aliases)) if (nativeKeys.some(key => keys.has(key))) keys.add(alias);
   return keys;
 }
@@ -77,7 +98,7 @@ export function campaignFields(source: 'LEADS' | 'CONTACTS', definitions: Closin
   return fields;
 }
 export function campaignConditionField(key: string, fields: CrmFieldCatalogEntry[]) {
-  const native = key === 'productInterest' ? 'productInterestIds' : key === 'company' ? (fields[0]?.module === 'leads' ? 'companyName' : 'company') : key;
+  const native = key === 'productInterest' ? 'productInterestIds' : key;
   return fields.find(field => field.technicalKey === native || field.canonicalTechnicalKey === native);
 }
 export function campaignFieldOperators(field?: CrmFieldCatalogEntry): AudienceCondition['operator'][] {

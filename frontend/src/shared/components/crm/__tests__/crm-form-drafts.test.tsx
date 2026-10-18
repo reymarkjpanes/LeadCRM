@@ -29,9 +29,9 @@ const changeDraft = {
     fireEvent.keyDown(screen.getByRole('group', { name: 'Product interests' }), { key: 'Escape' });
   },
   account: () => fireEvent.click(screen.getByRole('button', { name: 'Choose account' })),
-  company: () => {
+  companyName: () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create new account' }));
-    fireEvent.change(screen.getByLabelText('Company Name *'), { target: { value: 'Draft company' } });
+    fireEvent.change(screen.getByLabelText(/^Company(?: Name)? \*$/), { target: { value: 'Draft company' } });
   },
 };
 

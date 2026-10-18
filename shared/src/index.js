@@ -61,3 +61,5 @@ __exportStar(require("./contracts/condition-operators"), exports);
 __exportStar(require("./contracts/account-retirement"), exports);
 __exportStar(require("./contracts/organization"), exports);
 __exportStar(require("./contracts/crm-export"), exports);
+__exportStar(require("./contracts/quotation.contract"), exports);
+__exportStar(require("./utils/currency"), exports);

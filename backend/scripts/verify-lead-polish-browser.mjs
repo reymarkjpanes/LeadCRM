@@ -38,7 +38,7 @@ try {
   const account = await prisma.account.create({ data: { tenantId: tenant.id, name: 'QAAccount' } });
   await prisma.activity.create({ data: { tenantId: tenant.id, accountId: account.id, type: 'note', title: 'Legacy Internal Notes', description: 'Historical note', metadata: { legacyAccountNote: 'v1', sourceField: 'internalNotes', originalAuthorUnknown: true } } });
   const lead = await prisma.lead.create({ data: { tenantId: tenant.id, firstName: 'QALead', lastName: 'Tester', email: 'lead@example.test', companyName: ' McDonalds ' } });
-  const contact = await prisma.contact.create({ data: { tenantId: tenant.id, firstName: 'QAContact', lastName: 'Tester', email: 'contact@example.test', company: 'McDonalds' } });
+  const contact = await prisma.contact.create({ data: { tenantId: tenant.id, firstName: 'QAContact', lastName: 'Tester', email: 'contact@example.test', companyName: 'McDonalds' } });
   const pipeline = await prisma.pipeline.findFirstOrThrow({ where: { tenantId: tenant.id }, include: { stages: true } });
   const deal = await prisma.deal.create({ data: { tenantId: tenant.id, pipelineId: pipeline.id, stageId: pipeline.stages[0].id, title: 'QADeal', value: 100 } });
   const role = await prisma.roleDefinition.create({ data: { tenantId: tenant.id, name: 'Sales Agent' } });

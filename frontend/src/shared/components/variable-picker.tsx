@@ -1,10 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { CAMPAIGN_VARIABLE_CATEGORIES, type CampaignVariableChoice } from '@leadcrm/shared';
+import { CAMPAIGN_VARIABLE_CATEGORIES, type GroupedCampaignVariableChoice } from '@leadcrm/shared';
 import { ModuleSearchInput } from '@/shared/components/crm/module-search-input';
 import { matchesSearch } from '@/shared/utils/search';
 
-export function VariablePicker({ choices, onInsert, categories = CAMPAIGN_VARIABLE_CATEGORIES }: { choices: CampaignVariableChoice[]; onInsert: (token: string) => void; categories?: readonly CampaignVariableChoice['category'][] }) {
+export function VariablePicker({ choices, onInsert, categories = CAMPAIGN_VARIABLE_CATEGORIES }: { choices: GroupedCampaignVariableChoice[]; onInsert: (token: string) => void; categories?: readonly string[] }) {
   const [search, setSearch] = useState('');
   const filtered = choices.filter(field => matchesSearch(search, field.label, field.technicalKey, field.category, field.category === 'Standard Fields' ? 'System' : '', field.origins.map(origin => origin.module).join(' ')));
   return <div className="max-h-80 w-72 max-w-[80vw] overflow-y-auto rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-slate-900">

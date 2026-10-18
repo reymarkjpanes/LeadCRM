@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CrmStatusSchema, LeadSourceSchema } from './record-experience';
 import { LeadCreatedFilterSchema } from './lead-created.contract';
+import { QuotationTemplateContentSchema } from './quotation.contract';
 
 export const EMAIL_VARIABLES = ['first_name', 'last_name', 'company_name', 'contact_number', 'status', 'sender_name', 'sender_email'] as const;
 export type EmailVariables = Record<string, string | undefined>;
@@ -8,18 +9,21 @@ export const EMAIL_VARIABLE_TOKENS = EMAIL_VARIABLES.map(key => `{{${key}}}`);
 export function escapeEmailHtml(value: string): string {
   return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
-export function renderEmailVariables(text: string, values: EmailVariables, html = false): string {
+export function renderEmailVariables(text: string, values: EmailVariables, html = false, preserveUnresolved = false): string {
   return text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_token, key: string) => {
+    if (preserveUnresolved && (!Object.prototype.hasOwnProperty.call(values, key) || values[key] == null)) return _token;
     const value = Object.prototype.hasOwnProperty.call(values, key) ? values[key as keyof EmailVariables] ?? '' : '';
     return html ? escapeEmailHtml(value) : value.replace(/[\x00-\x1f\x7f]/g, ' ');
   });
 }
 export const MarketingNameSchema = z.string().trim().min(1, 'Name is required.').max(150).regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
-export const EmailSubjectSchema = z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim());
+const currentCompanyVariable = (text: string) => !campaignVariableKeys(text).includes('company');
+const companyVariableMessage = 'Use {{companyName}} instead of {{company}}.';
+export const EmailSubjectSchema = z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
 /** ALL remains a historical read value only. New operations choose one source. */
 export const AudienceSourceSchema = z.enum(['LEADS', 'CONTACTS']);
 export const AudienceMatchModeSchema = z.enum(['AND', 'OR']);
-export const AUDIENCE_FIELDS = ['status', 'source', 'company', 'productInterest', 'assignedUserId', 'createdAt'] as const;
+export const AUDIENCE_FIELDS = ['status', 'source', 'companyName', 'productInterest', 'assignedUserId', 'createdAt'] as const;
 export const AUDIENCE_OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'any', 'gt', 'gte', 'lt', 'lte', 'between', 'is_empty', 'is_not_empty'] as const;
 export const AudienceConditionSchema = z.object({
   field: z.string().min(1).max(160).regex(/^(?:[A-Za-z][A-Za-z0-9]*|customFieldValues\.[A-Za-z0-9_-]+)$/),
@@ -48,7 +52,7 @@ export function campaignVariableKeys(text: string): string[] {
   return [...new Set([...text.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map(match => match[1]))];
 }
 export interface AudienceBreakdown { matched: number; eligible: number; missingEmail: number; invalidEmail: number; duplicateEmail: number; staffEmail: number; unsubscribed: number; blocked: number; inactive: number; recipientNotAllowed: number; missingPhone?: number; invalidPhone?: number; duplicatePhone?: number; doNotContact?: number }
-export interface AudienceRecipientPreview { id: string; name: string; recordType: 'Lead' | 'Contact'; company: string; email: string | null; phone: string | null }
+export interface AudienceRecipientPreview { id: string; name: string; recordType: 'Lead' | 'Contact'; companyName: string; email: string | null; phone: string | null }
 export interface AudiencePreviewResult extends AudienceBreakdown { recipients: AudienceRecipientPreview[]; meta: { page: number; limit: number; total: number; hasMore: boolean } }
 
 // Application safety bound, not a TextBee limit. TextBee documents multipart
@@ -82,7 +86,7 @@ export function smsMessageStats(message: string) {
 }
 export const CampaignDraftSchema = z.object({
   name: MarketingNameSchema, type: z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
-  subject: EmailSubjectSchema.optional(), body: z.string().max(50000).optional(),
+  subject: EmailSubjectSchema.optional(), body: z.string().max(50000).refine(currentCompanyVariable, companyVariableMessage).optional(),
   audienceSource: AudienceSourceSchema.optional().nullable(), targetAudienceId: z.string().uuid().optional().nullable(),
   emailTemplateId: z.string().uuid().optional().nullable(), smsTemplateId: z.string().uuid().optional().nullable(),
 }).strict();
@@ -93,7 +97,14 @@ export const CampaignSendSchema = CampaignDraftSchema.superRefine((v, ctx) => {
   if (v.type === 'EMAIL' && !v.subject?.trim()) ctx.addIssue({ code: 'custom', path: ['subject'], message: 'Subject line is required.' });
   if (!v.body?.trim()) ctx.addIssue({ code: 'custom', path: ['body'], message: 'Body is required.' });
 });
-export const MarketingTemplateSchema = z.object({ name: MarketingNameSchema, type: z.enum(['Email', 'SMS']), category: MarketingNameSchema.optional(), subject: EmailSubjectSchema.optional(), content: z.string().trim().min(1, 'Message content is required.').max(50000) }).strict().superRefine((v, ctx) => {
+export const MarketingTemplateSchema = z.object({ name: MarketingNameSchema, type: z.enum(['Email', 'SMS', 'Quotation']), category: MarketingNameSchema.optional(), subject: EmailSubjectSchema.optional(), content: z.string().trim().min(1, 'Message content is required.').max(50000).refine(currentCompanyVariable, companyVariableMessage) }).strict().superRefine((v, ctx) => {
   if (v.type === 'Email' && !v.subject) ctx.addIssue({ code: 'custom', path: ['subject'], message: 'Subject line is required.' });
+  if (v.type === 'Quotation') {
+    if (!v.category) ctx.addIssue({ code: 'custom', path: ['category'], message: 'Category is required.' });
+    let content: unknown;
+    try { content = JSON.parse(v.content); } catch { /* Report through the shared schema below. */ }
+    const parsed = QuotationTemplateContentSchema.safeParse(content);
+    if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ code: 'custom', path: ['content', ...issue.path], message: issue.message });
+  }
 });
 export interface CampaignSendResult { campaignId: string; eligibleRecipients: number; submittedRecipients: number; failedRecipients: number; status: import('../types/campaign.types').CampaignStatus; submissionComplete?: boolean; submissionInterrupted?: boolean }

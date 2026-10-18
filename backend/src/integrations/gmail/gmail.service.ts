@@ -16,6 +16,10 @@ import { readGmailJson, writeGmailJson } from './gmail-read';
 import type { MailboxUnreadCount } from '@leadcrm/shared';
 import { countUnreadConversations } from './mailbox-conversations';
 import { authorizeMailboxOperation, type MailboxOperationContext } from './mailbox-operations';
+import { createHash } from 'node:crypto';
+import type { MailboxQuotationContext } from './mailbox-operations';
+
+export interface GeneratedMailboxAttachment { filename: string; mimeType: 'application/pdf'; data: Buffer }
 
 
 
@@ -244,7 +248,7 @@ export async function ingestConfirmedMailboxSend(account: EmailAccount, messageI
     console.warn('[mailbox-send-ingestion]', { accountId: account.id, category: error instanceof AppError ? error.code ?? 'INGESTION_FAILED' : 'INGESTION_FAILED' });
   }
 }
-export async function sendEmail(tenantId: string, userId: string, to: string | string[], subject: string, body: string, replyToMessageId?: string, draftId?: string, forwardSourceMessageId?: string, operation: { messageId?: string; receiptId?: string; beforeProviderWrite?: () => Promise<void> } = {}): Promise<{ messageId: string; threadId: string }> {
+export async function sendEmail(tenantId: string, userId: string, to: string | string[], subject: string, body: string, replyToMessageId?: string, draftId?: string, forwardSourceMessageId?: string, operation: { messageId?: string; receiptId?: string; attachments?: GeneratedMailboxAttachment[]; quotation?: MailboxQuotationContext; beforeProviderWrite?: () => Promise<void> } = {}): Promise<{ messageId: string; threadId: string }> {
   const { account, scope, permissions } = await authorizedMailbox(tenantId, userId);
   if (replyToMessageId) await assertStoredMessages(account, scope, [replyToMessageId], true);
   if (forwardSourceMessageId) await assertStoredMessages(account, scope, [forwardSourceMessageId], true);
@@ -257,8 +261,8 @@ export async function sendEmail(tenantId: string, userId: string, to: string | s
   const savedDraft = draftId ? await saveDraft(tenantId, userId, recipients.join(', '), subject, body, draftId, { replyToMessageId, forwardSourceMessageId, messageId: operation.messageId, operationReceiptId: operation.receiptId, beforeProviderWrite }) : null;
   const accessToken = await getValidAccessToken(tenantId, userId);
   const headers = reply && !savedDraft ? await verifiedReplyHeaders(accessToken, reply) : undefined;
-  const raw = createRawMessage(recipients.join(', '), subject, body, account.email, headers?.rfcMessageId, operation.messageId, headers?.rfcReferences);
-  await authorizeMailboxOperation(account, { recipients, replyToMessageId, forwardSourceMessageId, draftId, threadId: reply?.threadId });
+  const raw = createRawMessage(recipients.join(', '), subject, body, account.email, headers?.rfcMessageId, operation.messageId, headers?.rfcReferences, operation.attachments);
+  await authorizeMailboxOperation(account, { recipients, replyToMessageId, forwardSourceMessageId, draftId, threadId: reply?.threadId, quotation: operation.quotation });
   if (savedDraft) await assertDraftAccess(tenantId, userId, savedDraft.draftId, operation.receiptId);
   await beforeProviderWrite();
   const result = await writeGmailJson<{ id: string; threadId: string }>(accessToken, savedDraft ? 'drafts/send' : 'messages/send', 'POST', savedDraft ? { id: savedDraft.draftId } : { raw, ...(reply ? { threadId: reply.threadId } : {}) });
@@ -480,13 +484,16 @@ function assertReplySubject(subject: string, original: string) {
   if (base(subject) !== base(original)) throw new AppError('Keep the conversation subject when replying. Use Compose for a new subject.', 400, 'MAILBOX_REPLY_SUBJECT_CHANGED');
 }
 
-function createRawMessage(to: string, subject: string, body: string, from: string, inReplyTo?: string, messageId?: string, references: string[] = []): string {
+export function createRawMessage(to: string, subject: string, body: string, from: string, inReplyTo?: string, messageId?: string, references: string[] = [], attachments: GeneratedMailboxAttachment[] = []): string {
   // Inbox sends and drafts pass their connected mailbox explicitly.
   const fromAddress = from.trim();
   if (!fromAddress) throw new AppError('Gmail sender is not configured.', 503);
   if ([to, subject, fromAddress, inReplyTo ?? '', messageId ?? ''].some(value => /[\r\n]/.test(value))) throw new AppError('Invalid email header.', 400);
   if (!mailboxAddress(fromAddress)) throw new AppError('Invalid Gmail sender address.', 400);
 
+  if (attachments.length > 1 || attachments.some(file => !/^[A-Za-z0-9_-]+\.pdf$/.test(file.filename) || file.mimeType !== 'application/pdf' || file.data.length > 5 * 1024 * 1024 || file.data.subarray(0, 5).toString() !== '%PDF-')) throw new AppError('Invalid generated PDF attachment.', 400);
+  const boundary = `leadcrm-${createHash('sha256').update(messageId ?? '').update(attachments[0]?.data ?? '').digest('hex').slice(0, 32)}`;
+  const base64 = (data: Buffer) => data.toString('base64').match(/.{1,76}/g)?.join('\r\n') ?? '';
   const message = [
     `From: ${fromAddress}`,
     `To: ${to}`,
@@ -494,9 +501,9 @@ function createRawMessage(to: string, subject: string, body: string, from: strin
     ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${[...new Set([...references.filter(id => /^<[^\s<>]{1,498}>$/.test(id)), inReplyTo])].join('\r\n ')}`] : []),
     ...(messageId ? ['Message-ID: ' + messageId] : []),
     'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    body,
+    ...(attachments.length ? [`Content-Type: multipart/mixed; boundary="${boundary}"`, '', `--${boundary}`, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', base64(Buffer.from(body)),
+      ...attachments.flatMap(file => [`--${boundary}`, 'Content-Type: application/pdf', `Content-Disposition: attachment; filename="${file.filename}"`, 'Content-Transfer-Encoding: base64', '', base64(file.data)]), `--${boundary}--`]
+      : ['Content-Type: text/html; charset=utf-8', '', body]),
   ].join('\r\n');
 
   return Buffer.from(message).toString('base64url');

@@ -257,7 +257,7 @@ it('protects saved readable references from deletion and rejects stale field edi
 
 
 it.each(['leads', 'contacts'] as const)('moves the old %s company placement without losing label or visibility', module => {
-  const key = module === 'leads' ? 'companyName' : 'company';
+  const key = 'companyName';
   const layout = defaultFieldLayout(module);
   layout.fields[key] = { label: 'Corporate name', groupId: `${module}:section:0`, order: 8, visibleInForm: false, visibleInDetails: true };
   expect(upgradeAssignmentLayout(layout).fields[key]).toEqual({ ...layout.fields[key], groupId: `${module}:section:2` });

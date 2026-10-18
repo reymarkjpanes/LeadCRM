@@ -7,7 +7,6 @@ export async function validateMessageVariables(content: string, entity: Workflow
   if (!campaignVariableKeys(content).length) return;
   const fields = await campaignVariableFields(tenantId);
   const keys = campaignApprovedVariableKeys(entity === 'lead' || entity === 'contact' ? fields : fields.filter(field => field.module === WORKFLOW_MODULES[entity]), entity === 'lead' ? 'LEADS' : entity === 'contact' ? 'CONTACTS' : undefined);
-  if (entity === 'lead' && keys.has('companyName')) keys.add('company');
   const error = workflowMessageVariableError(content, keys);
   if (error) throw new ValidationError(error);
 }

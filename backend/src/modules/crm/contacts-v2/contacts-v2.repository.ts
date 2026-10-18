@@ -31,7 +31,7 @@ const CONTACT_FILTER_FIELDS: FilterFields = {
  * Contacts V2 Repository — queries the Contact table.
  *
  * Field mapping (schema ↔ DB):
- *   company        → Contact.company       (plain text, company name)
+ *   companyName    → Contact.companyName       (plain text, company name)
  *   accountId      → Contact.accountId      (FK → Account.id)  ← CANONICAL company link (ADR-001)
  *   status         → ContactStatus enum    (HOT | WARM | COLD | CANCELLED | CLOSED)
  *   productInterests → names derived from ContactProductInterest
@@ -58,7 +58,7 @@ export async function findAllContacts(tenantId: string, query: Record<string, un
   }
   const clauses = buildPrismaFilters(filters, CONTACT_FILTER_FIELDS);
   clauses.push(...buildSearchClauses(query.search, ['firstName', 'lastName', 'email', 'phone', 'source'], contains => [
-    { company: contains, ...(!canReadAccount ? { companyFromAccount: false } : {}) },
+    { companyName: contains, ...(!canReadAccount ? { companyFromAccount: false } : {}) },
     ...(canReadAccount ? [{ account: { name: contains } }] : []),
     ...(['HOT', 'WARM', 'COLD', 'CANCELLED', 'CLOSED'].includes(contains.contains.toUpperCase()) ? [{ status: contains.contains.toUpperCase() }] : []),
   ]));
@@ -99,9 +99,9 @@ export async function findAllContacts(tenantId: string, query: Record<string, un
     where['lifecycleStage'] = String(query.lifecycleStage);
   }
 
-  const sort = typeof query.sort === 'string' ? query.sort.replace(/^companyName:/, 'company:') : query.sort;
-  const ids = await sortedPageIds(sort === 'createdAt:desc' ? undefined : sort, ['firstName', 'lastName', 'email', 'phone', 'company', 'status', 'source', 'createdAt'], skip, limit,
-    async () => (await (salesContext.getStore() ?? prisma).contact.findMany({ where, select: { id: true, firstName: true, lastName: true, email: true, phone: true, company: true, companyFromAccount: true, status: true, source: true, createdAt: true } }))
+  const sort = query.sort;
+  const ids = await sortedPageIds(sort === 'createdAt:desc' ? undefined : sort, ['firstName', 'lastName', 'email', 'phone', 'companyName', 'status', 'source', 'createdAt'], skip, limit,
+    async () => (await (salesContext.getStore() ?? prisma).contact.findMany({ where, select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, companyFromAccount: true, status: true, source: true, createdAt: true } }))
       .map(row => ({ ...presentContactAccount(row, canReadAccount), status: normalizeCrmStatus(row.status) })),
     direction => (salesContext.getStore() ?? prisma).contact.findMany({ where, skip, take: limit, orderBy: [{ createdAt: direction }, { id: 'asc' }], select: { id: true } }));
   const [data, total] = await Promise.all([
@@ -158,13 +158,13 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     const { customFieldValues, productInterestIds: _productIds, newAccount, ...data } = dto;
     if (newAccount) {
       const account = await createLinkedAccount(tx, tenantId, newAccount, actorId);
-      data.accountId = account.id; data.company = account.name; data.companyFromAccount = true;
+      data.accountId = account.id; data.companyName = account.name; data.companyFromAccount = true;
     } else if (data.accountId && data.accountId !== current.accountId) {
       const account = await tx.account.findFirst({ where: { tenantId, id: String(data.accountId), isArchived: false, deletedAt: null }, select: { name: true } });
       if (!account) throw new NotFoundError('Account');
-      data.company = account.name;
+      data.companyName = account.name;
       data.companyFromAccount = true;
-    } else if (data.company !== undefined && data.company !== current.company) {
+    } else if (data.companyName !== undefined && data.companyName !== current.companyName) {
       data.companyFromAccount = false;
     }
     await saveRecordValues(tx, tenantId, 'contacts', id, customFieldValues, actorId);

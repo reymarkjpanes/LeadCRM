@@ -235,13 +235,13 @@ export function CampaignBuilder({
   const variableFields = variableCatalog.fields.filter(field => field.module === (selectedSource === 'LEADS' ? 'leads' : selectedSource === 'CONTACTS' ? 'contacts' : ''));
   const senderValues = { sender_name: campaignType === 'SMS' ? smsSettings.data?.organizationName : emailSender?.senderName, sender_email: campaignType === 'SMS' ? smsSettings.data?.organizationEmail : emailSender?.senderEmail };
   const choices = campaignVariableChoices(variableCatalog.fields, selectedSource, { forInsertion: true }).map(choice => choice.category === 'Sender' && !senderValues[choice.technicalKey as keyof typeof senderValues] ? { ...choice, personalizationAvailable: false, unavailableReason: 'Sender configuration is unavailable. Configure the sender before using this variable.' } : choice);
-  const quickKeys = ['firstName', 'lastName', selectedSource === 'CONTACTS' ? 'company' : 'companyName', 'phone', 'status', 'sender_name', 'sender_email'];
+  const quickKeys = ['firstName', 'lastName', 'companyName', 'phone', 'status', 'sender_name', 'sender_email'];
   const quickChoices = quickKeys.flatMap(key => { const choice = choices.find(choice => choice.technicalKey === key && (choice.category === 'Sender' || choice.origins.some(origin => origin.module === (selectedSource === 'CONTACTS' ? 'contacts' : 'leads')))); return choice ? [choice] : []; });
   const approvedVariables = campaignApprovedVariableKeys(variableCatalog.fields, selectedSource);
   const invalidVariables = selectedSource && variableCatalog.data ? campaignVariableKeys((campaignType === 'Email' ? emailSubject : '') + '\n' + messageContent).filter(key => !approvedVariables.has(key)) : [];
   const variableRepair = invalidVariables.length ? `Repair unavailable variables for this source: ${invalidVariables.map(key => '{{' + key + '}}').join(', ')}.` : '';
   const previewFields = selectedSource ? variableCatalog.fields.filter(field => [selectedSource === 'LEADS' ? 'leads' : 'contacts', 'accounts', 'deals'].includes(field.module)) : variableFields;
-  const previewVariables = { ...campaignSampleValues(previewFields), firstName: 'John', lastName: 'Doe', email: 'jdoe@example.com', companyName: 'Example Company', company: 'Example Company', phone: '+639123456789', first_name: 'John', last_name: 'Doe', company_name: 'Example Company', contact_number: '+639123456789', status: 'Hot', sender_name: senderValues.sender_name || 'Configured sender unavailable', sender_email: senderValues.sender_email || 'Sender email unavailable' };
+  const previewVariables = { ...campaignSampleValues(previewFields), firstName: 'John', lastName: 'Doe', email: 'jdoe@example.com', companyName: 'Example Company', phone: '+639123456789', first_name: 'John', last_name: 'Doe', company_name: 'Example Company', contact_number: '+639123456789', status: 'Hot', sender_name: senderValues.sender_name || 'Configured sender unavailable', sender_email: senderValues.sender_email || 'Sender email unavailable' };
   useEffect(() => {
     const refresh = () => { void variableCatalog.refetch(); void emailSettings.refetch(); void smsSettings.refetch(); };
     window.addEventListener('focus', refresh);
@@ -521,7 +521,7 @@ export function CampaignBuilder({
             {!counts && targetAudience && <DataLoadingSkeleton rowCount={3} columnCount={2} />}
             {counts && <>
               <ul className="max-h-52 divide-y overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
-                {counts.recipients.map(recipient => <li key={recipient.id} className="space-y-1 p-3 text-xs"><strong>{recipient.name || 'Unnamed recipient'}</strong> · {recipient.recordType}<p>{recipient.company}</p><p>{campaignType === 'SMS' ? recipient.phone : recipient.email}</p></li>)}
+                {counts.recipients.map(recipient => <li key={recipient.id} className="space-y-1 p-3 text-xs"><strong>{recipient.name || 'Unnamed recipient'}</strong> · {recipient.recordType}<p>{recipient.companyName}</p><p>{campaignType === 'SMS' ? recipient.phone : recipient.email}</p></li>)}
               </ul>
               {!counts.recipients.length && <p className="text-xs text-slate-500">No eligible recipients match these conditions.</p>}
               <PaginationControls currentPage={recipientPage} totalRecords={counts.meta.total} pageSize={recipientLimit} onPageChange={setRecipientPage} onPageSizeChange={size => { setRecipientPage(1); setRecipientLimit(size); }} showRange={false} />

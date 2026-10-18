@@ -8,10 +8,9 @@ export async function mayReadContactAccount(db: Prisma.TransactionClient, tenant
 }
 
 /** Strip implementation metadata on every public Contact projection. */
-export function presentContactAccount<T extends { company?: string | null; companyName?: string | null; companyFromAccount?: boolean; account?: unknown }>(contact: T, permitted: boolean) {
+export function presentContactAccount<T extends { companyName?: string | null; companyFromAccount?: boolean; account?: unknown }>(contact: T, permitted: boolean) {
   const { companyFromAccount, ...record } = contact;
-  return { ...record, ...(companyFromAccount && !permitted && 'company' in record ? { company: null } : {}),
-    ...(companyFromAccount && !permitted && 'companyName' in record ? { companyName: null } : {}),
+  return { ...record, ...(companyFromAccount && !permitted && 'companyName' in record ? { companyName: null } : {}),
     ...('account' in record ? { account: permitted ? record.account : null } : {}) } as Omit<T, 'companyFromAccount'>;
 }
 

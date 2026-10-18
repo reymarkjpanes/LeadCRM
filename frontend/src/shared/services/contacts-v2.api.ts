@@ -33,14 +33,13 @@ export interface ContactV2Query {
   filters?: import('@leadcrm/shared').FilterCondition[];
 }
 
-/** Contact screens still use display aliases; the Contact API uses canonical columns. */
+/** Preserve the existing display aliases for source, Account and Products. */
 export function toContactWrite(data: Partial<Contact>): Record<string, unknown> {
-  const { companyName, leadSource, organizationId, productInterest } = data;
-  const allowed = new Set(['firstName', 'lastName', 'email', 'phone', 'company', 'address', 'source', 'notes', 'status', 'accountId', 'assignedUserId', 'productInterests', 'productInterestIds', 'productInterestOther', 'customFieldValues', 'newAccount']);
+  const { leadSource, organizationId, productInterest } = data;
+  const allowed = new Set(['firstName', 'lastName', 'email', 'phone', 'companyName', 'address', 'source', 'notes', 'status', 'accountId', 'assignedUserId', 'productInterests', 'productInterestIds', 'productInterestOther', 'customFieldValues', 'newAccount']);
   const payload = Object.fromEntries(Object.entries(data).filter(([key]) => allowed.has(key)));
   return {
     ...payload,
-    ...(companyName !== undefined ? { company: companyName } : {}),
     ...(leadSource !== undefined ? { source: leadSource } : {}),
     ...(organizationId !== undefined && data.accountId === undefined ? { accountId: organizationId || null } : {}),
     ...(productInterest !== undefined && data.productInterests === undefined ? { productInterests: productInterest } : {}),
@@ -48,8 +47,8 @@ export function toContactWrite(data: Partial<Contact>): Record<string, unknown> 
 }
 
 export function contactDisplay(data: Contact): Contact {
-  const contact = data as Contact & { company?: string };
-  return { ...withoutRetiredContactFields(contact), companyName: contact.company ?? contact.companyName,
+  const contact = data;
+  return { ...withoutRetiredContactFields(contact),
     leadSource: contact.source ?? contact.leadSource, organizationId: contact.accountId ?? contact.organizationId };
 }
 

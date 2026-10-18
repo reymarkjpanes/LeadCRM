@@ -147,6 +147,8 @@ function deploymentPlan(records, localNames) {
     '20261214000000_login_security_lock',
     '20261215000000_password_expiring_notification',
     '20261216000000_product_metadata',
+    // Breaking Contact column/token rename: drain jobs and stop old writers first.
+    '20261217000000_contact_company_name',
   ];
   const later = localNames.filter(name => /^\d+_/.test(name) && name > relationshipExpansion && name !== relationshipRetirement);
   if (later.some(name => !independent.includes(name))) fail('REVIEW_MIGRATIONS_AFTER_DEFERRED_RELATIONSHIP_RETIREMENT');

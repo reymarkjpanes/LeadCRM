@@ -60,7 +60,7 @@ test('the complete release history deploys reviewed transitions while guarded co
   const mailboxActivityDeals = '20261212000000_mailbox_activity_deals';
   const accountNoteTriggerPermissions = '20261213000000_account_note_trigger_permissions';
   const plan = deploymentPlan(rows, names);
-  assert.equal(plan.through, '20261216000000_sms_campaign_links');
+  assert.equal(plan.through, '20261217000000_contact_company_name');
   assert.deepEqual(plan.exclude, [relationship, crm, lead, contact, contactJobTitle, accountRetirement, accountFieldRetirement, accountNotesRetirement]);
   const selected = names.filter(name => /^\d+_/.test(name) && name <= plan.through && !plan.exclude.includes(name));
   for (const name of ['20261106000000_scoped_mailbox_delivery', '20261110000000_preserve_retired_lead_fields',

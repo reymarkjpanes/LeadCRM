@@ -106,7 +106,7 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   if (completedSale && !firstWon) throw new ConflictError('Confirmed Won evidence is required before conversion.');
   const status = (firstWon ? 'CLOSED' : normalizeCrmStatus(lead.status).toUpperCase()) as ContactStatus;
   if (!contact) contact = await tx.contact.create({ data: { tenantId, firstName: lead.firstName, lastName: lead.lastName,
-    email: lead.email?.trim().toLowerCase(), phone: lead.phone, company: lead.companyName, companyFromAccount: lead.companyFromAccount, address: lead.address,
+    email: lead.email?.trim().toLowerCase(), phone: lead.phone, companyName: lead.companyName, companyFromAccount: lead.companyFromAccount, address: lead.address,
     source: lead.source, notes: typeof legacyDescription?.value === 'string' ? legacyDescription.value : undefined, assignedUserId: lead.assignedUserId, accountId,
     ...await productRelationData(tx, 'contact', tenantId, initialInterests, lead), status: !firstWon && status === 'CLOSED' ? 'WARM' : status, lifecycleStage: firstWon ? 'CUSTOMER' : 'CONTACT',
     customerSince: firstWon ?? null, convertedAt: now, lastStatusChangedAt: lead.lastStatusChangedAt } });

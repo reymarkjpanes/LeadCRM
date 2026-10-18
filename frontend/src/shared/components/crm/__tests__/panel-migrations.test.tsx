@@ -37,7 +37,7 @@ import { recordEmailComposeHref } from '@/features/tenant/inbox/services/compose
 const records = {
   deals: { id: 'one', title: 'Lina Reyes – Smart Lock', pipelineId: 'sales', stageId: 'lead', stage: { name: 'Lead' }, pipeline: { name: 'Sales Pipeline' }, value: 1250.75, priority: 'MEDIUM', productInterests: ['Smart Lock'], assignedUserId: 'user', assignedUser: { firstName: 'Sam', lastName: 'Cruz' }, leadDeals: [{ lead: { id: 'lead-one', firstName: 'Lina', lastName: 'Reyes', email: 'lina@example.test' } }], contactDeals: [] },
   leads: { id: 'one', firstName: 'Lina', lastName: 'Reyes', email: 'lina@example.test', source: 'Referral', status: 'Warm', productInterest: ['CCTV'], assignedUserId: 'user', assignedUser: { firstName: 'Sam', lastName: 'Cruz' } },
-  contacts: { id: 'one', firstName: 'Nora', lastName: 'Lim', status: 'WARM', company: 'North Company', assignedUserId: 'user' },
+  contacts: { id: 'one', firstName: 'Nora', lastName: 'Lim', status: 'WARM', companyName: 'North Company', assignedUserId: 'user' },
   accounts: { id: 'one', name: 'North Company', industry: 'Services', website: 'example.test' },
 };
 
@@ -517,10 +517,10 @@ it('edits Contact details inline using canonical API fields', async () => {
   render(<CrmRecordView module="contacts" id="one" />);
   await screen.findByRole('heading', { name: 'Nora Lim' });
   fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Company Name' }));
-  fireEvent.change(screen.getByRole('textbox', { name: 'Company Name' }), { target: { value: 'Updated Company' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Company' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Company' }), { target: { value: 'Updated Company' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith('/crm/contacts/one', { company: 'Updated Company' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith('/crm/contacts/one', { companyName: 'Updated Company' }));
   expect(screen.queryByRole('dialog')).toBeNull();
 });
 
@@ -645,7 +645,7 @@ it('removes retired Lead Website and Notes editors while keeping Contact Notes a
 it.each((['leads', 'contacts'] as const).flatMap(module => ['panel', 'page'].map(surface => ({ module, surface }))))('shows one company inside Organization on $module $surface', async ({ module, surface }) => {
   const original = mocks.get.getMockImplementation()!;
   const account = { id: 'company', name: 'Canonical company', industry: 'Technology', size: '11-50', website: 'https://company.test' };
-  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: { ...records[module], accountId: account.id, account, companyName: 'Old company', company: 'Old company' } }
+  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: { ...records[module], accountId: account.id, account, companyName: 'Old company' } }
     : path.includes('/relationships') ? { data: { account, deals: [] } } : original(path));
   render(surface === 'panel' ? <CrmRecordPanel module={module} id="one" open onOpenChange={() => {}} /> : <CrmRecordView module={module} id="one" />);
   await screen.findByRole('heading', { level: 1 }); fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
@@ -655,7 +655,7 @@ it.each((['leads', 'contacts'] as const).flatMap(module => ['panel', 'page'].map
   expect(organization.closest('section')?.textContent?.match(/Technology/g)).toHaveLength(1);
   expect(organization.closest('section')?.textContent).toContain('11-50');
   expect(screen.queryByRole('button', { name: /Company \/ Organization|Account \/ Company/ })).toBeNull();
-  expect(within(organization.closest('section')!).getByRole('button', { name: 'Edit Company Name' }).textContent).toContain('Old company');
+  expect(within(organization.closest('section')!).getByRole('button', { name: module === 'contacts' ? 'Edit Company' : 'Edit Company Name' }).textContent).toContain('Old company');
 });
 it('groups Deal participants and Account under Relationships exactly once', async () => {
   const original = mocks.get.getMockImplementation()!;
@@ -675,7 +675,7 @@ function organizationFixture(module: 'leads' | 'contacts', legacy = false) {
     layout.groups.reverse().forEach((group, order) => { group.order = order; });
     layout.groups.find(group => group.id === `${module}:section:1`)!.label = 'Status & Classification';
     layout.groups.find(group => group.id === `${module}:section:2`)!.label = 'Relationships';
-    layout.fields[module === 'leads' ? 'companyName' : 'company'] = { label: 'Company Name', groupId: `${module}:section:0`, order: 1, visibleInForm: true, visibleInDetails: true };
+    layout.fields['companyName'] = { label: 'Company Name', groupId: `${module}:section:0`, order: 1, visibleInForm: true, visibleInDetails: true };
     layout.fields.assignedUserId = { label: 'Assigned Agent', groupId: `${module}:section:2`, order: 0, visibleInForm: true, visibleInDetails: true };
   }
   layout.groups.push({ id: 'custom-relationships', label: 'Relationships', order: 0 });
@@ -686,7 +686,7 @@ function organizationFixture(module: 'leads' | 'contacts', legacy = false) {
     sourceLead: { id: 'source-lead', firstName: 'Source', lastName: 'Lead', email: 'source@example.test' }, hasMoreDeals: false,
   };
   mocks.get.mockImplementation(async (path: string) => {
-    if (path === `/crm/${module}/one`) return { data: { ...records[module], companyName: 'Stored company', company: 'Stored company', accountId: account.id, account } };
+    if (path === `/crm/${module}/one`) return { data: { ...records[module], companyName: 'Stored company', accountId: account.id, account } };
     if (path === `/crm/${module}/field-layout`) return { data: { layout, fields: getCrmFieldCatalog(module, fields, layout) } };
     if (path === `/crm/${module}/one/custom-fields`) return { data: { fields, values: { 'custom-note': 'Preserved value' }, files: [], layout } };
     if (path.includes(`/crm/${module}/one/relationships`)) return { data: relationships };
@@ -811,7 +811,7 @@ it.each(['leads', 'contacts'] as const)('%s retains Account/Deal empty states an
   // The shared cache invalidation follows the same reload path as a configuration edit.
   cleanup(); clearPageCache();
   const original = mocks.get.getMockImplementation()!;
-  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: { ...records[module], companyName: 'Stored company', company: 'Stored company' } } : original(path));
+  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: { ...records[module], companyName: 'Stored company' } } : original(path));
   render(<CrmRecordView module={module} id="one" />);
   await screen.findByRole('heading', { level: 1 }); fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
   await screen.findByText(`No deals attached to this ${module === 'leads' ? 'lead' : 'contact'}.`);

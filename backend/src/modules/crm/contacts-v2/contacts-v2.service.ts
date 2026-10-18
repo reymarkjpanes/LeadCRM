@@ -11,7 +11,7 @@ import { recordChanges, customFieldChangeTracker } from '../record-updates';
 import { salesTransaction } from '../leads/lead-automation.service';
 import { assertContactAccountSelection, mayReadContactAccount, presentContactAccount } from './contact-account-access';
 
-async function presentContact<T extends { status: string; account: unknown; companyFromAccount?: boolean; company?: string | null }>(tenantId: string, contact: T) {
+async function presentContact<T extends { status: string; account: unknown; companyFromAccount?: boolean; companyName?: string | null }>(tenantId: string, contact: T) {
   return presentContactAccount({ ...contact, status: normalizeCrmStatus(contact.status) }, await mayReadContactAccount(salesContext.getStore() ?? prisma, tenantId));
 }
 

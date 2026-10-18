@@ -5,7 +5,7 @@ import { contactsV2Api, toContactWrite } from './contacts-v2.api';
 import { RETIRED_CONTACT_FIELDS } from '@leadcrm/shared';
 beforeEach(() => {
   vi.clearAllMocks();
-  transport.post.mockResolvedValue({ success: true, data: { id: 'contact', company: 'Acme', source: 'Referral', accountId: 'account' } });
+  transport.post.mockResolvedValue({ success: true, data: { id: 'contact', companyName: 'Acme', source: 'Referral', accountId: 'account' } });
   transport.put.mockResolvedValue({ success: true, data: { id: 'contact' } });
 });
 it('excludes all retired Contact fields from transport and response compatibility', async () => {
@@ -18,14 +18,14 @@ it('excludes all retired Contact fields from transport and response compatibilit
 });
 it('translates all display aliases to persisted Contact fields on create and edit', async () => {
   const draft = { companyName: 'Acme', leadSource: 'Referral', productInterest: ['CCTV'], accountId: 'account' };
-  const expected = { company: 'Acme', source: 'Referral', productInterests: ['CCTV'], accountId: 'account' };
+  const expected = { companyName: 'Acme', source: 'Referral', productInterests: ['CCTV'], accountId: 'account' };
   const requestId = '96eaed35-af9f-4686-8854-83c5da0f8e05';
   const response = await contactsV2Api.create({ ...draft, requestId });
   expect(transport.post).toHaveBeenCalledWith('/crm/contacts', { ...expected, requestId });
   expect(response.data).toMatchObject({ companyName: 'Acme', leadSource: 'Referral', accountId: 'account', organizationId: 'account' });
   await contactsV2Api.update('contact', draft);
   expect(transport.put).toHaveBeenCalledWith('/crm/contacts/contact', expected);
-  expect(toContactWrite({ companyName: '', leadSource: '', productInterest: [] })).toEqual({ company: '', source: '', productInterests: [] });
+  expect(toContactWrite({ companyName: '', leadSource: '', productInterest: [] })).toEqual({ companyName: '', source: '', productInterests: [] });
   expect(toContactWrite({ ...draft, requestId } as never)).not.toHaveProperty('requestId');
 });
 it('makes exactly one list request with server page, sort, search and filters', async () => {

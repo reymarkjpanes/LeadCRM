@@ -116,7 +116,7 @@ async function createLead(tx: Tx, tenantId: string, actorId: string, jobId: stri
 async function createContact(tx: Tx, tenantId: string, actorId: string, jobId: string, row: ResolvedRow) {
   const d = row.data;
   return (await createAssignedContact(tx, tenantId, { firstName: d.firstName, lastName: d.lastName,
-    email: d.email, phone: d.phone, company: d.companyName, address: d.address, status: 'Warm', productInterestIds: row.products.map(p => p.id),
+    email: d.email, phone: d.phone, companyName: d.companyName, address: d.address, status: 'Warm', productInterestIds: row.products.map(p => p.id),
   }, actorId, `import:${jobId}:${row.rowNumber}`)).contact.id;
 }
 async function createAccount(tx: Tx, tenantId: string, _actorId: string, _jobId: string, row: ResolvedRow) {

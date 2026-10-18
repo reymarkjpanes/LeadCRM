@@ -12,7 +12,7 @@ export function useConfiguredCrmColumns<T extends { id: string; header: string }
   return columns.map(column => ({ ...column, header: configuredLabel(module, column.id, column.header, layout) }));
 }
 function configuredLabel(module: string, id: string, fallback: string, layout: FieldLayout): string {
-  const aliases: Record<string, string> = { productInterests: 'productInterestIds', productInterest: 'productInterestIds', activeProducts: 'activeProductIds', organizationId: 'accountId', assignedUser: 'assignedUserId', ...(module === 'contacts' ? { companyName: 'company' } : {}) };
+  const aliases: Record<string, string> = { productInterests: 'productInterestIds', productInterest: 'productInterestIds', activeProducts: 'activeProductIds', organizationId: 'accountId', assignedUser: 'assignedUserId' };
   const label = layout.fields[aliases[id] ?? id]?.label ?? fallback;
   return module === 'accounts' && id === 'address' && label === 'Street Address' ? 'Full Address' : label;
 }

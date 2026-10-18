@@ -194,7 +194,7 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
     const where = { id: created.body.data.id, tenantId };
     const saved = module === 'leads' ? await scope(() => prisma.lead.findUniqueOrThrow({ where })) : await scope(() => prisma.contact.findUniqueOrThrow({ where }));
     expect(saved.accountId).toBe(account.id);
-    expect('companyName' in saved ? saved.companyName : saved.company).toBe(account.name);
+    expect(saved.companyName).toBe(account.name);
     expect(await scope(() => prisma.accountCreationReceipt.count({ where: { tenantId } }))).toBe(receiptCount);
   });
 

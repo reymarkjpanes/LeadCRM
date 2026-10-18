@@ -88,7 +88,7 @@ export function toFrontendContact(backendContact: any): Record<string, any> {
     convertedAt: backendContact.convertedAt,
     lifecycleStage: backendContact.lifecycleStage,
     customerSince: backendContact.customerSince,
-    companyName: backendContact.companyName || backendContact.company || backendContact.account?.name || backendContact.organization?.name || '',
+    companyName: backendContact.companyName || backendContact.account?.name || backendContact.organization?.name || '',
     contactPerson: contactPerson || 'Unknown',
     firstName,
     lastName,

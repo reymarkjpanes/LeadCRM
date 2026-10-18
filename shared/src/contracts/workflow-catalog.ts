@@ -11,7 +11,7 @@ export const WORKFLOW_MESSAGE_VARIABLES = [
   { token: 'firstName', label: 'First Name', fields: ['firstName'], legacyToken: 'first_name' },
   { token: 'lastName', label: 'Last Name', fields: ['lastName'], legacyToken: 'last_name' },
   { token: 'email', label: 'Email', fields: ['email'], legacyToken: 'email' },
-  { token: 'company', label: 'Company Name', fields: ['company', 'companyName'], legacyToken: 'company' },
+  { token: 'companyName', label: 'Company', fields: ['companyName'], legacyToken: 'company_name' },
 ] as const;
 export function workflowMessageEntity(entity: WorkflowEntity, recipient?: unknown): WorkflowEntity {
   return recipient && (entity === 'account' || entity === 'deal') ? recipient === 'primary_lead' ? 'lead' : 'contact' : entity;
@@ -37,8 +37,6 @@ export function getWorkflowEmailVariableChoices(entity: WorkflowEntity, layout?:
 }
 export function workflowMessageVariableKeys(entity: WorkflowEntity, definitions: ClosingField[] = [], layout?: FieldLayout) {
   const keys = campaignApprovedVariableKeys(messageCatalog(entity, definitions, layout));
-  // Older Workflow company tokens use the same person-field meaning.
-  if (entity === 'lead' && keys.has('companyName')) keys.add('company');
   return keys;
 }
 export function workflowMessageVariableError(value: string, keys: ReadonlySet<string>): string | undefined {
@@ -73,7 +71,7 @@ export function getWorkflowUpdateFields(entity: WorkflowEntity, customFields: Cl
     // These remain editable in Account Edit; retain their supported automation contract.
   ];
   else standard = [text('firstName', 'First Name', true, 100), text('lastName', 'Last Name', true, 100), text('email', 'Email', true, 254), text('phone', 'Phone', false, entity === 'contact' ? 100 : 2000),
-    text(entity === 'lead' ? 'companyName' : 'company', 'Company Name'),
+    text('companyName', entity === 'contact' ? 'Company' : 'Company Name'),
     { ...choice('status', 'Status', CRM_STATUSES), required: true }, product, account,
     choice('source', entity === 'lead' ? 'Lead Source' : 'Source', LEAD_SOURCES), assignment, text('address', 'Full Address'),
   ];

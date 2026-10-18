@@ -2,6 +2,7 @@
 
 ## Status
 For the implemented Campaigns, Templates, Target Audiences, and Brevo webhook endpoints, see [Campaign email delivery](campaign-email-delivery.md).
+For quotation template PDFs and authenticated Gmail attachment sending, see [Campaign quotation templates](campaign-quotation-templates.md).
 
 The backend includes implemented CRM, authentication, administration, campaigns, workflows, forms, imports, and mailbox modules. Module-specific references below describe their contracts.
 

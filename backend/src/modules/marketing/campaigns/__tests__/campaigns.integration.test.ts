@@ -44,8 +44,8 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
   const draft = () => scoped(() => createCampaign(tenantId, userId, { name: 'September Campaign', type: 'EMAIL', subject: 'Hello {{first_name}}', body: '<p>Hi {{first_name}}, welcome to Camxian Technologies.</p>', targetAudienceId: audienceId }));
   async function scheduleDraft() {
     const company = `Schedule ${randomUUID()}`;
-    await prisma.contact.createMany({ data: [0, 1].map(index => ({ tenantId, firstName: `Scheduled${index}`, lastName: 'Fixture', email: `scheduled-${randomUUID()}@example.test`, company })) });
-    const audience = await createAudience(tenantId, { name: company, source: 'CONTACTS', conditions: [{ field: 'company', operator: 'equals', value: company }] });
+    await prisma.contact.createMany({ data: [0, 1].map(index => ({ tenantId, firstName: `Scheduled${index}`, lastName: 'Fixture', email: `scheduled-${randomUUID()}@example.test`, companyName: company })) });
+    const audience = await createAudience(tenantId, { name: company, source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: company }] });
     return createCampaign(tenantId, userId, { name: company, type: 'EMAIL', subject: 'Hi {{first_name}}', body: 'Hello {{firstName}}', targetAudienceId: audience.id });
   }
   async function request(path: string, method = 'GET', body?: unknown, auth = token) {
@@ -227,7 +227,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     try {
       await scoped(async () => {
         await prisma.lead.createMany({ data: Array.from({ length: total }, (_, i) => ({ tenantId, firstName: `Recipient${i}`, lastName: 'Test', email: `${source}-${i}@example.com`, productInterest: [], source, companyName: source })) });
-        const audience = await createAudience(tenantId, { name: source, source: 'LEADS', conditions: [{ field: 'company', operator: 'equals', value: source }] });
+        const audience = await createAudience(tenantId, { name: source, source: 'LEADS', conditions: [{ field: 'companyName', operator: 'equals', value: source }] });
         const campaign = await createCampaign(tenantId, userId, { name: source, type: 'EMAIL', targetAudienceId: audience.id, subject: 'Hello', body: 'Hello' });
         const result = await sendCampaign(campaign.id, tenantId, userId);
         expect(result).toEqual({ campaignId: campaign.id, eligibleRecipients: total, submittedRecipients: total - rejected - unconfirmed, failedRecipients: rejected, status, submissionComplete: true });
@@ -331,7 +331,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     await scoped(async () => {
       const source = `batch-${randomUUID()}`;
       await prisma.lead.createMany({ data: Array.from({ length: 12 }, (_, i) => ({ tenantId, firstName: `Customer${i}`, lastName: 'Test', email: `${source}-${i}@example.com`, productInterest: [], source, companyName: source })) });
-      const audience = await createAudience(tenantId, { name: 'Batch test', source: 'LEADS', conditions: [{ field: 'company', operator: 'equals', value: source }] });
+      const audience = await createAudience(tenantId, { name: 'Batch test', source: 'LEADS', conditions: [{ field: 'companyName', operator: 'equals', value: source }] });
       const campaign = await createCampaign(tenantId, userId, { name: 'Batch', type: 'EMAIL', targetAudienceId: audience.id, subject: 'Hi', body: 'Hello' });
       expect((await sendCampaign(campaign.id, tenantId, userId)).submittedRecipients).toBe(12);
       expect(peak).toBe(5);
@@ -438,10 +438,10 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       const agent = await prisma.user.create({ data: { tenantId, email: `agent-${randomUUID()}@camxian.com`, firstName: 'Valid', lastName: 'Agent', role: role.name, status: 'ACTIVE', userRoles: { create: { tenantId, roleId: role.id } } } });
       const createdAt = new Date('2026-10-06T16:00:00Z');
       const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Typed', lastName: 'Lead', companyName: 'Matching COMPANY', source: 'Website', status: 'Hot', assignedUserId: agent.id, createdAt, email: 'typed-lead@example.test', productsNormalized: true, productLinks: { create: { tenantId, productInterestId: product.id } } } });
-      const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Typed', lastName: 'Contact', company: 'Matching COMPANY', source: 'Website', status: 'HOT', assignedUserId: agent.id, createdAt, email: 'typed-contact@example.test', productsNormalized: true, productLinks: { create: { tenantId, productInterestId: product.id, interested: true } } } });
+      const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Typed', lastName: 'Contact', companyName: 'Matching COMPANY', source: 'Website', status: 'HOT', assignedUserId: agent.id, createdAt, email: 'typed-contact@example.test', productsNormalized: true, productLinks: { create: { tenantId, productInterestId: product.id, interested: true } } } });
       const definition = { source: 'CONTACTS', conditions: [
         { field: 'status', operator: 'equals', value: 'Hot' }, { field: 'source', operator: 'equals', value: 'Website' },
-        { field: 'company', operator: 'equals', value: 'Matching COMPANY' }, { field: 'productInterest', operator: 'equals', value: [product.id] },
+        { field: 'companyName', operator: 'equals', value: 'Matching COMPANY' }, { field: 'productInterest', operator: 'equals', value: [product.id] },
         { field: 'assignedUserId', operator: 'equals', value: agent.id }, { field: 'createdAt', operator: 'between', value: { from: '2026-10-07', to: '2026-10-07' } },
       ] };
       const audience = await createAudience(tenantId, { name: 'Typed audience', ...definition });
@@ -450,7 +450,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect(preview).toMatchObject({ eligible: 1, recipients: [{ id: contact.id, recordType: 'Contact' }], meta: { total: 1, limit: 1, hasMore: false } });
       expect((await previewAudience(tenantId, { ...definition, page: 2, limit: 1 })).recipients).toHaveLength(0);
       for (const source of ['LEADS', 'CONTACTS']) expect((await previewAudience(tenantId, { ...definition, source })).eligible).toBe(1);
-      const notEquals = { ...definition, conditions: [{ field: 'company', operator: 'not_equals', value: 'matching company' }] };
+      const notEquals = { ...definition, conditions: [{ field: 'companyName', operator: 'not_equals', value: 'matching company' }] };
       expect((await previewAudience(tenantId, notEquals)).recipients.some(r => [lead.id, contact.id].includes(r.id))).toBe(false);
       await prisma.lead.update({ where: { id: lead.id }, data: { createdAt: new Date('2026-10-07T16:00:00Z') } });
       expect((await previewAudience(tenantId, { ...definition, source: 'LEADS' })).eligible).toBe(0);
@@ -542,7 +542,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       const person = await prisma.contact.create({ data: { tenantId, firstName: 'Blank', lastName: 'SMS', phone: '+639171234561' } });
       try {
         const audience = await createAudience(tenantId, { name: 'Empty personalized SMS', source: 'CONTACTS', conditions: [{ field: 'phone', operator: 'equals', value: person.phone! }] });
-        const campaign = await createCampaign(tenantId, userId, { name: 'Empty SMS recipient', type: 'SMS', targetAudienceId: audience.id, body: '{{company}}' });
+        const campaign = await createCampaign(tenantId, userId, { name: 'Empty SMS recipient', type: 'SMS', targetAudienceId: audience.id, body: '{{companyName}}' });
         await expect(sendCampaign(campaign.id, tenantId, userId)).rejects.toThrow('Personalization left an SMS empty');
         expect(sendSms).not.toHaveBeenCalled();
         expect((await getCampaignById(campaign.id, tenantId)).status).toBe('DRAFT');
@@ -776,10 +776,10 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
   it('loads normalized tenant company choices for every source and matches whitespace variants', async () => {
     await scoped(async () => {
       await prisma.lead.create({ data: { tenantId, firstName: 'Company', lastName: 'Lead', email: 'company-lead@external.test', companyName: '  McDonalds  ' } });
-      await prisma.contact.create({ data: { tenantId, firstName: 'Company', lastName: 'Contact', email: 'company-contact@external.test', company: 'mcdonalds' } });
-      await prisma.contact.create({ data: { tenantId, firstName: 'Other', lastName: 'Contact', email: 'other-company@external.test', company: 'Contact Only' } });
+      await prisma.contact.create({ data: { tenantId, firstName: 'Company', lastName: 'Contact', email: 'company-contact@external.test', companyName: 'mcdonalds' } });
+      await prisma.contact.create({ data: { tenantId, firstName: 'Other', lastName: 'Contact', email: 'other-company@external.test', companyName: 'Contact Only' } });
       const account = await prisma.account.create({ data: { tenantId, name: 'Linked Company' } });
-      await prisma.contact.create({ data: { tenantId, firstName: 'Linked', lastName: 'Contact', email: 'linked-company@external.test', company: 'Old scalar', accountId: account.id } });
+      await prisma.contact.create({ data: { tenantId, firstName: 'Linked', lastName: 'Contact', email: 'linked-company@external.test', companyName: 'Old scalar', accountId: account.id } });
     });
     await scoped(() => prisma.lead.create({ data: { tenantId: otherTenantId, firstName: 'Other', lastName: 'Tenant', companyName: 'Foreign Company' } }), otherTenantId);
     const all = await request('/marketing/audiences/companies?source=CONTACTS');
@@ -787,23 +787,23 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     expect(all.body.data.filter((value: string) => value.toLowerCase() === 'mcdonalds')).toHaveLength(1);
     expect(all.body.data).not.toContain('Foreign Company');
     expect(all.body.data).toContain('Linked Company'); expect(all.body.data).not.toContain('Old scalar');
-    const linked = await request('/marketing/audiences/preview', 'POST', { source: 'CONTACTS', conditions: [{ field: 'company', operator: 'equals', value: 'Linked Company' }] });
-    expect(linked.body.data.matched).toBe(1); expect(linked.body.data.recipients[0].company).toBe('Linked Company');
+    const linked = await request('/marketing/audiences/preview', 'POST', { source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: 'Linked Company' }] });
+    expect(linked.body.data.matched).toBe(1); expect(linked.body.data.recipients[0].companyName).toBe('Linked Company');
     const leads = await request('/marketing/audiences/companies?source=LEADS');
     expect(leads.body.data).toContain('McDonalds'); expect(leads.body.data).not.toContain('Contact Only');
-    for (const field of ['company', 'companyName']) {
+    for (const field of ['companyName', 'companyName']) {
       const canonical = await request('/marketing/audiences/preview', 'POST', { source: 'LEADS', conditions: [{ field, operator: 'equals', value: 'McDonalds' }] });
       expect(canonical.status).toBe(200); expect(canonical.body.data.eligible).toBe(1);
-      expect(canonical.body.data.recipients[0].company.trim()).toBe('McDonalds');
+      expect(canonical.body.data.recipients[0].companyName.trim()).toBe('McDonalds');
       const excluded = await request('/marketing/audiences/preview', 'POST', { source: 'LEADS', conditions: [{ field, operator: 'not_equals', value: 'McDonalds' }] });
-      expect(excluded.body.data.recipients.some((row: any) => row.company.trim().toLowerCase() === 'mcdonalds')).toBe(false);
+      expect(excluded.body.data.recipients.some((row: any) => row.companyName.trim().toLowerCase() === 'mcdonalds')).toBe(false);
     }
     expect((await request('/marketing/audiences/companies?source=CONTACTS')).body.data).toContain('Contact Only');
-    const definition = { source: 'CONTACTS', conditions: [{ field: 'company', operator: 'equals', value: 'McDonalds' }] };
+    const definition = { source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: 'McDonalds' }] };
     const preview = await request('/marketing/audiences/preview', 'POST', definition);
     expect(preview.status).toBe(200); expect(preview.body.data.matched).toBe(1);
     expect((await request('/marketing/audiences', 'POST', { name: 'Company audience', ...definition })).status).toBe(201);
-    expect((await request('/marketing/audiences', 'POST', { name: 'Unmatched company', source: 'CONTACTS', conditions: [{ field: 'company', operator: 'equals', value: 'Invented' }] })).status).toBe(201);
+    expect((await request('/marketing/audiences', 'POST', { name: 'Unmatched company', source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: 'Invented' }] })).status).toBe(201);
     expect((await request('/marketing/audiences/companies', 'GET', undefined, deniedToken)).status).toBe(403);
   });
   it.each(['LEADS', 'CONTACTS'] as const)('validates audience owner conditions against the selected %s module grants', async source => {
@@ -874,7 +874,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     const companyName = 'Interruption ' + randomUUID();
     const campaign = await scoped(async () => {
       await prisma.lead.createMany({ data: [1, 2].map(index => ({ tenantId, firstName: 'Interrupted', lastName: String(index), email: `interrupted-${randomUUID()}@example.test`, companyName })) });
-      const audience = await createAudience(tenantId, { name: companyName, source: 'LEADS', conditions: [{ field: 'company', operator: 'equals', value: companyName }] });
+      const audience = await createAudience(tenantId, { name: companyName, source: 'LEADS', conditions: [{ field: 'companyName', operator: 'equals', value: companyName }] });
       return createCampaign(tenantId, userId, { name: companyName, type: 'EMAIL', subject: 'Hi', body: 'Hello', targetAudienceId: audience.id });
     });
     const release: Array<() => void> = [];
@@ -1018,8 +1018,8 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
   it('discovers a persisted due SMS schedule on worker startup without a browser and never dispatches it twice', async () => {
     await scoped(async () => {
       const company = randomUUID(), phone = '+639171234599';
-      await prisma.contact.create({ data: { tenantId, firstName: 'Startup', lastName: 'SMS', company, phone } });
-      const audience = await createAudience(tenantId, { name: company, source: 'CONTACTS', conditions: [{ field: 'company', operator: 'equals', value: company }] });
+      await prisma.contact.create({ data: { tenantId, firstName: 'Startup', lastName: 'SMS', companyName: company, phone } });
+      const audience = await createAudience(tenantId, { name: company, source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: company }] });
       const campaign = await createCampaign(tenantId, userId, { name: company, type: 'SMS', targetAudienceId: audience.id, body: 'Hello {{firstName}}' });
       await scheduleCampaign(campaign.id, tenantId, userId, { scheduledFor: new Date(Date.now() + 60000).toISOString() });
       // An existing persisted schedule has become due while the worker was stopped.
@@ -1065,7 +1065,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       await prisma.lead.update({ where: { id: lead.id }, data: { convertedAt: new Date(), status: 'Converted' } });
       const optedOut = await scheduleDraft();
       const conditions = await prisma.targetAudienceCondition.findMany({ where: { targetAudienceId: optedOut.targetAudienceId! } });
-      await prisma.contact.updateMany({ where: { tenantId, company: JSON.parse(conditions[0].value) }, data: { doNotContact: true } });
+      await prisma.contact.updateMany({ where: { tenantId, companyName: JSON.parse(conditions[0].value) }, data: { doNotContact: true } });
       await scheduleCampaign(optedOut.id, tenantId, userId, { scheduledFor: new Date(Date.now() + 60000).toISOString() });
       expect(await dispatchDueCampaigns(new Date(Date.now() + 120000))).toBe(0);
       for (const id of [campaign.id, optedOut.id]) {
@@ -1131,12 +1131,12 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       for (const [id, name, type] of [[dateId, 'Review date', 'Date'], [fileId, 'Private attachment', 'File Upload'], [textId, 'Missing text', 'Text']]) {
         await prisma.closingFieldDefinition.create({ data: { tenantId, id, definition: { id, name, module: 'contacts', group: 'Contact Details', type, required: false, active: true, visibleInForm: false, visibleInDetails: true, order: 0, options: [], version: 1 } } });
       }
-      const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Projected', lastName: 'Record', email: `${randomUUID()}@example.test`, company: 'Legacy scalar', accountId: account.id, assignedUserId: userId, productsNormalized: true, productLinks: { create: [{ tenantId, productInterestId: second.id, interested: true, activeProduct: true, position: 2 }, { tenantId, productInterestId: first.id, interested: true, activeProduct: false, position: 1 }] } } });
+      const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Projected', lastName: 'Record', email: `${randomUUID()}@example.test`, companyName: 'Legacy scalar', accountId: account.id, assignedUserId: userId, productsNormalized: true, productLinks: { create: [{ tenantId, productInterestId: second.id, interested: true, activeProduct: true, position: 2 }, { tenantId, productInterestId: first.id, interested: true, activeProduct: false, position: 1 }] } } });
       await prisma.customFieldValue.createMany({ data: [{ tenantId, fieldId: dateId, module: 'contacts', contactId: contact.id, value: '2026-10-11' }, { tenantId, fieldId: fileId, module: 'contacts', contactId: contact.id, value: randomUUID() }] });
       const definition = { source: 'CONTACTS', conditions: [{ field: 'email', operator: 'equals', value: contact.email! }, { field: `customFieldValues.${dateId}`, operator: 'between', value: { from: '2026-10-10', to: '2026-10-12' } }, { field: `customFieldValues.${fileId}`, operator: 'is_not_empty', value: null }] };
       const resolved = await resolveAudience(tenantId, definition);
       expect(resolved.breakdown.eligible).toBe(1);
-      expect(resolved.records[0].personalization).toMatchObject({ accountId: 'Readable account', assignedUserId: 'Seeder Admin', company: 'Legacy scalar', company_name: 'Readable account', productInterestIds: 'First ordered product, Second ordered product', [`customFieldValues.${dateId}`]: '2026-10-11', [`customFieldValues.${textId}`]: '' });
+      expect(resolved.records[0].personalization).toMatchObject({ accountId: 'Readable account', assignedUserId: 'Seeder Admin', companyName: 'Legacy scalar', company_name: 'Readable account', productInterestIds: 'First ordered product, Second ordered product', [`customFieldValues.${dateId}`]: '2026-10-11', [`customFieldValues.${textId}`]: '' });
       expect(resolved.records[0].personalization).not.toHaveProperty('account.activeProductIds');
       expect(resolved.records[0].personalization).not.toHaveProperty('activeProductIds');
       // This token now belongs only to the related Account. Contact purchase
@@ -1225,10 +1225,10 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       const email = `${randomUUID()}@example.test`, company = 'Canonical Company';
       const person = source === 'LEADS'
         ? await prisma.lead.create({ data: { tenantId, firstName: 'Canonical', lastName: 'Lead', email, phone: '+639181234567', companyName: company } })
-        : await prisma.contact.create({ data: { tenantId, firstName: 'Canonical', lastName: 'Contact', email, phone: '+639181234567', company } });
+        : await prisma.contact.create({ data: { tenantId, firstName: 'Canonical', lastName: 'Contact', email, phone: '+639181234567', companyName: company } });
       try {
         const audience = await createAudience(tenantId, { name: randomUUID(), source, conditions: [{ field: 'email', operator: 'equals', value: email }] });
-        const companyKey = source === 'LEADS' ? 'companyName' : 'company';
+        const companyKey = 'companyName';
         const body = `Hi {{firstName}} / {{first_name}} at {{${companyKey}}} / {{company_name}}.`;
         const campaign = await createCampaign(tenantId, userId, { name: randomUUID(), type, targetAudienceId: audience.id, subject: type === 'EMAIL' ? 'Hello {{firstName}} / {{first_name}}' : undefined, body });
         await sendCampaign(campaign.id, tenantId, userId);

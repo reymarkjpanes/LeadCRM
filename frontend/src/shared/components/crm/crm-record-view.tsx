@@ -177,7 +177,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   const person = module === 'deals' ? object((record.contactDeals as RecordData[] | undefined)?.[0]?.contact) ?? object((record.leadDeals as RecordData[] | undefined)?.[0]?.lead) : record;
   const source = (module === 'deals' ? (record.productInterests as string[] | undefined)?.join(', ') : '') || text(record.source) || text(record.leadSource);
   const owner = personName(object(record.assignedUser)) || 'Unassigned';
-  const company = text(object(record.account)?.name) || text(object(record.organization)?.name) || text(person?.companyName) || text(person?.company) || text(record.companyName) || text(record.company) || text(object(record.account)?.name);
+  const company = text(object(record.account)?.name) || text(object(record.organization)?.name) || text(person?.companyName) || text(record.companyName) || text(object(record.account)?.name);
   const location = module === 'accounts' ? text(record.address)
     : [text(record.address), text(record.city), text(record.province), text(record.country)].filter(Boolean).join(', ');
   const personChipActions = module === 'contacts' || (module === 'leads' && !!onClose);
@@ -250,7 +250,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
       { label: 'Last name', value: record.lastName, apiField: 'lastName', required: true },
       { label: 'Email', value: record.email, apiField: 'email', type: 'email' as const },
       { label: 'Phone', value: record.phone, apiField: 'phone', type: 'tel' as const },
-      { label: 'Company', value: module === 'leads' ? record.companyName : record.company, apiField: module === 'leads' ? 'companyName' : 'company' },
+      { label: 'Company', value: record.companyName, apiField: 'companyName' },
       ...(canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: object(record.account)?.name ?? object(record.organization)?.name }] : []),
       { label: 'Source', value: source, apiField: 'source' },
     ]),

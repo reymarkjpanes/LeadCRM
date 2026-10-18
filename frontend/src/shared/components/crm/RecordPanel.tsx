@@ -49,7 +49,7 @@ export interface RecordPanelProps {
     metadataCount?: number;
     email?: string;
     phone?: string;
-    company?: string;
+    companyName?: string;
     owner?: string;
     tags?: string[];
   };
@@ -469,7 +469,7 @@ export function RecordPanel({
                 </div>
 
                 {/* 2. Quick Contact & Rep Context Strip */}
-                {(contactEmail || contactPhone || record.company || record.owner) && (
+                {(contactEmail || contactPhone || record.companyName || record.owner) && (
                   <div className="mt-3.5 flex flex-wrap items-center gap-2 rounded-lg bg-secondary/30 px-3 py-2 text-xs border border-border/40">
                     {contactEmail && (
                       <div className="flex items-center gap-1 text-muted-foreground group">
@@ -509,11 +509,11 @@ export function RecordPanel({
                       </div>
                     )}
 
-                    {record.company && (
+                    {record.companyName && (
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <span className="text-border">|</span>
                         <Building className="h-3.5 w-3.5" />
-                        <span className="font-medium text-foreground min-w-0 break-words [overflow-wrap:anywhere]">{record.company}</span>
+                        <span className="font-medium text-foreground min-w-0 break-words [overflow-wrap:anywhere]">{record.companyName}</span>
                       </div>
                     )}
 

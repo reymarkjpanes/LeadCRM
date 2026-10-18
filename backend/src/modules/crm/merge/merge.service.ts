@@ -30,7 +30,7 @@ const LEAD_MERGE_FIELDS = [
 ];
 
 const CONTACT_MERGE_FIELDS = [
-  'firstName', 'lastName', 'email', 'phone', 'company', 'address',
+  'firstName', 'lastName', 'email', 'phone', 'companyName', 'address',
   'productInterests', 'source', 'assignedUserId', 'status', 'accountId',
 ];
 
@@ -213,8 +213,8 @@ async function executeContactMerge(
     if (!secondary) throw new NotFoundError('Secondary contact');
 
     const mergedData = resolveFields(primary, secondary, fieldResolutions, CONTACT_MERGE_FIELDS);
-    if (mergedData.company !== undefined) mergedData.companyFromAccount =
-      (fieldResolutions.company === 'secondary' ? secondary : primary).companyFromAccount;
+    if (mergedData.companyName !== undefined) mergedData.companyFromAccount =
+      (fieldResolutions.companyName === 'secondary' ? secondary : primary).companyFromAccount;
 
     if (mergedData.assignedUserId && mergedData.assignedUserId !== primary.assignedUserId) {
       await validateSalesOwner(tx, tenantId, String(mergedData.assignedUserId), ['contacts']);

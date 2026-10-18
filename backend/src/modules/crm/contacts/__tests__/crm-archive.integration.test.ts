@@ -485,7 +485,7 @@ it('creates, edits and imports Contacts with persisted Account, Product Interest
   let imported = await call('contacts/imports', 'POST', adminCookie, input);
   for (let attempt = 0; imported.body.data?.status === 'importing' && attempt < 10; attempt++) imported = await call('contacts/imports', 'POST', adminCookie, input);
   expect(imported.body.data, JSON.stringify(imported.body)).toMatchObject({ successfulRecords: 1, failedRecords: 0 });
-  expect(await db.contact.findFirstOrThrow({ where: { tenantId, email: 'imported-contact@example.test' } })).toMatchObject({ firstName: 'Imported', company: 'Acme', address: 'Manila', productInterests: [product.name] });
+  expect(await db.contact.findFirstOrThrow({ where: { tenantId, email: 'imported-contact@example.test' } })).toMatchObject({ firstName: 'Imported', companyName: 'Acme', address: 'Manila', productInterests: [product.name] });
   expect((await call('contacts/imports', 'POST', adminCookie, { ...input, idempotencyKey: randomUUID(), mappings: { ...input.mappings, jobTitle: 0 } })).status).toBe(400);
 });
 

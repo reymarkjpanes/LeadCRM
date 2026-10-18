@@ -24,7 +24,7 @@ exports.WORKFLOW_MESSAGE_VARIABLES = [
     { token: 'firstName', label: 'First Name', fields: ['firstName'], legacyToken: 'first_name' },
     { token: 'lastName', label: 'Last Name', fields: ['lastName'], legacyToken: 'last_name' },
     { token: 'email', label: 'Email', fields: ['email'], legacyToken: 'email' },
-    { token: 'company', label: 'Company Name', fields: ['company', 'companyName'], legacyToken: 'company' },
+    { token: 'companyName', label: 'Company', fields: ['companyName'], legacyToken: 'company_name' },
 ];
 function workflowMessageEntity(entity, recipient) {
     return recipient && (entity === 'account' || entity === 'deal') ? recipient === 'primary_lead' ? 'lead' : 'contact' : entity;
@@ -51,9 +51,6 @@ function getWorkflowEmailVariableChoices(entity, layout, definitions = [], inclu
 }
 function workflowMessageVariableKeys(entity, definitions = [], layout) {
     const keys = (0, campaign_fields_1.campaignApprovedVariableKeys)(messageCatalog(entity, definitions, layout));
-    // Older Workflow company tokens use the same person-field meaning.
-    if (entity === 'lead' && keys.has('companyName'))
-        keys.add('company');
     return keys;
 }
 function workflowMessageVariableError(value, keys) {
@@ -91,7 +88,7 @@ function getWorkflowUpdateFields(entity, customFields = [], layout) {
         ];
     else
         standard = [text('firstName', 'First Name', true, 100), text('lastName', 'Last Name', true, 100), text('email', 'Email', true, 254), text('phone', 'Phone', false, entity === 'contact' ? 100 : 2000),
-            text(entity === 'lead' ? 'companyName' : 'company', 'Company Name'),
+            text('companyName', entity === 'contact' ? 'Company' : 'Company Name'),
             { ...choice('status', 'Status', record_experience_1.CRM_STATUSES), required: true }, product, account,
             choice('source', entity === 'lead' ? 'Lead Source' : 'Source', record_experience_1.LEAD_SOURCES), assignment, text('address', 'Full Address'),
         ];

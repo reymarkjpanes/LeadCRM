@@ -10,23 +10,28 @@ exports.buildFinalSms = buildFinalSms;
 exports.smsMessageStats = smsMessageStats;
 const zod_1 = require("zod");
 const lead_created_contract_1 = require("./lead-created.contract");
+const quotation_contract_1 = require("./quotation.contract");
 exports.EMAIL_VARIABLES = ['first_name', 'last_name', 'company_name', 'contact_number', 'status', 'sender_name', 'sender_email'];
 exports.EMAIL_VARIABLE_TOKENS = exports.EMAIL_VARIABLES.map(key => `{{${key}}}`);
 function escapeEmailHtml(value) {
     return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
-function renderEmailVariables(text, values, html = false) {
+function renderEmailVariables(text, values, html = false, preserveUnresolved = false) {
     return text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_token, key) => {
+        if (preserveUnresolved && (!Object.prototype.hasOwnProperty.call(values, key) || values[key] == null))
+            return _token;
         const value = Object.prototype.hasOwnProperty.call(values, key) ? values[key] ?? '' : '';
         return html ? escapeEmailHtml(value) : value.replace(/[\x00-\x1f\x7f]/g, ' ');
     });
 }
 exports.MarketingNameSchema = zod_1.z.string().trim().min(1, 'Name is required.').max(150).regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
-exports.EmailSubjectSchema = zod_1.z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim());
+const currentCompanyVariable = (text) => !campaignVariableKeys(text).includes('company');
+const companyVariableMessage = 'Use {{companyName}} instead of {{company}}.';
+exports.EmailSubjectSchema = zod_1.z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
 /** ALL remains a historical read value only. New operations choose one source. */
 exports.AudienceSourceSchema = zod_1.z.enum(['LEADS', 'CONTACTS']);
 exports.AudienceMatchModeSchema = zod_1.z.enum(['AND', 'OR']);
-exports.AUDIENCE_FIELDS = ['status', 'source', 'company', 'productInterest', 'assignedUserId', 'createdAt'];
+exports.AUDIENCE_FIELDS = ['status', 'source', 'companyName', 'productInterest', 'assignedUserId', 'createdAt'];
 exports.AUDIENCE_OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'any', 'gt', 'gte', 'lt', 'lte', 'between', 'is_empty', 'is_not_empty'];
 exports.AudienceConditionSchema = zod_1.z.object({
     field: zod_1.z.string().min(1).max(160).regex(/^(?:[A-Za-z][A-Za-z0-9]*|customFieldValues\.[A-Za-z0-9_-]+)$/),
@@ -88,7 +93,7 @@ function smsMessageStats(message) {
 }
 exports.CampaignDraftSchema = zod_1.z.object({
     name: exports.MarketingNameSchema, type: zod_1.z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
-    subject: exports.EmailSubjectSchema.optional(), body: zod_1.z.string().max(50000).optional(),
+    subject: exports.EmailSubjectSchema.optional(), body: zod_1.z.string().max(50000).refine(currentCompanyVariable, companyVariableMessage).optional(),
     audienceSource: exports.AudienceSourceSchema.optional().nullable(), targetAudienceId: zod_1.z.string().uuid().optional().nullable(),
     emailTemplateId: zod_1.z.string().uuid().optional().nullable(), smsTemplateId: zod_1.z.string().uuid().optional().nullable(),
 }).strict();
@@ -103,7 +108,20 @@ exports.CampaignSendSchema = exports.CampaignDraftSchema.superRefine((v, ctx) =>
     if (!v.body?.trim())
         ctx.addIssue({ code: 'custom', path: ['body'], message: 'Body is required.' });
 });
-exports.MarketingTemplateSchema = zod_1.z.object({ name: exports.MarketingNameSchema, type: zod_1.z.enum(['Email', 'SMS']), category: exports.MarketingNameSchema.optional(), subject: exports.EmailSubjectSchema.optional(), content: zod_1.z.string().trim().min(1, 'Message content is required.').max(50000) }).strict().superRefine((v, ctx) => {
+exports.MarketingTemplateSchema = zod_1.z.object({ name: exports.MarketingNameSchema, type: zod_1.z.enum(['Email', 'SMS', 'Quotation']), category: exports.MarketingNameSchema.optional(), subject: exports.EmailSubjectSchema.optional(), content: zod_1.z.string().trim().min(1, 'Message content is required.').max(50000).refine(currentCompanyVariable, companyVariableMessage) }).strict().superRefine((v, ctx) => {
     if (v.type === 'Email' && !v.subject)
         ctx.addIssue({ code: 'custom', path: ['subject'], message: 'Subject line is required.' });
+    if (v.type === 'Quotation') {
+        if (!v.category)
+            ctx.addIssue({ code: 'custom', path: ['category'], message: 'Category is required.' });
+        let content;
+        try {
+            content = JSON.parse(v.content);
+        }
+        catch { /* Report through the shared schema below. */ }
+        const parsed = quotation_contract_1.QuotationTemplateContentSchema.safeParse(content);
+        if (!parsed.success)
+            for (const issue of parsed.error.issues)
+                ctx.addIssue({ code: 'custom', path: ['content', ...issue.path], message: issue.message });
+    }
 });

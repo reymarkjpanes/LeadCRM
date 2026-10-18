@@ -163,7 +163,7 @@ async function findContactDuplicates(
         isArchived: false,
       },
       take: 5,
-      select: { id: true, firstName: true, lastName: true, email: true, phone: true, company: true, status: true },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, status: true },
     });
 
     for (const contact of emailMatches) {
@@ -186,7 +186,7 @@ async function findContactDuplicates(
           isArchived: false,
         },
         take: 50,
-        select: { id: true, firstName: true, lastName: true, email: true, phone: true, company: true, status: true },
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, status: true },
       });
 
       for (const contact of phoneMatches) {
@@ -212,7 +212,7 @@ async function findContactDuplicates(
         isArchived: false,
       },
       take: 5,
-      select: { id: true, firstName: true, lastName: true, email: true, phone: true, company: true, status: true },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, status: true },
     });
 
     for (const contact of nameMatches) {
@@ -280,7 +280,7 @@ function buildLeadMatch(
 }
 
 function buildContactMatch(
-  contact: { id: string; firstName: string; lastName: string; email: string | null; phone: string | null; company: string | null; status: string },
+  contact: { id: string; firstName: string; lastName: string; email: string | null; phone: string | null; companyName: string | null; status: string },
   confidence: DuplicateConfidence,
   matchedFields: string[],
 ): DuplicateMatch {
@@ -290,7 +290,7 @@ function buildContactMatch(
     name: `${contact.firstName} ${contact.lastName}`.trim(),
     email: contact.email ?? undefined,
     phone: contact.phone ?? undefined,
-    companyName: contact.company ?? undefined,
+    companyName: contact.companyName ?? undefined,
     status: contact.status,
     confidence,
     matchedFields,

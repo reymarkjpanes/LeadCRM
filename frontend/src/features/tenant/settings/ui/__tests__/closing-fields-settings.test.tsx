@@ -171,7 +171,7 @@ it.each(['leads', 'contacts'] as const)('projects canonical %s groups without ch
   layout.groups.find(group => group.id === `${module}:section:1`)!.label = 'Status & Classification';
   layout.groups.find(group => group.id === `${module}:section:2`)!.label = 'Relationships';
   layout.groups.push({ id: 'custom-relationships', label: 'Relationships', order: 0 });
-  const companyKey = module === 'leads' ? 'companyName' : 'company';
+  const companyKey = 'companyName';
   layout.fields[companyKey] = { label: 'Company Name', groupId: `${module}:section:0`, order: 1, visibleInForm: false, visibleInDetails: true };
   layout.fields.assignedUserId = { label: 'Assigned Agent', groupId: `${module}:section:2`, order: 0, visibleInForm: true, visibleInDetails: true };
   mocks.data[module].definitions.push({ ...budget, module, id: 'relationship-note', name: 'Relationship Note', group: 'Relationships', groupId: 'custom-relationships' });

@@ -18,6 +18,7 @@ COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=builder --chown=node:node /app/backend/package.json ./backend/package.json
 COPY --from=builder --chown=node:node /app/backend/dist ./backend/dist
+COPY --from=builder --chown=node:node /app/backend/assets ./backend/assets
 COPY --from=builder --chown=node:node /app/backend/prisma ./backend/prisma
 COPY --from=builder --chown=node:node /app/backend/scripts ./backend/scripts
 COPY --from=builder --chown=node:node /app/shared ./shared

@@ -43,10 +43,10 @@ export async function createAssignedContact(tx: Prisma.TransactionClient, tenant
   const data = { ...intent };
   normalizeProductOther(data, products.map(product => product.name));
   const { customFieldValues, productInterestIds: _ids, productInterests: _names, assignedUserId: _assignee, newAccount, ...fields } = data;
-  if (selectedAccount) { fields.company = selectedAccount.name; fields.companyFromAccount = true; }
+  if (selectedAccount) { fields.companyName = selectedAccount.name; fields.companyFromAccount = true; }
   if (newAccount) {
     const account = await createLinkedAccount(tx, tenantId, newAccount, actorId);
-    fields.accountId = account.id; fields.company = account.name; fields.companyFromAccount = true;
+    fields.accountId = account.id; fields.companyName = account.name; fields.companyFromAccount = true;
   }
   const agent = await resolveSalesAgent(tx, tenantId, dto.assignedUserId as string | null | undefined, ['contacts', 'deals']);
   const contact = await runCrmAutomaticCreation(tx, 'contacts', agent?.id ?? null, () => tx.contact.create({

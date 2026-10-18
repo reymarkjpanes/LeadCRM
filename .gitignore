@@ -105,6 +105,7 @@ data/outputs/retired-features-*.json
 /data/outputs/campaign-clicks/
 /data/outputs/system-audit/
 /data/outputs/campaign-groups/
+/data/outputs/quotations/
 /data/outputs/scoped-cleanup/
 /data/outputs/scoped-cleanup-tests.json
 /data/outputs/scoped-cleanup-final-retests.json

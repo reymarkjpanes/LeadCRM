@@ -332,7 +332,7 @@ describe.skipIf(!disposable)('workflow polish with real persisted CRM records', 
   });
   it.each(['lead', 'contact'] as const)('renders canonical and legacy %s SMS variables and exact custom technical keys', async entity => {
     const record = entity === 'lead' ? lead : contact;
-    const company = entity === 'lead' ? 'companyName' : 'company';
+    const company = 'companyName';
     const field = await scope(() => saveField(tenantId, actor.id, { module: entity === 'lead' ? 'leads' : 'contacts', group: 'Basic Information', name: 'Message Code', type: 'Text', required: false }));
     await prisma.customFieldValue.create({ data: { tenantId, fieldId: field.id, module: field.module, [entity === 'lead' ? 'leadId' : 'contactId']: record.id, value: 'CODE-1' } });
     const update = (data: any) => scope(() => entity === 'lead' ? updateLead(record.id, tenantId, actor.id, data) : updateContact(record.id, tenantId, data, actor.id));

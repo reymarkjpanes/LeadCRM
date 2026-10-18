@@ -1,6 +1,6 @@
 ﻿import { z } from 'zod';
 
-export const TemplateTypeEnum = z.enum(['Email', 'SMS']);
+export const TemplateTypeEnum = z.enum(['Email', 'SMS', 'Quotation']);
 
 export const CreateTemplateSchema = z.object({
   name: z.string().min(1).max(255),
