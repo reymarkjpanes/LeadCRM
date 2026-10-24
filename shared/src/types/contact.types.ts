@@ -14,7 +14,8 @@ export type { CrmStatus as ContactStatus } from '../contracts/record-experience'
  * Maps to the Prisma `Lead` model in the backend.
  */
 export interface Contact {
-  ownerGroupId?: string | null;
+  /** Read-only historical access scope; customer writes cannot set it. */
+  readonly ownerGroupId?: string | null;
   statusEditOptions?: string[];
   statusEditRestrictions?: Record<string, string>;
   id: string;

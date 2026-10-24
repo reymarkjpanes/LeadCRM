@@ -101,7 +101,7 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
   let dto = input;
   const before = await repo.findDealById(id, tenantId);
   if (!before) throw new NotFoundError('Deal');
-  if (dto.assignedUserId) await validateSalesOwner(salesContext.getStore() ?? prisma, tenantId, dto.assignedUserId, ['deals'], (dto.ownerGroupId !== undefined ? dto.ownerGroupId : before.ownerGroupId));
+  if (dto.assignedUserId) await validateSalesOwner(salesContext.getStore() ?? prisma, tenantId, dto.assignedUserId, ['deals'], before.ownerGroupId);
   const { primaryAssociation, ...updates } = dto;
   if (primaryAssociation) {
     if (dto.leadIds !== undefined || dto.contactIds !== undefined) throw new ValidationError('Change the primary association separately from additional relationships.');

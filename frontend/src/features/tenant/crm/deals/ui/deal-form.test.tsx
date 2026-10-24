@@ -1,5 +1,5 @@
 vi.mock('@/shared/hooks/use-deal-address-options', () => ({ useDealAddressOptions: () => ({ data: fixture.addressOptions, isInitialLoad: false, error: null, refetch: vi.fn() }) }));
-vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () => ({ canMutate: () => true, canReassign: true, policy: { userId: 'agent', tenantId: 'tenant', assignmentRestricted: false, clientAdmin: false } }) }));
+vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () => ({ canMutate: () => true, canReassign: true, policy: { userId: 'agent', tenantId: 'tenant', assignmentRestricted: false, clientAdmin: true } }) }));
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -29,6 +29,7 @@ it.each((['create', 'edit'] as const).flatMap(mode => [false, true].flatMap(visi
 it('requires a catalog product and submits its ID array without a manual value', async () => {
   const save = vi.fn().mockResolvedValue(undefined);
   render(<DealForm mode="create" preselect={{ pipelineId: 'pipeline', stageId: 'stage' }} onSubmit={save} onCancel={() => {}} />);
+  expect(screen.queryByText('Owning Group')).toBeNull();
   const selector = screen.getByRole('button', { name: 'Product Interest' });
   expect(screen.queryByLabelText('Value')).toBeNull();
   expect(screen.queryByLabelText('Industry')).toBeNull();
@@ -48,14 +49,17 @@ it('requires a catalog product and submits its ID array without a manual value',
   fireEvent.click(screen.getByRole('button', { name: 'Create Deal' }));
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ productInterestIds: [product.id, 'e47c3b8e-0b85-4f11-b9a6-2aafdd587fe5'], value: undefined, productInterests: undefined, currency: 'PHP' })));
   expect(save.mock.calls[0][0]).not.toHaveProperty('industry');
+  expect(save.mock.calls[0][0]).not.toHaveProperty('ownerGroupId');
 });
 it('does not send a catalog repricing or manual value when editing a historical Deal', async () => {
   const save = vi.fn();
-  render(<DealForm mode="edit" initialData={{ title: 'History', value: 1200, productInterestId: product.id, productInterests: ['CCTV'] }} onSubmit={save} onCancel={() => {}} />);
+  render(<DealForm mode="edit" initialData={{ ownerGroupId: 'historical-group', title: 'History', value: 1200, productInterestId: product.id, productInterests: ['CCTV'] }} onSubmit={save} onCancel={() => {}} />);
+  expect(screen.queryByText('Owning Group')).toBeNull();
   expect(screen.getByLabelText('Value')).toHaveProperty('readOnly', true);
   expect(screen.getByLabelText('Value')).toHaveProperty('value', '1,200.00');
   fireEvent.submit(screen.getByLabelText(/Title/).closest('form')!);
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ value: undefined })));
+  expect(save.mock.calls[0][0]).not.toHaveProperty('ownerGroupId');
 });
 
 it('protects a changed Deal and blocks closing and duplicate saves until the request finishes', async () => {

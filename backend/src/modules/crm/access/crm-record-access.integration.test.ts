@@ -478,7 +478,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect(history).toHaveLength(1); expect(history[0].metadata).toMatchObject({ previousStatus: 'Inquiry', newStatus: 'Hot', source: 'manual' });
     expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stageId).toBe(stage.id);
     expect((await call('/contacts/' + customers[2].id, staff, 'PUT', { status: 'Warm' })).status).toBe(404);
-    expect((await call('/contacts/' + customers[0].id, staff, 'PUT', { ownerGroupId: groups[2].id })).status).toBe(403);
+    expect((await call('/contacts/' + customers[0].id, staff, 'PUT', { ownerGroupId: groups[2].id })).status).toBe(400);
     expect((await call('/contacts/' + customers[0].id, staff, 'PUT', { status: 'Closed Deal' })).status).toBe(400);
     await prisma.tenantGroupMember.create({ data: { tenantId, groupId: groups[2].id, userId: admin.id, isHead: true } });
     expect((await call('/contacts/' + records.contacts.unassigned.id, admin, 'PUT', { status: 'Warm' })).status).toBe(200);
@@ -491,20 +491,33 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       ['deals', { title: 'Scoped create Deal', pipelineId: pipeline.id, stageId: stage.id, productInterestId: product.id, contactIds: [customers[1].id] }],
     ] as const;
     for (const [module, input] of creates) {
-      const created = await call('/' + module, staff, 'POST', { ...input, ownerGroupId: groups[1].id });
+      expect((await call('/' + module, staff, 'POST', { ...input, ownerGroupId: groups[1].id })).status).toBe(400);
+      // Group-only grants must not become workspace-wide create grants.
+      expect((await call('/' + module, staff, 'POST', input)).status).toBe(403);
+      const created = await call('/' + module, admin, 'POST', input);
       expect(created.status, module + ': ' + JSON.stringify(created.body)).toBe(201);
-      expect(created.body.data.ownerGroupId).toBe(groups[1].id);
-      expect((await call('/' + module + '/' + created.body.data.id, staff)).status).toBe(200);
-      expect((await call('/' + module, staff, 'POST', { ...input, ...('requestId' in input ? { requestId: randomUUID() } : {}) })).status).toBe(403);
+      const id = created.body.data.id;
+      expect(created.body.data.ownerGroupId).toBeNull();
+      const patch = module === 'accounts' ? { name: 'Edited Account' } : module === 'deals' ? { title: 'Edited Deal' } : { firstName: 'Edited customer' };
+      expect((await call('/' + module + '/' + id, admin, 'PUT', patch)).status).toBe(200);
+      expect((await call('/' + module + '/' + id, admin)).body.data).toMatchObject({ ...patch, ownerGroupId: null });
+      expect((await call('/' + module + '/' + id, staff)).status).toBe(404);
+      for (const ownerGroupId of [groups[0].id, foreignGroup.id, null]) {
+        expect((await call('/' + module, admin, 'POST', { ...input, ownerGroupId })).status).toBe(400);
+        expect((await call('/' + module + '/' + id, admin, 'PUT', { ownerGroupId })).status).toBe(400);
+      }
+      const historical = await db[delegates[module]].create({ data: { tenantId, ownerGroupId: groups[0].id,
+        ...(module === 'accounts' ? { name: 'Historical Account' } : module === 'deals'
+          ? { title: 'Historical Deal', pipelineId: pipeline.id, stageId: stage.id, assignedUserId: b.id }
+          : { firstName: 'Historical', lastName: 'Customer', email: randomUUID() + '@example.test', assignedUserId: b.id }) } });
+      expect((await call('/' + module + '/' + historical.id, staff, 'PUT', patch)).status).toBe(200);
+      expect((await call('/' + module + '/' + historical.id, staff)).body.data).toMatchObject({ ...patch, ownerGroupId: groups[0].id });
+      expect((await db[delegates[module]].findUniqueOrThrow({ where: { id: historical.id } })).ownerGroupId).toBe(groups[0].id);
     }
-    expect((await call('/contacts/' + customers[1].id, admin, 'PUT', { ownerGroupId: groups[2].id })).status).toBe(200);
-    expect((await call('/contacts/' + customers[1].id, staff)).status).toBe(404);
-    expect((await call('/contacts/' + customers[1].id, admin, 'PUT', { ownerGroupId: groups[1].id })).status).toBe(200);
-    const unassigned = await call('/contacts/' + customers[1].id, admin, 'PUT', { ownerGroupId: null, newAccount: { name: 'Explicitly unassigned Account', requestId: randomUUID() } });
-    expect(unassigned.status, JSON.stringify(unassigned.body)).toBe(200);
-    expect(unassigned.body.data.ownerGroupId).toBeNull();
-    expect(await prisma.account.findUniqueOrThrow({ where: { id: unassigned.body.data.accountId } })).toMatchObject({ ownerGroupId: null });
-    expect((await call('/contacts/' + customers[1].id, admin, 'PUT', { ownerGroupId: groups[1].id })).status).toBe(200);
+    const linked = await call('/contacts/' + customers[1].id, admin, 'PUT', { newAccount: { name: 'Historical scoped Account', requestId: randomUUID() } });
+    expect(linked.status, JSON.stringify(linked.body)).toBe(200);
+    expect(linked.body.data.ownerGroupId).toBe(groups[1].id);
+    expect(await prisma.account.findUniqueOrThrow({ where: { id: linked.body.data.accountId } })).toMatchObject({ ownerGroupId: groups[1].id });
     await prisma.tenantGroupMember.deleteMany({ where: { tenantId, groupId: groups[0].id, userId: staff.id } });
     expect((await call('/contacts/' + customers[0].id, staff)).status).toBe(404);
     expect((await call('/contacts/' + customers[1].id, staff, 'PUT', { status: 'Cold' })).status).toBe(200);

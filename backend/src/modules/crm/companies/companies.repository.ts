@@ -101,7 +101,7 @@ export async function withCompanyDealSummary<T extends { id: string }>(tenantId:
   return { ...account, ...summaries.get(account.id) };
 }
 
-export async function createCompany(tenantId: string, dto: CreateCompanyDto, actorId?: string) {
+export async function createCompany(tenantId: string, dto: Omit<CreateCompanyDto, 'ownerGroupId'> & { ownerGroupId?: string | null }, actorId?: string) {
   const { customFieldValues, requestId: _requestId, ...data } = dto;
   return salesTransaction(async tx => {
     const account = await tx.account.create({ data: { ...data, address: consolidateAccountAddress(dto) ?? undefined, tenantId } });

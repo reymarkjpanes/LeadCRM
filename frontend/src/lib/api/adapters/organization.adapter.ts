@@ -8,7 +8,6 @@
  */
 export function toBackendCreateOrg(data: Record<string, any>): Record<string, any> {
   return {
-    ownerGroupId: data.ownerGroupId,
     customFieldValues: data.customFieldValues,
     requestId: data.requestId,
     name: data.name || 'Unnamed Organization',
@@ -27,7 +26,6 @@ export function toBackendCreateOrg(data: Record<string, any>): Record<string, an
  */
 export function toBackendUpdateOrg(data: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
-  if (data.ownerGroupId !== undefined) result.ownerGroupId = data.ownerGroupId;
   if (data.customFieldValues !== undefined) result.customFieldValues = data.customFieldValues;
 
   if (data.name !== undefined) result.name = data.name;

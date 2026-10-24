@@ -1,5 +1,4 @@
 'use client';
-import { useCrmOwnerGroup } from '@/shared/components/crm/crm-owner-group';
 
 import React, { useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -46,7 +45,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
   const requestId = useRef<string | undefined>(undefined);
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const ownerGroup = useCrmOwnerGroup('accounts', initialData, isSaving);
   const isSubmitting = isValidatingSubmission || isSaving;
   const requestClose = usePanelDraft({ dirty: isDirty || !!customFields.dirty, busy: isSubmitting || customFields.uploadCount > 0 });
   useScrollToError({ errors, formRef, setFocus });
@@ -57,7 +55,7 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     setIsSaving(true);
     try {
       if (!isEdit) requestId.current ??= crypto.randomUUID();
-      await onSave({ ...ownerGroup.payload, ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), name: data.name,
+      await onSave({ ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), name: data.name,
         industry: data.industry || (isEdit ? '' : undefined), size: data.size || (isEdit ? null : undefined),
         website: data.website || (isEdit ? '' : undefined),
         address: data.address || (isEdit ? '' : undefined) });
@@ -71,7 +69,6 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
   return <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(onSubmit)(event); }} className="flex h-full min-h-0 flex-col" noValidate>
     <div className={`${panelBodyClass} space-y-6`}>
       {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
-      {ownerGroup.field}
       <ConfiguredFormLayout form={customFields} module="accounts">
         <AccountNativeField fieldKey="name" label="Account Name *" id={`${fieldId}-name`} registration={register('name')} error={errors.name?.message} disabled={isSubmitting} />
         <AccountNativeField fieldKey="industry" label="Industry" id={`${fieldId}-industry`} registration={register('industry')} error={errors.industry?.message} disabled={isSubmitting} />

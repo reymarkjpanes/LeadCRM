@@ -11,7 +11,6 @@ exports.LeadNameSchema = (0, administration_user_schema_1.cleanText)(100).pipe(z
 exports.LeadPhoneSchema = zod_1.z.union([zod_1.z.literal(''), administration_user_schema_1.AdministrationPhoneSchema]);
 exports.OptionalLeadSourceSchema = zod_1.z.union([zod_1.z.literal(''), record_experience_1.LeadSourceSchema]);
 const fields = {
-    ownerGroupId: zod_1.z.string().uuid().nullable().optional(),
     firstName: exports.LeadNameSchema,
     lastName: exports.LeadNameSchema,
     email: crm_email_1.CrmEmailSchema,

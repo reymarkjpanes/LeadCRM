@@ -26,7 +26,8 @@ export interface DealStaleness {
  * Maps to the Prisma `Deal` model in the backend.
  */
 export interface Deal {
-  ownerGroupId?: string | null;
+  /** Read-only historical access scope; customer writes cannot set it. */
+  readonly ownerGroupId?: string | null;
   statusEditOptions?: string[];
   /** Calculated by the server from this Deal's verified evidence. */
   engagementStatus?: import('../contracts/record-experience').CrmStatus;

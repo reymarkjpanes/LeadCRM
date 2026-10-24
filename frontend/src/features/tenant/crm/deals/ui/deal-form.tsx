@@ -1,5 +1,4 @@
 'use client';
-import { useCrmOwnerGroup } from '@/shared/components/crm/crm-owner-group';
 import { DealAddressSourceSchema, dealAddressKey, resolveDealAddress, dealAddressMessage, dealCustomerAddressMessage } from '@leadcrm/shared';
 import { useDealAddressOptions } from '@/shared/hooks/use-deal-address-options';
 import { showCrmMutationError } from '@/shared/utils/crm-mutation-error';
@@ -131,7 +130,6 @@ export function DealForm({
   const canEdit = useHasPermission('deals.edit');
   const isCreateMode = mode === 'create';
   const [isSaving, setIsSaving] = useState(false);
-  const ownerGroup = useCrmOwnerGroup('deals', initialData, isSaving);
   const recordAccess = useCrmRecordAccess('deals');
   const hasPermission = isCreateMode ? canCreate : canEdit && recordAccess.canMutate(initialData);
 
@@ -255,7 +253,6 @@ export function DealForm({
     // currency is always PHP — not user-editable, injected here for backend compatibility.
     const { associationType, associationId, associationChanged, organizationId: _account, assignedUserId: _agent, leadIds: _leads, contactIds: _contacts, ...values } = data;
     const cleaned = {
-      ...ownerGroup.payload,
       customFieldValues: customFields.payload(),
       ...values,
       addressSource: isCreateMode || touchedFields.addressSource ? data.addressSource : undefined,
@@ -321,7 +318,6 @@ export function DealForm({
     >
       {/* Scrollable Body */}
       <div className={panelBodyClass + " space-y-6"}>
-        {ownerGroup.field}
         <ConfiguredFormLayout form={customFields} module="deals" groupContent={{ [defaultFieldGroupId('deals', 'Relationships')]: relationshipFields }}>
         {/* Section 1: Pipeline & Stage (Create mode only — edit does not change pipeline/stage here) */}
         {isCreateMode && (

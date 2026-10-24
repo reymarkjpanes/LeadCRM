@@ -1,5 +1,6 @@
 export interface Account {
-  ownerGroupId?: string | null;
+  /** Read-only historical access scope; customer writes cannot set it. */
+  readonly ownerGroupId?: string | null;
   statusEditOptions?: string[];
   statusEditRestrictions?: Record<string, string>;
   customFieldValues?: import('@leadcrm/shared').ClosingValues;
@@ -20,7 +21,7 @@ export interface Account {
   isArchived?: boolean;
 }
 
-export type AccountMutationInput = Partial<Account> & { requestId?: string };
+export type AccountMutationInput = Partial<Omit<Account, 'ownerGroupId'>> & { requestId?: string };
 
 export interface AccountFilters {
   search: string;

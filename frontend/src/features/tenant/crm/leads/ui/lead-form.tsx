@@ -1,5 +1,4 @@
 'use client';
-import { useCrmOwnerGroup } from '@/shared/components/crm/crm-owner-group';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { applyCrmFieldErrors } from '@/shared/utils/crm-mutation-error';
@@ -87,7 +86,6 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
   const requestId = useRef<string | undefined>(undefined);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
-  const ownerGroup = useCrmOwnerGroup('leads', initialData, isSaving);
   const statusVersion = useRef(initialData);
   useEffect(() => { statusVersion.current = initialData; }, [initialData?.id]);
   const { products: productRecords, categories, error: productError, loading: productsLoading } = useProductInterests();
@@ -208,7 +206,6 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
     // Build payload matching backend CreateContactSchema field names exactly.
     // No phantom fields — adapter handles any remaining mapping.
     const payload: Partial<Lead> = {
-      ...ownerGroup.payload,
       customFieldValues: customFields.payload(),
       ...(!isEdit ? { requestId: requestId.current } : {}),
       firstName: data.firstName,
@@ -244,8 +241,6 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
     <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(onFormSubmit)(event); }} className="flex flex-col h-full" noValidate>
       {/* Scrollable Body */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-
-        {ownerGroup.field}
         <ConfiguredFormLayout form={customFields} module="leads">
         {/* Section 1: Basic Information */}
         <div className="space-y-4">
@@ -376,7 +371,7 @@ export function AddLeadForm({ initialData, onSave, onCancel }: AddLeadFormProps)
                     name={field.name}
                     onBlur={field.onBlur}
                     onChange={field.onChange}
-                    ownerGroupId={ownerGroup.value} users={recordAccess.policy?.assignmentRestricted && !(initialData && recordAccess.canReassignRecord?.(initialData)) ? users.filter(user => user.id === recordAccess.policy?.userId) : users} disabled={!recordAccess.policy || (!!initialData && !(recordAccess.canReassignRecord?.(initialData) ?? recordAccess.canReassign))}
+                    ownerGroupId={initialData?.ownerGroupId} users={recordAccess.policy?.assignmentRestricted && !(initialData && recordAccess.canReassignRecord?.(initialData)) ? users.filter(user => user.id === recordAccess.policy?.userId) : users} disabled={!recordAccess.policy || (!!initialData && !(recordAccess.canReassignRecord?.(initialData) ?? recordAccess.canReassign))}
                     placeholder={isEdit ? 'Unassigned' : 'Assign automatically'}
                     className={selectCls}
                     invalid={!!errors.assignedUserId}

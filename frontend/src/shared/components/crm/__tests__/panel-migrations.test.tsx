@@ -934,3 +934,22 @@ it.each(['leads', 'contacts'] as const)('%s shows the existing unlinked Account 
   expect(organization.getByText('No Account linked yet.')).toBeTruthy();
   await organization.findByText(`No deals attached to this ${module === 'leads' ? 'lead' : 'contact'}.`);
 });
+
+it.each((['leads', 'contacts', 'accounts', 'deals'] as const).flatMap(module => [null, 'historical-group'].flatMap(ownerGroupId => ['page', 'panel'].map(surface => ({ module, ownerGroupId, surface })))))('$module $surface removes the entire Owning Group row for $ownerGroupId after reopening', async ({ module, ownerGroupId, surface }) => {
+  const original = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation(async (path: string) => path === '/crm/' + module + '/one' ? { data: { ...records[module], ownerGroupId } } : original(path));
+  const view = () => surface === 'panel' ? <CrmRecordPanel module={module} id="one" open onOpenChange={() => {}} /> : <CrmRecordView module={module} id="one" />;
+  let badge = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const mounted = render(view());
+    await screen.findByRole('heading', { level: 1 });
+    fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
+    expect(screen.queryByText('Owning Group')).toBeNull();
+    expect(screen.queryByLabelText('Owning Group')).toBeNull();
+    const details = screen.getByRole('tab', { name: /Details/ }).textContent!;
+    if (attempt) expect(details).toBe(badge);
+    badge = details;
+    mounted.unmount();
+    clearPageCache();
+  }
+});

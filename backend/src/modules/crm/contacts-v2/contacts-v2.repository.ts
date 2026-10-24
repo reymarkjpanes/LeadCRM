@@ -175,7 +175,7 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     const { customFieldValues, productInterestIds: _productIds, newAccount, expectedUpdatedAt: _version, ...data } = dto;
     if (preparedStatus) data.manualStatusContext = preparedStatus.checkpoint;
     if (newAccount) {
-      const account = await createLinkedAccount(tx, tenantId, newAccount, actorId, ((dto.ownerGroupId !== undefined ? dto.ownerGroupId : current.ownerGroupId)) as string | null | undefined);
+      const account = await createLinkedAccount(tx, tenantId, newAccount, actorId, current.ownerGroupId);
       data.accountId = account.id; data.companyName = account.name; data.companyFromAccount = true;
     } else if (data.accountId && data.accountId !== current.accountId) {
       const account = await tx.account.findFirst({ where: { tenantId, id: String(data.accountId), isArchived: false, deletedAt: null }, select: { name: true } });

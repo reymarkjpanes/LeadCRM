@@ -28,8 +28,10 @@ function canonical(value: unknown): unknown {
 }
 
 /** Standalone, linked and conversion creation share validation, transaction and audit rules. */
-export async function createCompanyResult(tenantId: string, userId: string, input: CreateCompanyDto) {
-  const { requestId, ...dto } = CreateCompanySchema.parse(input);
+export async function createCompanyResult(tenantId: string, userId: string, input: CreateCompanyDto, ownerGroupId?: string | null) {
+  const { requestId, ...fields } = CreateCompanySchema.parse(input);
+  // Historical linked records retain their access scope through trusted callers only.
+  const dto = { ...fields, ...(ownerGroupId !== undefined ? { ownerGroupId } : {}) };
   // Existing receipts already omitted empty native tags from their canonical payload.
   const requestHash = createHash('sha256').update(JSON.stringify(canonical(dto))).digest('hex');
   return salesTransaction(async tx => {
@@ -50,8 +52,8 @@ export async function createCompanyResult(tenantId: string, userId: string, inpu
   });
 }
 
-export async function createCompany(tenantId: string, userId: string, dto: CreateCompanyDto) {
-  return (await createCompanyResult(tenantId, userId, dto)).company;
+export async function createCompany(tenantId: string, userId: string, dto: CreateCompanyDto, ownerGroupId?: string | null) {
+  return (await createCompanyResult(tenantId, userId, dto, ownerGroupId)).company;
 }
 
 export async function updateCompany(

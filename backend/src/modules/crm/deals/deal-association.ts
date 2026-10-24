@@ -18,7 +18,7 @@ export async function readDealAssociation(tx: Prisma.TransactionClient, tenantId
 
 /** Resolve only manual creation. Automatic product/Workflow creation retains its own policy. */
 export async function resolveManualDealAssociation(tx: Prisma.TransactionClient, tenantId: string, input: {
-  leadIds?: string[]; contactIds?: string[]; assignedUserId?: string; accountId?: string; ownerGroupId?: string | null;
+  leadIds?: string[]; contactIds?: string[]; assignedUserId?: string; accountId?: string;
 }) {
   if ((input.leadIds?.length ?? 0) + (input.contactIds?.length ?? 0) !== 1) throw new ValidationError('Select one Lead or Contact to associate with this Deal.');
   const record = await readDealAssociation(tx, tenantId, input.leadIds?.length ? { type: 'lead', id: input.leadIds[0] } : { type: 'contact', id: input.contactIds![0] });
@@ -27,14 +27,14 @@ export async function resolveManualDealAssociation(tx: Prisma.TransactionClient,
   let agent;
   try {
     agent = record.assignedUserId
-      ? await validateSalesOwner(tx, tenantId, record.assignedUserId, ['deals'], input.ownerGroupId)
-      : restricted ? await validateSalesOwner(tx, tenantId, actor.userId, ['deals'], input.ownerGroupId) : await resolveSalesAgent(tx, tenantId, undefined, ['deals'], input.ownerGroupId);
+      ? await validateSalesOwner(tx, tenantId, record.assignedUserId, ['deals'])
+      : restricted ? await validateSalesOwner(tx, tenantId, actor.userId, ['deals']) : await resolveSalesAgent(tx, tenantId, undefined, ['deals']);
   } catch (error) {
     if (error instanceof ValidationError) throw new ValidationError('The selected Lead or Contact needs an eligible Deal agent. Ask an administrator to correct its assignment.');
     throw error;
   }
   if (!agent) throw new ValidationError('No eligible Deal agent is available. Ask an administrator to assign the selected Lead or Contact.');
-  await assertCrmCreateAssignment(tx, tenantId, agent.id, 'deals', input.ownerGroupId);
+  await assertCrmCreateAssignment(tx, tenantId, agent.id, 'deals');
   if (input.assignedUserId && input.assignedUserId !== agent.id) throw new ValidationError('The initial Deal agent must match the selected Lead or Contact.');
   const account = record.accountId ? await tx.account.findFirst({ where: { tenantId, id: record.accountId, isArchived: false, deletedAt: null }, select: { id: true } }) : null;
   if (input.accountId && input.accountId !== account?.id) throw new ValidationError('The Deal Account must match the selected Lead or Contact’s linked Account.');

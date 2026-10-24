@@ -260,7 +260,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
         const normalized = apiField === 'website' && module === 'accounts' && typeof trimmed === 'string' && trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
         const addressOption = apiField === 'addressSource' ? addressContext.options.find(option => dealAddressKey(option) === normalized) : undefined;
         const sourceValue = addressOption ? { type: addressOption.type, id: addressOption.id } : null;
-        const response = await apiClient.put<{ data: RecordData }>(`/crm/${module}/${encodeURIComponent(id)}`, { [apiField]: apiField === 'addressSource' ? sourceValue : apiField === 'ownerGroupId' && normalized === '' ? null : module === 'deals' && ['accountId', 'assignedUserId', 'expectedCloseDate'].includes(apiField) && normalized === '' ? null : apiField === 'expectedCloseDate' && normalized ? new Date(String(normalized)).toISOString() : normalized });
+        const response = await apiClient.put<{ data: RecordData }>(`/crm/${module}/${encodeURIComponent(id)}`, { [apiField]: apiField === 'addressSource' ? sourceValue : module === 'deals' && ['accountId', 'assignedUserId', 'expectedCloseDate'].includes(apiField) && normalized === '' ? null : apiField === 'expectedCloseDate' && normalized ? new Date(String(normalized)).toISOString() : normalized });
         if (module === 'deals') await recordQuery.refetchSilently();
         else if (response.data) recordQuery.setData(response.data);
       }
@@ -493,11 +493,6 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
               canEditRecord={canEdit} tasks={<RecordSection title="Tasks" count={taskCount}><RelatedTasks links={links} onCountChange={setTaskCount} allowCreate={module === "deals" && recordAccess.canMutate(record)} readOnly={module !== "deals"} /></RecordSection>} />
           </TabsContent>
           <TabsContent value="details" forceMount className={cn('m-0 p-4', onClose && 'px-[var(--panel-gutter)]')}><div className="space-y-3">
-            {recordAccess.policy?.clientAdmin && <InlineEditRows canEdit={canEdit && !USE_MOCK_DATA} onSave={saveField} rows={[{
-              label: 'Owning Group', apiField: 'ownerGroupId', value: text(record.ownerGroupId), alwaysVisible: true,
-              displayValue: recordAccess.ownerGroups.find(group => group.id === record.ownerGroupId)?.name ?? 'Unassigned',
-              renderEditor: ({ value, onChange, disabled }) => <select aria-label="Owning Group" value={value} disabled={disabled} onChange={event => onChange(event.target.value)} className="rounded-md border border-input bg-background p-2 text-xs"><option value="">Unassigned</option>{recordAccess.ownerGroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>,
-            }]} />}
             {module === 'deals' && !USE_MOCK_DATA && <DealClosingRequirements focusRequested={closingAttention} dealId={id} canEdit={canEdit} />}
             {module === 'deals' && <InlineEditRows canEdit={false} onSave={saveField} rows={[{ label: 'Deal Engagement', value: record.engagementStatus, alwaysVisible: true, renderValue: () => <CrmStatusBadge status={text(record.engagementStatus)} /> }]} />}
             {!USE_MOCK_DATA && customFields.query.error && <div role="alert" className="text-xs text-destructive">{customFields.query.error}<Button variant="ghost" size="sm" onClick={() => void customFields.query.refetch()}>Retry custom fields</Button></div>}

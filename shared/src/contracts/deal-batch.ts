@@ -24,7 +24,6 @@ export function validateManualDealAssociation(data: { leadIds?: string[]; contac
   }
 }
 export const CreateDealBatchSchema = z.object({
-  ownerGroupId: z.string().uuid().nullable().optional(),
   addressSource: DealAddressSourceSchema.nullable().optional(),
   customFieldValues: CustomFieldValuesSchema.optional(),
   idempotencyKey: z.string().uuid(),

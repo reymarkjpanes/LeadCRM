@@ -84,7 +84,6 @@ export function toBackendCreateDeal(data: Partial<any>): any {
     productInterestId: data.productInterestId,
     productInterestIds: data.productInterestIds,
     productInterestOther: data.productInterestOther || undefined,
-    ownerGroupId: data.ownerGroupId,
     assignedUserId: data.assignedUserId || undefined,
   };
 
@@ -113,7 +112,6 @@ export function toBackendUpdateDeal(data: Partial<any>): any {
   // Pipeline changes use the atomic PATCH /deals/:id/pipeline action.
   if (data.title !== undefined) updateData.title = data.title;
   if (data.value !== undefined) updateData.value = data.value;
-  if (data.ownerGroupId !== undefined) updateData.ownerGroupId = data.ownerGroupId;
   if (data.priority !== undefined) updateData.priority = toBackendPriority(data.priority);
   if (data.expectedCloseDate !== undefined) updateData.expectedCloseDate = toISODatetime(data.expectedCloseDate) ?? null;
   if (data.leadSource !== undefined) updateData.leadSource = data.leadSource;

@@ -95,7 +95,7 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
     // Shared Account creation must join even callers using a raw Prisma transaction.
     accountId = matches[0]?.id ?? (await salesContext.run(tx, () => events.newAccount
       ? createLinkedAccount(tx, tenantId, events.newAccount, actorId, lead.ownerGroupId)
-      : createCompany(tenantId, actorId, { name, ownerGroupId: lead.ownerGroupId }))).id;
+      : createCompany(tenantId, actorId, { name }, lead.ownerGroupId))).id;
   }
   if (accountId && !await tx.account.findFirst({ where: { tenantId, id: accountId, isArchived: false, deletedAt: null } })) throw conflict();
   if (accountId && deals.some(deal => deal.accountId && deal.accountId !== accountId)) throw conflict();

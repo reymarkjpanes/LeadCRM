@@ -32,7 +32,7 @@ export async function createAssignedContact(tx: Prisma.TransactionClient, tenant
     if (!contact) throw new NotFoundError('Contact');
     return { contact, replayed: true };
   }
-  await assertCrmCreateAssignment(tx, tenantId, dto.assignedUserId, 'contacts', dto.ownerGroupId);
+  await assertCrmCreateAssignment(tx, tenantId, dto.assignedUserId, 'contacts');
   await assertContactAccountSelection(tx, tenantId, dto.accountId);
   const status = CrmStatusSchema.parse(dto.status ?? 'Inquiry');
   if (status === 'Closed Deal') throw new ValidationError('Confirm a related Deal as Closed Deal before setting Closed Deal.');
@@ -45,10 +45,10 @@ export async function createAssignedContact(tx: Prisma.TransactionClient, tenant
   const { customFieldValues, productInterestIds: _ids, productInterests: _names, assignedUserId: _assignee, newAccount, ...fields } = data;
   if (selectedAccount) { fields.companyName = selectedAccount.name; fields.companyFromAccount = true; }
   if (newAccount) {
-    const account = await createLinkedAccount(tx, tenantId, newAccount, actorId, dto.ownerGroupId as string | null | undefined);
+    const account = await createLinkedAccount(tx, tenantId, newAccount, actorId);
     fields.accountId = account.id; fields.companyName = account.name; fields.companyFromAccount = true;
   }
-  const agent = await resolveSalesAgent(tx, tenantId, dto.assignedUserId as string | null | undefined, ['contacts', 'deals'], dto.ownerGroupId as string | null | undefined);
+  const agent = await resolveSalesAgent(tx, tenantId, dto.assignedUserId as string | null | undefined, ['contacts', 'deals']);
   const contact = await runCrmAutomaticCreation(tx, 'contacts', agent?.id ?? null, () => tx.contact.create({
     data: { ...fields, ...relations, tenantId, manualCancellation: status === 'Cancelled', status: status.toUpperCase().replace(' ', '_'), assignedUserId: agent?.id ?? null } as Prisma.ContactUncheckedCreateInput,
     include: { assignedUser: { select: { id: true, firstName: true, lastName: true } }, account: { select: { id: true, name: true, industry: true, size: true, website: true } } },

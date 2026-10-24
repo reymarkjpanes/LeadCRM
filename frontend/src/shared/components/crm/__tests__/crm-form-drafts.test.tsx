@@ -127,3 +127,28 @@ it('keeps the Account save lock and retry identity until the original request co
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1][0]).toEqual(save.mock.calls[0][0]);
 });
+
+// Historical security scope must survive edits without becoming customer input.
+it.each(forms.flatMap(form => [false, true].map(edit => ({ ...form, edit }))))('$name create/edit=$edit omits Owning Group from controls and submissions', async ({ Form, edit }) => {
+  const save = vi.fn();
+  render(<Form isOpen onClose={() => {}} onSave={save} initialData={edit ? { id: 'customer', tenantId: 'tenant', createdAt: '2026-10-01T00:00:00Z', ownerGroupId: 'historical-group', firstName: 'Ada', lastName: 'Reyes', email: 'ada@example.test', status: 'Warm' } : undefined} />);
+  expect(screen.queryByText('Owning Group')).toBeNull();
+  expect(screen.queryByLabelText('Owning Group')).toBeNull();
+  if (!edit) {
+    fireEvent.change(screen.getByLabelText('First Name *'), { target: { value: 'Ada' } });
+    fireEvent.change(screen.getByLabelText('Last Name *'), { target: { value: 'Reyes' } });
+    fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'ada@example.test' } });
+  }
+  fireEvent.submit(screen.getByLabelText('First Name *').closest('form')!);
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).not.toHaveProperty('ownerGroupId');
+});
+it.each([false, true])('Account create/edit=%s omits Owning Group from controls and submissions', async edit => {
+  const save = vi.fn();
+  render(<AccountFormSheet isOpen onClose={() => {}} onSave={save} initialData={edit ? { id: 'account', tenantId: 'tenant', createdAt: '2026-10-01T00:00:00Z', name: 'Example', ownerGroupId: 'historical-group' } : undefined} />);
+  expect(screen.queryByText('Owning Group')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Account Name *'), { target: { value: 'Updated company' } });
+  fireEvent.submit(screen.getByLabelText('Account Name *').closest('form')!);
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).not.toHaveProperty('ownerGroupId');
+});

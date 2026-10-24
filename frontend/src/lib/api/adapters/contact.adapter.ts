@@ -20,7 +20,6 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
   const lastName = data.lastName ?? '';
 
   return {
-    ownerGroupId: data.ownerGroupId,
     customFieldValues: data.customFieldValues,
     newAccount: data.newAccount,
     requestId: data.requestId,
@@ -47,7 +46,6 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
  */
 export function toBackendUpdateContact(data: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
-  if (data.ownerGroupId !== undefined) result.ownerGroupId = data.ownerGroupId;
   if (data.expectedUpdatedAt !== undefined) result.expectedUpdatedAt = data.expectedUpdatedAt;
   if (data.customFieldValues !== undefined) result.customFieldValues = data.customFieldValues;
   if (data.newAccount !== undefined) result.newAccount = data.newAccount;

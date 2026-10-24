@@ -226,7 +226,7 @@ async function assertCrmCreationScope(db: Tx, policy: ReadPolicy, module: CrmMod
   if (groupId) await assertOwnerGroup(db, policy.tenantId, groupId);
   if (policy.clientAdmin || hasModulePermission(policy.permissions, module, 'canCreate')) return;
   if (!groupId || !policy.groupGrants?.some(grant => grant.groupId === groupId && hasModulePermission(grant.permissions, module, 'canCreate') &&
-    permittedCrmScopes(grant.permissions, module).length && (!grant.assignmentRestricted || data.assignedUserId === policy.userId))) throw new AppError('Select an owning Group with CRM create permission.', 403);
+    permittedCrmScopes(grant.permissions, module).length && (!grant.assignmentRestricted || data.assignedUserId === policy.userId))) throw new AppError('You do not have permission to create this CRM record.', 403);
 }
 
 const childParents: Record<string, Array<[string, CrmModule]>> = {

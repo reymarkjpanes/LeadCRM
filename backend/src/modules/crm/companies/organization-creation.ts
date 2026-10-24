@@ -11,5 +11,5 @@ export async function createLinkedAccount(tx: Prisma.TransactionClient, tenantId
   if (!actorId || !actor || actor.tenantId !== tenantId || actor.userId !== actorId) throw new ForbiddenError('An authenticated Account creator is required.');
   if (!await mayReadCrmModule(tx, tenantId, 'accounts')) throw new ForbiddenError('Accounts View permission is required to create a linked Account.');
   await assertCrmCreateAssignment(tx, tenantId, undefined, 'accounts', ownerGroupId);
-  return createCompany(tenantId, actorId, { ...details, requestId, ownerGroupId });
+  return createCompany(tenantId, actorId, { ...details, requestId }, ownerGroupId);
 }

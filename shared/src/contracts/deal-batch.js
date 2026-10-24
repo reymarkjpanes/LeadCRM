@@ -27,7 +27,6 @@ function validateManualDealAssociation(data, ctx) {
     }
 }
 exports.CreateDealBatchSchema = zod_1.z.object({
-    ownerGroupId: zod_1.z.string().uuid().nullable().optional(),
     addressSource: deal_address_1.DealAddressSourceSchema.nullable().optional(),
     customFieldValues: closing_requirements_1.CustomFieldValuesSchema.optional(),
     idempotencyKey: zod_1.z.string().uuid(),

@@ -152,13 +152,13 @@ export async function createContact(
   createdById?: string,
 ) {
   const { requestId, productInterest, customFieldValues, newAccount, ...fields } = dto;
-  await assertCrmCreateAssignment(prisma, tenantId, dto.assignedUserId, 'leads', dto.ownerGroupId);
+  await assertCrmCreateAssignment(prisma, tenantId, dto.assignedUserId, 'leads');
   if (dto.status === 'Closed Deal') throw new ValidationError('Confirm a related Deal as Closed Deal before setting Closed Deal.');
   return salesTransaction(async tx => {
     const existing = requestId ? await tx.lead.findFirst({ where: { tenantId, creationKey: requestId } }) : null;
     if (!existing) await assertContactAccountSelection(tx, tenantId, fields.accountId);
     if (!existing && newAccount) {
-      const account = await createLinkedAccount(tx, tenantId, newAccount, createdById, dto.ownerGroupId);
+      const account = await createLinkedAccount(tx, tenantId, newAccount, createdById);
       fields.accountId = account.id; fields.companyName = account.name;
     } else if (!existing && fields.accountId) {
       const account = await tx.account.findFirst({ where: { tenantId, id: fields.accountId, isArchived: false, deletedAt: null }, select: { name: true } });
@@ -202,7 +202,7 @@ export async function updateContact(
       if (current.convertedAt) throw new ValidationError('This Lead has been converted. Update the linked Contact instead.');
       await assertContactAccountSelection(tx, tenantId, dto.accountId, current.accountId);
       if (dto.newAccount) {
-        const account = await createLinkedAccount(tx, tenantId, dto.newAccount, updatedById, (dto.ownerGroupId !== undefined ? dto.ownerGroupId : current.ownerGroupId));
+        const account = await createLinkedAccount(tx, tenantId, dto.newAccount, updatedById, current.ownerGroupId);
         data.accountId = account.id; data.companyName = account.name; data.companyFromAccount = true;
       } else if (dto.accountId && dto.accountId !== current.accountId) {
         const account = await tx.account.findFirst({ where: { tenantId, id: dto.accountId, isArchived: false, deletedAt: null }, select: { name: true } });
@@ -245,7 +245,7 @@ export async function updateContact(
       }
       if (dto.productInterest) Object.assign(data, await productRelationData(tx, 'lead', tenantId, { ids: dto.productInterest }, current, true));
       if (dto.accountId && !await tx.account.findFirst({ where: { id: dto.accountId, tenantId, isArchived: false, deletedAt: null } })) throw new ValidationError('Account is unavailable in this workspace.');
-      if (dto.assignedUserId && dto.assignedUserId !== current.assignedUserId) await validateSalesOwner(tx, tenantId, dto.assignedUserId, ['leads', 'deals'], (dto.ownerGroupId !== undefined ? dto.ownerGroupId : current.ownerGroupId));
+      if (dto.assignedUserId && dto.assignedUserId !== current.assignedUserId) await validateSalesOwner(tx, tenantId, dto.assignedUserId, ['leads', 'deals'], current.ownerGroupId);
       const updated = await tx.lead.update({
       where: { id, tenantId },
       data,

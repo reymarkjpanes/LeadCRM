@@ -9,7 +9,6 @@ export const LeadNameSchema = cleanText(100).pipe(z.string().min(1, 'Name is req
 export const LeadPhoneSchema = z.union([z.literal(''), AdministrationPhoneSchema]);
 export const OptionalLeadSourceSchema = z.union([z.literal(''), LeadSourceSchema]);
 const fields = {
-  ownerGroupId: z.string().uuid().nullable().optional(),
   firstName: LeadNameSchema,
   lastName: LeadNameSchema,
   email: CrmEmailSchema,

@@ -9,7 +9,6 @@ import { ProductInterestIdSchema, ClosedWonConfirmationSchema } from '@leadcrm/s
 const id = () => z.string().min(1);
 
 export const CreateDealSchema = z.object({
-  ownerGroupId: z.string().uuid().nullable().optional(),
   addressSource: DealAddressSourceSchema.nullable().optional(),
   customFieldValues: CustomFieldValuesSchema.optional(),
   productInterestOther: recordText(1000).nullable().optional(),
