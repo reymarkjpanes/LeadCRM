@@ -71,9 +71,9 @@ Tenant filters, mutation authorization, Sales assignment restrictions, and Edit 
 
 ## Screenshots and artifact files
 
-Before: [1440px light](before-1440-light.png).
+Before: 1440px light (historical local evidence; artifact retired).
 
-After: [1440px light](after-1440-light.png), [1440px dark](after-1440-dark.png), [390px light](after-390-light.png), [390px dark](after-390-dark.png).
+After: 1440px light (historical local evidence; artifact retired), 1440px dark (historical local evidence; artifact retired), 390px light (historical local evidence; artifact retired), 390px dark (historical local evidence; artifact retired).
 
 The complete artifact additions are this `README.md`, `browser-results.json`, `before-1440-light.png`, and `after-{320,375,390,430,768,1024,1440,1920}-{light,dark}.png` (one PNG for every width/theme combination).
 

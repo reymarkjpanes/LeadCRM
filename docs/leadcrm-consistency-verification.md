@@ -74,10 +74,10 @@ Manual browser checks exercised Organization required/email/domain errors, the e
 - [Responsive measurements](verification/responsive-checks.json)
 - [Selection measurements](verification/selection-checks.json)
 - [Workflow panel measurements](verification/workflow-panel-checks.json)
-- [General at 320px](verification/general-320.png)
-- [Archived Data at 320px](verification/archived-320.png)
-- [Workflow menu and pagination at 320px](verification/workflow-detail-320.png)
-- [Task selection at 320px](verification/tasks-selected-320.png)
-- [Campaigns on desktop](verification/campaigns-desktop.png)
+- General at 320px (historical local evidence; artifact retired)
+- Archived Data at 320px (historical local evidence; artifact retired)
+- Workflow menu and pagination at 320px (historical local evidence; artifact retired)
+- Task selection at 320px (historical local evidence; artifact retired)
+- Campaigns on desktop (historical local evidence; artifact retired)
 
 See [API documentation](API.md) for the updated organization validation and Workflow history contracts.

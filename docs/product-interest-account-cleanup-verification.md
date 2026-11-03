@@ -43,9 +43,9 @@ Validation retains valid UUIDs, trimmed product names, uniqueness within the ten
 
 ## Screenshots
 
-![Product price survives refresh](verification/product-price-after-refresh.png)
+*Product price survives refresh — historical capture retired during repository cleanup.*
 
-![New Deal uses the configured read-only price](verification/new-deal-product-price.png)
+*New Deal uses the configured read-only price — historical capture retired during repository cleanup.*
 
 ## Files changed
 

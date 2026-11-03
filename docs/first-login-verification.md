@@ -69,7 +69,7 @@ Login, mandatory Change Password, and onboarding were captured at 1366, 768, 390
 
 Manual `/dashboard` navigation from mandatory setup returned to `/change-password`. The backend and frontend suites separately verify that route manipulation cannot bypass password or onboarding gates, and that both Skip and Finish persist completion.
 
-Screenshots are in [first-login-verification artifacts](../artifacts/first-login-verification/).
+The 17 superseded UI captures were retired during repository cleanup on 2026-11-03. The historical validation results above are unchanged; see [authentication](authentication.md) for current behavior. The remaining production access/deployment captures and provisioning record were retired at the owner's request on 2026-11-04.
 
 ## Changed files
 
@@ -140,4 +140,4 @@ Production continues to require `@camxian.com`, regardless of the test flag.
 - `frontend/src/shared/providers/__tests__/auth-guard.lifecycle.test.tsx`
 - `shared/src/contracts/auth.contract.ts`
 
-The 17 JPEGs in `artifacts/first-login-verification/` record the responsive screens, final tour step, and completed Dashboard.
+The retired UI captures remain available in Git history.

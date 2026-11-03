@@ -89,7 +89,7 @@ The earlier banner theme refinement was verified using the actual production pro
 
 At 320px with Medium density, the banner was approximately 108px tall. At 640px and wider it was approximately 61px tall. Browser measurements round slightly at the desktop's existing zoom; a 44px CSS target measured approximately 43.99px.
 
-Earlier screenshots: [Dark mobile](assets/responsive-pwa/banner-dark-mobile.jpg), [Light mobile](assets/responsive-pwa/banner-light-mobile.jpg), [Classic tablet](assets/responsive-pwa/banner-classic-tablet.jpg). Raw measurements and behavior results are saved alongside these images.
+Earlier screenshots: Dark mobile (historical local evidence; artifact retired), Light mobile (historical local evidence; artifact retired), Classic tablet (historical local evidence; artifact retired). Raw measurements and behavior results are saved alongside these images.
 
 ## Earlier integrated refinement checks
 
@@ -100,7 +100,7 @@ Earlier screenshots: [Dark mobile](assets/responsive-pwa/banner-dark-mobile.jpg)
 - The final module matrix contains 182 passing layout cases across 26 routes at requested widths 320, 480, 768, 1024, 1025, 1440 and 2560px. It covers Dashboard, CRM tables and Pipeline, Tasks, Campaigns, Workflows and its builder, Inbox, Reporting, Notifications, all Settings sections, the Leads import wizard, Help, privacy, terms and support. Reporting was rechecked after the chart fix; the import wizard was retried after its first development compilation exceeded the harness wait. No page overflow remained in the recorded final cases. Shared component tests cover additional drawers, confirmations and form operations; the matrix is not a record of every possible populated screen or business operation.
 - Keyboard Enter invoked the retained native prompt exactly once after actual app appearance changes and SPA navigation. Accepted installation plus `appinstalled` hid the banner, reset its reserved height to 0px and showed one success toast. X dismissal remained honored after reload and another installable event.
 
-Earlier screenshots: [smaller button in Light](assets/responsive-pwa/compact-banner-light-mobile.jpg), [smaller button in Dark](assets/responsive-pwa/compact-banner-dark-mobile.jpg). Earlier evidence: [module measurements](assets/responsive-pwa/module-measurements.json), [theme and size measurements](assets/responsive-pwa/compact-banner-measurements.json), [install/dismissal behavior](assets/responsive-pwa/compact-banner-behavior.json). Requested and measured widths can differ by a pixel because of the desktop's existing zoom; exact navigation boundaries also pass unit tests. The theme matrix verifies rendered theme classes, not only the requested preference labels.
+Earlier screenshots: smaller button in Light (historical local evidence; artifact retired), smaller button in Dark (historical local evidence; artifact retired). Earlier evidence: [module measurements](assets/responsive-pwa/module-measurements.json), [theme and size measurements](assets/responsive-pwa/compact-banner-measurements.json), [install/dismissal behavior](assets/responsive-pwa/compact-banner-behavior.json). Requested and measured widths can differ by a pixel because of the desktop's existing zoom; exact navigation boundaries also pass unit tests. The theme matrix verifies rendered theme classes, not only the requested preference labels.
 
 ## Earlier automated results
 

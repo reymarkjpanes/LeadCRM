@@ -97,9 +97,9 @@ Validation uses shared Zod contracts: bounded product names and lists, unique co
 
 The images show disposable test records and prices.
 
-![Won Deal full page](sales-deal-preview.png)
+*Won Deal full page — historical capture retired during repository cleanup.*
 
-![Saved Product Interest values](sales-product-settings-preview.png)
+*Saved Product Interest values — historical capture retired during repository cleanup.*
 
 ## Files changed
 
