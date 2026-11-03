@@ -137,7 +137,7 @@ The actual Roles & Permissions component and application CSS were rendered in a 
 
 All tested widths had no horizontal document overflow. Permission labels wrapped, switches stayed within the page, and Cancel/Create/Save controls remained accessible. The 15 section switches and 75 permission switches were checked for bounds. Master counts, individual-action View dependency and partial state were exercised.
 
-Screenshots: [desktop](qa/roles-permissions/edit-desktop.jpg) and [320px](qa/roles-permissions/edit-320.jpg).
+Screenshots: desktop (historical local evidence; artifact retired) and 320px (historical local evidence; artifact retired).
 
 These are component browser checks, supplemented by authenticated backend tests. A complete deployed-browser session with each new role against production was not run. Production responsive behavior, production permission rows, and deployed end-to-end results: **I cannot confirm this.**
 
@@ -289,8 +289,8 @@ These are component browser checks, supplemented by authenticated backend tests.
 ### Verification scripts and artifacts
 
 - [.gitignore](../.gitignore)
-- [docs/qa/roles-permissions/edit-320.jpg](qa/roles-permissions/edit-320.jpg)
-- [docs/qa/roles-permissions/edit-desktop.jpg](qa/roles-permissions/edit-desktop.jpg)
+- docs/qa/roles-permissions/edit-320.jpg (historical local evidence; artifact retired)
+- docs/qa/roles-permissions/edit-desktop.jpg (historical local evidence; artifact retired)
 - [scripts/preview-roles.mjs](../scripts/preview-roles.mjs)
 - [scripts/test-permissions-db.mjs](../scripts/test-permissions-db.mjs)
 

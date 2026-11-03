@@ -48,7 +48,7 @@ Production-preview acceptance also verified populated Activity: a completed Warm
 
 The browser viewport tool clamped the attempted 320px check to approximately 358px. Exact 320px, physical touch devices, full screen-reader testing, and every browser engine are not claimed verified. Temporary viewport and dark-theme changes were restored. The in-app browser screenshot scale clips part of the right toolbar, so the evidence captures the visible canvas and run details rather than claiming complete pixel coverage.
 
-Screenshots: [visual builder](visual-builder-evidence/builder.png), [persisted Activity](visual-builder-evidence/activity.png).
+Screenshots: visual builder (historical local evidence; artifact retired), persisted Activity (historical local evidence; artifact retired).
 
 Reproducible commands:
 

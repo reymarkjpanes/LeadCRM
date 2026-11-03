@@ -65,8 +65,8 @@ Removed `MFA_ENCRYPTION_KEY` from the backend environment example and disposable
 - Frontend auth/settings/Accounts/proxy regression selection: **10 files, 56 tests passed**.
 - Additional help/settings/record-panel selection: **44 passed, 1 failed**. Failure: the unrelated Lead case in `panel-migrations.test.tsx` could not find its expected Deals button. Lead behavior was not changed to satisfy that test. A focused Account panel/full-page rerun passed (**1 passed, 20 intentionally filtered out**).
 - `git diff --check`: passed.
-- Browser: signed in with a disposable employee account through the real frontend proxy; dashboard loaded normally, Profile Settings displayed a single Password row with no blank card or separator, and the existing password dialog opened/closed. Inspected browser error/warning logs were empty. [Screenshot](security-settings-after.jpg).
-- Browser Accounts: created `Cleanup Verification Account` with only its name, updated it to `Updated Verification Account` in the side panel, then opened its full-page details. All succeeded against the disposable migrated backend; the browser console remained free of errors/warnings. [Account screenshot](account-cleanup-after.jpg).
+- Browser: signed in with a disposable employee account through the real frontend proxy; dashboard loaded normally, Profile Settings displayed a single Password row with no blank card or separator, and the existing password dialog opened/closed. Inspected browser error/warning logs were empty. Screenshot (historical local evidence; artifact retired).
+- Browser Accounts: created `Cleanup Verification Account` with only its name, updated it to `Updated Verification Account` in the side panel, then opened its full-page details. All succeeded against the disposable migrated backend; the browser console remained free of errors/warnings. Account screenshot (historical local evidence; artifact retired).
 
 The migrated database test starts with populated old security data and compares all unrelated columns/rows in User, Account, Session, EmailVerificationToken, PasswordResetToken, RegistrationOtpToken, AuditLog and RolePermission immediately before/after the new migration. It also verifies Account create/update/list/detail without the removed properties, tenant rejection, and permission rejection.
 
@@ -78,7 +78,7 @@ Production schema, deployment, live email delivery, remote environment variables
 
 ## Files changed
 
-- [docs/account-cleanup-after.jpg](account-cleanup-after.jpg)
+- docs/account-cleanup-after.jpg (historical local evidence; artifact retired)
 - [backend/.env.example](../backend/.env.example)
 - [backend/package.json](../backend/package.json)
 - [backend/prisma/migrations/20261016000000_remove_two_factor_and_obsolete_account_fields/migration.sql](../backend/prisma/migrations/20261016000000_remove_two_factor_and_obsolete_account_fields/migration.sql)
@@ -114,7 +114,7 @@ Production schema, deployment, live email delivery, remote environment variables
 - [docs/crm-record-detail-ui.md](../docs/crm-record-detail-ui.md)
 - [docs/product-interest-account-cleanup-verification.md](../docs/product-interest-account-cleanup-verification.md)
 - [docs/security-cleanup-mfa.md](../docs/security-cleanup-mfa.md)
-- [docs/security-settings-after.jpg](../docs/security-settings-after.jpg)
+- docs/security-settings-after.jpg (historical local evidence; artifact retired)
 - [docs/security/audit-log-strategy.md](../docs/security/audit-log-strategy.md)
 - [docs/tasks-audit-and-plan.md](../docs/tasks-audit-and-plan.md)
 - [frontend/app/api/proxy/[...path]/__tests__/proxy-cookie-forwarding.test.ts](../frontend/app/api/proxy/[...path]/__tests__/proxy-cookie-forwarding.test.ts)

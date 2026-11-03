@@ -41,9 +41,9 @@ Row/header selection, mixed states, and counts use the existing permission-ID st
 
 ## Evidence and compatibility limits
 
-- [Desktop screenshot](<../../data/outputs/create-role-table-desktop.png>)
-- [320px screenshot](<../../data/outputs/create-role-table-mobile.png>)
-- [Responsive measurements](<../../data/outputs/create-role-table-responsive.json>)
+- Desktop screenshot (historical local evidence; artifact retired)
+- 320px screenshot (historical local evidence; artifact retired)
+- Responsive measurements (historical local evidence; artifact retired)
 
 Browser acceptance used the existing in-memory role preview. Payload tests exercised the existing client against mocked HTTP responses. These checks do not establish live database persistence or production deployment. The existing CRM mobile scrolling behavior, including unpinning columns below 768px, is retained.
 
