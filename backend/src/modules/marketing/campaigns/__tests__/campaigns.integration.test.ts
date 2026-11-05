@@ -5,7 +5,7 @@ import type { Server } from 'node:http';
 vi.hoisted(() => {
   const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
   if (['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_campaign_test_\d+$/.test(url.pathname)) {
-    url.searchParams.set('connection_limit', '1');
+    url.searchParams.set('connection_limit', process.env.CAMPAIGN_TEST_POOL_SIZE === '4' ? '4' : '1');
     url.searchParams.set('pool_timeout', '2');
     process.env.DATABASE_URL = url.toString();
   }
@@ -19,7 +19,7 @@ vi.mock('express-rate-limit', async importOriginal => {
   const actual = await importOriginal<typeof import('express-rate-limit')>();
   return { ...actual, default: (options: Partial<import('express-rate-limit').Options>) => actual.default({ ...options, limit: options.limit === 5 ? 100 : options.limit }) };
 });
-import { sendSms, SmsSubmissionError } from '../../../../shared/services/sms.service';
+import { sendSms, SmsSubmissionError, getSmsDeviceId } from '../../../../shared/services/sms.service';
 import { processTextBeeEvent } from '../textbee-webhook';
 import { DEFAULT_CAMXIAN_TEMPLATES, seedCampaignTemplates } from '../../templates/default-templates';
 import { previewAudience, campaignVariableFields } from '../audiences.service';
@@ -29,7 +29,7 @@ import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { crmActor } from '../../../crm/access/crm-record-access.service';
 import { issueAuthSession } from '../../../../core/auth/auth-session';
-import { createCampaign, getCampaignById, sendCampaign, updateCampaign, archiveCampaign, scheduleCampaign, cancelCampaignSchedule, dispatchDueCampaigns, startCampaignScheduleScheduler, duplicateCampaign } from '../campaigns.service';
+import { createCampaign, getCampaignById, sendCampaign, updateCampaign, archiveCampaign, scheduleCampaign, cancelCampaignSchedule, dispatchDueCampaigns, resumePendingCampaigns, drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignScheduleScheduler, duplicateCampaign } from '../campaigns.service';
 import { recoverCampaignSubmissions, interruptCampaignSubmission } from '../campaign-submission-recovery';
 import { createAudience, getAudiences, resolveAudience } from '../audiences.service';
 import { createTemplate, getTemplates } from '../../templates/templates.service';
@@ -77,6 +77,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
   beforeEach(async () => {
     vi.stubEnv('TEXTBEE_API_KEY', 'fixture-key'); vi.stubEnv('TEXTBEE_DEVICE_ID', '');
     vi.stubEnv('TEXTBEE_WEBHOOK_SECRET', 'test-webhook-signature-only');
+    vi.mocked(getSmsDeviceId).mockReset().mockResolvedValue('device-fixture');
     vi.mocked(sendSms).mockReset().mockImplementation(async () => ({ messageId: `msg_${randomUUID()}`, submitted: true, status: 'pending' }));
     vi.mocked(sendMail).mockReset().mockImplementation(async () => ({ messageId: `<${randomUUID()}@brevo.test>`, submitted: true }));
     vi.stubEnv('BREVO_DAILY_EMAIL_LIMIT', '300'); vi.stubEnv('BREVO_SANDBOX_EMAILS', '');
@@ -93,7 +94,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect((await getAudiences(tenantId)).some(a => a.id === audienceId)).toBe(true);
       expect((await resolveAudience(tenantId, { source: 'CONTACTS', conditions: [] })).breakdown.eligible).toBe(2);
       const result = await sendCampaign(campaign.id, tenantId, userId);
-      expect(result).toMatchObject({ eligibleRecipients: 2, submittedRecipients: 2, failedRecipients: 0, status: 'SENDING' });
+      expect(result).toMatchObject({ eligibleRecipients: 2, submittedRecipients: 2, failedRecipients: 0, status: 'SUBMITTED' });
       expect(vi.mocked(sendMail).mock.calls.map(([m]) => m.subject).sort()).toEqual(['Hello Juan', 'Hello Maria']);
       expect(await prisma.campaignContact.count({ where: { campaignId: campaign.id, status: 'submitted', sentAt: null, messageId: { not: null } } })).toBe(2);
       expect(await prisma.emailDeliveryLog.count({ where: { campaignId: campaign.id, brevoMessageId: { not: null } } })).toBe(2);
@@ -102,7 +103,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect(recipients.find(r => r.email === 'maria.customer@example.com')).toMatchObject({ leadId: null, contactId: expect.any(String) });
     });
     const reloaded = await request(`/marketing/campaigns/${campaign.id}`);
-    expect(reloaded.status).toBe(200); expect(reloaded.body.data.status).toBe('SENDING'); expect(reloaded.body.data.deliveredCount).toBe(0);
+    expect(reloaded.status).toBe(200); expect(reloaded.body.data.status).toBe('SUBMITTED'); expect(reloaded.body.data.deliveredCount).toBe(0);
   });
   it('persists pasted URLs and sends real anchors in the Brevo htmlContent payload', async () => {
     const transport = await vi.importActual<typeof import('../../../../shared/services/email.service')>('../../../../shared/services/email.service');
@@ -142,7 +143,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect((await request(`/marketing/campaigns/${campaign.id}/send`, 'PATCH')).status).toBe(409);
     } finally { release(); }
     await vi.waitFor(async () => {
-      expect((await request(`/marketing/campaigns/${campaign.id}`)).body.data).toMatchObject({ status: 'SENDING', sentCount: 2, failedCount: 0 });
+      expect((await request(`/marketing/campaigns/${campaign.id}`)).body.data).toMatchObject({ status: 'SUBMITTED', sentCount: 2, failedCount: 0 });
     }, { timeout: 10000 });
     expect(sendMail).toHaveBeenCalledTimes(2);
   });
@@ -196,10 +197,10 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     expect((await request('/marketing/campaigns', 'POST', { name: 'Bad', type: 'EMAIL', targetAudienceId: foreignAudience.id })).status).toBe(404);
   });
   it('records partial failures without treating acceptance as delivery or permitting resend', async () => {
-    vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 429));
+    vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 401));
     const campaign = await draft();
     const result = await scoped(() => sendCampaign(campaign.id, tenantId, userId));
-    expect(result).toMatchObject({ submittedRecipients: 1, failedRecipients: 1, status: 'SENDING' });
+    expect(result).toMatchObject({ submittedRecipients: 1, failedRecipients: 1, status: 'SUBMITTED' });
     const log = await prisma.emailDeliveryLog.findFirstOrThrow({ where: { campaignId: campaign.id, brevoMessageId: { not: null } } });
     await processBrevoEvent({ event: 'request', email: log.toEmail, 'message-id': log.brevoMessageId, ts_event: Math.floor(Date.now() / 1000) });
     expect((await scoped(() => getCampaignById(campaign.id, tenantId))).status).toBe('PARTIALLY_SENT');
@@ -207,11 +208,11 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     await expect(scoped(() => updateCampaign(campaign.id, tenantId, userId, { name: 'Changed' }))).rejects.toMatchObject({ statusCode: 409 });
   });
   it.each([
-    { total: 1, rejected: 0, unconfirmed: 0, status: 'SENDING' },
-    { total: 4, rejected: 0, unconfirmed: 0, status: 'SENDING' },
-    { total: 4, rejected: 1, unconfirmed: 0, status: 'SENDING' },
+    { total: 1, rejected: 0, unconfirmed: 0, status: 'SUBMITTED' },
+    { total: 4, rejected: 0, unconfirmed: 0, status: 'SUBMITTED' },
+    { total: 4, rejected: 1, unconfirmed: 0, status: 'SUBMITTED' },
     { total: 4, rejected: 4, unconfirmed: 0, status: 'FAILED' },
-    { total: 4, rejected: 0, unconfirmed: 1, status: 'SENDING' },
+    { total: 4, rejected: 0, unconfirmed: 1, status: 'INTERRUPTED' },
   ])('persists real transport outcomes: $total recipients, $rejected rejected, $unconfirmed unknown', async ({ total, rejected, unconfirmed, status }) => {
     const transport = await vi.importActual<typeof import('../../../../shared/services/email.service')>('../../../../shared/services/email.service');
     vi.mocked(sendMail).mockImplementation(transport.sendMail);
@@ -231,7 +232,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
         const audience = await createAudience(tenantId, { name: source, source: 'LEADS', conditions: [{ field: 'companyName', operator: 'equals', value: source }] });
         const campaign = await createCampaign(tenantId, userId, { name: source, type: 'EMAIL', targetAudienceId: audience.id, subject: 'Hello', body: 'Hello' });
         const result = await sendCampaign(campaign.id, tenantId, userId);
-        expect(result).toEqual({ campaignId: campaign.id, eligibleRecipients: total, submittedRecipients: total - rejected - unconfirmed, failedRecipients: rejected, status, submissionComplete: true });
+        expect(result).toEqual({ campaignId: campaign.id, eligibleRecipients: total, submittedRecipients: total - rejected - unconfirmed, failedRecipients: rejected, status, submissionComplete: true, ...(unconfirmed ? { submissionInterrupted: true } : {}) });
         const response = await request(`/marketing/campaigns/${campaign.id}`);
         expect(response.body.data.sendResult).toEqual(result);
         expect(response.body.data).toMatchObject({ status, sentCount: total - rejected - unconfirmed, failedCount: rejected, openedCount: 0, clickedCount: 0, deliveredCount: 0 });
@@ -257,7 +258,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
       expect(recipient[field]).toBeTruthy();
       expect(await prisma.emailEvent.count({ where: { deliveryLogId: log.id } })).toBe(1);
       const result = await scoped(() => getCampaignById(campaign.id, tenantId));
-      expect(result).toMatchObject({ status: 'SENDING', sentCount: 2, failedCount: ['hard_bounce', 'blocked', 'invalid_email'].includes(event) ? 1 : 0, openedCount: event === 'opened' ? 1 : 0, clickedCount: event === 'click' ? 1 : 0 });
+      expect(result).toMatchObject({ status: 'SUBMITTED', sentCount: 2, failedCount: ['hard_bounce', 'blocked', 'invalid_email'].includes(event) ? 1 : 0, openedCount: event === 'opened' ? 1 : 0, clickedCount: event === 'click' ? 1 : 0 });
       expect(result.deliveredCount).toBe(event === 'delivered' ? 1 : 0);
       expect(result.bouncedCount).toBe(['soft_bounce', 'hard_bounce', 'blocked', 'invalid_email'].includes(event) ? 1 : 0);
       const metrics = await prisma.campaignMetrics.findFirstOrThrow({ where: { campaignId: campaign.id }, orderBy: { snapshotAt: 'desc' } });
@@ -288,7 +289,7 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     } finally { release(); await sending; }
     const metrics = await prisma.campaignMetrics.findFirstOrThrow({ where: { campaignId: campaign.id }, orderBy: { snapshotAt: 'desc' } });
     expect(metrics).toMatchObject({ sentCount: 2, deliveredCount: 1, bouncedCount: 1, deliveryRate: 50, bounceRate: 50 });
-    expect(await scoped(() => getCampaignById(campaign.id, tenantId))).toMatchObject({ status: 'SENDING', sentCount: 2, deliveredCount: 1, bouncedCount: 1 });
+    expect(await scoped(() => getCampaignById(campaign.id, tenantId))).toMatchObject({ status: 'SUBMITTED', sentCount: 2, deliveredCount: 1, bouncedCount: 1 });
     expect(sendMail).toHaveBeenCalledTimes(2);
   });
   it.each(['opened', 'unique_opened'])('reports one recipient through authenticated delivery, %s and click webhooks', async openEvent => {
@@ -615,9 +616,9 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     await scoped(async () => {
       const person = await prisma.contact.create({ data: { tenantId, firstName: 'Uncertain', lastName: 'SMS', phone: '+639181234567' } });
       for (const outcome of ['unconfirmed', 'rejected'] as const) {
-        vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError(outcome, outcome === 'rejected' ? 429 : undefined));
+        vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError(outcome, outcome === 'rejected' ? 401 : undefined));
         const campaign = await createCampaign(tenantId, userId, { name: 'SMS ' + outcome, type: 'SMS', audienceSource: 'CONTACTS', body: 'Hello' });
-        expect((await sendCampaign(campaign.id, tenantId, userId)).status).toBe(outcome === 'unconfirmed' ? 'SENDING' : 'FAILED');
+        expect((await sendCampaign(campaign.id, tenantId, userId)).status).toBe(outcome === 'unconfirmed' ? 'INTERRUPTED' : 'FAILED');
         await expect(sendCampaign(campaign.id, tenantId, userId)).rejects.toMatchObject({ statusCode: 409 });
       }
       expect(sendSms).toHaveBeenCalledTimes(2);
@@ -1385,4 +1386,154 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     });
   });
 
+  async function scheduledFixture(type: 'EMAIL' | 'SMS', total: number) {
+    return scoped(async () => {
+      const companyName = randomUUID();
+      await prisma.contact.createMany({ data: Array.from({ length: total }, (_, i) => ({ tenantId, firstName: `Scheduled${i}`, lastName: 'Recipient', companyName,
+        email: `${randomUUID()}@example.test`, phone: `+639${Math.floor(100000000 + Math.random() * 900000000)}` })) });
+      const audience = await createAudience(tenantId, { name: companyName, source: 'CONTACTS', conditions: [{ field: 'companyName', operator: 'equals', value: companyName }] });
+      const campaign = await createCampaign(tenantId, userId, { name: companyName, type, subject: type === 'EMAIL' ? 'Hi {{firstName}}' : undefined, body: 'Hello {{firstName}}', targetAudienceId: audience.id });
+      await scheduleCampaign(campaign.id, tenantId, userId, { scheduledFor: new Date(Date.now() + 60000).toISOString() });
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { scheduledFor: new Date(Date.now() - 1000) } });
+      return campaign;
+    });
+  }
+  async function finished(id: string) {
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id } })).submissionFinishedAt).not.toBeNull(), { timeout: 10000 });
+  }
+  it.each([['EMAIL', 1], ['EMAIL', 2], ['EMAIL', 6], ['SMS', 1], ['SMS', 3]] as const)('dispatches scheduled %s to all %i recipients and reports Submitted consistently', async (type, total) => {
+    const campaign = await scheduledFixture(type, total);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    if (type === 'EMAIL') vi.mocked(sendMail).mockImplementation(async () => { await gate; return { submitted: true, messageId: randomUUID() }; });
+    else vi.mocked(sendSms).mockImplementation(async () => { await gate; return { submitted: true, messageId: randomUUID(), status: 'pending' }; });
+    expect(await dispatchDueCampaigns()).toBe(1);
+    try {
+      await vi.waitFor(() => expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledTimes(Math.min(total, 5)));
+      expect((await request(`/marketing/campaigns/${campaign.id}`)).body.data.status).toBe('SENDING');
+      expect(await dispatchDueCampaigns()).toBe(0);
+    } finally { release(); await finished(campaign.id); }
+    const list = (await request('/marketing/campaigns?limit=200')).body.data.find((row: { id: string }) => row.id === campaign.id);
+    const report = (await request(`/marketing/campaigns/${campaign.id}/report`)).body.data;
+    expect(list.status).toBe('SUBMITTED'); expect(report.status).toBe(list.status);
+    expect(report.recipients).toHaveLength(total);
+    expect(report.recipients.every((row: { deliveryStatus: string }) => row.deliveryStatus === 'Submitted')).toBe(true);
+    expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledTimes(total);
+  });
+  it.each(['EMAIL', 'SMS'] as const)('retries a scheduled %s 429 once across worker claims without replaying accepted recipients or reserving quota again', async type => {
+    const campaign = await scheduledFixture(type, 2);
+    if (type === 'EMAIL') vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 429, Date.now() + 120000));
+    else vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError('rejected', 429, Date.now() + 120000));
+    expect(await dispatchDueCampaigns()).toBe(1);
+    await vi.waitFor(async () => expect(await prisma.campaignContact.count({ where: { campaignId: campaign.id, status: 'retrying' } })).toBe(1));
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).submissionLeaseId).toBeNull());
+    const retry = await prisma.campaignContact.findFirstOrThrow({ where: { campaignId: campaign.id, status: 'retrying' } });
+    expect(+retry.nextSubmissionAttemptAt! - Date.now()).toBeGreaterThan(60000);
+    expect(retry.submissionAttemptCount).toBe(1);
+    expect(await resumePendingCampaigns()).toBe(0);
+    expect((await request(`/marketing/campaigns/${campaign.id}/report`)).body.data.recipients.some((row: { deliveryStatus: string }) => row.deliveryStatus === 'Retrying')).toBe(true);
+    await prisma.campaignContact.update({ where: { id: retry.id }, data: { nextSubmissionAttemptAt: new Date(Date.now() - 1) } });
+    const claims = await Promise.all([resumePendingCampaigns(), resumePendingCampaigns()]);
+    expect(claims.reduce((a, b) => a + b)).toBe(1);
+    await finished(campaign.id);
+    expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledTimes(3);
+    expect(await prisma.campaignContact.count({ where: { campaignId: campaign.id, status: 'submitted' } })).toBe(2);
+    expect((await prisma.campaignContact.findUniqueOrThrow({ where: { id: retry.id } })).submissionAttemptCount).toBe(2);
+    expect(await resumePendingCampaigns()).toBe(0);
+    if (type === 'EMAIL') expect((await prisma.campaignEmailQuota.findFirstOrThrow()).reserved).toBe(2);
+  });
+  it.each(['EMAIL', 'SMS'] as const)('exhausts a %s retry and preserves mixed Submitted/Failed results', async type => {
+    const campaign = await scheduledFixture(type, 2);
+    const reject = () => type === 'EMAIL' ? new EmailSubmissionError('rejected', 429) : new SmsSubmissionError('rejected', 429);
+    if (type === 'EMAIL') vi.mocked(sendMail).mockRejectedValueOnce(reject()); else vi.mocked(sendSms).mockRejectedValueOnce(reject());
+    await dispatchDueCampaigns();
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).submissionLeaseId).toBeNull());
+    await prisma.campaignContact.updateMany({ where: { campaignId: campaign.id, status: 'retrying' }, data: { nextSubmissionAttemptAt: new Date(Date.now() - 1) } });
+    if (type === 'EMAIL') vi.mocked(sendMail).mockRejectedValueOnce(reject()); else vi.mocked(sendSms).mockRejectedValueOnce(reject());
+    expect(await resumePendingCampaigns()).toBe(1); await finished(campaign.id);
+    const report = (await request(`/marketing/campaigns/${campaign.id}/report`)).body.data;
+    expect(report).toMatchObject({ status: 'SUBMITTED', sentCount: 1, failedCount: 1 });
+    expect(report.recipients.map((row: { deliveryStatus: string }) => row.deliveryStatus).sort()).toEqual(['Failed', 'Submitted']);
+    expect(await resumePendingCampaigns(new Date(Date.now() + 86400000))).toBe(0);
+    expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledTimes(3);
+  });
+  it('retains an unclaimed SMS schedule after a transient gateway lookup failure', async () => {
+    const campaign = await scheduledFixture('SMS', 1);
+    vi.mocked(getSmsDeviceId).mockRejectedValueOnce(new SmsSubmissionError('unconfirmed', 503));
+    expect(await dispatchDueCampaigns()).toBe(0);
+    expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({ status: 'SCHEDULED', submissionStartedAt: null });
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(await dispatchDueCampaigns()).toBe(1); await finished(campaign.id);
+    expect(sendSms).toHaveBeenCalledOnce();
+  });
+  it('recovers safe untouched recipients after a crash, preserving accepted and uncertain outcomes', async () => {
+    const campaign = await scheduledFixture('EMAIL', 6);
+    // Hold all provider calls and expire the lease to reproduce a crash after intent persistence.
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(sendMail).mockImplementation(async () => { await gate; return { submitted: true, messageId: randomUUID() }; });
+    await dispatchDueCampaigns();
+    await vi.waitFor(() => expect(sendMail).toHaveBeenCalledTimes(5));
+    const rows = await prisma.campaignContact.findMany({ where: { campaignId: campaign.id }, orderBy: { id: 'asc' } });
+    const attempted = new Set(vi.mocked(sendMail).mock.calls.map(([message]) => message.to));
+    const accepted = rows.find(row => attempted.has(row.email!))!, untouched = rows.find(row => !attempted.has(row.email!))!;
+    const expired = new Date(Date.now() - 300000);
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { submissionLeaseUntil: expired } });
+    // A committed provider receipt, an untouched snapshot, and an unknown in-flight request.
+    await prisma.campaignContact.update({ where: { id: accepted.id }, data: { status: 'submitted', submittedAt: new Date(), messageId: randomUUID() } });
+    expect(untouched.submissionAttemptedAt).toBeNull();
+    expect(await recoverCampaignSubmissions()).toBe(1);
+    release();
+    await drainCampaignSubmissions(); resumeCampaignSubmissions();
+    vi.mocked(sendMail).mockReset().mockResolvedValue({ submitted: true, messageId: randomUUID() });
+    expect(await resumePendingCampaigns()).toBe(1); await finished(campaign.id);
+    expect(sendMail).toHaveBeenCalledOnce();
+    expect(vi.mocked(sendMail).mock.calls[0][0].to).toBe(untouched.email);
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe('INTERRUPTED');
+  });
+  it('does not retry a recipient that opts out after a definite rate-limit rejection', async () => {
+    const campaign = await scheduledFixture('EMAIL', 1);
+    vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 429));
+    await dispatchDueCampaigns();
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).submissionLeaseId).toBeNull());
+    const row = await prisma.campaignContact.findFirstOrThrow({ where: { campaignId: campaign.id } });
+    await prisma.contact.update({ where: { id: row.contactId! }, data: { doNotContact: true } });
+    await prisma.campaignContact.update({ where: { id: row.id }, data: { nextSubmissionAttemptAt: new Date(Date.now() - 1) } });
+    expect(await resumePendingCampaigns()).toBe(1); await finished(campaign.id);
+    expect(sendMail).toHaveBeenCalledOnce();
+    expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ status: 'failed', failureReason: 'RECIPIENT_NO_LONGER_ELIGIBLE' });
+  });
+  it('finalizes a crash after the last persisted acceptance without resending or displaying an interruption', async () => {
+    const campaign = await scheduledFixture('EMAIL', 1);
+    await dispatchDueCampaigns(); await finished(campaign.id);
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'SENDING', submissionFinishedAt: null, submissionLeaseId: randomUUID(), submissionLeaseUntil: new Date(Date.now() - 1) } });
+    expect(await recoverCampaignSubmissions()).toBe(1);
+    expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({ status: 'SUBMITTED', submissionInterruptedAt: null });
+    expect(await resumePendingCampaigns()).toBe(0);
+    expect(sendMail).toHaveBeenCalledOnce();
+  });
+  it.each(['EMAIL', 'SMS'] as const)('resumes a persisted due %s retry on scheduler startup without a browser', async type => {
+    const campaign = await scheduledFixture(type, 1);
+    if (type === 'EMAIL') vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 429));
+    else vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError('rejected', 429));
+    await dispatchDueCampaigns();
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).submissionLeaseId).toBeNull());
+    await prisma.campaignContact.updateMany({ where: { campaignId: campaign.id, status: 'retrying' }, data: { nextSubmissionAttemptAt: new Date(Date.now() - 1) } });
+    const stop = startCampaignScheduleScheduler();
+    try { await finished(campaign.id); } finally { await stop(); }
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe('SUBMITTED');
+    expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledTimes(2);
+  });
+  it('rechecks locally formatted SMS phone numbers against the original normalized recipient on retry', async () => {
+    const campaign = await scheduledFixture('SMS', 1);
+    const person = await prisma.contact.findFirstOrThrow({ where: { tenantId, companyName: campaign.name } });
+    await prisma.contact.update({ where: { id: person.id }, data: { phone: '0' + person.phone!.slice(3) } });
+    vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError('rejected', 429));
+    await dispatchDueCampaigns();
+    await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).submissionLeaseId).toBeNull());
+    await prisma.campaignContact.updateMany({ where: { campaignId: campaign.id, status: 'retrying' }, data: { nextSubmissionAttemptAt: new Date(Date.now() - 1) } });
+    expect(await resumePendingCampaigns()).toBe(1); await finished(campaign.id);
+    expect(sendSms).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(sendSms).mock.calls.every(([phone]) => phone === person.phone)).toBe(true);
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe('SUBMITTED');
+  });
 });

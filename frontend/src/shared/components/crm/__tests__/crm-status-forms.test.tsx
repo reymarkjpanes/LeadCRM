@@ -36,7 +36,7 @@ it('renders a readable badge without an editing control for unauthorized users',
   expect(screen.getByText('Cancelled')).toBeTruthy();
 });
 
-it.each(CRM_STATUSES)('shows the normalized current status %s with a selected check or a Closed Deal badge', async status => {
+it.each(CRM_STATUSES)('highlights the normalized current status %s or shows a Closed Deal badge', async status => {
   const change = vi.fn();
   render(<CustomerStatusMenu status={status.toUpperCase().replace(' ', '_')} canEdit onChange={change} />);
   if (status === 'Closed Deal') {
@@ -46,23 +46,72 @@ it.each(CRM_STATUSES)('shows the normalized current status %s with a selected ch
     expect(change).not.toHaveBeenCalled();
     return;
   }
-  fireEvent.click(screen.getByRole('button', { name: status }));
+  const trigger = screen.getByRole('button', { name: status });
+  trigger.focus(); fireEvent.click(trigger);
   const selected = screen.getByRole('menuitemradio', { checked: true });
   expect(selected.textContent).toBe(status);
-  expect(selected.querySelector('.lucide-check')).toBeTruthy();
-  expect(screen.getAllByRole('menuitemradio', { checked: false })).toHaveLength(5);
+  expect(selected.classList.contains('bg-accent')).toBe(true);
+  const unselected = screen.getAllByRole('menuitemradio', { checked: false });
+  expect(unselected).toHaveLength(5);
+  for (const item of unselected) expect(item.classList.contains('bg-accent')).toBe(false);
+  expect(screen.getByRole('menu').querySelector('.lucide-check')).toBeNull();
+  const firstEnabled = screen.getAllByRole('menuitemradio').find(item => item.getAttribute('aria-disabled') === 'false');
+  await waitFor(() => expect(document.activeElement).toBe(selected.getAttribute('aria-disabled') === 'true' ? firstEnabled : selected));
   expect(screen.queryByText('Manual engagement changes retain existing sales and automation rules. Closed Deal requires a confirmed sale.')).toBeNull();
 });
 
-it('updates the selected check from new record props and preserves same-value manual selections', async () => {
+it('updates the selected background from new record props and preserves same-value manual selections', async () => {
   const change = vi.fn().mockResolvedValue(undefined);
   const view = render(<CustomerStatusMenu status="Hot" canEdit onChange={change} />);
   fireEvent.click(screen.getByRole('button', { name: 'Hot' }));
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Hot');
+  expect(screen.getByRole('menuitemradio', { name: 'Hot' }).classList.contains('bg-accent')).toBe(true);
   view.rerender(<CustomerStatusMenu status="WARM" canEdit onChange={change} />);
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  expect(screen.getByRole('menuitemradio', { name: 'Warm' }).classList.contains('bg-accent')).toBe(true);
+  expect(screen.getByRole('menuitemradio', { name: 'Hot' }).classList.contains('bg-accent')).toBe(false);
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Warm' }));
   expect(change).toHaveBeenCalledExactlyOnceWith('Warm');
+});
+
+it('keeps Warm selected while navigating, skips Closed Deal and restores trigger focus on Escape', async () => {
+  const change = vi.fn();
+  render(<CustomerStatusMenu status="Warm" canEdit onChange={change} />);
+  const trigger = screen.getByRole('button', { name: 'Warm' });
+  trigger.focus(); fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  const warm = screen.getByRole('menuitemradio', { name: 'Warm' });
+  await waitFor(() => expect(document.activeElement).toBe(warm));
+  fireEvent.keyDown(warm, { key: 'ArrowDown' });
+  const cold = screen.getByRole('menuitemradio', { name: 'Cold' });
+  expect(document.activeElement).toBe(cold);
+  expect(warm.getAttribute('aria-checked')).toBe('true');
+  expect(warm.classList.contains('bg-accent')).toBe(true);
+  expect(cold.classList.contains('bg-accent')).toBe(false);
+  expect(cold.classList.contains('focus:bg-transparent')).toBe(true);
+  expect(cold.classList.contains('focus-visible:ring-2')).toBe(true);
+  fireEvent.keyDown(cold, { key: 'ArrowDown' });
+  expect(document.activeElement).toBe(screen.getByRole('menuitemradio', { name: 'Cancelled' }));
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(change).not.toHaveBeenCalled();
+});
+
+it('highlights a disabled current Warm while focusing an allowed option without selecting it', async () => {
+  const change = vi.fn();
+  render(<CustomerStatusMenu status="Warm" canEdit options={['Inquiry']} onChange={change} />);
+  const trigger = screen.getByRole('button', { name: 'Warm' });
+  trigger.focus(); fireEvent.click(trigger);
+  const inquiry = screen.getByRole('menuitemradio', { name: 'Inquiry' });
+  await waitFor(() => expect(document.activeElement).toBe(inquiry));
+  const warm = screen.getByRole('menuitemradio', { name: 'Warm' });
+  expect(warm.getAttribute('aria-disabled')).toBe('true');
+  expect(warm.getAttribute('aria-checked')).toBe('true');
+  expect(warm.classList.contains('bg-accent')).toBe(true);
+  expect(inquiry.getAttribute('aria-checked')).toBe('false');
+  expect(inquiry.classList.contains('bg-accent')).toBe(false);
+  fireEvent.click(warm);
+  expect(change).not.toHaveBeenCalled();
 });
 
 it('does not expose or submit a status action when explicitly read-only', () => {

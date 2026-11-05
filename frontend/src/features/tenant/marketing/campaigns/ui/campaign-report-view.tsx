@@ -82,7 +82,7 @@ export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; o
         polling.current.failures = 0;
         const started = result.data.submissionStartedAt ? Date.parse(result.data.submissionStartedAt) : 0;
         polling.current.fastUntil = result.data.type.toUpperCase() === 'SMS'
-          && ['sending', 'sent', 'interrupted'].includes(result.data.status.toLowerCase()) ? started + 300000 : 0;
+          && ['sending', 'submitted', 'sent', 'interrupted'].includes(result.data.status.toLowerCase()) ? Math.max(started + 300000, result.data.status.toLowerCase() === 'sending' ? Date.now() + 300000 : 0) : 0;
       }
     } catch (failure) {
       if (sequence === request.current) {

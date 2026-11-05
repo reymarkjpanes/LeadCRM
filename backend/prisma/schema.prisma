@@ -67,6 +67,7 @@ enum CampaignType {
 enum CampaignStatus {
   SCHEDULED
   SENDING
+  SUBMITTED
   INTERRUPTED
   SENT
   PARTIALLY_SENT
@@ -1188,6 +1189,9 @@ model CampaignContact {
   phone String?
   submittedAt DateTime? // Provider acceptance; sentAt is provider-confirmed sent
   submissionAttemptedAt DateTime? // Persisted before provider call; never automatically replayed
+  submissionAttemptCount Int @default(0)
+  nextSubmissionAttemptAt DateTime?
+  @@index([status, nextSubmissionAttemptAt])
   providerUpdatedAt DateTime?
   personalization Json?
   messageId String? @unique

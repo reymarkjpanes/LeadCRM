@@ -39,7 +39,7 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
 
   async function submitted(count = 1, actor = sender) {
     return scope(async () => {
-      const campaign = await prisma.campaign.create({ data: { tenantId, name: 'Verified SMS', type: 'SMS', status: 'SENDING', createdById: creator, submittedById: actor,
+      const campaign = await prisma.campaign.create({ data: { tenantId, name: 'Verified SMS', type: 'SMS', status: 'SUBMITTED', createdById: creator, submittedById: actor,
         recipientCount: count, submissionStartedAt: new Date(), submissionFinishedAt: new Date(), smsDeviceId: device } });
       for (let index = 0; index < count; index++) await prisma.campaignContact.create({ data: { tenantId, campaignId: campaign.id,
         phone: `+63917123456${index}`, messageId: batchId(), status: 'submitted', submittedAt: new Date(), submissionAttemptedAt: new Date() } });
@@ -57,6 +57,13 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
   });
   const outbox = (id: string) => scope(() => prisma.notificationEvent.findMany({ where: { entityId: id, type: { startsWith: 'sms_campaign_' } }, orderBy: { createdAt: 'asc' } }));
   const deliver = () => scope(async () => { for (let n = 0; n < 10; n++) if (!(await dispatchTenantNotifications(tenantId)).claimed) break; });
+
+  it('keeps notification polling active for a Submitted SMS owned by the staff sender', async () => {
+    const { campaign } = await submitted();
+    const delta = await scope(() => notificationCounts(tenantId, sender));
+    expect(delta.activeSmsUntil).toBe(new Date(+campaign.submissionStartedAt! + 300000).toISOString());
+    expect((await scope(() => notificationCounts(tenantId, creator))).activeSmsUntil).toBeNull();
+  });
 
   it('persists ordered Sent/Delivered results once for the staff sender, excludes the admin creator, and preserves deletion identity', async () => {
     const { campaign, rows: [row] } = await submitted();
@@ -143,10 +150,10 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
     expect((await outbox(campaign.id)).map(n => n.type)).toEqual(['sms_campaign_sent']);
   });
 
-  it('does not call partial processing completed while recipients remain pending', async () => {
+  it('keeps incomplete delivery Submitted until all accepted recipients have confirmed outcomes', async () => {
     const { campaign, rows } = await submitted(3);
     await processTextBeeEvent(event(rows[0], 'sent')); await processTextBeeEvent(event(rows[1], 'failed'));
-    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe('SENDING');
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe('SUBMITTED');
     expect((await outbox(campaign.id)).map(n => n.type)).toEqual(['sms_campaign_progress']);
     await processTextBeeEvent(event(rows[2], 'sent'));
     const saved = await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
@@ -161,7 +168,7 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
     await processTextBeeEvent(event(failed.rows[0], 'failed')); await processTextBeeEvent(event(unknown.rows[0], 'unknown'));
     expect((await outbox(failed.campaign.id)).map(n => n.type)).toEqual(['sms_campaign_failed']);
     expect((await outbox(unknown.campaign.id)).map(n => n.type)).toEqual(['sms_campaign_unconfirmed']);
-    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: unknown.campaign.id } })).status).toBe('SENDING');
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: unknown.campaign.id } })).status).toBe('INTERRUPTED');
   });
 
   it('shows unknown provider diagnostics consistently without retaining private message content', async () => {

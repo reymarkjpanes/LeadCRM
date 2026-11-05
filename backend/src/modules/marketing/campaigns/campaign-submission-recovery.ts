@@ -15,23 +15,28 @@ export async function interruptCampaignSubmission(id: string, tenantId: string, 
         ...(leaseId ? { submissionLeaseId: leaseId } : { OR: [{ submissionLeaseUntil: { lt: now } }, { submissionLeaseUntil: null, submissionStartedAt: { lt: new Date(+now - CAMPAIGN_LEASE_MS) } }] }) },
         data: { submissionLeaseId: null, submissionLeaseUntil: null, submissionFinishedAt: now, submissionInterruptedAt: now, status: 'INTERRUPTED' } });
       if (!claim.count) return null;
-      const rows = await tx.campaignContact.findMany({ where: { campaignId: id, tenantId, status: { in: ['pending', 'submitting'] }, submittedAt: null, sentAt: null, deliveredAt: null, messageId: null },
+      const owner = await tx.campaign.findUniqueOrThrow({ where: { id, tenantId } });
+      const resumable = !leaseId && !!owner.submittedById && !owner.isArchived;
+      const rows = await tx.campaignContact.findMany({ where: { campaignId: id, tenantId, status: { in: ['pending', 'submitting', 'retrying'] }, submittedAt: null, sentAt: null, deliveredAt: null, messageId: null },
         select: { id: true, email: true, submissionAttemptedAt: true, failureReason: true } });
-      const unsent = rows.filter(row => !row.submissionAttemptedAt && row.failureReason !== 'PROVIDER_SUBMISSION_UNCONFIRMED');
+      const retryIds = new Set((await tx.campaignContact.findMany({ where: { campaignId: id, tenantId, status: 'retrying', submissionAttemptCount: 1, nextSubmissionAttemptAt: { not: null }, submittedAt: null, messageId: null }, select: { id: true } })).map(row => row.id));
+      const unsent = rows.filter(row => retryIds.has(row.id) || !row.submissionAttemptedAt && row.failureReason !== 'PROVIDER_SUBMISSION_UNCONFIRMED');
       const unsentIds = new Set(unsent.map(row => row.id));
       const uncertain = rows.filter(row => !unsentIds.has(row.id));
-      if (unsent.length) {
-        await tx.campaignContact.updateMany({ where: { tenantId, campaignId: id, id: { in: unsent.map(row => row.id) } }, data: { status: 'failed', failureReason: 'SUBMISSION_INTERRUPTED_NOT_SENT' } });
+      if (unsent.length && !resumable) {
+        await tx.campaignContact.updateMany({ where: { tenantId, campaignId: id, id: { in: unsent.map(row => row.id) } }, data: { status: 'failed', nextSubmissionAttemptAt: null, failureReason: 'SUBMISSION_INTERRUPTED_NOT_SENT' } });
         await tx.emailDeliveryLog.updateMany({ where: { tenantId, campaignId: id, toEmail: { in: unsent.flatMap(row => row.email ?? []) }, brevoMessageId: null }, data: { status: 'failed', errorMessage: 'SUBMISSION_INTERRUPTED_NOT_SENT' } });
       }
       if (uncertain.length) {
         await tx.campaignContact.updateMany({ where: { tenantId, campaignId: id, id: { in: uncertain.map(row => row.id) } }, data: { status: 'pending', failureReason: 'PROVIDER_SUBMISSION_UNCONFIRMED' } });
         await tx.emailDeliveryLog.updateMany({ where: { tenantId, campaignId: id, toEmail: { in: uncertain.flatMap(row => row.email ?? []) }, brevoMessageId: null }, data: { status: 'pending', errorMessage: 'PROVIDER_SUBMISSION_UNCONFIRMED' } });
       }
+      if (resumable && unsent.length) await tx.campaign.update({ where: { id, tenantId }, data: { status: 'SENDING', submissionFinishedAt: null, submissionInterruptedAt: null } });
       const campaign = await recalculateCampaignDelivery(tx, id, tenantId);
       // Keep an incomplete provider picture explicit; later verified receipts
       // may establish Sent, Partially Sent, Delivered or Failed normally.
-      if (campaign.status === 'SENDING') await tx.campaign.update({ where: { id, tenantId }, data: { status: 'INTERRUPTED' } });
+      if (campaign.status === 'SENDING' && !(resumable && unsent.length)) await tx.campaign.update({ where: { id, tenantId }, data: { status: 'INTERRUPTED' } });
+      if (!unsent.length && !uncertain.length && campaign.status !== 'INTERRUPTED') await tx.campaign.update({ where: { id, tenantId }, data: { submissionInterruptedAt: null } });
       return { unsent: unsent.length, uncertain: uncertain.length, userId: campaign.createdById };
     });
     if (interrupted) requestNotificationDispatch(tenantId);
@@ -44,7 +49,7 @@ export async function interruptCampaignSubmission(id: string, tenantId: string, 
 /** Cross-workspace discovery is bounded; each mutation then enters its tenant scope. */
 export async function recoverCampaignSubmissions(now = new Date()) {
   const expired = await prisma.campaign.findMany({ where: { submissionStartedAt: { not: null }, submissionFinishedAt: null,
-    OR: [{ submissionLeaseUntil: { lt: now } }, { submissionLeaseUntil: null, submissionStartedAt: { lt: new Date(+now - CAMPAIGN_LEASE_MS) } }] },
+    OR: [{ submissionLeaseUntil: { lt: now } }, { submissionLeaseUntil: null, submittedById: null, submissionStartedAt: { lt: new Date(+now - CAMPAIGN_LEASE_MS) } }] },
     select: { id: true, tenantId: true }, orderBy: [{ submissionStartedAt: 'asc' }, { id: 'asc' }], take: 25 });
   let recovered = 0;
   for (const row of expired) if (await interruptCampaignSubmission(row.id, row.tenantId, undefined, now)) recovered++;

@@ -55,7 +55,7 @@ describe.skipIf(!disposable)('plain SMS URLs on native disposable PostgreSQL', (
     vi.mocked(sendSms).mockRejectedValueOnce(new SmsSubmissionError('unconfirmed'));
     const campaign = await draft();
     await scoped(() => sendCampaign(campaign.id, tenantId, userId));
-    expect(await scoped(() => getCampaignReport(campaign.id, tenantId))).toMatchObject({ status: 'SENDING', sentCount: 0, reviewRequired: true, deliveredCount: 0, clickedCount: 0, ctr: null });
+    expect(await scoped(() => getCampaignReport(campaign.id, tenantId))).toMatchObject({ status: 'INTERRUPTED', sentCount: 0, reviewRequired: true, deliveredCount: 0, clickedCount: 0, ctr: null });
     expect(sendSms).toHaveBeenCalledTimes(1);
   });
 

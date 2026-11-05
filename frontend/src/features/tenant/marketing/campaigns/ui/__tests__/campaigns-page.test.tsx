@@ -157,10 +157,10 @@ it.each(['initial', 'refreshing'] as const)('keeps the campaign controls visible
 it('offers persisted outcome statuses including interrupted submissions and Email/SMS types', () => {
   render(<CampaignsPage />); fireEvent.click(screen.getByLabelText('Filter campaigns'));
   const filters = screen.getAllByRole('checkbox').filter(el => !el.getAttribute('aria-label')?.startsWith('Select'));
-  expect([...new Set(filters.map(el => el.closest('label')?.textContent))]).toEqual(['Draft', 'Scheduled', 'Sending', 'Interrupted', 'Sent', 'Partially Sent', 'Delivered', 'Failed', 'Email', 'SMS']);
+  expect([...new Set(filters.map(el => el.closest('label')?.textContent))]).toEqual(['Draft', 'Scheduled', 'Sending', 'Submitted', 'Interrupted', 'Sent', 'Partially Sent', 'Delivered', 'Failed', 'Email', 'SMS']);
 });
 
-it.each(['Email', 'SMS'].flatMap(type => ['Draft', 'Scheduled', 'Sending', 'Interrupted', 'Sent', 'Partially Sent', 'Delivered', 'Failed'].map(status => ({ type, status }))))('queries the persisted $type $status outcome and preserves it across supported type changes', ({ type, status }) => {
+it.each(['Email', 'SMS'].flatMap(type => ['Draft', 'Scheduled', 'Sending', 'Submitted', 'Interrupted', 'Sent', 'Partially Sent', 'Delivered', 'Failed'].map(status => ({ type, status }))))('queries the persisted $type $status outcome and preserves it across supported type changes', ({ type, status }) => {
   render(<CampaignsPage />); fireEvent.click(screen.getByLabelText('Filter campaigns'));
   const filters = document.querySelector('aside.hidden') as HTMLElement;
   fireEvent.click(within(filters).getByRole('checkbox', { name: `Filter by ${status}` }));

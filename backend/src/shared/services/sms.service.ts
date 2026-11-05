@@ -4,6 +4,7 @@ import { buildFinalSms, isValidPhMobile, toE164, SMS_MAX_LENGTH } from '@leadcrm
 import { ValidationError } from '../errors/http-error';
 import prisma from '../../config/database.config';
 import { tenantContext } from '../../core/tenant/tenant-context';
+import { providerRetryAt } from './provider-retry';
 
 export function isSmsConfigured(): boolean {
   return !!process.env.TEXTBEE_API_KEY?.trim() && (!process.env.TEXTBEE_DEVICE_ID?.trim() || /^[a-f\d]{24}$/i.test(process.env.TEXTBEE_DEVICE_ID.trim()));
@@ -30,7 +31,7 @@ export async function getSmsSenderEmail(tenantId: string, db: Prisma.Transaction
   return (await getSmsSenderIdentity(tenantId, db)).organizationEmail;
 }
 export class SmsSubmissionError extends ValidationError {
-  constructor(readonly outcome: 'rejected' | 'unconfirmed', readonly httpStatus?: number) {
+  constructor(readonly outcome: 'rejected' | 'unconfirmed', readonly httpStatus?: number, readonly retryAfterAt?: number) {
     super(outcome === 'rejected' ? `SMS provider rejected the message${httpStatus ? ` (HTTP ${httpStatus})` : ''}. Check the TextBee API key, enabled Android device, SMS permission and plan allowance.` : 'SMS submission could not be confirmed. Review the provider history before sending again.');
   }
 }
@@ -39,15 +40,16 @@ async function textBeeRead(path: string) {
   assertSmsConfigured();
   const response = await fetch(`https://api.textbee.dev/api/v1${path}`, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
     headers: { 'x-api-key': process.env.TEXTBEE_API_KEY!.trim(), Accept: 'application/json' } });
-  if (!response.ok) throw new SmsSubmissionError('unconfirmed', response.status);
+  if (!response.ok) throw new SmsSubmissionError(response.status >= 500 || [408, 429].includes(response.status) ? 'unconfirmed' : 'rejected', response.status);
   return response.json() as Promise<unknown>;
 }
 /** Resolve the optional provider default once, before the campaign transaction. */
 export async function getSmsDeviceId(): Promise<string> {
   assertSmsConfigured();
   if (process.env.TEXTBEE_DEVICE_ID?.trim()) return process.env.TEXTBEE_DEVICE_ID.trim();
-  const devices = z.object({ data: z.array(z.object({ _id: z.string().regex(/^[a-f\d]{24}$/i), enabled: z.boolean(), isDefault: z.boolean(), lastHeartbeat: z.string().optional().nullable() })) }).parse(await textBeeRead('/gateway/devices'));
-  const enabled = devices.data.filter(device => device.enabled);
+  const devices = z.object({ data: z.array(z.object({ _id: z.string().regex(/^[a-f\d]{24}$/i), enabled: z.boolean(), isDefault: z.boolean(), lastHeartbeat: z.string().optional().nullable() })) }).safeParse(await textBeeRead('/gateway/devices'));
+  if (!devices.success) throw new SmsSubmissionError('unconfirmed');
+  const enabled = devices.data.data.filter(device => device.enabled);
   const device = enabled.find(item => item.isDefault) ?? enabled.sort((a, b) => (b.lastHeartbeat ?? '').localeCompare(a.lastHeartbeat ?? ''))[0];
   if (!device) throw new ValidationError('No enabled TextBee Android gateway is available.');
   return device._id;
@@ -96,7 +98,7 @@ export async function sendSms(recipient: string, content: string, options: { bef
       body: JSON.stringify({ recipients: [phone], message: finalContent, ...(deviceId ? { deviceId } : {}) }),
     });
   } catch { throw new SmsSubmissionError('unconfirmed'); }
-  if (!response.ok) throw new SmsSubmissionError(response.status >= 500 || response.status === 408 ? 'unconfirmed' : 'rejected', response.status);
+  if (!response.ok) throw new SmsSubmissionError(response.status >= 500 || response.status === 408 ? 'unconfirmed' : 'rejected', response.status, response.headers ? providerRetryAt(response.headers) : undefined);
   const receipt = receiptSchema.safeParse(await response.json().catch(() => null));
   if (!receipt.success) throw new SmsSubmissionError('unconfirmed');
   // One recipient per batch makes this the authoritative correlation identity.

@@ -1,4 +1,5 @@
 import { AppError } from '../errors/app-error';
+import { providerRetryAt } from './provider-retry';
 
 /**
  * Email service — Brevo HTTP API transport.
@@ -44,7 +45,7 @@ function isBrevoConfigured(): boolean {
 export interface SendMailResult { messageId: string | null; submitted: boolean }
 
 export class EmailSubmissionError extends AppError {
-  constructor(public readonly outcome: 'rejected' | 'unconfirmed', public readonly httpStatus?: number) {
+  constructor(public readonly outcome: 'rejected' | 'unconfirmed', public readonly httpStatus?: number, public readonly retryAfterAt?: number) {
     super(outcome === 'rejected' ? 'Email provider rejected the request.' : 'Email submission could not be confirmed. Check the provider before retrying.', 502);
   }
 }
@@ -90,7 +91,7 @@ export async function sendMail(options: SendMailOptions): Promise<SendMailResult
   }
   if (!response.ok) {
     console.error('[EmailService]', { event: 'brevo_submission_rejected', httpStatus: response.status, category: `${Math.floor(response.status / 100)}xx` });
-    throw new EmailSubmissionError('rejected', response.status);
+    throw new EmailSubmissionError(response.status >= 500 || response.status === 408 ? 'unconfirmed' : 'rejected', response.status, response.headers ? providerRetryAt(response.headers) : undefined);
   }
   // HTTP acceptance is authoritative. An unreadable response body must never
   // turn an accepted request into a failure or trigger a resend.

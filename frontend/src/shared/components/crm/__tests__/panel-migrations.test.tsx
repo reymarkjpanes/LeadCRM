@@ -692,6 +692,9 @@ it.each(['leads', 'contacts', 'deals'] as const)('updates the %s selected status
   const mounted = render(panel());
   fireEvent.click(await screen.findByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Hot' }));
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Hot');
+  expect(screen.getByRole('menuitemradio', { name: 'Hot' }).classList.contains('bg-accent')).toBe(true);
+  expect(screen.getByRole('menuitemradio', { name: 'Inquiry' }).classList.contains('bg-accent')).toBe(false);
+  expect(screen.getByRole('menu').querySelector('.lucide-check')).toBeNull();
   expect(screen.queryByText('Manual engagement changes retain existing sales and automation rules. Closed Deal requires a confirmed sale.')).toBeNull();
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Warm' }));
   expect((await screen.findAllByText('Status changed from Hot to Warm')).length).toBeGreaterThan(0);
@@ -700,11 +703,16 @@ it.each(['leads', 'contacts', 'deals'] as const)('updates the %s selected status
   await waitFor(() => expect(screen.getByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }).textContent).toBe('Warm'));
   fireEvent.click(screen.getByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }));
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  expect(screen.getByRole('menuitemradio', { name: 'Warm' }).classList.contains('bg-accent')).toBe(true);
+  expect(screen.getByRole('menuitemradio', { name: 'Inquiry' }).classList.contains('bg-accent')).toBe(false);
   mounted.unmount();
   clearPageCache();
   render(panel());
   fireEvent.click(await screen.findByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }));
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  expect(screen.getByRole('menuitemradio', { name: 'Warm' }).classList.contains('bg-accent')).toBe(true);
+  expect(screen.getByRole('menuitemradio', { name: 'Inquiry' }).classList.contains('bg-accent')).toBe(false);
+  expect(screen.getByRole('menu').querySelector('.lucide-check')).toBeNull();
   expect(mocks.put).toHaveBeenCalledExactlyOnceWith(`/crm/${module}/one`, module === 'deals' ? { engagementStatus: 'Warm' } : { status: 'Warm' });
 });
 

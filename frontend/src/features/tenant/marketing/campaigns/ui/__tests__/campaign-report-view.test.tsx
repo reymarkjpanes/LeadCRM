@@ -30,6 +30,18 @@ const select = (label: string) => {
 };
 const rows = () => within(screen.getAllByRole('grid')[0]).getAllByRole('row').slice(1);
 describe('campaign report', () => {
+  it('shows Submitted for SMS acceptance and follows later delivery evidence without refresh', async () => {
+    vi.useFakeTimers();
+    const first = { ...response().data, type: 'Sms', status: 'submitted', submissionStartedAt: new Date().toISOString(), recipients: [{ ...recipients[0], deliveryStatus: 'Submitted' }] };
+    vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: first } as never);
+    render(<CampaignReportView campaign={{ ...campaign, type: 'Sms' } as never} onBack={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.getAllByText('Submitted').length).toBeGreaterThan(1);
+    expect(screen.queryByText('Sent', { selector: 'span' })).toBeNull();
+    vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: { ...first, status: 'delivered', recipients: [{ ...first.recipients[0], deliveryStatus: 'Delivered' }] } } as never);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(screen.getAllByText('Delivered').length).toBeGreaterThan(1);
+  });
   it('shows unconfirmed SMS as Needs review with an actionable diagnostic and an Unknown filter', async () => {
     vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: { ...response().data, type: 'Sms', status: 'sending', reviewRequired: true,
       recipients: [{ ...recipients[0], deliveryStatus: 'Unknown', failureReason: 'TEXTBEE_UNKNOWN_STATE', failureDetail: 'No status response from the Android device.' }] } } as never);

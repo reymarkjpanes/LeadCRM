@@ -15,6 +15,39 @@ function Menu({ loading = false, onSelect = () => {}, onClick }: { loading?: boo
 }
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
+function SelectionMenu({ focusSelectedItem = false, selectedDisabled = false }: { focusSelectedItem?: boolean; selectedDisabled?: boolean }) {
+  return <DropdownMenu><DropdownMenuTrigger>Statuses</DropdownMenuTrigger><DropdownMenuContent focusSelectedItem={focusSelectedItem}>
+    <DropdownMenuItem role="menuitemradio" aria-checked={false}>Inquiry</DropdownMenuItem>
+    <DropdownMenuItem role="menuitemradio" aria-checked disabled={selectedDisabled}>Warm</DropdownMenuItem>
+    <DropdownMenuItem role="menuitemradio" aria-checked={false}>Cold</DropdownMenuItem>
+  </DropdownMenuContent></DropdownMenu>;
+}
+
+it.each([false, true])('only prefers the checked item when selected focus is enabled (%s)', async focusSelectedItem => {
+  const view = render(<SelectionMenu focusSelectedItem={focusSelectedItem} />);
+  const trigger = screen.getByRole('button', { name: 'Statuses' });
+  trigger.focus(); fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  const preferred = screen.getByRole('menuitemradio', { name: focusSelectedItem ? 'Warm' : 'Inquiry' });
+  await waitFor(() => expect(document.activeElement).toBe(preferred));
+  expect(preferred.tabIndex).toBe(0);
+  fireEvent.keyDown(preferred, { key: 'ArrowDown' });
+  const next = screen.getByRole('menuitemradio', { name: focusSelectedItem ? 'Cold' : 'Warm' });
+  expect(document.activeElement).toBe(next);
+  view.rerender(<SelectionMenu focusSelectedItem={focusSelectedItem} />);
+  await frame();
+  expect(document.activeElement).toBe(next);
+});
+
+it('falls back to the first enabled item when the checked item is disabled', async () => {
+  render(<SelectionMenu focusSelectedItem selectedDisabled />);
+  const trigger = screen.getByRole('button', { name: 'Statuses' });
+  trigger.focus(); fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  const inquiry = screen.getByRole('menuitemradio', { name: 'Inquiry' });
+  await waitFor(() => expect(document.activeElement).toBe(inquiry));
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  expect(inquiry.getAttribute('aria-checked')).toBe('false');
+});
+
 it('focuses newly enabled actions after an async read, skips disabled actions and preserves the current menu focus on rerender', async () => {
   const view = render(<Menu loading />);
   const trigger = screen.getByRole('button', { name: 'Actions' }); trigger.focus();

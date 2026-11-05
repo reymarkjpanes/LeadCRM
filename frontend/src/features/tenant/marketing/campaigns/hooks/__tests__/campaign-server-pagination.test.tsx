@@ -49,6 +49,25 @@ it('refreshes the visible list without overlap, pauses while hidden and resumes 
   expect(campaignsApi.list).toHaveBeenCalledTimes(3);
   expect(campaignsApi.metrics).not.toHaveBeenCalled();
 });
+it('automatically follows Scheduled, Sending, Submitted and Delivered and revalidates after leaving a report', async () => {
+  vi.useFakeTimers();
+  let status = 'scheduled';
+  vi.mocked(campaignsApi.list).mockImplementation(async () => ({ success: true, data: [{ id: 'scheduled', status }], meta: { total: 1, page: 1, limit: 25, hasMore: false } }) as never);
+  const { result, rerender } = renderHook(({ disabled }) => useCampaignsData({ disabled }), { initialProps: { disabled: false } });
+  await act(async () => {});
+  status = 'sending'; await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+  expect(result.current.campaigns[0].status).toBe('sending');
+  status = 'submitted'; await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+  expect(result.current.campaigns[0].status).toBe('submitted');
+  status = 'delivered'; await act(async () => { await vi.advanceTimersByTimeAsync(7500); });
+  expect(result.current.campaigns[0].status).toBe('delivered');
+  rerender({ disabled: true }); await act(async () => {});
+  const calls = vi.mocked(campaignsApi.list).mock.calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(campaignsApi.list).toHaveBeenCalledTimes(calls);
+  rerender({ disabled: false }); await act(async () => {});
+  expect(campaignsApi.list).toHaveBeenCalledTimes(calls + 1);
+});
 it('loads and manually refreshes the list without requesting summary metrics', async () => {
   vi.mocked(campaignsApi.list).mockResolvedValue({ success: true, data: [{ id: 'one' }], meta: { total: 1, page: 1, limit: 25, hasMore: false } } as never);
   const { result } = renderHook(() => useCampaignsData({ intervalMs: 0, query: { search: 'Saved', type: 'EMAIL' } }));

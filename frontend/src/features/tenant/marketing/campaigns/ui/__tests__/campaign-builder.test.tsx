@@ -24,7 +24,7 @@ beforeEach(() => {
   access.denied.clear();
   vi.mocked(campaignsApi.variableFields).mockResolvedValue({ success: true, data: CUSTOM_FIELD_MODULES.flatMap(module => getCrmFieldCatalog(module)) });
   vi.mocked(audiencesApi.fields).mockImplementation(async source => ({ success: true, data: campaignFields(source) }));
-  vi.mocked(campaignsApi.schedule).mockResolvedValue({ success: true, data: { id: 'saved-id', status: 'scheduled' } as never });
+  vi.mocked(campaignsApi.schedule).mockImplementation(async (_id, scheduledFor) => ({ success: true, data: { id: 'saved-id', status: 'scheduled', scheduledFor } as never }));
   vi.mocked(campaignsApi.cancelSchedule).mockResolvedValue({ success: true, data: { id: 'saved-id', status: 'Draft' } as never });
   vi.mocked(campaignsApi.emailSettings).mockResolvedValue({ success: true, data: { senderName: 'Configured test sender', senderEmail: 'sender@example.test' } });
   vi.mocked(campaignsApi.smsSettings).mockResolvedValue({ success: true, data: { organizationName: 'Configured SMS organization', organizationEmail: 'info@example.test' } });
@@ -725,6 +725,30 @@ describe('campaign composer', () => {
     await waitFor(() => expect(campaignsApi.schedule).toHaveBeenCalledWith('saved-id', '2026-10-12T07:59:00.000Z'));
     expect(campaignsApi.send).not.toHaveBeenCalled(); expect(onBack).toHaveBeenCalledOnce();
     expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith('Campaign scheduled successfully for October 12, 2026 at 3:59 PM.');
+  });
+
+  it.each(['Email', 'SMS'])('uses the backend-confirmed instant in the %s schedule success toast', async type => {
+    frozenManilaAfternoon();
+    vi.mocked(campaignsApi.schedule).mockResolvedValueOnce({ success: true, data: { id: 'saved-id', status: 'scheduled', scheduledFor: '2026-11-06T02:30:00.000Z' } as never });
+    render(<CampaignBuilder onBack={vi.fn()} initialType={type} />);
+    if (type === 'Email') fill();
+    else { fireEvent.change(screen.getByLabelText(/Campaign Name/), { target: { value: 'SMS scheduling' } }); chooseAudience('CONTACTS'); }
+    await schedulePicker(); fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Campaign scheduled successfully for November 6, 2026 at 10:30 AM.'));
+    expect(campaignsApi.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['Email', 'SMS'])('shows the backend scheduling error for %s and retains the draft', async type => {
+    frozenManilaAfternoon();
+    vi.mocked(campaignsApi.schedule).mockRejectedValueOnce(new Error('Campaign sender access is unavailable.'));
+    const back = vi.fn(); render(<CampaignBuilder onBack={back} initialType={type} />);
+    if (type === 'Email') fill();
+    else { fireEvent.change(screen.getByLabelText(/Campaign Name/), { target: { value: 'SMS scheduling' } }); chooseAudience('CONTACTS'); }
+    await schedulePicker(); fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Campaign sender access is unavailable.'));
+    expect(toast.success).not.toHaveBeenCalled(); expect(back).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Schedule Send' })).toBeTruthy();
   });
   it('cancels an unclaimed saved schedule before editing, with Send Now and draft inputs disabled', async () => {
     render(<CampaignBuilder onBack={vi.fn()} initialCampaign={{ id: 'saved-id', name: 'Scheduled', type: 'Email', status: 'scheduled', subject: 'Hi', body: 'Hello', audienceSource: 'LEADS', scheduledFor: '2099-10-11T02:30:00.000Z' } as never} />);
@@ -804,6 +828,7 @@ describe('campaign composer', () => {
     await schedulePicker(); fireEvent.change(screen.getByLabelText('Schedule minute'), { target: { value: '23' } });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Campaign draft saved, but scheduling failed. No eligible recipients.')).toBeTruthy();
+    expect(toast.error).toHaveBeenCalledWith('No eligible recipients.');
     expect((screen.getByLabelText('Schedule minute') as HTMLButtonElement).value).toBe('23');
     expect((screen.getByLabelText(/Body/) as HTMLTextAreaElement).value).toBe('Hi {{first_name}}');
     expect(back).not.toHaveBeenCalled(); expect(toast.success).not.toHaveBeenCalled(); expect(campaignsApi.send).not.toHaveBeenCalled();
@@ -826,7 +851,8 @@ describe('campaign composer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Draft' })); fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByRole('dialog', { name: 'Schedule Send' })).toBeTruthy();
     expect(campaignsApi.create).toHaveBeenCalledOnce(); expect(campaignsApi.update).not.toHaveBeenCalled(); expect(campaignsApi.send).not.toHaveBeenCalled();
-    await act(async () => finish({ success: true, data: { id: 'saved-id', status: 'scheduled' } as never }));
+    expect(toast.success).not.toHaveBeenCalled();
+    await act(async () => finish({ success: true, data: { id: 'saved-id', status: 'scheduled', scheduledFor: '2099-11-06T02:30:00.000Z' } as never }));
     expect(back).toHaveBeenCalledOnce();
   });
 
