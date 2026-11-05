@@ -14,6 +14,16 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe('TextBee shared SMS transport', () => {
+  it('retains the retry deadline on a definite rate-limit rejection without retrying in the shared transport', async () => {
+    const at = new Date(Date.now() + 120000).toUTCString();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'Retry-After': at } }));
+    await expect(send()).rejects.toMatchObject({ outcome: 'rejected', httpStatus: 429, retryAfterAt: Date.parse(at) });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('classifies malformed gateway discovery as temporary instead of invalid scheduling configuration', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{"data":null}'));
+    await expect(getSmsDeviceId()).rejects.toMatchObject({ outcome: 'unconfirmed' });
+  });
   it('inserts the editable footer only on explicit request and never restores it during formatting', () => {
     expect(insertDefaultSmsFooter('')).toBe(SMS_DEFAULT_FOOTER);
     const message = insertDefaultSmsFooter('My offer');

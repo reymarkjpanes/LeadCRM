@@ -63,7 +63,7 @@ test('the complete release history deploys reviewed transitions while guarded co
   const relationshipTablesRetirement = '20261226000000_retire_unused_relationship_tables';
   const accountColumnsRetirement = '20261227000000_retire_account_notes_and_tags';
   const plan = deploymentPlan(rows, names);
-  assert.equal(plan.through, '20261230000000_workflow_capabilities');
+  assert.equal(plan.through, '20261231000000_campaign_submission_retries');
   assert.deepEqual(plan.exclude, [relationship, crm, lead, contact, contactJobTitle, accountRetirement, accountFieldRetirement, accountNotesRetirement, relationshipTablesRetirement, accountColumnsRetirement]);
   const selected = names.filter(name => /^\d+_/.test(name) && name <= plan.through && !plan.exclude.includes(name));
   assert.ok(selected.includes('20261229000000_deal_manual_status_checkpoint'));

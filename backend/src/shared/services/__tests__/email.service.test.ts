@@ -14,6 +14,16 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('existing Brevo transport', () => {
+  it('retains a rate-limit retry deadline and treats server failures as unconfirmed', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'Retry-After': '120' } }));
+    const before = Date.now();
+    const error = await sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' }).catch(error => error);
+    expect(error).toMatchObject({ outcome: 'rejected', httpStatus: 429 });
+    expect(error.retryAfterAt).toBeGreaterThanOrEqual(before + 120000);
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    await expect(sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' })).rejects.toMatchObject({ outcome: 'unconfirmed', httpStatus: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
   it('tags password recovery so its receipts do not retry against campaign tracking', async () => {
     await sendMail({ to: 'staff@example.com', subject: 'Reset', html: 'Reset', requireDelivery: true, category: 'password-reset' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).tags).toEqual(['leadcrm-password-reset']);

@@ -96,6 +96,8 @@ export interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivEl
   sideOffset?: number;
   /** Searchable pickers keep keyboard focus in their controls until selection/Escape. */
   formContent?: boolean;
+  /** Prefer the checked, enabled item when initially focusing this menu. */
+  focusSelectedItem?: boolean;
 }
 
 export function DropdownMenuContent({
@@ -103,6 +105,7 @@ export function DropdownMenuContent({
   align = 'end',
   sideOffset = 4,
   formContent = false,
+  focusSelectedItem = false,
   style,
   children,
   ...props
@@ -162,15 +165,17 @@ export function DropdownMenuContent({
     const frame = requestAnimationFrame(() => {
       const menu = contentRef.current;
       const items = Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"][aria-disabled="false"]') ?? []);
-      const active = menu?.contains(document.activeElement) ? document.activeElement : items[0];
+      const preferred = (focusSelectedItem ? items.find(item => item.getAttribute('aria-checked') === 'true') : undefined) ?? items[0];
+      const active = menu?.contains(document.activeElement) ? document.activeElement : preferred;
       items.forEach(item => { item.tabIndex = item === active ? 0 : -1; });
       // An async read can enable items after opening. Move focus only while
       // the user is still on the trigger, preserving navigation within the menu.
       if (!menu || document.activeElement !== triggerRef.current) return;
-      menu.querySelector<HTMLElement>(formContent ? 'input:not(:disabled), button:not(:disabled)' : '[role^="menuitem"][aria-disabled="false"]')?.focus({ preventScroll: true });
+      const target = formContent ? menu.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)') : preferred;
+      target?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, mounted, children, triggerRef, formContent]);
+  }, [open, mounted, children, triggerRef, formContent, focusSelectedItem]);
   React.useLayoutEffect(() => {
     if (!mounted || !open) return;
     const updatePosition = () => {

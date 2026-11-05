@@ -96,7 +96,7 @@ export async function notificationCounts(tenantId: string, userId: string, input
     }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 101 }) : [];
     const active = smsEnabled ? await tx.campaign.findFirst({ where: {
       tenantId, type: 'SMS', isArchived: false, submissionStartedAt: { gt: new Date(+now - 300000) },
-      status: { in: ['SENDING', 'SENT', 'INTERRUPTED'] }, OR: [{ createdById: userId }, { submittedById: userId }],
+      status: { in: ['SENDING', 'SUBMITTED', 'SENT', 'INTERRUPTED'] }, OR: [{ createdById: userId }, { submittedById: userId }],
     }, orderBy: { submissionStartedAt: 'desc' }, select: { id: true, submissionStartedAt: true } }) : null;
     return { ...totals, rows, active };
   }, { isolationLevel: 'RepeatableRead' });

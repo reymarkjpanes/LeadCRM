@@ -1,5 +1,5 @@
 export type CampaignType = 'EMAIL' | 'SMS' | 'MULTI_CHANNEL';
-export const CAMPAIGN_STATUSES = ['DRAFT', 'SCHEDULED', 'SENDING', 'INTERRUPTED', 'SENT', 'PARTIALLY_SENT', 'DELIVERED', 'FAILED'] as const;
+export const CAMPAIGN_STATUSES = ['DRAFT', 'SCHEDULED', 'SENDING', 'SUBMITTED', 'INTERRUPTED', 'SENT', 'PARTIALLY_SENT', 'DELIVERED', 'FAILED'] as const;
 export type CampaignStatus = typeof CAMPAIGN_STATUSES[number];
 
 export interface Campaign {

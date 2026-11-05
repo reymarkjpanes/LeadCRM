@@ -6,7 +6,7 @@ export interface Campaign {
   name: string;
   description?: string;
   type: 'Email' | 'Sms' | 'Multi-Channel';
-  status: 'Draft' | 'scheduled' | 'sending' | 'interrupted' | 'sent' | 'partially_sent' | 'delivered' | 'failed';
+  status: 'Draft' | 'scheduled' | 'sending' | 'submitted' | 'interrupted' | 'sent' | 'partially_sent' | 'delivered' | 'failed';
   submissionStartedAt?: string | null;
   reviewRequired?: boolean;
   smsTrackingVersion?: number | null;

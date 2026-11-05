@@ -45,6 +45,12 @@ import { Input, textFieldClassName } from '@/shared/components/ui/input';
 type CampaignType = 'Email' | 'SMS' | 'Multi-Channel';
 type SaveIntent = 'draft' | 'send' | 'schedule';
 
+function scheduleSuccess(scheduledFor?: string | null) {
+  if (!scheduledFor || !Number.isFinite(Date.parse(scheduledFor))) throw new Error('The scheduled time could not be confirmed. Reload the campaign before trying again.');
+  const date = new Date(scheduledFor), timeZone = 'Asia/Manila';
+  return `Campaign scheduled successfully for ${date.toLocaleDateString('en-US', { timeZone, month: 'long', day: 'numeric', year: 'numeric' })} at ${date.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true })}.`;
+}
+
 function campaignScheduleInstant(value: string): string {
   try {
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error();
@@ -323,8 +329,8 @@ export function CampaignBuilder({
       if (intent === 'draft') setSavedSnapshot(draftSnapshot);
       if (intent === 'schedule') {
         // Saving can take long enough for the selected minute to elapse.
-        await campaignsApi.schedule(res.data.id, campaignScheduleInstant(scheduleValue!));
-        toast.success('Campaign scheduled once in Asia/Manila.'); setScheduleOpen(false); leaveBuilder(); return;
+        const scheduled = await campaignsApi.schedule(res.data.id, campaignScheduleInstant(scheduleValue!));
+        toast.success(scheduleSuccess(scheduled.data.scheduledFor)); setScheduleOpen(false); leaveBuilder(); return;
       }
       if (send) {
         let result = (await campaignsApi.send(res.data.id)).data;
@@ -360,6 +366,7 @@ export function CampaignBuilder({
       for (const [field, messages] of Object.entries(error.fieldErrors || {})) if (messages[0]) next[field] = messages[0];
       if (!Object.keys(next).length) next.form = error.message || 'Could not save campaign.';
       if (intent === 'schedule' && draftSaved) next.form = `Campaign draft saved, but scheduling failed. ${error.message || 'Unable to schedule campaign.'}`;
+      if (intent === 'schedule') toast.error(error.message || 'Unable to schedule campaign.');
       if (confirmed) {
         setErrors(Object.fromEntries(Object.entries(next).filter(([field]) => field !== 'form')));
         throw new Error(next.form || 'Check the highlighted fields before sending.');
@@ -376,8 +383,12 @@ export function CampaignBuilder({
       setScheduledTime(value!);
     }
     requestLock.current = true; setIsSending(true); setErrors({});
-    try { if (cancel) await campaignsApi.cancelSchedule(initialCampaign.id); else await campaignsApi.schedule(initialCampaign.id, due); toast.success(cancel ? 'Schedule cancelled. The campaign is now a draft.' : 'Campaign rescheduled.'); setScheduleOpen(false); leaveBuilder(); }
-    catch (error) { setErrors({ form: error instanceof Error ? error.message : 'Unable to change schedule.' }); }
+    try {
+      if (cancel) { await campaignsApi.cancelSchedule(initialCampaign.id); toast.success('Schedule cancelled. The campaign is now a draft.'); }
+      else { const result = await campaignsApi.schedule(initialCampaign.id, due); toast.success(scheduleSuccess(result.data.scheduledFor)); }
+      setScheduleOpen(false); leaveBuilder();
+    }
+    catch (error) { const message = error instanceof Error ? error.message : 'Unable to change schedule.'; setErrors({ form: message }); toast.error(message); }
     finally { requestLock.current = false; setIsSending(false); }
   }
   const handleSaveDraft = () => save('draft');

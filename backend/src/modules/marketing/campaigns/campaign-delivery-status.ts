@@ -7,6 +7,8 @@ type RecipientEvidence = {
   sentAt: Date | null;
   deliveredAt: Date | null;
   failureReason: string | null;
+  submittedAt?: Date | null;
+  submissionAttemptedAt?: Date | null;
 };
 
 // Soft bounces are retryable. Opens, clicks, spam complaints and unsubscribes
@@ -17,23 +19,29 @@ export function recipientDeliveryFailed(recipient: RecipientEvidence) {
 }
 
 export function deriveCampaignDeliveryStatus(
-  campaign: { status: CampaignStatus; recipientCount: number; type?: string },
+  campaign: { status: CampaignStatus; recipientCount: number; type?: string; submissionStartedAt?: Date | null; submissionFinishedAt?: Date | null },
   recipients: RecipientEvidence[],
 ): CampaignStatus {
   // Preparation changes DRAFT to SENDING and freezes recipientCount atomically.
-  if (campaign.status === 'DRAFT') return 'DRAFT';
+  if (['DRAFT', 'SCHEDULED'].includes(campaign.status)) return campaign.status;
   const eligible = recipients.filter(row => row.status !== 'excluded');
   // Never reconstruct a historical audience or guess from incomplete history.
   if (!campaign.recipientCount || eligible.length !== campaign.recipientCount) return campaign.status;
+  if (campaign.status === 'SENDING' && campaign.submissionStartedAt && !campaign.submissionFinishedAt) return 'SENDING';
   const failed = eligible.filter(recipientDeliveryFailed).length;
   const successful = eligible.filter(row => !recipientDeliveryFailed(row) && (campaign.type === 'SMS' ? smsSent(row) : row.sentAt || row.deliveredAt)).length;
   const delivered = eligible.filter(row => !recipientDeliveryFailed(row) && (campaign.type === 'SMS' ? smsDelivered(row) : row.deliveredAt)).length;
   if (delivered === campaign.recipientCount && failed === 0) return 'DELIVERED';
-  const uncertain = campaign.type === 'SMS' && eligible.some(row => !smsSent(row)
+  const uncertain = eligible.some(row => !recipientDeliveryFailed(row) && !(campaign.type === 'SMS' ? smsSent(row) : row.sentAt || row.deliveredAt)
     && (row.status === 'unknown' || ['TEXTBEE_UNKNOWN_STATE', 'PROVIDER_SUBMISSION_UNCONFIRMED'].includes(row.failureReason ?? '')));
-  if (successful > 0 && failed > 0 && (!campaign.type || campaign.type !== 'SMS' || (!uncertain && successful + failed === campaign.recipientCount))) return 'PARTIALLY_SENT';
+  if (successful > 0 && failed > 0 && !uncertain && successful + failed === campaign.recipientCount) return 'PARTIALLY_SENT';
   if (failed === campaign.recipientCount) return 'FAILED';
   if (successful === campaign.recipientCount && failed === 0 && !uncertain) return 'SENT';
+  if (campaign.submissionFinishedAt) {
+    if (uncertain) return 'INTERRUPTED';
+    const accepted = eligible.filter(row => !recipientDeliveryFailed(row) && (row.submittedAt || row.status === 'submitted' || row.sentAt || row.deliveredAt)).length;
+    if (accepted > 0 && accepted + failed === campaign.recipientCount) return 'SUBMITTED';
+  }
   if (campaign.type === 'SMS' && campaign.status === 'PARTIALLY_SENT') return 'SENDING';
   // Submitted/pending recipients cannot be presented as sent. Legacy records
   // without conclusive evidence retain their original state.
@@ -47,7 +55,7 @@ export async function recalculateCampaignDelivery(tx: Prisma.TransactionClient, 
   const where = { campaignId: id, tenantId };
   const rows = await tx.campaignContact.findMany({ where, select: {
     messageId: true, status: true, failureReason: true, submittedAt: true, sentAt: true,
-    deliveredAt: true, openedAt: true, clickedAt: true, bouncedAt: true,
+    deliveredAt: true, openedAt: true, clickedAt: true, bouncedAt: true, submissionAttemptedAt: true,
   } });
   // Older email sentAt values recorded API acceptance. Only a persisted Brevo
   // request event upgrades that historical value to provider-confirmed sending.
