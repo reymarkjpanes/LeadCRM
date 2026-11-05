@@ -14,6 +14,30 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('existing Brevo transport', () => {
+  it.each(['unrecognised IP address', 'unrecognized IP address', 'IP address is not authorized'])('explains a blocked server IP (%s) without retaining provider content', async reason => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const privateValue = `${process.env.BREVO_API_KEY} customer@example.com private-message`;
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'unauthorized', message: `Request from ${reason}. ${privateValue}` }), { status: 401 }));
+    const error = await sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' }).catch(error => error);
+    expect(error).toMatchObject({ outcome: 'rejected', httpStatus: 401, providerCode: 'BREVO_IP_NOT_AUTHORIZED' });
+    expect(error.providerMessage).toContain('authorize the production server IP');
+    expect(JSON.stringify(error)).not.toContain(privateValue);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(privateValue);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it.each([401, 403])('explains authentication/access HTTP %s without exposing the response', async status => {
+    fetchMock.mockResolvedValueOnce(new Response('invalid api key: private-key', { status }));
+    await expect(sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' })).rejects.toMatchObject({
+      outcome: 'rejected', providerCode: 'BREVO_AUTH_REJECTED', providerMessage: expect.stringContaining('API key and Brevo account access'),
+    });
+  });
+  it('bounds rejection inspection and preserves rejection when the body cannot be read', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('x'.repeat(4096) + ' unrecognised IP address', { status: 401 }));
+    await expect(sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' })).rejects.toMatchObject({ providerCode: 'BREVO_AUTH_REJECTED' });
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({ start(controller) { controller.error(new Error('private transport details')); } }), { status: 401 }));
+    await expect(sendMail({ to: 'customer@example.com', subject: 'Hi', html: 'Hi' })).rejects.toMatchObject({ outcome: 'rejected', providerCode: 'BREVO_AUTH_REJECTED' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
   it('retains a rate-limit retry deadline and treats server failures as unconfirmed', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'Retry-After': '120' } }));
     const before = Date.now();

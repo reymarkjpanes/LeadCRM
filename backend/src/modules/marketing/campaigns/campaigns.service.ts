@@ -92,7 +92,8 @@ export async function getCampaignReport(id: string, tenantId: string) {
       opened: campaign.type !== 'SMS' && (!!recipient.openedAt || openingRecipients.has((recipient.email ?? '').toLowerCase())),
       clicked: !!recipient.clickedAt || (campaign.type !== 'SMS' && clickingRecipients.has((recipient.email ?? '').toLowerCase())),
       lastActivity: last ? new Date(last).toISOString() : null, failureReason: recipient.failureReason,
-      ...(campaign.type === 'SMS' ? { failureDetail: recipient.providerErrorMessage ?? smsReviewExplanation(recipient.failureReason),
+      failureDetail: recipient.providerErrorMessage ?? (campaign.type === 'SMS' ? smsReviewExplanation(recipient.failureReason) : null),
+      ...(campaign.type === 'SMS' ? {
         providerConflict: recipient.smsStatusConflict,
         providerEvents: (recipient.smsWebhookReceipts ?? []).map(event => ({ status: event.status!, occurredAt: event.eventAt?.toISOString() ?? null, receivedAt: event.createdAt.toISOString() })),
       } : {}),
@@ -440,8 +441,9 @@ async function deliverPrepared(id: string, tenantId: string, userId: string, pre
         // Unconfirmed requests may have been accepted: preserve them for review.
         await submissionTransaction(id, tenantId, leaseId, async tx => {
           const status = retryAt ? 'retrying' : rejected ? 'failed' : 'pending';
-          await tx.campaignContact.update({ where: { id: recipient.id, ...scope }, data: { status, failureReason: reason, nextSubmissionAttemptAt: retryAt } });
-          if (recipient.channel === 'EMAIL') await tx.emailDeliveryLog.update({ where: { id: recipient.logId, ...scope }, data: { status, errorMessage: reason } });
+          await tx.campaignContact.update({ where: { id: recipient.id, ...scope }, data: { status, failureReason: reason, nextSubmissionAttemptAt: retryAt,
+            ...(error instanceof EmailSubmissionError ? { providerErrorCode: error.providerCode, providerErrorMessage: error.providerMessage } : {}) } });
+          if (recipient.channel === 'EMAIL') await tx.emailDeliveryLog.update({ where: { id: recipient.logId, ...scope }, data: { status, errorMessage: error instanceof EmailSubmissionError ? error.providerMessage : reason } });
           if (recipient.channel === 'SMS') await recalculateCampaignDelivery(tx, id, tenantId);
         });
         if (retryAt) console.info('[Campaigns]', { event: 'submission_retry_scheduled', campaignId: id, tenantId, recipientId: recipient.id, attempt: attempt.submissionAttemptCount, retryAt: retryAt.toISOString() });
@@ -456,8 +458,8 @@ async function deliverPrepared(id: string, tenantId: string, userId: string, pre
         await tx.campaignContact.update({ where: { id: recipient.id, ...scope }, data: { status: submitted ? 'submitted' : 'failed', messageId: result.messageId,
           submittedAt: submitted ? now : null,
           ...(recipient.channel === 'SMS' && submitted ? { nextSmsCheckAt: new Date(+now + 60000) } : {}),
-          failureReason: submitted ? null : 'TRANSPORT_NOT_SUBMITTED' } });
-        if (recipient.channel === 'EMAIL') await tx.emailDeliveryLog.update({ where: { id: recipient.logId, ...scope }, data: { status: submitted ? 'submitted' : 'failed', brevoMessageId: result.messageId } });
+          failureReason: submitted ? null : 'TRANSPORT_NOT_SUBMITTED', providerErrorCode: null, providerErrorMessage: null } });
+        if (recipient.channel === 'EMAIL') await tx.emailDeliveryLog.update({ where: { id: recipient.logId, ...scope }, data: { status: submitted ? 'submitted' : 'failed', brevoMessageId: result.messageId, errorMessage: submitted ? null : 'TRANSPORT_NOT_SUBMITTED' } });
       });
   };
   try { await runSubmissionPool(prepared, submit); }

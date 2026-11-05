@@ -42,16 +42,23 @@ describe('TextBee shared SMS transport', () => {
     expect(fetch).toHaveBeenCalledWith('https://api.textbee.dev/api/v1/gateway/devices', expect.objectContaining({ method: 'GET', headers: { 'x-api-key': 'fixture-key', Accept: 'application/json' } }));
     vi.stubEnv('TEXTBEE_DEVICE_ID', device); expect(await getSmsDeviceId()).toBe(device); expect(fetch).toHaveBeenCalledOnce();
   });
-  it('parses the official batch/message device shape and strips customer content at the read boundary', async () => {
+  it.each(['reference', 'populated'])('normalizes the %s batch device shape and strips customer content at the read boundary', async shape => {
     const device = '664a9b8cd0e1f2a3b4c5d6e7';
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { batch: { _id: batchId, recipientCount: 1, message: 'private content' }, messages: [
-      { _id: 'sms-id', device: { _id: device, name: 'Gateway' }, recipient: '+639171234567', smsBatch: batchId, message: 'private content' },
+      { _id: 'sms-id', device: shape === 'reference' ? device : { _id: device, name: 'Gateway' }, recipient: '+639171234567', smsBatch: batchId, message: 'private content' },
     ] } })));
     const result = await getSmsBatch(device, batchId);
     expect(result.batch).toEqual({ _id: batchId, recipientCount: 1 });
     expect(result.messages[0]).toMatchObject({ device: { _id: device }, status: 'unknown' });
     expect(JSON.stringify(result)).not.toContain('private content'); expect(fetch).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe('GET');
+  });
+  it.each([null, '', 'wrong-device', {}, { _id: 'wrong-device' }, { _id: null }])('rejects an unusable device identity %j instead of accepting delivery', async device => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ data: { batch: { _id: batchId, recipientCount: 1 }, messages: [
+      { _id: 'sms-id', device, recipient: '+639171234567', status: 'delivered' },
+    ] } })));
+    await expect(getSmsBatch('664a9b8cd0e1f2a3b4c5d6e7', batchId)).rejects.toMatchObject({ name: 'ZodError' });
+    expect(fetch).toHaveBeenCalledOnce();
   });
   it('uses a frozen campaign device without substituting a later configured device', async () => {
     const frozen = '664a9b8cd0e1f2a3b4c5d6e7';

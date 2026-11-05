@@ -22,6 +22,18 @@ beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('ResizeObserver', class { o
   vi.mocked(campaignsApi.report).mockResolvedValue(response() as never); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const filterPanel = () => document.querySelector('aside.hidden') as HTMLElement;
+
+it('shows the backend Email rejection explanation while preserving successful recipient results', async () => {
+  const diagnostic = 'Brevo blocked the backend server IP. Ask an administrator to authorize the production server IP in Brevo.';
+  vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: { ...response().data, status: 'SUBMITTED',
+    recipients: [{ ...recipients[0], deliveryStatus: 'Failed', failureReason: 'BREVO_HTTP_401', failureDetail: diagnostic },
+      { ...recipients[1], deliveryStatus: 'Submitted' }] } } as never);
+  mount();
+  expect(await screen.findByText(diagnostic)).toBeTruthy();
+  expect(screen.getByText('Doris Testing')).toBeTruthy();
+  expect(screen.getByText('Luis Reyes')).toBeTruthy();
+  expect(screen.getByText('Failed')).toBeTruthy();
+});
 const select = (label: string) => {
   const trigger = screen.getByRole('button', { name: 'Filter recipients' });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
