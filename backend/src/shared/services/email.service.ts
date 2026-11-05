@@ -44,10 +44,44 @@ function isBrevoConfigured(): boolean {
  */
 export interface SendMailResult { messageId: string | null; submitted: boolean }
 
+const emailFailureMessages = {
+  BREVO_IP_NOT_AUTHORIZED: 'Brevo blocked the backend server IP. Ask an administrator to authorize the production server IP in Brevo.',
+  BREVO_AUTH_REJECTED: 'Brevo authentication or account access was rejected. Ask an administrator to check the backend API key and Brevo account access.',
+  BREVO_RATE_LIMITED: 'Brevo rate limited the request. A safe retry may be scheduled for this rejected submission.',
+  BREVO_REJECTED: 'Brevo rejected the request. Review the sender configuration and provider history.',
+  BREVO_SUBMISSION_UNCONFIRMED: 'Email submission could not be confirmed. Check the provider before retrying.',
+} as const;
+type EmailFailureCode = keyof typeof emailFailureMessages;
+
 export class EmailSubmissionError extends AppError {
-  constructor(public readonly outcome: 'rejected' | 'unconfirmed', public readonly httpStatus?: number, public readonly retryAfterAt?: number) {
-    super(outcome === 'rejected' ? 'Email provider rejected the request.' : 'Email submission could not be confirmed. Check the provider before retrying.', 502);
+  readonly providerMessage: string;
+  constructor(public readonly outcome: 'rejected' | 'unconfirmed', public readonly httpStatus?: number, public readonly retryAfterAt?: number,
+    public readonly providerCode: EmailFailureCode = outcome === 'unconfirmed' ? 'BREVO_SUBMISSION_UNCONFIRMED'
+      : httpStatus === 401 || httpStatus === 403 ? 'BREVO_AUTH_REJECTED' : httpStatus === 429 ? 'BREVO_RATE_LIMITED' : 'BREVO_REJECTED') {
+    super(emailFailureMessages[providerCode], 502);
+    this.providerMessage = emailFailureMessages[providerCode];
   }
+}
+
+/** Inspect a bounded rejection prefix, returning only our own diagnostic codes. */
+async function emailRejectionCode(response: Response): Promise<EmailFailureCode | undefined> {
+  if (![401, 403].includes(response.status)) return undefined;
+  const reader = response.body?.getReader();
+  if (!reader) return undefined;
+  let remaining = 4096, prefix = '';
+  const decoder = new TextDecoder();
+  try {
+    while (remaining > 0) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value.subarray(0, remaining);
+      prefix += decoder.decode(chunk, { stream: true });
+      remaining -= chunk.length;
+    }
+    if (/unrecogni[sz]ed.*ip|ip.*(?:not authori[sz]ed|unauthori[sz]ed|blocked)/i.test(prefix)) return 'BREVO_IP_NOT_AUTHORIZED';
+  } catch { /* HTTP rejection remains authoritative if its body is unreadable. */ }
+  finally { void reader.cancel().catch(() => undefined); }
+  return undefined;
 }
 
 export function assertBrevoConfigured(): void {
@@ -90,8 +124,10 @@ export async function sendMail(options: SendMailOptions): Promise<SendMailResult
     throw new EmailSubmissionError('unconfirmed');
   }
   if (!response.ok) {
-    console.error('[EmailService]', { event: 'brevo_submission_rejected', httpStatus: response.status, category: `${Math.floor(response.status / 100)}xx` });
-    throw new EmailSubmissionError(response.status >= 500 || response.status === 408 ? 'unconfirmed' : 'rejected', response.status, response.headers ? providerRetryAt(response.headers) : undefined);
+    const error = new EmailSubmissionError(response.status >= 500 || response.status === 408 ? 'unconfirmed' : 'rejected', response.status,
+      response.headers ? providerRetryAt(response.headers) : undefined, await emailRejectionCode(response));
+    console.error('[EmailService]', { event: 'brevo_submission_rejected', httpStatus: response.status, category: `${Math.floor(response.status / 100)}xx`, providerCode: error.providerCode });
+    throw error;
   }
   // HTTP acceptance is authoritative. An unreadable response body must never
   // turn an accepted request into a failure or trigger a resend.

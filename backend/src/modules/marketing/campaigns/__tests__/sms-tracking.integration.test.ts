@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { processTextBeeEvent, applyTextBeeEvidence } from '../textbee-webhook';
@@ -248,6 +249,85 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
   const lookup = (row: Row, status: string) => ({ batch: { _id: row.messageId!, recipientCount: 1 }, messages: [{ _id: `sms-${row.id}`, device: { _id: device }, smsBatch: row.messageId!, recipient: row.phone!, status,
     ...(status === 'sent' || status === 'delivered' ? { sentAt: '2026-10-14T01:00:00.000Z' } : {}), ...(status === 'delivered' ? { deliveredAt: '2026-10-14T01:00:01.000Z' } : {}) }] });
   async function due(row: Row) { await scope(() => prisma.campaignContact.update({ where: { id: row.id }, data: { nextSmsCheckAt: new Date(Date.now() - 1000) } })); }
+  it.each(['reference', 'populated'])('recovers two delivered recipients through the real %s device parser without submitting messages', async shape => {
+    const { campaign, rows } = await submitted(2);
+    await scope(() => prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'SENDING', sentCount: 2 } }));
+    for (const row of rows) await due(row);
+    const transport = await vi.importActual<typeof import('../../../../shared/services/sms.service')>('../../../../shared/services/sms.service');
+    vi.mocked(getSmsBatch).mockImplementation(transport.getSmsBatch);
+    const nativeFetch = globalThis.fetch;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const row = rows.find(item => input === `https://api.textbee.dev/api/v1/gateway/devices/${device}/sms-batch/${item.messageId}`);
+      if (!row) return nativeFetch(input, init);
+      const evidence = lookup(row, 'delivered');
+      return new Response(JSON.stringify({ data: { ...evidence, messages: [{ ...evidence.messages[0],
+        device: shape === 'reference' ? device : { _id: device, name: 'Gateway' }, message: 'private-message', updatedAt: '2026-10-14T01:00:01Z' }] } }));
+    });
+    try {
+      expect(await reconcileSmsStatuses()).toBe(2);
+      const saved = await prisma.campaignContact.findMany({ where: { campaignId: campaign.id } });
+      expect(saved.every(row => row.status === 'delivered' && row.nextSmsCheckAt === null)).toBe(true);
+      const report = await scope(() => getCampaignReport(campaign.id, tenantId));
+      expect(report).toMatchObject({ status: 'DELIVERED', deliveredCount: 2, sentCount: 2, failedCount: 0 });
+      expect(report.recipients.every(row => row.deliveryStatus === 'Delivered')).toBe(true);
+      expect((await scope(() => getCampaigns(tenantId, { search: campaign.name }))).data.find(row => row.id === campaign.id)?.status).toBe(report.status);
+      await reconcileSmsStatuses();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(fetchSpy.mock.calls.every(call => call[1]?.method === 'GET')).toBe(true);
+      expect(JSON.stringify(report)).not.toContain('private-message');
+      expect(sendSms).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it.each(['pending', 'dispatched'])('repairs a completed legacy Sending parent to Submitted for %s without inferring delivery', async status => {
+    const { campaign, rows: [row] } = await submitted(); await due(row);
+    await scope(() => prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'SENDING' } }));
+    vi.mocked(getSmsBatch).mockResolvedValue(lookup(row, status) as never);
+    await reconcileSmsStatuses();
+    expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ status: 'submitted', submittedAt: row.submittedAt, sentAt: null, deliveredAt: null });
+    const report = await scope(() => getCampaignReport(campaign.id, tenantId));
+    expect(report).toMatchObject({ status: 'SUBMITTED', sentCount: 1, deliveredCount: 0 });
+    expect(report.recipients[0].deliveryStatus).toBe('Submitted');
+    expect((await scope(() => getCampaigns(tenantId, { search: campaign.name }))).data.find(row => row.id === campaign.id)?.status).toBe('SUBMITTED');
+    expect(sendSms).not.toHaveBeenCalled();
+  });
+
+  it.each(['device', 'batch', 'recipient', 'count', 'messages', 'messageBatch', 'messageIdentity'])('rejects mismatched %s evidence and records a safe diagnosis', async mismatch => {
+    const { rows: [row] } = await submitted(); await due(row);
+    const result = lookup(row, 'delivered');
+    if (mismatch === 'device') result.messages[0].device._id = batchId();
+    if (mismatch === 'batch') result.batch._id = batchId();
+    if (mismatch === 'recipient') result.messages[0].recipient = '+639181234567';
+    if (mismatch === 'count') result.batch.recipientCount = 2;
+    if (mismatch === 'messages') result.messages.push({ ...result.messages[0] });
+    if (mismatch === 'messageBatch') result.messages[0].smsBatch = batchId();
+    if (mismatch === 'messageIdentity') await prisma.campaignContact.update({ where: { id: row.id }, data: { smsId: 'different-message' } });
+    vi.mocked(getSmsBatch).mockResolvedValue(result as never);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await reconcileSmsStatuses()).toBe(0);
+      expect(warn).toHaveBeenCalledWith('[Campaigns]', expect.objectContaining({ event: 'sms_status_lookup_failed', category: 'identity_mismatch' }));
+      expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ status: 'submitted', deliveredAt: null, sentAt: null });
+      expect(sendSms).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
+
+  it.each(['transport', 'response_validation', 'persistence'])('distinguishes %s failures without leaking errors or preventing the next recipient check', async category => {
+    const { rows } = await submitted(2); for (const row of rows) await due(row);
+    vi.mocked(getSmsBatch).mockImplementation(async (_device, id) => lookup(rows.find(row => row.messageId === id)!, 'delivered') as never);
+    const privateError = 'private-message-and-credential';
+    const transaction = category === 'persistence' ? vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(new Error(privateError)) : null;
+    if (category === 'transport') vi.mocked(getSmsBatch).mockRejectedValueOnce(new TypeError(privateError));
+    if (category === 'response_validation') vi.mocked(getSmsBatch).mockRejectedValueOnce(new z.ZodError([{ code: 'custom', path: ['data', 'messages'], message: privateError }]));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await reconcileSmsStatuses()).toBe(1);
+      expect(warn).toHaveBeenCalledWith('[Campaigns]', expect.objectContaining({ event: 'sms_status_lookup_failed', category }));
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(privateError);
+      expect(await prisma.campaignContact.count({ where: { id: { in: rows.map(row => row.id) }, status: 'delivered' } })).toBe(1);
+      expect(sendSms).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); transaction?.mockRestore(); }
+  });
   it.each(['sent', 'delivered', 'failed'])('persists provider %s without optional event dates and exposes it consistently in reports', async status => {
     const { campaign, rows: [row] } = await submitted(); await due(row);
     const result = lookup(row, status);

@@ -42,6 +42,16 @@ Backend `APP_URL` and `ALLOWED_ORIGINS` must use the HTTPS frontend origin.
 Do not expose the backend port directly on the host. Configure provider callbacks
 and signed webhooks against the verified HTTPS API domain.
 
+Both campaign provider webhook routers require Express to recognize HTTPS.
+After an ingress/network change, verify the backend's actual socket peer against
+`TRUSTED_PROXIES`; a public HTTPS URL alone does not establish proxy trust.
+Append only the verified ingress address/CIDR while preserving existing entries.
+With configured webhook credentials, an unsigned empty POST through HTTPS should
+reach authentication (401), rather than fail with `HTTPS is required.` (400).
+Keep the HTTPS guards and reject forwarded headers from untrusted peers. See the
+[November 5 campaign repair](../verification/campaign-production-repair-2026-11-05.md)
+for the confirmed incident and coordinated-release checks.
+
 Do not run local schedulers against an unverified remote database. Existing local
 database credentials must remain unchanged unless a development database migration
 is explicitly approved. Local API_URL, APP_URL, ALLOWED_ORIGINS and NODE_ENV differ

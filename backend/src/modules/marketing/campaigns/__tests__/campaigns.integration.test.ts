@@ -29,7 +29,7 @@ import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { crmActor } from '../../../crm/access/crm-record-access.service';
 import { issueAuthSession } from '../../../../core/auth/auth-session';
-import { createCampaign, getCampaignById, sendCampaign, updateCampaign, archiveCampaign, scheduleCampaign, cancelCampaignSchedule, dispatchDueCampaigns, resumePendingCampaigns, drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignScheduleScheduler, duplicateCampaign } from '../campaigns.service';
+import { createCampaign, getCampaignById, getCampaignReport, sendCampaign, updateCampaign, archiveCampaign, scheduleCampaign, cancelCampaignSchedule, dispatchDueCampaigns, resumePendingCampaigns, drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignScheduleScheduler, duplicateCampaign } from '../campaigns.service';
 import { recoverCampaignSubmissions, interruptCampaignSubmission } from '../campaign-submission-recovery';
 import { createAudience, getAudiences, resolveAudience } from '../audiences.service';
 import { createTemplate, getTemplates } from '../../templates/templates.service';
@@ -197,10 +197,16 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     expect((await request('/marketing/campaigns', 'POST', { name: 'Bad', type: 'EMAIL', targetAudienceId: foreignAudience.id })).status).toBe(404);
   });
   it('records partial failures without treating acceptance as delivery or permitting resend', async () => {
-    vi.mocked(sendMail).mockRejectedValueOnce(new EmailSubmissionError('rejected', 401));
+    const rejection = new EmailSubmissionError('rejected', 401, undefined, 'BREVO_IP_NOT_AUTHORIZED');
+    vi.mocked(sendMail).mockRejectedValueOnce(rejection);
     const campaign = await draft();
     const result = await scoped(() => sendCampaign(campaign.id, tenantId, userId));
     expect(result).toMatchObject({ submittedRecipients: 1, failedRecipients: 1, status: 'SUBMITTED' });
+    const rejected = await prisma.campaignContact.findFirstOrThrow({ where: { campaignId: campaign.id, status: 'failed' } });
+    expect(rejected).toMatchObject({ failureReason: 'BREVO_HTTP_401', providerErrorCode: 'BREVO_IP_NOT_AUTHORIZED', providerErrorMessage: rejection.providerMessage, nextSubmissionAttemptAt: null });
+    const report = await scoped(() => getCampaignReport(campaign.id, tenantId));
+    expect(report.recipients.find(row => row.id === rejected.id)).toMatchObject({ deliveryStatus: 'Failed', failureDetail: rejection.providerMessage });
+    expect((await prisma.emailDeliveryLog.findFirstOrThrow({ where: { campaignId: campaign.id, status: 'failed' } })).errorMessage).toBe(rejection.providerMessage);
     const log = await prisma.emailDeliveryLog.findFirstOrThrow({ where: { campaignId: campaign.id, brevoMessageId: { not: null } } });
     await processBrevoEvent({ event: 'request', email: log.toEmail, 'message-id': log.brevoMessageId, ts_event: Math.floor(Date.now() / 1000) });
     expect((await scoped(() => getCampaignById(campaign.id, tenantId))).status).toBe('PARTIALLY_SENT');
