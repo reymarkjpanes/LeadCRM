@@ -29,6 +29,7 @@ vi.mock('@/features/tenant/crm/accounts/ui/account-form', () => ({ AccountFormSh
 vi.mock('@/features/tenant/crm/leads/ui/convert-lead-dialog', () => ({ ConvertLeadDialog: () => null }));
 import { CrmRecordPanel, CrmRecordView, type CrmRecordModule } from '../crm-record-view';
 import { clearPageCache } from '@/shared/cache/page-cache';
+import { invalidateApiPageCache } from '@/shared/cache/invalidate-api-page-cache';
 import { toast } from '@/shared/utils/toast';
 import { DEFAULT_CLOSING_FIELDS, defaultFieldLayout, getCrmFieldCatalog, type CustomFieldState } from '@leadcrm/shared';
 vi.mock('../inline-deal-form', () => ({ InlineDealForm: ({ onSubmit, onCancel, relatedRecord }: { onSubmit: (values: object) => Promise<void>; onCancel: () => void; relatedRecord: { type: string; id: string } }) => <form aria-label="New related Deal" onSubmit={event => { event.preventDefault(); void onSubmit({ ...(relatedRecord.type === 'lead' ? { leadId: relatedRecord.id } : { contactId: relatedRecord.id }), title: 'Created deal', productInterestIds: ['product'], pipelineId: 'sales', stageId: 'lead', priority: 'MEDIUM', expectedCloseDate: '2026-10-20', customFieldValues: { evidence: 'Kept' } }); }}><button>Create Deal</button><button type="button" onClick={onCancel}>Cancel Deal</button></form> }));
@@ -632,12 +633,79 @@ it.each(['leads', 'contacts'] as const)('shows all six %s statuses and respects 
   render(<CrmRecordView module={module} id="one" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Warm' }));
   for (const name of ['Inquiry', 'Hot', 'Warm', 'Cold', 'Closed Deal', 'Cancelled']) {
-    const option = screen.getByRole('menuitem', { name });
+    const option = screen.getByRole('menuitemradio', { name });
     expect(option.getAttribute('aria-disabled')).toBe(name === 'Cancelled' ? 'false' : 'true');
   }
-  expect(screen.getByRole('menuitem', { name: 'Hot' }).title).toBe('This transition is unavailable.');
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Hot' }));
+  expect(screen.getByRole('menuitemradio', { name: 'Hot' }).title).toBe('This transition is unavailable.');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Hot' }));
   expect(mocks.put).not.toHaveBeenCalled();
+});
+
+it.each(['leads', 'contacts', 'deals'] as const)('shows Closed Deal read-only in the %s panel without a request or error toast', async module => {
+  const original = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: { ...records[module],
+    status: 'CLOSED_DEAL', engagementStatus: 'Closed Deal', statusManagedByDeals: true,
+    ...(module === 'deals' ? { stage: { name: 'Closed Deal', isWon: true } } : {}),
+  } } : original(path));
+  render(<CrmRecordPanel module={module} id="one" open onOpenChange={() => {}} />);
+  const heading = await screen.findByRole('heading', { level: 1 });
+  const header = heading.closest('header')!;
+  fireEvent.click(within(header).getByText('Closed Deal'));
+  expect(within(header).queryByRole('button', { name: /Closed Deal|Deal Status/ })).toBeNull();
+  expect(screen.queryByRole('menu')).toBeNull();
+  fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
+  expect(screen.queryByRole('button', { name: 'Edit Status' })).toBeNull();
+  expect(mocks.put).not.toHaveBeenCalled();
+  expect(mocks.move).not.toHaveBeenCalled();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it('keeps a Won Deal read-only even if a legacy stored status differs from its stage', async () => {
+  const original = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation(async (path: string) => path === '/crm/deals/one' ? { data: { ...records.deals,
+    engagementStatus: 'Warm', stage: { name: 'Won', isWon: true },
+  } } : original(path));
+  render(<CrmRecordPanel module="deals" id="one" open onOpenChange={() => {}} />);
+  const heading = await screen.findByRole('heading', { level: 1 });
+  const header = heading.closest('header')!;
+  fireEvent.click(within(header).getByText('Warm'));
+  expect(within(header).queryByRole('button', { name: 'Deal Status' })).toBeNull();
+  expect(mocks.put).not.toHaveBeenCalled();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it.each(['leads', 'contacts', 'deals'] as const)('updates the %s selected status and timeline after save and panel reload', async module => {
+  const original = mocks.get.getMockImplementation()!;
+  let current = { ...records[module], status: 'Hot', engagementStatus: 'Hot' };
+  const activities: object[] = [];
+  mocks.get.mockImplementation(async (path: string) => path === `/crm/${module}/one` ? { data: current }
+    : path.includes('/crm/activities') ? { data: activities, total: activities.length } : original(path));
+  mocks.put.mockImplementationOnce(async (path: string) => {
+    current = { ...current, status: 'Warm', engagementStatus: 'Warm' };
+    activities.push({ id: 'status-change', type: 'stage_change', title: 'Status changed from Hot to Warm', createdAt: new Date().toISOString(),
+      createdBy: { id: 'employee', firstName: 'Status', lastName: 'Employee' }, metadata: { previousStatus: 'Hot', newStatus: 'Warm', source: 'manual' } });
+    // The real API transport invalidates these caches after a successful write.
+    invalidateApiPageCache(path);
+    return { data: current };
+  });
+  const panel = () => <CrmRecordPanel module={module} id="one" open onOpenChange={() => {}} />;
+  const mounted = render(panel());
+  fireEvent.click(await screen.findByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Hot' }));
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Hot');
+  expect(screen.queryByText('Manual engagement changes retain existing sales and automation rules. Closed Deal requires a confirmed sale.')).toBeNull();
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Warm' }));
+  expect((await screen.findAllByText('Status changed from Hot to Warm')).length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Status Employee').length).toBeGreaterThan(0);
+  expect(document.querySelector('time[datetime]')).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }).textContent).toBe('Warm'));
+  fireEvent.click(screen.getByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }));
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  mounted.unmount();
+  clearPageCache();
+  render(panel());
+  fireEvent.click(await screen.findByRole('button', { name: module === 'deals' ? 'Deal Status' : 'Warm' }));
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  expect(mocks.put).toHaveBeenCalledExactlyOnceWith(`/crm/${module}/one`, module === 'deals' ? { engagementStatus: 'Warm' } : { status: 'Warm' });
 });
 
 it('edits only the selected Deal even when its primary participant is a Contact', async () => {
@@ -649,7 +717,7 @@ it('edits only the selected Deal even when its primary participant is a Contact'
   render(<CrmRecordView module="deals" id="one" />);
   await screen.findByRole('heading', { name: records.deals.title });
   fireEvent.click(await screen.findByRole('button', { name: 'Deal Status' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Cold' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cold' }));
   await waitFor(() => expect(mocks.put).toHaveBeenCalledExactlyOnceWith('/crm/deals/one', { engagementStatus: 'Cold' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Deal Status' }).textContent).toBe('Cold'));
   expect(mocks.get).not.toHaveBeenCalledWith('/crm/leads/lead-one', expect.anything());
@@ -679,7 +747,7 @@ it.each(['leads', 'contacts'] as const)('%s header and inline status editors sen
   await screen.findByRole('heading', { name: module === 'leads' ? 'Lina Reyes' : 'Nora Lim' });
   for (const status of ['Hot', 'Warm', 'Cold', 'Cancelled']) {
     fireEvent.click(screen.getByRole('button', { name: 'Warm' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: status }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: status }));
     await waitFor(() => expect(mocks.put).toHaveBeenLastCalledWith(`/crm/${module}/one`, { status }));
     await waitFor(() => expect((screen.getByRole('button', { name: 'Warm' }) as HTMLButtonElement).disabled).toBe(false));
   }

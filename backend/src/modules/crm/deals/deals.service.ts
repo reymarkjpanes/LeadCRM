@@ -8,7 +8,7 @@ import { salesContext } from '../leads/sales-context';
 import { resolveProducts, salesTransaction } from '../leads/lead-automation.service';
 import { validateSalesOwner } from '../leads/lead-automation.service';
 import { Prisma } from '@prisma/client';
-import { MoveDealPipelineSchema } from '@leadcrm/shared';
+import { MoveDealPipelineSchema, normalizeCrmStatus } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import * as repo from './deals.repository';
 import { writeAuditLog, buildChangeset } from '../../../core/audit/audit.service';
@@ -18,9 +18,10 @@ import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams, Manua
 import { paginate } from '../../../shared/helpers/pagination';
 import { fireDealCreated, fireDealStageChanged, fireDealUpdated } from '../../automation/triggers/triggers.service';
 import { recordChanges, customFieldChangeTracker } from '../record-updates';
-import { assertDealStageTransition, dealHasEverBeenWon } from './deal-lifecycle';
+import { assertDealStageTransition, dealHasEverBeenWon, isQualifiedStage } from './deal-lifecycle';
+import { isWorkflowQualified } from './workflow-qualification';
 import { manualStatusCheckpoint } from '../status-checkpoint';
-import { assertCrmRecordMutation } from '../access/crm-record-access.service';
+import { assertCrmRecordMutation, authorizedWorkflowScope } from '../access/crm-record-access.service';
 
 /**
  * Maps known Prisma constraint/infrastructure errors to appropriate HTTP errors.
@@ -132,13 +133,24 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     if (current.stage.isWon && engagementStatus !== 'Closed Deal') throw new ValidationError('A confirmed sale cannot be reopened. Create a new Deal.');
     if (current.stage.isLost && !['Inquiry', 'Cancelled'].includes(engagementStatus)) throw new ValidationError('Reopen this Deal to Inquiry first.');
     const stageName = { Inquiry: 'Lead', Warm: 'Contacted', Hot: 'Qualified' }[engagementStatus as 'Inquiry' | 'Warm' | 'Hot'];
-    if (engagementStatus !== 'Cold') {
+    const workflow = authorizedWorkflowScope(tenantId);
+    const retainQualification = !workflow && ['Inquiry', 'Warm', 'Hot'].includes(engagementStatus) &&
+      isQualifiedStage(current.stage) && await isWorkflowQualified(tx, tenantId, current);
+    if (engagementStatus !== 'Cold' && !retainQualification) {
       const stages = await tx.stage.findMany({ where: { tenantId, pipelineId: current.pipelineId,
         ...(engagementStatus === 'Cancelled' ? { isLost: true, isWon: false } : engagementStatus === 'Closed Deal' ? { isWon: true, isLost: false } : { name: { equals: stageName, mode: 'insensitive' }, isWon: false, isLost: false }) }, take: 2 });
       if (stages.length !== 1) throw new ValidationError('Configure one matching status stage in this Deal’s pipeline.');
       await moveDealStage(id, tenantId, userId, { stageId: stages[0].id, lostReason });
     }
-    await tx.deal.update({ where: { tenantId, id }, data: { engagementStatus, manualStatusContext: manualStatusCheckpoint(engagementStatus), engagementEvaluatedAt: new Date() } });
+    const changedAt = new Date();
+    await tx.deal.update({ where: { tenantId, id }, data: { engagementStatus, manualStatusContext: manualStatusCheckpoint(engagementStatus), engagementEvaluatedAt: changedAt } });
+    const previousStatus = normalizeCrmStatus(current.engagementStatus);
+    if (previousStatus !== engagementStatus) {
+      await tx.activity.create({ data: { tenantId, dealId: id, createdById: userId, type: 'stage_change',
+        title: `Deal engagement changed from ${previousStatus} to ${engagementStatus}`,
+        metadata: { source: workflow ? 'workflow' : 'manual', previousStatus, newStatus: engagementStatus,
+          occurredAt: changedAt.toISOString(), ...(workflow ? { execution: workflow.provenance } : {}) } } });
+    }
     deal = await repo.findDealById(id, tenantId);
     if (!deal) throw new NotFoundError('Deal');
   }

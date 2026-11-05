@@ -46,15 +46,16 @@
 .pwa-install-banner__icon {
   display: grid;
   flex-shrink: 0;
-  width: 112px;
-  padding: 4px 6px;
+  width: 40px;
+  height: 40px;
+  padding: 3px;
   place-items: center;
   border: 1px solid #DCE6F2;
   border-radius: 12px;
   background: #FFFFFF;
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
 }
-.pwa-install-banner__icon img { width: 100%; height: auto; }
+.pwa-install-banner__icon img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
 .pwa-install-banner__message {
   flex: 1;
   min-width: 0;
@@ -97,7 +98,7 @@
 @media (width >= 640px) {
   .pwa-install-banner__content { gap: 16px; padding: 12px 20px; }
   .pwa-install-banner__branding { flex-direction: row; align-items: center; gap: 10px; }
-  .pwa-install-banner__icon { width: 128px; }
+  .pwa-install-banner__icon { width: 44px; height: 44px; }
   .pwa-install-banner__title { font-size: 14px; line-height: 20px; }
 }
 @media (width <= 360px) {

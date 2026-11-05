@@ -36,6 +36,43 @@ it('renders a readable badge without an editing control for unauthorized users',
   expect(screen.getByText('Cancelled')).toBeTruthy();
 });
 
+it.each(CRM_STATUSES)('shows the normalized current status %s with a selected check or a Closed Deal badge', async status => {
+  const change = vi.fn();
+  render(<CustomerStatusMenu status={status.toUpperCase().replace(' ', '_')} canEdit onChange={change} />);
+  if (status === 'Closed Deal') {
+    expect(screen.getByText(status)).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(change).not.toHaveBeenCalled();
+    return;
+  }
+  fireEvent.click(screen.getByRole('button', { name: status }));
+  const selected = screen.getByRole('menuitemradio', { checked: true });
+  expect(selected.textContent).toBe(status);
+  expect(selected.querySelector('.lucide-check')).toBeTruthy();
+  expect(screen.getAllByRole('menuitemradio', { checked: false })).toHaveLength(5);
+  expect(screen.queryByText('Manual engagement changes retain existing sales and automation rules. Closed Deal requires a confirmed sale.')).toBeNull();
+});
+
+it('updates the selected check from new record props and preserves same-value manual selections', async () => {
+  const change = vi.fn().mockResolvedValue(undefined);
+  const view = render(<CustomerStatusMenu status="Hot" canEdit onChange={change} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Hot' }));
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Hot');
+  view.rerender(<CustomerStatusMenu status="WARM" canEdit onChange={change} />);
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('Warm');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Warm' }));
+  expect(change).toHaveBeenCalledExactlyOnceWith('Warm');
+});
+
+it('does not expose or submit a status action when explicitly read-only', () => {
+  const change = vi.fn();
+  render(<CustomerStatusMenu status="Warm" readOnly canEdit onChange={change} />);
+  fireEvent.click(screen.getByText('Warm'));
+  expect(screen.queryByRole('button')).toBeNull();
+  expect(change).not.toHaveBeenCalled();
+});
+
 it.each(CRM_STATUSES)('keeps manual Lead Inquiry when status %s is injected and preserves selected Product IDs', async status => {
   const submitted = vi.fn();
   render(<LeadFormSheet isOpen onClose={() => {}} onSave={data => submitted(toBackendCreateContact(data))} />);
@@ -96,10 +133,10 @@ it('shows every manual status, disables closing without sale proof, and saves a 
   const change = vi.fn().mockResolvedValue(undefined);
   render(<CustomerStatusMenu status="Inquiry" canEdit onChange={change} />);
   fireEvent.click(screen.getByRole('button', { name: 'Inquiry' }));
-  expect(screen.getAllByRole('menuitem')).toHaveLength(6);
-  expect(screen.getByRole('menuitem', { name: 'Closed Deal' }).getAttribute('aria-disabled')).toBe('true');
-  expect(screen.getByRole('menuitem', { name: 'Closed Deal' }).title).toContain('Confirm a related Deal');
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Cold' }));
+  expect(screen.getAllByRole('menuitemradio')).toHaveLength(6);
+  expect(screen.getByRole('menuitemradio', { name: 'Closed Deal' }).getAttribute('aria-disabled')).toBe('true');
+  expect(screen.getByRole('menuitemradio', { name: 'Closed Deal' }).title).toContain('Confirm a related Deal');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cold' }));
   await waitFor(() => expect(change).toHaveBeenCalledExactlyOnceWith('Cold'));
 });
 
@@ -107,9 +144,9 @@ it('retains all statuses while enabling only reopening for a manually cancelled 
   const change = vi.fn().mockResolvedValue(undefined);
   render(<CustomerStatusMenu status="Cancelled" managed manuallyCancelled canEdit onChange={change} />);
   fireEvent.click(screen.getByRole('button', { name: 'Cancelled' }));
-  expect(screen.getAllByRole('menuitem')).toHaveLength(6);
-  for (const item of screen.getAllByRole('menuitem')) expect(item.getAttribute('aria-disabled')).toBe(item.textContent?.includes('Reopen customer') ? 'false' : 'true');
-  fireEvent.click(screen.getByRole('menuitem', { name: /Inquiry.*Reopen customer/ }));
+  expect(screen.getAllByRole('menuitemradio')).toHaveLength(6);
+  for (const item of screen.getAllByRole('menuitemradio')) expect(item.getAttribute('aria-disabled')).toBe(item.textContent?.includes('Reopen customer') ? 'false' : 'true');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Inquiry.*Reopen customer/ }));
   await waitFor(() => expect(change).toHaveBeenCalledExactlyOnceWith('Inquiry'));
 });
 
