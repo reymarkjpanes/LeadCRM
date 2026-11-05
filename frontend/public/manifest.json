@@ -12,19 +12,19 @@
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/icons/camxian-192.png",
+      "src": "/icons/camxian-192.png?v=camxian-circle-2",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/camxian-512.png",
+      "src": "/icons/camxian-512.png?v=camxian-circle-2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/camxian-maskable-512.png",
+      "src": "/icons/camxian-maskable-512.png?v=camxian-circle-2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

@@ -5,7 +5,6 @@ import { Download, X } from 'lucide-react';
 import { toast } from '@/shared/utils/toast';
 import { useOverlayState } from '@/shared/lib/overlay-state';
 import { ThemeScope } from '@/shared/components/theme-scope';
-import { AppLogo } from '@/shared/components/app-logo';
 
 type InstallChoice = { outcome: 'accepted' | 'dismissed'; platform: string };
 export interface InstallPromptEvent extends Event {
@@ -140,7 +139,7 @@ export function PwaInstallProvider({ children }: { children: React.ReactNode }) 
         className="pwa-install-banner">
       <div className="pwa-install-banner__content">
         <div className="pwa-install-banner__branding">
-          <span className="pwa-install-banner__icon"><AppLogo /></span>
+          <span className="pwa-install-banner__icon"><img src="/favicon.ico" alt="Camxian Technologies" width={48} height={48} /></span>
           <div className="pwa-install-banner__message">
             <p className="pwa-install-banner__title">Get the LeadCRM app!</p>
           </div>

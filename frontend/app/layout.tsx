@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   description: 'The premier CRM platform for IT solutions providers, security firms, and telecom agencies.',
   icons: {
     icon: { url: '/favicon.ico?v=camxian-circle-1', type: 'image/x-icon', sizes: '16x16 32x32 48x48' },
-    apple: { url: '/icons/camxian-180.png', type: 'image/png', sizes: '180x180' },
+    apple: { url: '/icons/camxian-180.png?v=camxian-circle-2', type: 'image/png', sizes: '180x180' },
   },
 };
 

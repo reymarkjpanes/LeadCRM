@@ -9,7 +9,7 @@ import { tenantContext } from '../../../core/tenant/tenant-context';
 import { crmActor } from '../access/crm-record-access.service';
 import { manualStatusCheckpoint } from '../status-checkpoint';
 import type { GmailEmail } from '../../../integrations/gmail/gmail.types';
-import { EMPTY_PERMISSION_FLAGS } from '@leadcrm/shared';
+import { EMPTY_PERMISSION_FLAGS, type CrmStatus } from '@leadcrm/shared';
 
 const holder = vi.hoisted(() => ({ client: null as PrismaClient | null }));
 vi.mock('../../../config/database.config', () => ({ default: new Proxy({}, { get: (_target, property) => {
@@ -54,6 +54,28 @@ beforeEach(async () => {
 });
 const deal = (id: string) => db.deal.findUniqueOrThrow({ where: { id } });
 const person = () => db.lead.findUniqueOrThrow({ where: { id: leadId } });
+async function editPerson(kind: 'lead' | 'contact', id: string, status: CrmStatus) {
+  if (kind === 'lead') return scope(async () => (await import('../contacts/contacts.service')).updateContact(id, tenantId, actorId, { status }));
+  return scope(async () => (await import('../contacts-v2/contacts-v2.service')).updateContact(id, tenantId, { status }, actorId));
+}
+async function qualificationWorkflow(matches = true) {
+  const { createWorkflow } = await import('../../automation/workflows/workflows.service');
+  const workflow = await scope(() => createWorkflow(tenantId, actorId, { name: `Qualification ${randomUUID()}`, trigger: 'deal.updated', isActive: true,
+    conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: matches ? stages.Lead : stages.Contacted }] },
+    actions: [{ type: 'move_deal_stage', config: { stageId: stages.Qualified } }] }));
+  return workflow;
+}
+async function qualifyByWorkflow() {
+  const workflow = await qualificationWorkflow();
+  await scope(() => service.updateDeal(a, tenantId, actorId, { title: `Qualified ${randomUUID()}` }));
+  const { flushWorkflowQueue } = await import('../../automation/workflows/__tests__/workflow-queue-test-helper');
+  await flushWorkflowQueue(tenantId);
+  const run = await db.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id, status: 'completed' }, include: { steps: true } });
+  expect(run.steps[0]).toMatchObject({ actionType: 'move_deal_stage', status: 'success', output: { movedDealIds: [a], stageId: stages.Qualified } });
+  expect(await deal(a)).toMatchObject({ stageId: stages.Qualified, engagementStatus: 'Hot' });
+  await db.workflow.update({ where: { id: workflow.id }, data: { isActive: false } });
+  return { workflow, run, step: run.steps[0] };
+}
 async function ingest(direction: 'inbound' | 'outbound', dealId?: string, overrides: Partial<GmailEmail> = {}) {
   const threadId = overrides.threadId ?? randomUUID(), parent = `<parent-${randomUUID()}@example.test>`;
   if (dealId) await db.mailboxMessage.create({ data: { tenantId, accountId, providerMessageId: randomUUID(), threadId, direction: 'outbound', from: 'status-admin@camxian.com', fromAddress: 'status-admin@camxian.com', recipients: [email], recipientAddresses: [email], subject: 'Outreach', body: '', snippet: '', labels: ['SENT'], sentAt: new Date(Date.now() - 60000), leadId, dealId, dealAttribution: { kind: 'explicit_send' }, rfcMessageId: parent, engagementRuleVersion: 2, participantPolicyVersion: 1 } });
@@ -64,6 +86,148 @@ async function ingest(direction: 'inbound' | 'outbound', dealId?: string, overri
 }
 
 describe('isolated Deal and inbound reply transitions', () => {
+  it.each(['lead', 'contact'] as const)('records a manual %s Hot to Warm in its readable timeline with employee and time', async kind => {
+    const record = kind === 'lead' ? await db.lead.update({ where: { id: leadId }, data: { status: 'Hot' } })
+      : await db.contact.create({ data: { tenantId, firstName: 'Contact', lastName: 'Timeline', status: 'HOT', assignedUserId: actorId } });
+    const sibling = await deal(b), selected = await deal(a), startedAt = new Date();
+    await editPerson(kind, record.id, 'Warm');
+    const { findAllActivities } = await import('../activities/activities.repository');
+    const page = await scope(() => findAllActivities(tenantId, { [`${kind}Id`]: record.id, type: 'stage_change' }));
+    expect(page.data).toHaveLength(1);
+    expect(page.data[0]).toMatchObject({ title: 'Status changed from Hot to Warm', createdBy: { id: actorId, firstName: 'Status', lastName: 'Admin' },
+      metadata: { previousStatus: 'Hot', newStatus: 'Warm', source: 'manual' } });
+    expect(page.data[0].createdAt.getTime()).toBeGreaterThanOrEqual(startedAt.getTime());
+    expect(await db.auditLog.count({ where: { tenantId, entityId: record.id, action: 'customer.status_changed' } })).toBe(1);
+    expect(await deal(a)).toEqual(selected); expect(await deal(b)).toEqual(sibling);
+  });
+  it.each(['lead', 'contact'] as const)('does not record an unchanged legacy %s status', async kind => {
+    const record = kind === 'lead' ? await db.lead.update({ where: { id: leadId }, data: { status: 'HOT' } })
+      : await db.contact.create({ data: { tenantId, firstName: 'Unchanged', lastName: 'Contact', status: 'HOT', assignedUserId: actorId } });
+    await editPerson(kind, record.id, 'Hot');
+    expect(await db.activity.count({ where: { tenantId, [`${kind}Id`]: record.id, type: 'stage_change' } })).toBe(0);
+    expect(await db.auditLog.count({ where: { tenantId, entityId: record.id, action: 'customer.status_changed' } })).toBe(0);
+  });
+  it('records Hot to Cold once without a stage change and keeps existing Deal audit', async () => {
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    const before = await deal(a), histories = await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } });
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Cold' }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Cold' }));
+    expect(await deal(a)).toMatchObject({ stageId: before.stageId, currentStageHistoryId: before.currentStageHistoryId, engagementStatus: 'Cold' });
+    expect(await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } })).toEqual(histories);
+    const entries = await db.activity.findMany({ where: { tenantId, dealId: a, title: 'Deal engagement changed from Hot to Cold' } });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ createdById: actorId, metadata: { source: 'manual', previousStatus: 'Hot', newStatus: 'Cold', occurredAt: expect.any(String) } });
+    expect(await db.auditLog.count({ where: { tenantId, entityId: a, action: 'deal.updated' } })).toBe(3);
+  });
+  it('moves a manually qualified Deal back to Contacted with distinct status and stage entries', async () => {
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    const before = await person(), sibling = await deal(b);
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+    const entries = await db.activity.findMany({ where: { tenantId, dealId: a, OR: [{ title: 'Deal engagement changed from Hot to Warm' }, { title: 'Deal moved from "Qualified" to "Contacted"' }] } });
+    expect(entries).toHaveLength(2);
+    expect(await person()).toEqual(before); expect(await deal(b)).toEqual(sibling);
+  });
+  it('retains Workflow qualification and quotation evidence after Hot to Warm and later engagement edits', async () => {
+    const { workflow } = await qualifyByWorkflow();
+    // Current definitions can change after a committed execution; saved evidence remains authoritative.
+    await db.workflow.update({ where: { id: workflow.id }, data: { actions: [] } });
+    const receipt = await db.mailboxSendReceipt.create({ data: { tenantId, accountId, requestId: randomUUID(), payloadHash: 'qualification quotation', operation: 'send', status: 'sent',
+      authorizationContext: { quotation: { fingerprint: 'a'.repeat(64), draft: { quotationId: randomUUID(), templateId: randomUUID(), recipientType: 'Lead', recipientId: leadId,
+        dealId: a, products: [{ productId: randomUUID(), quantity: 1 }], quotationDate: '2026-11-01', validUntil: '2026-12-01', notes: '' } } } } });
+    const before = await deal(a), sibling = await deal(b), lead = await person();
+    const history = await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } });
+    for (const engagementStatus of ['Warm', 'Inquiry', 'Hot', 'Cold'] as const) {
+      await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus }));
+      expect(await deal(a)).toMatchObject({ stageId: stages.Qualified, currentStageHistoryId: before.currentStageHistoryId, engagementStatus });
+    }
+    expect(await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } })).toEqual(history);
+    expect(await db.mailboxSendReceipt.findUniqueOrThrow({ where: { id: receipt.id } })).toEqual(receipt);
+    expect(await deal(b)).toEqual(sibling); expect(await person()).toEqual(lead);
+  });
+  it.each([true, false])('does not protect a Deal from a definition alone or unmet conditions (definition only=%s)', async definitionOnly => {
+    const workflow = await qualificationWorkflow(false);
+    if (!definitionOnly) {
+      await scope(() => service.updateDeal(a, tenantId, actorId, { title: 'Unmatched conditions' }));
+      const { flushWorkflowQueue } = await import('../../automation/workflows/__tests__/workflow-queue-test-helper');
+      await flushWorkflowQueue(tenantId);
+      expect(await db.workflowExecutionRun.findFirst({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } })).toMatchObject({ status: 'skipped', steps: [{ status: 'skipped' }] });
+    }
+    await db.workflow.update({ where: { id: workflow.id }, data: { isActive: false } });
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+  });
+  it.each(['failed step', 'skipped step', 'failed run', 'skipped run', 'other Deal', 'other destination', 'other action', 'conflicting saved action', 'wrong source', 'missing output', 'outside action window'] as const)(
+    'rejects qualification evidence with %s', async invalid => {
+      const { run, step } = await qualifyByWorkflow();
+      if (invalid === 'failed step' || invalid === 'skipped step') await db.workflowExecutionStep.update({ where: { id: step.id }, data: { status: invalid.split(' ')[0] } });
+      else if (invalid === 'failed run' || invalid === 'skipped run') await db.workflowExecutionRun.update({ where: { id: run.id }, data: { status: invalid.split(' ')[0] } });
+      else if (invalid === 'other Deal' || invalid === 'other destination' || invalid === 'missing output') await db.workflowExecutionStep.update({ where: { id: step.id }, data: { output: invalid === 'missing output' ? {} : { movedDealIds: [invalid === 'other Deal' ? b : a], stageId: invalid === 'other destination' ? stages.Contacted : stages.Qualified } } });
+      else if (invalid === 'other action') await db.workflowExecutionStep.update({ where: { id: step.id }, data: { actionType: 'update_field' } });
+      else if (invalid === 'outside action window') await db.workflowExecutionStep.create({ data: { tenantId, executionId: run.id, stepIndex: 1, actionType: 'create_task', status: 'skipped', executedAt: step.executedAt } });
+      else await db.workflowExecutionStep.update({ where: { id: step.id }, data: { resolvedInput: { action: { type: 'move_deal_stage', config: { stageId: invalid === 'conflicting saved action' ? stages.Contacted : stages.Qualified, ...(invalid === 'wrong source' ? { currentStageId: stages.Contacted } : {}) } } } } });
+      await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+      expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+    });
+  it('does not reuse an older Workflow qualification after leaving and manually re-entering Qualified', async () => {
+    await qualifyByWorkflow();
+    await scope(() => service.moveDealStage(a, tenantId, actorId, { stageId: stages.Contacted }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+  });
+  it('accepts the saved run action when an older successful step has no resolved input', async () => {
+    const { step } = await qualifyByWorkflow();
+    await db.workflowExecutionStep.update({ where: { id: step.id }, data: { resolvedInput: {} } });
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Qualified, engagementStatus: 'Warm' });
+  });
+  it('rejects ambiguous re-entry even when it falls inside the same successful action window', async () => {
+    const { run } = await qualifyByWorkflow();
+    await scope(() => service.moveDealStage(a, tenantId, actorId, { stageId: stages.Contacted }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    await db.workflowExecutionRun.update({ where: { id: run.id }, data: { completedAt: new Date() } });
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+  });
+  it('does not use another tenant’s successful execution even with matching Deal and stage IDs in its output', async () => {
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    const entry = await db.dealStageHistory.findUniqueOrThrow({ where: { id: (await deal(a)).currentStageHistoryId! } });
+    const foreign = await db.tenant.create({ data: { name: 'Foreign execution', slug: randomUUID(), status: 'ACTIVE' } });
+    const action = { type: 'move_deal_stage', config: { stageId: stages.Qualified } };
+    const workflow = await db.workflow.create({ data: { tenantId: foreign.id, name: 'Other tenant', trigger: 'deal.updated', actions: [action] } });
+    const trigger = await db.workflowTriggerRecord.create({ data: { tenantId: foreign.id, workflowId: workflow.id, triggerType: workflow.trigger, entityType: 'deal', entityId: a } });
+    const run = await db.workflowExecutionRun.create({ data: { tenantId: foreign.id, workflowId: workflow.id, triggerId: trigger.id, entityType: 'deal', entityId: a, status: 'completed',
+      startedAt: new Date(+entry.movedAt - 100), completedAt: new Date(), definitionSnapshot: { actions: [action] } } });
+    await db.workflowExecutionStep.create({ data: { tenantId: foreign.id, executionId: run.id, actionType: 'move_deal_stage', status: 'success', stepIndex: 0,
+      executedAt: new Date(+entry.movedAt - 50), output: { movedDealIds: [a], stageId: stages.Qualified } } });
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
+  });
+  it.each(['lead', 'contact', 'deal'] as const)('rolls back %s status Activities and audits with their mutation', async kind => {
+    const { salesTransaction } = await import('../leads/lead-automation.service');
+    const contact = kind === 'contact' ? await db.contact.create({ data: { tenantId, firstName: 'Rollback', lastName: 'Contact', status: 'HOT', assignedUserId: actorId } }) : undefined;
+    const id = kind === 'deal' ? a : contact?.id ?? leadId;
+    const activityCount = await db.activity.count({ where: { tenantId } }), auditCount = await db.auditLog.count({ where: { tenantId } });
+    const before = kind === 'deal' ? await deal(id) : kind === 'lead' ? await person() : contact;
+    await expect(scope(() => salesTransaction(async () => {
+      if (kind === 'deal') await service.updateDeal(id, tenantId, actorId, { engagementStatus: 'Warm' });
+      else await editPerson(kind, id, 'Warm');
+      throw new Error('Forced rollback after Activity write');
+    }))).rejects.toThrow('Forced rollback');
+    expect(await db.activity.count({ where: { tenantId } })).toBe(activityCount);
+    expect(await db.auditLog.count({ where: { tenantId } })).toBe(auditCount);
+    expect(kind === 'deal' ? await deal(id) : kind === 'lead' ? await person() : await db.contact.findUniqueOrThrow({ where: { id } })).toEqual(before);
+  });
+  it('keeps confirmed Won validation and writes no Activity for the rejected reopening', async () => {
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
+    await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Closed Deal' }));
+    const before = await deal(a), count = await db.activity.count({ where: { tenantId } });
+    await expect(scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }))).rejects.toThrow('confirmed sale cannot be reopened');
+    expect(await deal(a)).toEqual(before);
+    expect(await db.activity.count({ where: { tenantId } })).toBe(count);
+  });
   it('cancels and reopens only the selected Deal and keeps Inquiry after a sweep', async () => {
     const before = await person(), sibling = await deal(b);
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Cancelled', lostReason: 'Selected opportunity ended.' }));
@@ -202,7 +366,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     expect(fields.find(field => field.technicalKey === 'phone')?.options).toContain('+639123456789');
     const result = await scope(() => audiences.previewAudience(tenantId, { source: 'LEADS', conditions: [{ field: 'email', operator: 'equals', value: email }], channel: 'EMAIL', page: 1, limit: 25 }));
     expect(result.recipients.map(row => row.id)).toContain(leadId);
-    const byPhone = await scope(() => audiences.previewAudience(tenantId, { source: 'LEADS', conditions: [{ field: 'phone', operator: 'equals', value: '+639123456789' }], channel: 'EMAIL', page: 1, limit: 25 }));
+    const byPhone = await scope(() => audiences.previewAudience(tenantId, { source: 'LEADS', conditions: [{ field: 'phone', operator: 'equals', value: '+639123456789' }, { field: 'email', operator: 'equals', value: email }], channel: 'EMAIL', page: 1, limit: 25 }));
     expect(byPhone.recipients.map(row => row.id)).toContain(leadId);
   });
   it('isolates both audience pickers by source, assignment, active state and tenant', async () => {

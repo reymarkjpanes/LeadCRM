@@ -118,6 +118,8 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   const record = USE_MOCK_DATA ? mockRecord as unknown as RecordData : recordQuery.data;
   const customerRecord = record;
   const canEditCustomer = hasEditPermission && recordAccess.canMutate(record) && !(module === 'leads' && record?.convertedAt);
+  const statusReadOnly = (module === 'deals' && !!object(record?.stage)?.isWon) ||
+    (!!record && normalizeCrmStatus(text(module === 'deals' ? record.engagementStatus : record.status)) === 'Closed Deal');
   useReadRecordNotifications(labels[module], id,
     !USE_MOCK_DATA && !!record && !recordQuery.isInitialLoad && !recordQuery.isRefreshing && !recordQuery.error);
   const canEdit = hasEditPermission && recordAccess.canMutate(record);
@@ -218,7 +220,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   };
 
   const saveCustomerStatus = async (status: string) => {
-    if (saving || !canEditCustomer) return;
+    if (saving || !canEditCustomer || statusReadOnly) return;
     if (module !== 'deals') { await save({ status, ...(record?.updatedAt ? { expectedUpdatedAt: record.updatedAt } : {}) }); return; }
     if (status === 'Cancelled') { setLostReason(''); setLostStage('__status__'); return; }
     if (status === 'Closed Deal') { setTab('details'); setDetailsVisited(true); setClosingAttention(true); }
@@ -226,7 +228,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   };
 
   const saveField = async (apiField: string, value: string | string[]): Promise<void> => {
-    if (savingField) return;
+    if (savingField || statusReadOnly && ['status', 'engagementStatus'].includes(apiField)) return;
     setSavingField(apiField);
     try {
       if (USE_MOCK_DATA) {
@@ -335,7 +337,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
     ]),
     { label: 'Address', value: record.address, apiField: 'address' },
     productRow,
-    ...(module === 'accounts' ? [] : [{ label: 'Status', value: statusLabel, apiField: statusManaged ? undefined : 'status', type: 'select' as const, options: statuses }]),
+    ...(module === 'accounts' ? [] : [{ label: 'Status', value: statusLabel, apiField: statusManaged || statusReadOnly ? undefined : 'status', type: 'select' as const, options: statuses }]),
     ...(module === 'accounts' ? [] : [{ technicalKey: 'assignedUserId', label: 'Assigned Agent', value: record.assignedUserId, displayValue: owner, apiField: 'assignedUserId', type: 'users' as const }]),
     ...(module === 'leads' || module === 'accounts' ? [] : [{ label: 'Notes', value: record.notes, apiField: 'notes', type: 'textarea' as const }]),
     { technicalKey: 'createdAt', label: 'Created', value: record.createdAt, displayValue: formatDateTime(record.createdAt as string | null | undefined) },
@@ -432,7 +434,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
               </span></TooltipTrigger>
               <TooltipContent>{personInboxAction && composeDisabled ? 'No valid email address available.' : 'Open messages'}</TooltipContent>
             </Tooltip></TooltipProvider>}
-            {module !== 'accounts' && <CustomerStatusMenu status={text(module === 'deals' ? record.engagementStatus : customerRecord?.status)} managed={!!customerRecord?.statusManagedByDeals} manuallyCancelled={!!customerRecord?.manualCancellation}
+            {module !== 'accounts' && <CustomerStatusMenu status={text(module === 'deals' ? record.engagementStatus : customerRecord?.status)} readOnly={statusReadOnly} managed={!!customerRecord?.statusManagedByDeals} manuallyCancelled={!!customerRecord?.manualCancellation}
               restrictions={customerRecord?.statusEditRestrictions as Record<string, string> | undefined} options={Array.isArray(customerRecord?.statusEditOptions) ? customerRecord.statusEditOptions as string[] : module === 'deals' ? object(record.stage)?.isWon ? ['Closed Deal'] : object(record.stage)?.isLost ? ['Inquiry', 'Cancelled'] : [...CRM_STATUSES] : undefined} canEdit={canEditCustomer} busy={saving} label={module === 'deals' ? 'Deal Status' : undefined} entityLabel={module === 'deals' ? 'Deal' : 'customer'} onChange={saveCustomerStatus} />}
             {onClose && <Button variant="ghost" size="icon" className={panelCloseClass + " absolute -right-1 -top-1"} onClick={onClose} aria-label="Close record" title="Close record"><X size={16} /></Button>}
           </>}

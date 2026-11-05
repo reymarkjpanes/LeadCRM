@@ -1,13 +1,18 @@
-const CACHE_NAME = 'leadcrm-cache-v9';
+const CACHE_NAME = 'leadcrm-cache-v10';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/camxian_logo.png',
   '/camxian_logo_2.png',
   '/favicon.ico',
+  '/favicon.ico?v=camxian-circle-1',
   '/icons/camxian-180.png',
   '/icons/camxian-192.png',
   '/icons/camxian-512.png',
-  '/icons/camxian-maskable-512.png'
+  '/icons/camxian-maskable-512.png',
+  '/icons/camxian-180.png?v=camxian-circle-2',
+  '/icons/camxian-192.png?v=camxian-circle-2',
+  '/icons/camxian-512.png?v=camxian-circle-2',
+  '/icons/camxian-maskable-512.png?v=camxian-circle-2'
 ];
 
 // ── Install: pre-cache critical static assets ─────────

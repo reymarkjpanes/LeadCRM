@@ -237,7 +237,7 @@ export async function updateContact(
         return saved;
       };
       if (dto.status) {
-        if (data.status !== current.status) data.lastStatusChangedAt = new Date();
+        if (normalizeCrmStatus(String(data.status)) !== normalizeCrmStatus(current.status)) data.lastStatusChangedAt = new Date();
         else delete data.lastStatusChangedAt;
         if (data.status === 'Closed Deal' && data.status !== current.status) await assertClosedStatus(tx, tenantId, { leadId: id });
       }
@@ -264,7 +264,7 @@ export async function updateContact(
         updatedBy:    { select: { id: true, firstName: true, lastName: true } },
       },
     });
-      if (updatedById && dto.status && updated.status !== current.status) await recordCustomerStatusChange(tx, tenantId, updatedById, { leadId: id }, current.status, normalizeCrmStatus(updated.status), 'Staff changed the CRM status.');
+      if (updatedById && dto.status && normalizeCrmStatus(updated.status) !== normalizeCrmStatus(current.status)) await recordCustomerStatusChange(tx, tenantId, updatedById, { leadId: id }, current.status, normalizeCrmStatus(updated.status), 'Staff changed the CRM status.');
       if (updatedById && dto.assignedUserId !== undefined && dto.assignedUserId !== current.assignedUserId) {
         const assignment = dto.assignedUserId ? await assignmentSnapshot(tx, tenantId, current.assignedUserId, dto.assignedUserId, updatedById) : undefined;
         await tx.activity.create({ data: {
