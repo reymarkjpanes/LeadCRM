@@ -18,8 +18,24 @@ vi.mock('./visual-workflow-builder', () => ({ default: ({ initial, templateIndex
   const [name, setName] = React.useState(initial.name);
   return <><div data-testid="loaded-template">{initial.name}</div><output data-testid="template-index">{templateIndex}</output><output data-testid="template-identity">{templateIdentity}</output><output data-testid="initial-draft">{JSON.stringify(initial)}</output><input aria-label="Draft name" value={name} onChange={event => setName(event.target.value)} /><output data-testid="fields">{triggers.flatMap(trigger => trigger.fields.map(field => field.label)).join(',')}</output><output data-testid="users">{choices.users.map(user => user.name).join(',')}</output></>;
 } }));
-beforeEach(() => { vi.clearAllMocks(); authScope.tenantId = 'tenant'; authScope.userId = 'user'; options.mockResolvedValue({ data: { users: [], pipelines: [], templates: [], campaigns: [] } }); navigation.query = new URLSearchParams(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  authScope.tenantId = 'tenant';
+  authScope.userId = 'user';
+  options.mockReset().mockResolvedValue({ data: { users: [], pipelines: [], templates: [], campaigns: [] } });
+  navigation.query = new URLSearchParams();
+});
 afterEach(cleanup);
+
+async function renderLoadedBuilder() {
+  let view!: ReturnType<typeof render>;
+  // Flush initialization and the effect that subscribes to cache invalidations.
+  await act(async () => {
+    view = render(<WorkflowBuilderPage />);
+  });
+  expect(screen.getByTestId('loaded-template')).toBeTruthy();
+  return view;
+}
 
 it('shows the structured skeleton immediately and removes it when scratch initialization resolves', async () => {
   let resolve!: (value: unknown) => void;
@@ -54,8 +70,7 @@ it.each(WORKFLOW_RECIPES.map((recipe, index) => [recipe.name, index] as const))(
 });
 
 it('refreshes declared custom fields after a scoped invalidation while preserving editor state', async () => {
-  render(<WorkflowBuilderPage />);
-  await screen.findByTestId('loaded-template');
+  await renderLoadedBuilder();
   fireEvent.change(screen.getByLabelText('Draft name'), { target: { value: 'Unsaved edits' } });
   options.mockResolvedValueOnce({ data: { users: [], pipelines: [], templates: [], campaigns: [], customFields: [{ id: '2857e8ec-456d-4503-b955-46db45560974', technicalAlias: 'score', name: 'Latest Score', module: 'leads', type: 'Number', group: 'Basic Information', active: true, required: false, visibleInForm: true, visibleInDetails: true, order: 0, options: [], version: 1 }] } });
   act(() => invalidatePageCache('settings', 'another-tenant'));
@@ -66,8 +81,7 @@ it('refreshes declared custom fields after a scoped invalidation while preservin
 });
 
 it('coalesces invalidations and discards an obsolete response before applying the latest choices', async () => {
-  render(<WorkflowBuilderPage />);
-  await screen.findByTestId('loaded-template');
+  await renderLoadedBuilder();
   let finish!: (value: unknown) => void;
   options.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   options.mockResolvedValueOnce({ data: { users: [{ id: 'current', name: 'Current choices' }], pipelines: [], templates: [], campaigns: [] } });
@@ -81,8 +95,7 @@ it('coalesces invalidations and discards an obsolete response before applying th
 
 it('clears protected choices on permission loss and preserves edits through retry', async () => {
   options.mockResolvedValueOnce({ data: { users: [{ id: 'first', name: 'Protected agent' }], pipelines: [], templates: [], campaigns: [] } });
-  render(<WorkflowBuilderPage />);
-  await screen.findByTestId('loaded-template');
+  await renderLoadedBuilder();
   fireEvent.change(screen.getByLabelText('Draft name'), { target: { value: 'Keep this edit' } });
   options.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }));
   act(() => invalidatePageCache('roles', 'tenant'));
@@ -96,14 +109,14 @@ it('clears protected choices on permission loss and preserves edits through retr
 
 it('hides the previous user choices immediately during scope changes', async () => {
   options.mockResolvedValueOnce({ data: { users: [{ id: 'agent', name: 'Previous user choices' }], pipelines: [], templates: [], campaigns: [] } });
-  const view = render(<WorkflowBuilderPage />);
-  await screen.findByTestId('loaded-template');
+  const view = await renderLoadedBuilder();
   let finish!: (value: unknown) => void;
   options.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   authScope.userId = 'different-user';
   view.rerender(<WorkflowBuilderPage />);
   expect(screen.queryByTestId('loaded-template')).toBeNull();
   expect(screen.queryByText('Previous user choices')).toBeNull();
+  expect(options).toHaveBeenCalledTimes(2);
   await act(async () => finish({ data: { users: [], pipelines: [], templates: [], campaigns: [] } }));
   await screen.findByTestId('loaded-template');
   expect(screen.getByTestId('users').textContent).toBe('');
