@@ -18,6 +18,8 @@ export interface DealStaleness {
   stageName: string;
   thresholdDays: number | null;
   daysInStage: number;
+  /** Full days since the last qualifying work; absent on older servers. */
+  daysInactive?: number;
   isStale: boolean;
 }
 

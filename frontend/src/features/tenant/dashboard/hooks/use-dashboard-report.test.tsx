@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useDashboard, dashboardQueryString } from './use-dashboard-report';
+import { invalidateApiPageCache } from '@/shared/cache/invalidate-api-page-cache';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), permissions: vi.fn(async () => {}), user: vi.fn(async () => {}), clear: vi.fn(),
@@ -8,7 +9,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ ...mocks.auth, refreshPermissions: mocks.permissions, refreshUser: mocks.user }) }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
-vi.mock('@/shared/cache/page-cache', () => ({ clearPageCache: mocks.clear, subscribePageCacheInvalidation: () => () => {} }));
+vi.mock('@/shared/cache/page-cache', async importOriginal => ({
+  ...await importOriginal<typeof import('@/shared/cache/page-cache')>(),
+  clearPageCache: mocks.clear,
+}));
 class Feed extends EventTarget {
   static instances: Feed[] = [];
   closed = false;
@@ -23,7 +27,7 @@ beforeEach(() => {
   mocks.auth = { user: { id: 'a', tenantId: 'tenant-a', role: 'Sales' }, tenant: { id: 'tenant-a' } };
   mocks.get.mockResolvedValue({ success: true, data: { generatedAt: 'new', metrics: { totalRevenue: 1 } } });
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it('loads backend analytics and batches duplicate notifications without local arithmetic', async () => {
   const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
@@ -138,6 +142,55 @@ const sourceSnapshot = (won: number, revenue = 45000) => ({
   distribution: [{ id: 'lead', count: 17 }],
   leadSourcePerformance: { period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila' }, sources: [{ name: 'Referral', won }] },
 });
+
+it.each(['queued', 'in flight'] as const)('preserves a %s full refresh when Lead Source dates change', async timing => {
+  vi.useFakeTimers();
+  mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(12) });
+  const hook = renderHook(({ range }: { range: 'thisMonth' | 'lastMonth' }) => useDashboard({ range: 'thisMonth', leadSourceRange: range }), { initialProps: { range: 'thisMonth' } });
+  await act(async () => {});
+  expect(hook.result.current.report?.metrics.totalRevenue).toBe(45000);
+
+  act(() => {
+    if (timing === 'queued') invalidateApiPageCache('/crm/deals/deal-id/stage');
+    else Feed.instances[0].emit('dashboard-change', { access: '1', analytics: '2' });
+  });
+  let finishOld: (response: unknown) => void = () => {};
+  if (timing === 'in flight') {
+    mocks.get.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  }
+
+  mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(3, 46000) });
+  hook.rerender({ range: 'lastMonth' });
+  await act(async () => {});
+  expect(mocks.get.mock.calls.at(-1)?.[0]).toContain('range=thisMonth&leadSourceRange=lastMonth');
+  expect(hook.result.current.report?.metrics.totalRevenue).toBe(46000);
+  expect(hook.result.current.report?.leadSourcePerformance?.sources[0].won).toBe(3);
+  if (timing === 'in flight') expect(mocks.get.mock.calls[1][1].signal.aborted).toBe(true);
+
+  await act(async () => {
+    finishOld({ data: sourceSnapshot(99, 99999) });
+    await vi.advanceTimersByTimeAsync(150);
+  });
+  expect(mocks.get).toHaveBeenCalledTimes(timing === 'queued' ? 2 : 3);
+  expect(hook.result.current.report?.metrics.totalRevenue).toBe(46000);
+  expect(hook.result.current.report?.leadSourcePerformance?.sources[0].won).toBe(3);
+  expect(Feed.instances).toHaveLength(1);
+});
+
+it('keeps a failed full refresh pending for the next source filter request', async () => {
+  mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(12) });
+  const hook = renderHook(({ range }: { range: 'thisMonth' | 'lastMonth' }) => useDashboard({ range: 'thisMonth', leadSourceRange: range }), { initialProps: { range: 'thisMonth' } });
+  await waitFor(() => expect(hook.result.current.report?.metrics.totalRevenue).toBe(45000));
+  mocks.get.mockRejectedValueOnce(new Error('Refresh failed'));
+  await act(async () => { expect(await hook.result.current.refresh()).toBe(false); });
+  mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(3, 46000) });
+  hook.rerender({ range: 'lastMonth' });
+  await waitFor(() => expect(hook.result.current.report?.metrics.totalRevenue).toBe(46000));
+  expect(hook.result.current.error).toBeNull();
+});
+
 it('serializes independent source dates and updates only the source chart on a range change', async () => {
   expect(dashboardQueryString({ range: 'thisMonth', leadSourceRange: 'custom', leadSourceStart: '2020-01-01', leadSourceEnd: '2020-01-02' })).toBe('range=thisMonth&leadSourceRange=custom&leadSourceStart=2020-01-01&leadSourceEnd=2020-01-02');
   mocks.get.mockResolvedValue({ success: true, data: sourceSnapshot(12) });

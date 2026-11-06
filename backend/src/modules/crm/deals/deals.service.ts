@@ -161,12 +161,14 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
   );
 
   const updateEventId = randomUUID();
+  const changes = await withCustomChanges(recordChanges(before, deal));
   await writeAuditLog({
     tenantId, userId,
-    action: 'deal.updated', entityType: 'Deal', entityId: id, metadata: { eventId: updateEventId },
+    action: 'deal.updated', entityType: 'Deal', entityId: id,
+    occurredAt: new Date(),
+    metadata: { eventId: updateEventId, stalenessReset: !authorizedWorkflowScope(tenantId) && changes.changedFields.length > 0 },
     before: changedBefore, after: changedAfter,
   });
-  const changes = await withCustomChanges(recordChanges(before, deal));
   if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, eventId: updateEventId, record: deal, changedFields: changes.changedFields, changes });
 
   // Assignment events commit with the Deal through the notification outbox.

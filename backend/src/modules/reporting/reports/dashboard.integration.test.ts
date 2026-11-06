@@ -133,7 +133,11 @@ async function http(path: string, token = adminToken, method = 'GET', body?: unk
 }
 beforeAll(async () => {
   process.env.JWT_SECRET = 'disposable-dashboard-test-secret';
-  if (disposable) process.env.DASHBOARD_TEST_DATABASE_URL = process.env.DATABASE_URL;
+  if (disposable) {
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('connection_limit', '1');
+    process.env.DASHBOARD_TEST_DATABASE_URL = url.toString();
+  }
   else {
     pg = await PGlite.create(); await replayCrmMigrations(pg);
     socket = new PGLiteSocketServer({ db: pg, host: '127.0.0.1', port: 0 }); await socket.start();
@@ -765,6 +769,153 @@ describe('authoritative dashboard', () => {
       await db.pipeline.deleteMany({ where: { id: { in: ['stale-custom', 'stale-archived-pipeline'] } } });
     }
   });
+  it('uses the same activity evidence across the Deal response and Action Center at a Manila midnight', async () => {
+    const { presentDealResponse } = await import('../../crm/deals/deal-presentation');
+    const midnight = new Date('2020-01-14T16:00:00Z');
+    const cutoff = new Date(+midnight - 86_400_000);
+    const recent = new Date(+cutoff + 1);
+    const entered = new Date(+cutoff - 2 * 86_400_000);
+    const prefix = 'inactive-evidence-';
+    const ids = ['note', 'call', 'meeting', 'sms', 'reply', 'sent', 'forward', 'draft', 'automated', 'task', 'task-created',
+      'other', 'future', 'workflow', 'audit', 'audit-noop', 'exact', 'closed', 'cancelled'].map(key => prefix + key);
+    const id = (key: string) => prefix + key;
+    const prior = await db.stage.findUniqueOrThrow({ where: { id: 'qualified' } });
+    const account = await db.emailAccount.create({ data: { tenantId: 'a', userId: 'admin', email: 'test@example.test', accessToken: 'fixture' } });
+    const task = await db.task.create({ data: { tenantId: 'a', assignedUserId: 'agent', title: prefix, dueDate: recent, status: 'completed' } });
+    const isFixture = (row: { id: string }) => row.id.startsWith(prefix);
+    const [{ version }] = await db.$queryRaw<{ version: string }[]>`SELECT version()`;
+    const nativeTimezone = !version.includes('PGlite');
+    try {
+      // The PGlite socket drops Prisma connections on timezone changes. The
+      // native QA run also verifies the session's timezone, through the same API.
+      if (nativeTimezone) {
+        await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Manila'");
+        expect(await db.$queryRaw`SELECT current_setting('TimeZone') AS timezone`).toEqual([{ timezone: 'Asia/Manila' }]);
+      }
+      await db.stage.update({ where: { id: 'qualified' }, data: { rottenAfterDays: 1 } });
+      for (const dealId of ids) await deal(dealId, 'qualified', 100, { createdAt: entered, stageChangedAt: entered,
+        ...(dealId === id('closed') ? { engagementStatus: 'Closed Deal' } : dealId === id('cancelled') ? { engagementStatus: 'Cancelled' } : {}) });
+      await db.activity.createMany({ data: [
+        ...['note','call','meeting','sms'].map(type => ({ tenantId: 'a', dealId: id(type), type, title: prefix, createdAt: recent })),
+        { tenantId: 'a', dealId: id('exact'), type: 'note', title: prefix, createdAt: cutoff },
+        { tenantId: 'a', dealId: id('future'), type: 'note', title: prefix, createdAt: new Date(+midnight + 1000) },
+        { tenantId: 'a', dealId: id('workflow'), type: 'workflow', title: prefix, createdAt: recent },
+        { tenantId: 'a', type: 'note', title: prefix, createdAt: recent },
+        ...[['completed','task'], ['created','task-created']].map(([event, key]) => ({ tenantId: 'a', taskId: task.id,
+          type: 'task', title: prefix, createdAt: recent, metadata: { taskEvent: { event, after: { dealIds: [id(key)] } } } })),
+      ].map(activity => ({ ...activity, createdById: 'admin' })) });
+      await db.auditLog.createMany({ data: [
+        { tenantId: 'a', userId: 'admin', action: 'deal.updated', entityType: 'Deal', entityId: id('audit'),
+          changeset: { before: { priority: 'LOW' }, after: { priority: 'HIGH' } }, createdAt: recent },
+        { tenantId: 'a', userId: 'admin', action: 'deal.updated', entityType: 'Deal', entityId: id('audit-noop'),
+          changeset: { before: { updatedAt: entered.toISOString() }, after: { updatedAt: recent.toISOString() } }, createdAt: recent },
+        { tenantId: 'a', userId: 'admin', action: 'deal.updated', entityType: 'Deal', entityId: id('workflow'),
+          changeset: { before: { title: 'Previous' }, after: { title: 'Changed by workflow' } }, metadata: { stalenessReset: false }, createdAt: recent },
+      ] });
+      await db.mailboxMessage.createMany({ data: ['reply','sent','forward','draft','automated'].map(key => ({
+        tenantId: 'a', accountId: account.id, dealId: id(key), direction: ['sent','forward'].includes(key) ? 'outbound' : 'inbound',
+        providerMessageId: key, threadId: key, from: 'test@example.test', recipients: ['customer@example.test'], ccRecipients: [],
+        subject: prefix, body: prefix, snippet: prefix,
+        labels: key === 'draft' ? ['DRAFT'] : [], meaningful: key !== 'automated', sentAt: recent, dealAttribution: { kind: 'reply' },
+      })) });
+      await db.mailboxSendReceipt.createMany({ data: ['sent','forward'].map(key => ({ tenantId: 'a', accountId: account.id,
+        requestId: key, payloadHash: key, providerMessageId: key, status: 'sent', authorizationContext: { composeMode: key === 'forward' ? 'forward' : 'new' },
+      })) });
+
+      const read = (at: Date) => scoped(() => dashboard(admin, query, at));
+      expect((await read(new Date(+midnight - 1))).actions.some(row => row.id === id('exact'))).toBe(false);
+      const expected = ['audit-noop','automated','draft','exact','forward','future','other','task-created','workflow'].map(id).sort();
+      for (const at of [midnight, new Date(+midnight + 1)]) {
+        const actions = (await read(at)).actions.filter(isFixture).map(row => row.id).sort();
+        expect(actions).toEqual(+at === +midnight ? expected : [...expected, ...['audit','call','meeting','note','reply','sent','sms','task'].map(id)].sort());
+      }
+      const rows = await db.deal.findMany({ where: { id: { in: ids } } });
+      const presented = await scoped(() => presentDealResponse('a', rows, midnight)) as Array<{ id: string; staleness: { isStale: boolean; daysInStage: number; daysInactive: number } }>;
+      expect(presented.filter(row => row.staleness.isStale).map(row => row.id).sort()).toEqual(expected);
+      expect(presented.find(row => row.id === id('exact'))!.staleness).toMatchObject({ daysInactive: 1, daysInStage: 3 });
+    } finally {
+      if (nativeTimezone) await db.$executeRawUnsafe('RESET TIME ZONE');
+      await db.mailboxSendReceipt.deleteMany({ where: { accountId: account.id } });
+      await db.mailboxMessage.deleteMany({ where: { accountId: account.id } });
+      await db.emailAccount.delete({ where: { id: account.id } });
+      await db.activity.deleteMany({ where: { tenantId: 'a', title: prefix } });
+      await db.task.delete({ where: { id: task.id } });
+      await db.auditLog.deleteMany({ where: { tenantId: 'a', entityId: { in: ids } } });
+      await db.deal.deleteMany({ where: { id: { in: ids } } });
+      await db.stage.update({ where: { id: 'qualified' }, data: { rottenAfterDays: prior.rottenAfterDays } });
+    }
+  });
+  it('reconciles live HTTP reports and Deal badges after threshold changes, no-op saves, and real work', async () => {
+    const ids = ['staleness-http-edit','staleness-http-note','staleness-http-reassign','staleness-http-custom-field'];
+    const stageUrl = '/crm/stages/qualified';
+    const prior = await db.stage.findUniqueOrThrow({ where: { id: 'qualified' } });
+    const entered = new Date(Date.now() - 2 * 86_400_000);
+    const field = 'staleness-http-field';
+    const read = async (path: string, token = adminToken, method = 'GET', body?: unknown) => {
+      const response = await http(path, token, method, body);
+      const result = await response.json();
+      expect(response.ok, JSON.stringify(result)).toBe(true);
+      return result.data;
+    };
+    const actions = async (token = adminToken) => (await read('/reporting/dashboard', token)).actions.filter((row: { id: string }) => ids.includes(row.id)).map((row: { id: string }) => row.id).sort();
+    try {
+      await db.closingFieldDefinition.create({ data: { tenantId: 'a', id: field, definition: { id: field, name: 'Follow-up field', type: 'Text', module: 'deals', group: 'Deal Details', active: true, order: 0, visibleInForm: true, required: false, options: [] } } });
+      for (const id of ids) await deal(id, 'qualified', 100, { createdAt: entered, stageChangedAt: entered });
+      await read(stageUrl, adminToken, 'PUT', { rottenAfterDays: 3 });
+      expect(await actions()).toEqual([]);
+      expect((await read(`/crm/deals/${ids[0]}`)).staleness).toMatchObject({ isStale: false, thresholdDays: 3 });
+      expect((await http(stageUrl, agentToken, 'PUT', { rottenAfterDays: 1 })).status).toBe(403);
+      await read(stageUrl, adminToken, 'PUT', { rottenAfterDays: 1 });
+      expect(await actions()).toEqual([...ids].sort());
+      await db.rolePermission.updateMany({ where: { roleId: 'sales-role', module: 'deals' }, data: { canViewAll: false, canViewMy: true } });
+      expect(await actions(agentToken)).toEqual([...ids].sort());
+      expect(await actions(foreignToken)).toEqual([]);
+      await read(`/crm/deals/${ids[0]}`, adminToken, 'PUT', { title: ids[0] });
+      expect((await read(`/crm/deals/${ids[0]}`)).staleness.isStale).toBe(true);
+      expect(await actions()).toEqual([...ids].sort());
+      expect((await read(`/crm/deals/${ids[0]}`, adminToken, 'PUT', { title: 'Actual Deal edit' })).staleness).toMatchObject({ isStale: false, daysInStage: 2, daysInactive: 0 });
+      await read('/crm/activities', adminToken, 'POST', { dealId: ids[1], type: 'note', title: 'Follow-up' });
+      expect((await read(`/crm/deals/${ids[1]}`)).staleness.isStale).toBe(false);
+      expect(await read('/crm/deals/bulk/reassign', adminToken, 'POST', { dealIds: [ids[2]], assignedUserId: 'other-agent' })).toMatchObject({ succeeded: 1, failed: 0 });
+      expect((await read(`/crm/deals/${ids[2]}`)).staleness.isStale).toBe(false);
+      await read(`/crm/deals/${ids[3]}`, adminToken, 'PUT', { customFieldValues: { [field]: 'Recorded outcome' } });
+      expect(await actions()).toEqual([]);
+      expect(await actions(agentToken)).toEqual([]);
+    } finally {
+      await db.rolePermission.updateMany({ where: { roleId: 'sales-role', module: 'deals' }, data: { canViewAll: true, canViewMy: false } });
+      await db.stage.update({ where: { id: 'qualified' }, data: { rottenAfterDays: prior.rottenAfterDays } });
+      await db.customFieldValue.deleteMany({ where: { tenantId: 'a', dealId: { in: ids } } });
+      await db.deal.deleteMany({ where: { id: { in: ids } } });
+      await db.closingFieldDefinition.delete({ where: { tenantId_id: { tenantId: 'a', id: field } } });
+    }
+  });
+  it('serves qualifying custom-pipeline actions when the official Sales Pipeline cannot be reported', async () => {
+    const id = 'staleness-partial';
+    const entered = new Date(Date.now() - 2 * 86_400_000);
+    await db.pipeline.create({ data: { id, tenantId: 'a', name: 'Custom Pipeline' } });
+    await db.stage.create({ data: { id, tenantId: 'a', pipelineId: id, name: 'Follow-up', order: 0, rottenAfterDays: 1 } });
+    await deal(id, id, 100, { pipelineId: id, stageChangedAt: entered });
+    try {
+      for (const [hide, stageName, duplicate] of [[true, 'Qualified', false], [false, 'Broken Qualified', false], [false, 'Qualified', true]] as const) {
+        await db.pipeline.update({ where: { id: 'sales' }, data: { isArchived: hide } });
+        await db.stage.update({ where: { id: 'qualified' }, data: { name: stageName } });
+        if (duplicate) await db.pipeline.create({ data: { id: `${id}-duplicate`, tenantId: 'a', name: 'sales pipeline' } });
+        const response = await http('/reporting/dashboard');
+        expect(response.status).toBe(200);
+        const { data } = await response.json();
+        expect(data).toMatchObject({ pipeline: null, metrics: { totalRevenue: null, activeDeals: null }, warnings: [expect.stringContaining('Sales Pipeline')] });
+        expect(data.actions.filter((row: { id: string }) => row.id === id)).toEqual([expect.objectContaining({ href: `/crm/deals/${id}`, kind: 'deal' })]);
+        expect((await http('/reporting/pipeline-summary')).status).toBe(409);
+      }
+    } finally {
+      await db.stage.update({ where: { id: 'qualified' }, data: { name: 'Qualified' } });
+      await db.pipeline.update({ where: { id: 'sales' }, data: { isArchived: false } });
+      await db.pipeline.deleteMany({ where: { id: `${id}-duplicate` } });
+      await db.deal.delete({ where: { id } });
+      await db.stage.delete({ where: { id } });
+      await db.pipeline.delete({ where: { id } });
+    }
+  });
   it('enforces staff scope, module restrictions, HTTP auth, exports and cross-tenant requests', async () => {
     const organization = await scoped(() => dashboard(agent, query, now));
     expect(organization.scope).toBe('authorized'); expect(organization.metrics).toEqual((await report()).metrics);
@@ -868,7 +1019,7 @@ describe('authoritative dashboard', () => {
       expect(changed.leads).toBe('1');
       expect((await db.dashboardRevision.findUniqueOrThrow({ where: { tenantId: 'a' } })).leads.toString()).toBe(first.leads);
       expect(await readEvent(ownReader, 'dashboard-heartbeat')).toEqual({});
-      expect(Object.keys(first).sort()).toEqual(['access','actions','analytics','leads']);
+      expect(Object.keys(first).sort()).toEqual(['access','actions','analytics','content','leads']);
       const { revokeSession } = await import('../../../core/auth/session.service');
       await revokeSession(agentToken);
       expect(await readEvent(ownReader, 'dashboard-access-changed')).toEqual({});

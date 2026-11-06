@@ -5,7 +5,7 @@ import { tenantContext } from '../../../core/tenant/tenant-context';
 import { findUserEffectivePermissions } from '../../administration/roles/roles.repository';
 import { AppError } from '../../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../../api/middleware/auth.middleware';
-import { staleDealCutoff } from '../../crm/deals/deal-staleness';
+import { dealStalenessSelect, evaluateDealStaleness, staleDealCutoff } from '../../crm/deals/deal-staleness';
 import { resolveCrmActor, crmPolicyReadWhere, crmPolicySqlWhere, taskReadWhere } from '../../crm/access/crm-record-access.service';
 
 export async function dashboardAccess(identity: AuthenticatedUser) {
@@ -36,7 +36,8 @@ type Totals = { revenue: number; won: number; lost: number; currentWon: number; 
   currencyExcluded: number; closingDateMissing: number; attributionMissing: number; unattributedRevenue: number; unattributedMissing: number };
 const percent = (numerator: number, denominator: number) => denominator ? Math.round(numerator / denominator * 1000) / 10 : null;
 
-export async function getDashboard(identity: AuthenticatedUser, input: unknown, now = new Date()): Promise<DashboardReport> {
+export async function getDashboard(identity: AuthenticatedUser, input: unknown, now = new Date(),
+  { strictSalesPipeline = false } = {}): Promise<DashboardReport> {
   const started = performance.now();
   const parsed = DashboardQuerySchema.safeParse(input);
   if (!parsed.success) throw new AppError('Choose a valid dashboard date range.', 400);
@@ -75,20 +76,32 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
     const leadWhere = { ...access.leadScope, tenantId, isArchived: false, deletedAt: null, convertedAt: null };
     if (access.leads) result.metrics.totalLeads = await tx.lead.count({ where: leadWhere });
 
+    let invalidSalesPipelines: string[] = [];
     if (access.deals) {
       // Same authoritative lookup used by Lead -> Product Deal automation; read-only.
       const pipelines = await tx.pipeline.findMany({ where: { tenantId, isArchived: false, name: { equals: 'Sales Pipeline', mode: 'insensitive' } },
         select: { id: true, name: true, stages: { orderBy: [{ order: 'asc' }, { id: 'asc' }], select: {
           id: true, name: true, order: true, color: true, probability: true, isWon: true, isLost: true,
         } } } });
-      if (pipelines.length > 1) throw new AppError('Configure one active Sales Pipeline for dashboard reporting.', 409, 'DASHBOARD_PIPELINE_CONFIGURATION');
-      if (!pipelines.length) {
-        if (await tx.deal.count({ where: { ...access.dealScope, tenantId, isArchived: false, deletedAt: null } })) throw new AppError('Configure one active Sales Pipeline for dashboard reporting.', 409, 'DASHBOARD_PIPELINE_CONFIGURATION');
+      let configurationError: AppError | undefined;
+      if (pipelines.length > 1 || !pipelines.length && await tx.deal.count({ where: { ...access.dealScope, tenantId, isArchived: false, deletedAt: null } })) {
+        configurationError = new AppError('Configure one active Sales Pipeline for dashboard reporting.', 409, 'DASHBOARD_PIPELINE_CONFIGURATION');
+      } else if (pipelines.length === 1) {
+        try { verifyDashboardStages(pipelines[0].stages); }
+        catch (error) {
+          if (!(error instanceof AppError) || error.code !== 'DASHBOARD_PIPELINE_CONFIGURATION') throw error;
+          configurationError = error;
+        }
+      }
+      if (configurationError) {
+        if (strictSalesPipeline) throw configurationError;
+        invalidSalesPipelines = pipelines.map(pipeline => pipeline.id);
+        result.warnings.push(configurationError.message);
+      } else if (!pipelines.length) {
         Object.assign(result.metrics, { totalRevenue: 0, forecastedRevenue: 0, activeDeals: 0, won: 0, lost: 0, winRate: 0, currentWon: 0, totalDeals: 0, unattributedWon: 0, unattributedRevenue: 0, openPipelineValue: 0 });
         result.leadSourcePerformance = { period: { start: sourcePeriod.start, end: sourcePeriod.end, timezone: sourcePeriod.timezone }, sources: [] };
       } else {
       const pipeline = pipelines[0];
-      verifyDashboardStages(pipeline.stages);
       result.pipeline = pipeline;
       const [lead, contacted, qualified, won, lost] = pipeline.stages;
       // Prisma DateTime columns are UTC timestamp-without-time-zone. Explicit
@@ -240,14 +253,19 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         priority: 'High', dueDate: null, overdue: false, href: `/crm/leads/${encodeURIComponent(lead.id)}` })));
     }
     if (access.deals) {
-      const stages = await tx.stage.findMany({ where: { tenantId, pipeline: { tenantId, isArchived: false }, isWon: false, isLost: false, rottenAfterDays: { not: null } },
+      const stages = await tx.stage.findMany({ where: { tenantId, pipelineId: { notIn: invalidSalesPipelines },
+        pipeline: { tenantId, isArchived: false }, isWon: false, isLost: false, rottenAfterDays: { gt: 0 } },
         select: { id: true, pipelineId: true, rottenAfterDays: true } });
       if (stages.length) {
-        const where: Prisma.DealWhereInput = { ...access.dealScope, tenantId, isArchived: false, deletedAt: null, OR: stages.map(stage => ({ stageId: stage.id, pipelineId: stage.pipelineId,
-          OR: [{ stageChangedAt: { lte: staleDealCutoff(stage.rottenAfterDays!, now) } }, { stageChangedAt: null, createdAt: { lte: staleDealCutoff(stage.rottenAfterDays!, now) } }] })) };
-        const [count, deals] = await Promise.all([tx.deal.count({ where }), tx.deal.findMany({ where,
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, title: true, priority: true } })]);
-        result.pendingActions += count;
+        const candidates = await tx.deal.findMany({ where: { tenantId, isArchived: false, deletedAt: null,
+          AND: [access.dealScope, { OR: stages.map(stage => {
+            const cutoff = staleDealCutoff(stage.rottenAfterDays!, now);
+            return { stageId: stage.id, pipelineId: stage.pipelineId,
+              OR: [{ stageChangedAt: { lte: cutoff } }, { stageChangedAt: null, createdAt: { lte: cutoff } }] };
+          }) }] }, select: { id: true, title: true, priority: true, ...dealStalenessSelect } });
+        const staleness = await evaluateDealStaleness(tx, tenantId, candidates, now);
+        const deals = candidates.filter(deal => staleness.get(deal.id)?.isStale);
+        result.pendingActions += deals.length;
         result.actions.push(...deals.map(deal => ({ id: deal.id, kind: 'deal' as const, title: deal.title, priority: deal.priority,
           dueDate: null, overdue: false, href: `/crm/deals/${encodeURIComponent(deal.id)}` })));
       }

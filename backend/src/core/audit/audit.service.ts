@@ -15,6 +15,7 @@ export interface AuditParams {
   userAgent?: string;
   sessionId?: string;
   severity?:  'INFO' | 'WARNING' | 'CRITICAL';
+  occurredAt?: Date;
 }
 
 /**
@@ -43,6 +44,7 @@ export async function writeAuditLog(params: AuditParams, db?: Prisma.Transaction
         userAgent:  params.userAgent,
         sessionId:  params.sessionId,
         severity:   params.severity ?? 'INFO',
+        createdAt:  params.occurredAt,
       },
     });
   } catch (err) {

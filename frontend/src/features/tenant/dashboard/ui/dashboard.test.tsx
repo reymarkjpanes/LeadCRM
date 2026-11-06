@@ -257,20 +257,23 @@ it('preserves Reports global, revenue interval and historical funnel filters', (
 
 it('keeps source dates independent of Revenue Trend, Pipeline Overview and Sync Metrics', async () => {
   const view = render(<Dashboard />);
-  expect(screen.queryByRole('button', { name: 'Dashboard date range' })).toBeNull();
+  const range = screen.getByRole('button', { name: 'Dashboard date range' });
+  expect(range.getAttribute('title')).toBe('This Month');
+  fireEvent.click(range);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Last 3 Months' }));
   expect(screen.getByLabelText('Current date and time')).toBeTruthy();
   const pipeline = screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML;
   fireEvent.click(screen.getByRole('button', { name: 'Filter Revenue Trend' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Week' }));
   fireEvent.click(screen.getByRole('button', { name: 'Lead Source date range' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Last Month' }));
-  expect(mocks.query).toMatchObject({ range: 'thisMonth', revenueInterval: 'week', leadSourceRange: 'lastMonth' });
+  expect(mocks.query).toMatchObject({ range: 'last3', revenueInterval: 'week', leadSourceRange: 'lastMonth' });
   fireEvent.click(screen.getByRole('button', { name: 'Lead Source date range' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
   fireEvent.change(screen.getByLabelText('Lead Source start date'), { target: { value: '2020-01-03' } });
   fireEvent.change(screen.getByLabelText('Lead Source end date'), { target: { value: '2020-01-04' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply source dates' }));
-  expect(mocks.query).toMatchObject({ range: 'thisMonth', start: undefined, end: undefined, revenueInterval: 'week', leadSourceRange: 'custom', leadSourceStart: '2020-01-03', leadSourceEnd: '2020-01-04' });
+  expect(mocks.query).toMatchObject({ range: 'last3', start: undefined, end: undefined, revenueInterval: 'week', leadSourceRange: 'custom', leadSourceStart: '2020-01-03', leadSourceEnd: '2020-01-04' });
   expect(screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML).toBe(pipeline);
   fireEvent.click(screen.getByRole('button', { name: 'Sync Metrics' }));
   await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
@@ -286,21 +289,21 @@ it('validates custom source dates without applying invalid ranges', () => {
   expect(screen.getByRole('alert').textContent).toContain('maximum two years');
   expect(mocks.query!.leadSourceRange).toBe('thisMonth');
 });
-it('clears hidden global dates when switching from Reports to Dashboard', () => {
-  const view = render(<Dashboard presentation="reporting" />);
-  fireEvent.click(screen.getByRole('button', { name: 'Dashboard date range' }));
+it('applies and clears custom reporting dates from the Dashboard toolbar', () => {
+  render(<Dashboard />);
+  const range = screen.getByRole('button', { name: 'Dashboard date range' });
+  fireEvent.click(range);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2020-01-01' } });
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2020-01-02' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply dates' }));
-  expect(mocks.query!.range).toBe('custom');
-  fireEvent.click(screen.getByRole('button', { name: 'Dashboard date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
-  view.rerender(<Dashboard />);
-  expect(mocks.query).toMatchObject({ range: 'thisMonth', start: undefined, end: undefined });
-  expect(screen.queryByRole('button', { name: 'Dashboard date range' })).toBeNull();
+  expect(mocks.query).toMatchObject({ range: 'custom', start: '2020-01-01', end: '2020-01-02', leadSourceRange: 'thisMonth' });
+  expect(range.getAttribute('title')).toContain('2020');
   expect(screen.queryByLabelText('Start date')).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Apply dates' })).toBeNull();
+  fireEvent.click(range);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Last Month' }));
+  expect(mocks.query).toMatchObject({ range: 'lastMonth', start: undefined, end: undefined, leadSourceRange: 'thisMonth' });
+  expect(range.getAttribute('title')).toBe('Last Month');
 });
 
 it('keeps source data and disables Sync Metrics while loading', () => {

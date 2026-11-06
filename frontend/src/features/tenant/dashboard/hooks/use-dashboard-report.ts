@@ -38,6 +38,8 @@ export function useDashboard(query: DashboardQuery) {
   const [sourceLoading, setSourceLoading] = useState(false);
   const [connection, setConnection] = useState<'connecting' | 'live' | 'stale'>('connecting');
   const generation = useRef(0);
+  const requestedRevision = useRef(0);
+  const appliedRevision = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const activeKey = useRef(key);
   activeKey.current = key;
@@ -60,17 +62,27 @@ export function useDashboard(query: DashboardQuery) {
     const request = new AbortController();
     controller.current = request;
     const current = ++generation.current;
-    sourceOnly = sourceOnly && stateRef.current.key === baseKey && !!stateRef.current.report;
+    // A source filter change can replace a full request, but must also apply
+    // the updated KPIs if the previous full refresh has not succeeded yet.
+    sourceOnly = sourceOnly && stateRef.current.key === baseKey && !!stateRef.current.report &&
+      requestedRevision.current === appliedRevision.current;
+    const revision = sourceOnly ? requestedRevision.current : ++requestedRevision.current;
     setLoading(!sourceOnly);
     setSourceLoading(true);
     setState(previous => ({ ...previous, sourceError: null }));
     try {
       const response = await apiClient.get<{ success: boolean; data: DashboardReport }>(`/reporting/dashboard?${queryString}`, { signal: request.signal });
       if (generation.current !== current || activeKey.current !== key) return false;
+      if (!sourceOnly) appliedRevision.current = revision;
       setState(previous => {
         const sameAccess = previous.report?.scope === response.data.scope && previous.report?.access && response.data.access && (['deals', 'leads', 'tasks', 'leaderboard'] as const).every(module => previous.report!.access[module] === response.data.access[module]);
+        const samePipeline = previous.report?.pipeline?.id === response.data.pipeline?.id &&
+          (previous.report?.metrics.activeDeals === null) === (response.data.metrics.activeDeals === null);
         return { key: baseKey, sourceKey: key,
-          report: sourceOnly && previous.key === baseKey && sameAccess ? { ...previous.report!, leadSourcePerformance: response.data.leadSourcePerformance } : response.data,
+          report: sourceOnly && previous.key === baseKey && sameAccess && samePipeline ? {
+            ...previous.report!, leadSourcePerformance: response.data.leadSourcePerformance,
+            actions: response.data.actions, pendingActions: response.data.pendingActions,
+          } : response.data,
           error: sourceOnly && sameAccess ? previous.error : null, sourceError: null };
       });
       return true;
@@ -104,8 +116,13 @@ export function useDashboard(query: DashboardQuery) {
     let accessRevision: string | undefined;
     let previousRevision = '';
     const schedule = () => {
-      if (stopped || batch) return;
-      batch = setTimeout(() => { batch = undefined; if (!stopped) void refreshRef.current(); }, 150);
+      if (stopped) return;
+      requestedRevision.current++;
+      if (batch) return;
+      batch = setTimeout(() => {
+        batch = undefined;
+        if (!stopped && requestedRevision.current !== appliedRevision.current) void refreshRef.current();
+      }, 150);
     };
     const stream = new EventSource('/api/proxy/reporting/dashboard/events');
     const changed = (event: MessageEvent) => {
