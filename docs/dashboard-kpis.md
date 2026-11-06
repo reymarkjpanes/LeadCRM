@@ -6,13 +6,13 @@ Dashboard, CSV and compatibility endpoints use `dashboard.service.ts` and the sh
 
 The authenticated session supplies workspace/user. `dashboard.view` is the existing organization analytics permission and is mandatory. Module `deals.view`, `leads.view`, `tasks.view` grants enable dependent report data. Client Admin and other authorized roles, including custom roles, receive organization-wide aggregates within that tenant, regardless of assignment/owner/creator. Missing module permissions yield unavailable metrics rather than personal substitutes or zero. CSV and streams enforce current authorization. No permissions are automatically granted by this change.
 
-Eligible Deals belong to the one active **Sales Pipeline**, are unarchived and not deleted. Authoritative Stage rows must have ordered names Lead, Contacted, Qualified, Closed Won, Closed Lost and matching terminal flags. IDs, order, configured probabilities and colors come from these rows. Ambiguous/invalid configuration returns 409 without rewriting history. Other pipelines are excluded with a warning.
+Deals in sales metrics belong to the one active **Sales Pipeline**, are unarchived and not deleted. Authoritative Stage rows must have ordered names Lead, Contacted, Qualified, Closed Deal, Cancelled and matching terminal flags. IDs, order, configured probabilities and colors come from these rows. When configuration is invalid, Dashboard and its CSV mark affected metrics unavailable and keep actions from other valid pipelines. The legacy pipeline summary and deal velocity endpoints still return 409. Other pipelines are excluded from sales metrics.
 
 Eligible Leads are unconverted, unarchived and not deleted, separate from the Deals pipeline's Lead stage.
 
 ## Dates
 
-Default: This Month. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
+The Dashboard and Reports toolbars both default to **This Month**. Use the date selector to change the period for Revenue, Revenue Trend, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
 
 | Option | Inclusive calendar interval |
 | --- | --- |
@@ -30,18 +30,18 @@ Revenue Trend defaults to calendar Month. Week (Monday start), Month and Year gr
 
 | Metric | Formula and time basis |
 | --- | --- |
-| Total Revenue | Sum tenant-currency amounts of currently Closed Won eligible Deals with valid `closedAt` in period |
+| Total Revenue | Sum tenant-currency amounts of eligible Deals currently in Closed Deal with valid `closedAt` in the selected period |
 | Revenue Trend | Identical revenue grouped by `closedAt`; sum reconciles with Total Revenue |
 | Forecasted Revenue | Sum current Qualified-stage amounts in the authoritative Sales Pipeline, resolved by its validated Stage ID; probabilities and expectedCloseDate do not narrow or weight the forecast |
 | Active Deals | Distinct currently Lead, Contacted or Qualified Deals |
 | Total Leads | Current eligible Leads-module population |
-| Win Rate | Period Won / (Won + Lost) × 100; no outcomes means unavailable |
+| Win Rate | Currently won eligible Deals divided by all current eligible Deals (open, won, or cancelled), × 100. Zero when there are no eligible Deals. Independent of the selected period. |
 | Average Deal Velocity | Mean fractional days from creation to eligible period Won closure, rounded to one decimal; no wins means unavailable |
-| Won vs. Lost | Current terminal outcomes grouped by valid `closedAt`, matching Win Rate population |
+| Won vs. Lost | Current terminal outcomes grouped by valid `closedAt` in the selected period |
 | Pipeline Distribution | Current counts in three official open stages; sum equals Active Deals |
 | Pipeline Value by Stage | Current tenant-currency open amounts in those stages; sum equals Open Pipeline Value |
 
-Valid closure means `createdAt <= closedAt <= generatedAt`. Missing/invalid closing timestamps are excluded and disclosed. Repeated same-stage closure preserves one timestamp and transition. Existing rules prohibit reopening Won; never-won Lost Deals may reopen into Qualified. Reopening clears `closedAt`, removes period outcome and restores current pipeline. Historical Lost milestones remain in conversion history.
+Valid closure means `createdAt <= closedAt <= generatedAt`. Missing or invalid closing timestamps are excluded and disclosed. Repeated same-stage closure preserves one timestamp and transition. Confirmed wins are final. Cancelled Deals with a verified history of no wins may reopen into Lead or Qualified. Reopening clears `closedAt`, removes the period outcome, and restores the Deal to the current pipeline. Historical cancellation milestones remain in conversion history.
 
 Currencies are never converted or mixed. Money uses tenant currency (PHP when unset); other/unknown currencies are excluded and warned, while counts remain currency-independent. Reporting normalizes each stored amount to two decimal places before summing, consistent with the Product price contract and currency presentation. This keeps bucket/stage sums reconciled even for legacy Float values with extra precision; stored amounts are not rewritten. Negative/nonfinite/missing same-currency amounts make affected monetary totals unavailable. Forecast is unavailable only when Qualified amounts are invalid; invalid Lead or Contacted amounts do not affect it. No Qualified Deals means zero forecast. Dashboard, Reports and CSV use this same forecast, while Open Pipeline Value retains the sum of all open stages. Existing CRM APIs protect immutable Product/value snapshots; subscriptions also cover committed integration/database corrections.
 
@@ -49,7 +49,7 @@ Currencies are never converted or mixed. Money uses tenant currency (PHP when un
 
 Dashboard shows distinct currently Won Deals grouped by trimmed saved `Deal.leadSource`, using the existing authorized Sales Pipeline population and valid `closedAt` boundaries. Missing or blank sources are “Not specified”; related Lead/Contact sources are not inferred. Counts include eligible Deals regardless of their currency or monetary-data validity.
 
-The independent date dropdown defaults to This Month and reuses the date options above. Changing it updates only this chart; Sync Metrics and existing realtime reconciliation update it with the rest of Dashboard. No wins displays “No won deals for this period.” Request errors remain errors rather than empty results.
+The independent date dropdown defaults to This Month and reuses the date options above. It changes the date scope of this chart. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays “No won deals for this period.” Request errors remain visible.
 
 Up to five individual source groups are shown, reserving one slot for nonzero “Not specified”. Overflow and saved “Others” values form a single Others bar. Displayed bars sort by won count descending, then source name. Revenue, current Pipeline Overview, and other metrics retain their existing definitions.
 
@@ -73,7 +73,9 @@ Revenue uses the same period/currency eligibility as Total Revenue. Rank: revenu
 
 Action Center retains a separate operational scope: Client Admin receives permitted tenant actions; other roles receive permitted assigned actions. Current nonarchived tasks exclude completed/cancelled; overdue tasks precede high-priority tasks, then Hot Leads and configured stale Deals. All qualifying actions are returned. Qualifying action count controls empty state. Existing taskboard/CRM routes are destinations. Contacts, Accounts, Inbox and Campaigns have no synthetic metric; their existing actions update Dashboard when they mutate supported Task/Lead/Deal records.
 
-Stale Deals include authorized open Deals from all active pipelines, using each current stage's database `rottenAfterDays`; null disables detection. A Deal is stale when elapsed time from `stageChangedAt` (or `createdAt` when absent) reaches that many 24-hour periods, including the exact threshold. Archived/deleted Deals and Won/Lost stages are excluded. Pipeline card badges consume the same server-evaluated rule and display elapsed days, stage name and threshold. The existing foreground refresh reconciles time crossings every 30 seconds. Only a stage movement resets the timer; edits, notes and customer replies do not. Staleness never changes stages, customer engagement status, value or forecast, and creates no tasks or notifications. Dashboard sales metrics retain their existing Sales Pipeline scope.
+Stale Deals use the current stage's `rottenAfterDays`. Client Admins can set a positive integer through `PUT /api/v1/crm/stages/:id`; unconfigured stages have no timer. The clock starts at `stageChangedAt` or, for legacy Deals, `createdAt`. It resets on a stage move, a recorded staff edit, a Deal note, call, meeting or logged SMS, qualifying Deal email, or completion of a task linked to the Deal at that time. No-op saves, background bookkeeping and unrelated activity do not reset it. Older audit entries can establish a field change but may not identify whether a person or automation made it.
+
+The server compares UTC instants and includes the exact threshold: one day is 24 hours, independent of Manila midnight. Closed, Cancelled, archived and deleted Deals and Deals in archived pipelines are excluded. Pipeline badges display days inactive separately from days in stage. Committed revisions refresh the Action Center after updates; the existing 30-second foreground refresh catches time crossings. Each qualifying Deal contributes one action link. Staleness does not change CRM records or create tasks or notifications.
 
 ## Automatic updates and recovery
 
@@ -81,7 +83,7 @@ Database triggers update tenant revisions in the same transaction as Deal/Stage/
 
 Streams observe committed counters every three seconds, heartbeat and end at 45 seconds. EventSource reconnects after three seconds. Sessions/RBAC are revalidated every observation; payloads contain counters only. Next preserves streaming/no-buffer headers. Auth access subscriptions remain outside module guards so revocation and later grants refresh existing permissions.
 
-The hook batches bursts, ignores identical notifications, refreshes authoritative aggregates on connection/reconnect/focus/wake/online, and reconciles every 30 seconds while foregrounded. Changing chart filters does not create another subscription. Request generation/cancellation prevent stale identity/filter responses. Failed data requests preserve the prior report with an error; access loss clears it. The connection-status subtitle is removed. No frontend metric persistence or incremental event arithmetic. Sync Metrics is a read-only fallback. CSV takes a fresh authorized snapshot using identical definitions, selected chart filters, observation cutoff, diagnostic warnings, time bases and formula-injection escaping.
+The hook batches bursts, ignores identical notifications, refreshes authoritative aggregates on connection/reconnect/focus/wake/online, and reconciles every 30 seconds while foregrounded. Changing chart filters does not create another subscription. A pending full refresh still applies all KPIs when Lead Source dates change. Request generation/cancellation prevent stale identity/filter responses. Failed data requests preserve the prior report with an error; access loss clears it. The connection-status subtitle is removed. No frontend metric persistence or incremental event arithmetic. Sync Metrics is a read-only fallback. CSV takes a fresh authorized snapshot using identical definitions, selected chart filters, observation cutoff, diagnostic warnings, time bases and formula-injection escaping.
 
 ## Stage colors
 

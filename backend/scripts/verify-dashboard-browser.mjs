@@ -16,8 +16,10 @@ import { replayCrmMigrations } from './replay-crm-migrations.mjs';
 const uiPolish = process.argv.includes('--ui-polish');
 const sourceOnly = process.argv.includes('--sources-only');
 const metricsOnly = process.argv.includes('--metrics-only') || sourceOnly;
+const revenueSync = process.argv.includes('--revenue-sync');
 const root = resolve(import.meta.dirname, '../..'), output = process.env.LEADCRM_BROWSER_OUTPUT || (resolve(process.env.DASHBOARD_VERIFICATION_OUTPUT || (uiPolish ? process.env.UI_POLISH_OUTPUT || resolve(tmpdir(), 'leadcrm-dashboard-leads-ui') : resolve(root, 'data/outputs/dashboard-verification'))));
 const clockOnly = process.argv.includes('--clock-only');
+const staleDealsOnly = process.argv.includes('--stale-deals');
 mkdirSync(output, { recursive: true });
 const pg = await PGlite.create(); await replayCrmMigrations(pg);
 const socket = new PGLiteSocketServer({ db: pg, host: '127.0.0.1', port: 0 }); await socket.start();
@@ -26,8 +28,9 @@ Object.assign(process.env, { NODE_ENV: 'test', DATABASE_URL: `postgresql://postg
 process.env.DIRECT_URL = process.env.DATABASE_URL;
 const require = createRequire(import.meta.url), Module = require('node:module'), originalResolve = Module._resolveFilename;
 Module._resolveFilename = function(request, parent, isMain, options) { return request === '@leadcrm/shared' ? resolve(root, 'backend/dist/shared/src/index.js') : originalResolve.call(this, request, parent, isMain, options); };
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || process.argv[2] || 'playwright');
-const { dashboardToday } = require('../dist/shared/src/index.js');
+const playwrightModule = process.argv.slice(2).find(argument => !argument.startsWith('--'));
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || playwrightModule || 'playwright');
+const { dashboardPeriod, dashboardToday } = require('../dist/shared/src/index.js');
 const prisma = require('../dist/backend/src/config/database.config.js').default;
 const app = require('../dist/backend/src/app.js').default;
 const { tenantContext } = require('../dist/backend/src/core/tenant/tenant-context.js');
@@ -160,12 +163,68 @@ try {
   assert.equal(await page.getByText(/Revenue, outcomes and velocity use this period/).count(),0);
   assert.equal(await page.getByText(/eligible deals\. Counts are distinct recorded milestones/).count(),0);
   record('Live Manila clock advances with bold 24-hour time and requested notes removed');
-  if (clockOnly) {
+  if (staleDealsOnly) {
+    await page.bringToFront();
+    await prisma.rolePermission.updateMany({ where: { tenantId: tenant.id, roleId: role.id, module: 'deals' }, data: { canViewAll: false, canViewMy: true } });
+    await http(`/crm/stages/${stages[0].id}`, 'PUT', { rottenAfterDays: 1 });
+    const title = 'Deal crosses its inactivity threshold';
+    const region = tab => tab.getByRole('region', { name: 'Action Center', exact: true });
+    const item = (tab, name) => region(tab).getByRole('link').filter({ hasText: name });
+    const watch = (tab) => {
+      const snapshots = [];
+      tab.on('response', async response => {
+        if (response.ok() && new URL(response.url()).pathname === '/api/proxy/reporting/dashboard') {
+          const body = await response.json().catch(() => null);
+          if (body?.data) snapshots.push(body.data);
+        }
+      });
+      return snapshots;
+    };
+    const snapshots = watch(page), staffSnapshots = watch(staffSession.tab);
+    const boundary = Date.now() + 12000;
+    const fixture = (title, entered) => prisma.deal.create({ data: { tenantId: tenant.id, pipelineId: pipeline.id,
+      stageId: stages[0].id, title, assignedUserId: replacement.id, ownerId: replacement.id,
+      createdAt: new Date(entered), stageChangedAt: new Date(entered) } });
+    const crossing = await fixture(title, boundary - 86400000);
+    const staleEdit = await fixture('Deal needs a real edit', Date.now() - 2 * 86400000);
+    const has = (snapshot, id) => snapshot?.actions.some(action => action.kind === 'deal' && action.id === id);
+    await until(() => snapshots.some(snapshot => +new Date(snapshot.generatedAt) < boundary && has(snapshot, staleEdit.id) && !has(snapshot, crossing.id)), 'pre-threshold proxy report');
+    assert.equal(await item(page, title).count(), 0);
+    await until(async () => (await item(page, title).count()) === 1 && has(snapshots.at(-1), crossing.id), 'clock-only staleness through existing foreground reconciliation', 46000);
+    assert.equal(snapshots.at(-1).actions.filter(action => action.id === crossing.id).length, 1);
+    assert.equal(await item(page, title).getAttribute('href'), `/crm/deals/${crossing.id}`);
+    const postBoundary = snapshots.at(-1).generatedAt;
+    await staffSession.tab.bringToFront();
+    await until(() => staffSnapshots.some(snapshot => snapshot.generatedAt >= postBoundary && snapshot.access.deals), 'assignment-limited Dashboard response');
+    assert.ok(staffSnapshots.every(snapshot => !has(snapshot, crossing.id) && !has(snapshot, staleEdit.id)));
+    assert.equal(await item(staffSession.tab, title).count(), 0);
+    await page.bringToFront();
+    await page.screenshot({path:resolve(output,'stale-deals-visible.png'),fullPage:true});
+    record('Clock crossing appears once through the real proxy and is excluded from assignment-limited API and UI');
+    await item(page, title).click();
+    await page.waitForURL(`**/crm/deals/${crossing.id}`);
+    await page.getByText(title, { exact: true }).first().waitFor();
+    record('Action opens the correct Deal details');
+    await page.goBack();
+    await item(page, title).waitFor();
+    await page.evaluate(() => { window.__staleDashboardInstance = true; });
+    const afterNote = snapshots.length;
+    await http('/crm/activities', 'POST', { dealId: crossing.id, type: 'note', title: 'Customer follow-up recorded' });
+    await until(async () => snapshots.length > afterNote && !has(snapshots.at(-1), crossing.id) && (await item(page, title).count()) === 0, 'note resolves Action Center item', 10000);
+    assert.equal(await page.evaluate(() => window.__staleDashboardInstance), true);
+    record('Committed Deal note removes the item from API and UI without reloading');
+    await item(page, staleEdit.title).waitFor();
+    const afterEdit = snapshots.length;
+    await http(`/crm/deals/${staleEdit.id}`, 'PUT', { title: 'Real update on this Deal' });
+    await until(async () => snapshots.length > afterEdit && !has(snapshots.at(-1), staleEdit.id) && (await item(page, staleEdit.title).count()) === 0, 'real edit resolves Action Center item', 10000);
+    assert.equal(await page.evaluate(() => window.__staleDashboardInstance), true);
+    await page.screenshot({path:resolve(output,'stale-deals-resolved.png'),fullPage:true});
+    record('Committed Deal edit removes the item from API and UI without reloading');
+  } else if (clockOnly) {
     for (const width of [1440,640,639,390,320]) {
       await page.setViewportSize({width,height:1000});
       await clock.scrollIntoViewIfNeeded();
-      assert.equal(await page.getByRole('button',{name:'Dashboard date range',exact:true}).count(),0);
-      for (const label of ['Sync Metrics']) {
+      for (const label of ['Dashboard date range', 'Sync Metrics']) {
         const control = page.getByRole('button',{name:label,exact:true});
         assert.equal(await control.locator('span').isVisible(),width>=640);
         if (width<640) {
@@ -179,6 +238,121 @@ try {
       await page.screenshot({path:resolve(output,`clock-${width}-funnel.png`),fullPage:true});
       record(`Clock, requested notes and responsive toolbar ${width}`,dimensions);
     }
+  } else if (revenueSync) {
+    const money = amount => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
+    const dateRange = page.getByRole('button', { name: 'Dashboard date range', exact: true });
+    const dashboards = [page, staffSession.tab];
+    const navigationStarts = await Promise.all(dashboards.map(tab => tab.evaluate(() => performance.timeOrigin)));
+    const lastMonth = dashboardPeriod({ range: 'lastMonth' });
+    const historicalRows = await Promise.all([1250.5, 2000, 9000].map((amount, index) => prisma.deal.create({ data: {
+      tenantId: tenant.id, pipelineId: pipeline.id, stageId: stages[index === 2 ? 4 : 3].id,
+      title: `Prior month fixture ${index + 1}`, value: amount, currency: 'PHP',
+      ownerId: agent.id, assignedUserId: agent.id, createdAt: lastMonth.from, closedAt: new Date(+lastMonth.until - 1),
+    } })));
+    const savedWins = await prisma.deal.findMany({
+      where: { id: { in: historicalRows.map(row => row.id) }, stage: { isWon: true, isLost: false } },
+      select: { value: true, closedAt: true },
+    });
+    assert.equal(savedWins.length, 2);
+    const historicalRevenue = savedWins.reduce((sum, row) => sum + row.value, 0);
+    await expectValue('Win Rate', '66.7%');
+    await expectValue('Total Revenue', money(0));
+    assert.equal(await dateRange.getAttribute('title'), 'This Month');
+
+    const reportResponse = range => page.waitForResponse(response => response.ok() &&
+      new URL(response.url()).pathname === '/api/proxy/reporting/dashboard' && new URL(response.url()).searchParams.get('range') === range);
+    async function selectRange(label, range) {
+      const pending = reportResponse(range);
+      await dateRange.click();
+      await page.getByRole('menuitem', { name: label, exact: true }).click();
+      return (await (await pending).json()).data;
+    }
+    async function verifyHistoricalReport(report) {
+      assert.equal(report.metrics.totalRevenue, historicalRevenue);
+      assert.equal(report.trend.reduce((sum, row) => sum + row.revenue, 0), historicalRevenue);
+      assert.deepEqual([report.metrics.won, report.metrics.lost, report.metrics.winRate], [2, 1, 66.7]);
+      await expectValue('Total Revenue', money(historicalRevenue), false);
+      await expectValue('Win Rate', '66.7%');
+    }
+    await verifyHistoricalReport(await selectRange('Last Month', 'lastMonth'));
+    assert.equal(await dateRange.getAttribute('title'), 'Last Month');
+    record('Desktop period selection reconciles two stored wins, API, trend and rendered Revenue');
+
+    await page.setViewportSize({ width: 390, height: 850 });
+    assert.equal((await dateRange.boundingBox()).width, 44);
+    await dateRange.click();
+    assert.equal(await page.getByRole('menuitem', { name: 'Last Month', exact: true }).getAttribute('aria-current'), 'true');
+    await page.getByRole('menuitem', { name: 'Custom Date Range', exact: true }).click();
+    await page.getByLabel('Start date', { exact: true }).fill(lastMonth.end);
+    await page.getByLabel('End date', { exact: true }).fill(lastMonth.end);
+    const customResponse = reportResponse('custom');
+    await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    const customReport = (await (await customResponse).json()).data;
+    assert.deepEqual([customReport.period.start, customReport.period.end], [lastMonth.end, lastMonth.end]);
+    await verifyHistoricalReport(customReport);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    record('Mobile custom range includes wins at the last millisecond of the Manila month');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await selectRange('This Month', 'thisMonth');
+    await expectValue('Total Revenue', money(0));
+
+    const current = await mutation('A newly created Deal updates both open Dashboards', () => http('/crm/deals', 'POST', {
+      pipelineId: pipeline.id, stageId: stages[0].id, title: 'Live revenue fixture', productInterestIds: [products[0].id], assignedUserId: agent.id,
+    }, agentToken), () => expectValue('Active Deals', '1'));
+    const stagePath = `/crm/deals/${current.id}/stage`;
+    await mutation('Qualified Deal updates Forecast while Revenue is zero', () => http(stagePath, 'PATCH', { stageId: stages[2].id }, agentToken), async () => {
+      await expectValue('Forecasted Revenue', money(current.value));
+      await expectValue('Total Revenue', money(0));
+    });
+    await mutation('A close from the Dashboard session reaches both viewers without reload', async () => {
+      const response = await page.evaluate(async ({ path, stageId }) => {
+        const result = await fetch(`/api/proxy${path}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stageId }) });
+        return { status: result.status, body: await result.json() };
+      }, { path: stagePath, stageId: stages[3].id });
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+    }, async () => {
+      const stored = await prisma.deal.findUniqueOrThrow({ where: { id: current.id }, include: { stage: true } });
+      assert.ok(stored.stage.isWon && stored.closedAt);
+      const report = await http('/reporting/dashboard?range=thisMonth');
+      assert.equal(report.metrics.totalRevenue, stored.value);
+      assert.equal(report.trend.reduce((sum, row) => sum + row.revenue, 0), stored.value);
+      await expectValue('Total Revenue', money(stored.value));
+      await expectValue('Forecasted Revenue', money(0));
+      await expectValue('Active Deals', '0');
+      await expectValue('Win Rate', '75%');
+    });
+    await assert.rejects(() => http(`/crm/deals/${current.id}`, 'PUT', { value: 5 }, agentToken), /historical snapshots/);
+    await assert.rejects(() => http(stagePath, 'PATCH', { stageId: stages[2].id }, agentToken), /has been won/);
+    await mutation('A committed fixture value correction reaches both viewers', () => prisma.deal.update({
+      where: { id: current.id }, data: { value: 1750.25 },
+    }), async corrected => {
+      const report = await http('/reporting/dashboard?range=thisMonth');
+      assert.equal(report.metrics.totalRevenue, corrected.value);
+      await expectValue('Total Revenue', money(corrected.value));
+    });
+    const cancelled = await http('/crm/deals', 'POST', {
+      pipelineId: pipeline.id, stageId: stages[0].id, title: 'Cancellation fixture', productInterestIds: [products[1].id], assignedUserId: agent.id,
+    }, agentToken);
+    await expectValue('Active Deals', '1');
+    const cancelledPath = `/crm/deals/${cancelled.id}/stage`;
+    await mutation('Cancelling a Deal removes it from Open Deals without adding Revenue', () =>
+      http(cancelledPath, 'PATCH', { stageId: stages[4].id, lostReason: 'Deferred' }, agentToken), async () => {
+      await expectValue('Active Deals', '0');
+      await expectValue('Total Revenue', money(1750.25));
+    });
+    await mutation('Reopening an eligible cancelled Deal restores the Qualified Forecast', () =>
+      http(cancelledPath, 'PATCH', { stageId: stages[2].id }, agentToken), async () => {
+      await expectValue('Active Deals', '1');
+      await expectValue('Forecasted Revenue', money(cancelled.value));
+      await expectValue('Total Revenue', money(1750.25));
+    });
+    await mutation('Archiving the confirmed win removes its Revenue without changing Forecast', () =>
+      http(`/crm/deals/${current.id}/archive`, 'PATCH', undefined, agentToken), async () => {
+      await expectValue('Total Revenue', money(0));
+      await expectValue('Forecasted Revenue', money(cancelled.value));
+      await expectValue('Win Rate', '50%');
+    });
+    assert.deepEqual(await Promise.all(dashboards.map(tab => tab.evaluate(() => performance.timeOrigin))), navigationStarts);
   } else if (metricsOnly) {
     const { verifyDashboardMetrics } = await import('./verify-dashboard-metrics.mjs');
     await verifyDashboardMetrics({ page, staffPage: staffSession.tab, base, output, http, prisma, tenant, agent, replacement, pipeline, stages, products, record, until, wait, expectValue, sourceOnly });

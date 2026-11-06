@@ -116,6 +116,7 @@ export async function bulkReassign(
         action: 'deal.reassigned',
         entityType: 'Deal',
         entityId: dealId,
+        occurredAt: new Date(),
         before: { assignedUserId: previousAssignee },
         after: { assignedUserId: dto.assignedUserId, bulk: true },
       });

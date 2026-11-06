@@ -14,7 +14,7 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
     const source = page.getByRole('region', { name: 'Lead Source Performance', exact: true });
     assert.equal(await source.getByRole('heading', { name: 'Lead Source Performance', exact: true }).count(), 1);
     assert.equal(await page.getByRole('region', { name: 'Lead Source Performance', exact: true }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Dashboard date range', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Dashboard date range', exact: true }).getAttribute('title'), 'This Month');
     const dimensions = await revenue().evaluate(region => {
       const card=region.closest('section'),action=document.querySelector('section[aria-label="Action Center"]');
       const list=action.querySelector('[aria-label="Action Center actions"]'),canvas=region.querySelector('canvas');
@@ -77,11 +77,11 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   await until(() => revenue().locator('canvas').evaluate(canvas => canvas.__labels.some(text => text.startsWith('Revenue (PHP):') && text.includes('45,000.00'))), 'Single-point currency tooltip');
   await page.mouse.move(0, 0);
   assert.equal(await page.getByRole('button', { name: 'Export CSV', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('button', { name: 'Dashboard date range', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Dashboard date range', exact: true }).getAttribute('title'), 'This Month');
   const syncResponse = page.waitForResponse(r => r.url().includes('/reporting/dashboard?'));
   await page.getByRole('button', { name: 'Sync Metrics', exact: true }).click(); await syncResponse;
   await expectValue('Total Revenue', currency(45000));
-  record('Dashboard header retains functional Sync Metrics without a global date control');
+  record('Dashboard header provides the active reporting period and Sync Metrics');
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   const heights = [];

@@ -120,6 +120,7 @@ function DealCardContent({
   onMutated,
 }: DealCardContentProps): React.ReactElement {
   const stale = !deal.isArchived && deal.staleness?.isStale && deal.staleness.stageId === deal.stageId ? deal.staleness : undefined;
+  const staleDays = stale?.daysInactive ?? stale?.daysInStage;
 
   return (
     <div className={`flex flex-col gap-3 ${isDragOverlay ? 'opacity-90' : ''}`}>
@@ -187,10 +188,10 @@ function DealCardContent({
         {stale && (
           <span
             className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider shrink-0 bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
-            title={`Stale deal: ${stale.daysInStage} ${stale.daysInStage === 1 ? 'day' : 'days'} in ${stale.stageName} (threshold: ${stale.thresholdDays} ${stale.thresholdDays === 1 ? 'day' : 'days'})`}
+            title={`Stale deal: ${staleDays} ${staleDays === 1 ? 'day' : 'days'}${stale.daysInactive === undefined ? '' : ' inactive'} in ${stale.stageName} (threshold: ${stale.thresholdDays} ${stale.thresholdDays === 1 ? 'day' : 'days'})`}
           >
             <AlertTriangle size={10} />
-            {stale.daysInStage}d
+            {staleDays}d
           </span>
         )}
       </div>

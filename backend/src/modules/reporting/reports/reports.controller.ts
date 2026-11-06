@@ -4,7 +4,7 @@ import { getDashboard } from './dashboard.service';
 
 export async function getPipelineSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const report = await getDashboard(req.user!, { range: 'thisMonth' });
+    const report = await getDashboard(req.user!, { range: 'thisMonth' }, undefined, { strictSalesPipeline: true });
     const pipeline = report.pipeline;
     res.setHeader('Cache-Control', 'no-store');
     res.json({ success: true, data: pipeline && (!req.query.pipelineId || req.query.pipelineId === pipeline.id) ? [{
@@ -16,7 +16,7 @@ export async function getPipelineSummary(req: Request, res: Response, next: Next
 }
 export async function getDealVelocity(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const report = await getDashboard(req.user!, { range: 'thisMonth' });
+    const report = await getDashboard(req.user!, { range: 'thisMonth' }, undefined, { strictSalesPipeline: true });
     res.setHeader('Cache-Control', 'no-store');
     res.json({ success: true, data: { totalClosed: (report.metrics.won ?? 0) + (report.metrics.lost ?? 0),
       totalWon: report.metrics.won, totalLost: report.metrics.lost, avgDaysToCloseWon: report.metrics.averageDealDays, avgDaysToCloseLost: null } });

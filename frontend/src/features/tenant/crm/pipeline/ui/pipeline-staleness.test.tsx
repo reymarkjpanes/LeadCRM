@@ -31,6 +31,12 @@ it('preserves the server result through the adapter and uses it for card badges,
   expect(document.querySelector('[data-deal-id="deal"]')?.className).toContain('border-red-300');
 });
 
+it('shows days inactive when the Deal has spent longer in the current stage', () => {
+  render(cards(toFrontendDeal({ ...raw, staleness: { ...raw.staleness, daysInStage: 21, daysInactive: 14 } }) as Deal));
+  expect(screen.getAllByTitle('Stale deal: 14 days inactive in Qualified (threshold: 14 days)')).toHaveLength(2);
+  expect(screen.getAllByText('14d')).toHaveLength(2);
+});
+
 it.each([7, 14, 23])('uses the server verdict at a configured %i day boundary regardless of browser time', threshold => {
   const deal = toFrontendDeal({ ...raw, staleness: { ...raw.staleness, thresholdDays: threshold, daysInStage: threshold, isStale: true } }) as Deal;
   const view = render(cards(deal));

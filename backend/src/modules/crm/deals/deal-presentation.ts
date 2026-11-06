@@ -3,7 +3,7 @@ import { salesContext } from '../leads/sales-context';
 import { mayReadContactAccount, presentContactAccount } from '../contacts-v2/contact-account-access';
 import { DealAddressSourceSchema, resolveDealAddress } from '@leadcrm/shared';
 import { loadDealAddressOptions } from './deal-address';
-import { dealStaleness } from './deal-staleness';
+import { dealStalenessSelect, evaluateDealStaleness } from './deal-staleness';
 import { crmActor, crmReadWhere, mayReadCrmModule } from '../access/crm-record-access.service';
 
 /** Apply source-module visibility to Deal responses, including nested Contacts. */
@@ -36,16 +36,14 @@ export async function presentDealResponse<T>(tenantId: string, response: T, now 
   const relationKey = new Map<string, keyof typeof visible>([['lead', 'leadId'], ['contact', 'contactId'], ['account', 'accountId'], ['organization', 'accountId'], ['leadDeals', 'leadId'], ['contactDeals', 'contactId']]);
   const deals = ids.size ? await db.deal.findMany({ where: { tenantId, id: { in: [...ids] } }, select: {
     id: true, address: true, addressSource: true, accountId: true,
-    stageChangedAt: true, createdAt: true, isArchived: true, deletedAt: true,
+    ...dealStalenessSelect,
     stageHistories: { where: { tenantId }, orderBy: { movedAt: 'desc' }, take: 1, select: { movedAt: true } },
-    stage: { select: { id: true, name: true, rottenAfterDays: true, isWon: true, isLost: true } },
-    pipeline: { select: { isArchived: true } },
     leadDeals: { where: { tenantId }, select: { leadId: true } }, contactDeals: { where: { tenantId }, select: { contactId: true } },
   } }) : [];
   const options = deals.length ? await loadDealAddressOptions(db, tenantId, deals.map(deal => ({ ...deal,
     leadIds: deal.leadDeals.map(link => link.leadId), contactIds: deal.contactDeals.map(link => link.contactId) }))) : new Map();
   const contexts = new Map(deals.map(deal => [deal.id, resolveDealAddress(deal.address, deal.addressSource, options.get(deal.id) ?? [])]));
-  const staleness = new Map(deals.map(deal => [deal.id, dealStaleness(deal, now)]));
+  const staleness = await evaluateDealStaleness(db, tenantId, deals, now);
   const stageChanges = new Map(deals.map(deal => [deal.id, (deal.stageHistories[0]?.movedAt ?? deal.createdAt).toISOString()]));
   function visit(value: unknown, key?: string): unknown {
     const relation = relationKey.get(key ?? '');

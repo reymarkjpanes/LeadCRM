@@ -74,7 +74,7 @@ async function observeEvents(req: Request, res: Response, next: NextFunction, pr
         if (closed()) return;
         const counters = { analytics: String(revision?.analytics ?? 0), leads: String(revision?.leads ?? 0),
           actions: String(revision?.actions ?? 0), access: String(revision?.access ?? 0) };
-        let payload: unknown = reporting ? counters : { access: counters.access };
+        let payload: unknown = reporting ? { ...counters, content: String(revision?.content ?? 0) } : { access: counters.access };
         if (prefix === 'crm') payload = { content: String(revision?.content ?? 0) };
         if (prefix === 'pipeline') {
           // Hash metadata only. Deal/task writes do not cause selector refetches.

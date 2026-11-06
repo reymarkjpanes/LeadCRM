@@ -209,7 +209,7 @@ export async function createActivity(
   db: Prisma.TransactionClient = prisma,
 ) {
   return db.activity.create({
-    data:    { ...dto, tenantId, createdById },
+    data:    { ...dto, tenantId, createdById, createdAt: new Date() },
     include: ACTIVITY_INCLUDE,
   });
 }
