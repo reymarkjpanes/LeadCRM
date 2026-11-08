@@ -175,29 +175,45 @@ try {
       tab.on('response', async response => {
         if (response.ok() && new URL(response.url()).pathname === '/api/proxy/reporting/dashboard') {
           const body = await response.json().catch(() => null);
-          if (body?.data) snapshots.push(body.data);
+          if (body?.data) snapshots.push({ ...body.data, cacheControl: response.headers()['cache-control'] });
         }
       });
       return snapshots;
     };
     const snapshots = watch(page), staffSnapshots = watch(staffSession.tab);
-    const boundary = Date.now() + 12000;
+    const boundary = Date.now() + 18000;
     const fixture = (title, entered) => prisma.deal.create({ data: { tenantId: tenant.id, pipelineId: pipeline.id,
       stageId: stages[0].id, title, assignedUserId: replacement.id, ownerId: replacement.id,
       createdAt: new Date(entered), stageChangedAt: new Date(entered) } });
     const crossing = await fixture(title, boundary - 86400000);
     const staleEdit = await fixture('Deal needs a real edit', Date.now() - 2 * 86400000);
     const has = (snapshot, id) => snapshot?.actions.some(action => action.kind === 'deal' && action.id === id);
-    await until(() => snapshots.some(snapshot => +new Date(snapshot.generatedAt) < boundary && has(snapshot, staleEdit.id) && !has(snapshot, crossing.id)), 'pre-threshold proxy report');
+    const assertActionParity = async (tab, snapshot) => {
+      const staleActions = snapshot.actions.filter(action => action.kind === 'deal');
+      const links = await region(tab).locator('a[href^="/crm/deals/"]').evaluateAll(items => items.map(link => link.getAttribute('href')));
+      assert.deepEqual(links.sort(), staleActions.map(action => action.href).sort());
+      const count = staleActions.length;
+      assert.match(await region(tab).innerText(), new RegExp(`\\b${count} stale deal${count === 1 ? '' : 's'}\\b`));
+      assert.equal(snapshot.pendingActions, snapshot.actions.length);
+      assert.equal(snapshot.cacheControl, 'no-store');
+    };
+    snapshots.length = 0;
+    await page.reload();
+    await item(page, staleEdit.title).waitFor();
+    await until(() => +new Date(snapshots.at(-1)?.generatedAt) < boundary && has(snapshots.at(-1), staleEdit.id) && !has(snapshots.at(-1), crossing.id), 'pre-existing stale Deal on a fresh Dashboard load');
+    await assertActionParity(page, snapshots.at(-1));
     assert.equal(await item(page, title).count(), 0);
+    record('Fresh Dashboard load shows the existing qualifying Deal and matches the uncached API');
     await until(async () => (await item(page, title).count()) === 1 && has(snapshots.at(-1), crossing.id), 'clock-only staleness through existing foreground reconciliation', 46000);
     assert.equal(snapshots.at(-1).actions.filter(action => action.id === crossing.id).length, 1);
     assert.equal(await item(page, title).getAttribute('href'), `/crm/deals/${crossing.id}`);
+    await assertActionParity(page, snapshots.at(-1));
     const postBoundary = snapshots.at(-1).generatedAt;
     await staffSession.tab.bringToFront();
     await until(() => staffSnapshots.some(snapshot => snapshot.generatedAt >= postBoundary && snapshot.access.deals), 'assignment-limited Dashboard response');
     assert.ok(staffSnapshots.every(snapshot => !has(snapshot, crossing.id) && !has(snapshot, staleEdit.id)));
     assert.equal(await item(staffSession.tab, title).count(), 0);
+    await assertActionParity(staffSession.tab, staffSnapshots.at(-1));
     await page.bringToFront();
     await page.screenshot({path:resolve(output,'stale-deals-visible.png'),fullPage:true});
     record('Clock crossing appears once through the real proxy and is excluded from assignment-limited API and UI');
@@ -207,16 +223,19 @@ try {
     record('Action opens the correct Deal details');
     await page.goBack();
     await item(page, title).waitFor();
+    await assertActionParity(page, snapshots.at(-1));
     await page.evaluate(() => { window.__staleDashboardInstance = true; });
     const afterNote = snapshots.length;
     await http('/crm/activities', 'POST', { dealId: crossing.id, type: 'note', title: 'Customer follow-up recorded' });
     await until(async () => snapshots.length > afterNote && !has(snapshots.at(-1), crossing.id) && (await item(page, title).count()) === 0, 'note resolves Action Center item', 10000);
+    await assertActionParity(page, snapshots.at(-1));
     assert.equal(await page.evaluate(() => window.__staleDashboardInstance), true);
     record('Committed Deal note removes the item from API and UI without reloading');
     await item(page, staleEdit.title).waitFor();
     const afterEdit = snapshots.length;
     await http(`/crm/deals/${staleEdit.id}`, 'PUT', { title: 'Real update on this Deal' });
     await until(async () => snapshots.length > afterEdit && !has(snapshots.at(-1), staleEdit.id) && (await item(page, staleEdit.title).count()) === 0, 'real edit resolves Action Center item', 10000);
+    await assertActionParity(page, snapshots.at(-1));
     assert.equal(await page.evaluate(() => window.__staleDashboardInstance), true);
     await page.screenshot({path:resolve(output,'stale-deals-resolved.png'),fullPage:true});
     record('Committed Deal edit removes the item from API and UI without reloading');

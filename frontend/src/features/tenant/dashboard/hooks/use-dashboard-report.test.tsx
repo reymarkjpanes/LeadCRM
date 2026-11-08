@@ -57,6 +57,17 @@ it('reconciles current stage counts through the existing feed and manual refresh
   expect(hook.result.current.report?.conversion?.contactedToQualified).toBe(40);
   expect(Feed.instances).toHaveLength(1);
 });
+it('refreshes stale Deal actions when the browser restores the Dashboard', async () => {
+  const actions = [{ id: 'existing-deal', kind: 'deal', href: '/crm/deals/existing-deal' }];
+  const metrics = { activeDeals: 1 };
+  mocks.get.mockResolvedValueOnce({ data: { metrics, actions, pendingActions: 1 } });
+  const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
+  await waitFor(() => expect(hook.result.current.report?.actions).toEqual(actions));
+  mocks.get.mockResolvedValueOnce({ data: { metrics, actions: [], pendingActions: 0 } });
+  act(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await waitFor(() => expect(hook.result.current.report).toMatchObject({ actions: [], pendingActions: 0 }));
+  expect(Feed.instances).toHaveLength(1);
+});
 it('refreshes the authoritative Qualified forecast through existing analytics events and Sync Metrics', async () => {
   mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 37000, openPipelineValue: 249995 } } });
   const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
