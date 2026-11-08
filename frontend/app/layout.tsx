@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { cookies } from 'next/headers';
-import { League_Spartan, Poppins } from 'next/font/google';
+import localFont from 'next/font/local';
 import '../src/index.css';
 import { AppProviders } from '../src/shared/providers/app-providers';
 import { APPEARANCE_INIT_SCRIPT } from '../src/lib/appearance-script';
@@ -8,17 +8,20 @@ import { ThemeProvider } from '../src/shared/providers/theme-provider';
 import { ServiceWorkerRegistration } from '../src/shared/components/service-worker-registration';
 import { PwaInstallProvider } from '../src/shared/providers/pwa-install-provider';
 
-// Configure Google Fonts using Next.js font optimization
-const leagueSpartan = League_Spartan({
-  weight: ['400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
+const leagueSpartan = localFont({
+  src: './fonts/LeagueSpartan.woff2',
+  weight: '400 900',
   variable: '--font-heading',
   display: 'swap',
 });
 
-const poppins = Poppins({
-  weight: ['400', '500', '600', '700'],
-  subsets: ['latin'],
+const poppins = localFont({
+  src: [
+    { path: './fonts/Poppins-Regular.woff2', weight: '400' },
+    { path: './fonts/Poppins-Medium.woff2', weight: '500' },
+    { path: './fonts/Poppins-SemiBold.woff2', weight: '600' },
+    { path: './fonts/Poppins-Bold.woff2', weight: '700' },
+  ],
   variable: '--font-body',
   display: 'swap',
 });
