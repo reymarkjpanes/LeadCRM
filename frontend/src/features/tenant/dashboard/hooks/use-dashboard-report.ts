@@ -144,7 +144,11 @@ export function useDashboard(query: DashboardQuery) {
     const wake = () => {
       if (document.visibilityState !== 'hidden') { setConnection('connecting'); schedule(); }
     };
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) wake();
+    };
     window.addEventListener('online', wake);
+    window.addEventListener('pageshow', restore);
     const offline = () => setConnection('stale');
     window.addEventListener('offline', offline);
     window.addEventListener('focus', wake);
@@ -162,6 +166,7 @@ export function useDashboard(query: DashboardQuery) {
       stopped = true; stream.close(); unsubscribe(); clearInterval(fallback);
       if (batch) clearTimeout(batch);
       window.removeEventListener('online', wake); window.removeEventListener('focus', wake);
+      window.removeEventListener('pageshow', restore);
       window.removeEventListener('offline', offline);
       document.removeEventListener('visibilitychange', wake);
     };

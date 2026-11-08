@@ -706,6 +706,7 @@ describe('authoritative dashboard', () => {
     const { presentDealResponse } = await import('../../crm/deals/deal-presentation');
     const day = 86400000;
     const previous = await db.stage.findUniqueOrThrow({ where: { id: 'qualified' } });
+    const previousContacted = await db.stage.findUniqueOrThrow({ where: { id: 'contacted' } });
     const ids: string[] = [];
     await db.pipeline.createMany({ data: [
       { id: 'stale-custom', tenantId: 'a', name: 'Custom follow-up' },
@@ -755,14 +756,21 @@ describe('authoritative dashboard', () => {
       expect((await scoped(() => dashboard(agent, query, now))).actions.some(row => row.kind === 'deal')).toBe(false);
       expect(await db.deal.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } })).toEqual(before);
       expect([await db.notification.count(), await db.task.count()]).toEqual(counts);
+      await db.stage.update({ where: { id: 'contacted' }, data: { rottenAfterDays: 2 } });
       await scoped(() => move('stale-exact', 'a', 'contacted', 'admin'));
-      expect((await report()).actions.some(row => row.id === 'stale-exact')).toBe(false);
       const moved = await db.deal.findUniqueOrThrow({ where: { id: 'stale-exact' } });
       const card = await scoped(() => presentDealResponse('a', moved, moved.stageChangedAt!)) as typeof moved & { staleness: { isStale: boolean; daysInStage: number } };
-      expect(card.staleness).toMatchObject({ isStale: false, daysInStage: 0 });
+      expect(card.staleness).toMatchObject({ isStale: false, daysInStage: 0, thresholdDays: 2 });
+      const hasMovedDeal = async (observedAt: Date) =>
+        (await scoped(() => dashboard(admin, query, observedAt))).actions.some(row => row.id === moved.id);
+      expect(await hasMovedDeal(moved.stageChangedAt!)).toBe(false);
+      const newCutoff = +moved.stageChangedAt! + 2 * day;
+      expect(await hasMovedDeal(new Date(newCutoff - 1))).toBe(false);
+      expect(await hasMovedDeal(new Date(newCutoff))).toBe(true);
     } finally {
       await db.rolePermission.updateMany({ where: { roleId: 'sales-role', module: 'deals' }, data: { canView: true } });
       await db.stage.update({ where: { id: 'qualified' }, data: { rottenAfterDays: previous.rottenAfterDays } });
+      await db.stage.update({ where: { id: 'contacted' }, data: { rottenAfterDays: previousContacted.rottenAfterDays } });
       await db.stage.update({ where: { id: 'foreign-qualified' }, data: { rottenAfterDays: null } });
       await db.deal.deleteMany({ where: { id: { in: ids } } });
       await db.stage.deleteMany({ where: { pipelineId: { in: ['stale-custom', 'stale-archived-pipeline'] } } });
@@ -889,29 +897,38 @@ describe('authoritative dashboard', () => {
       await db.closingFieldDefinition.delete({ where: { tenantId_id: { tenantId: 'a', id: field } } });
     }
   });
-  it('serves qualifying custom-pipeline actions when the official Sales Pipeline cannot be reported', async () => {
+  it('serves qualifying actions from every active pipeline even when Sales KPIs cannot be reported', async () => {
     const id = 'staleness-partial';
+    const salesDealId = 'staleness-partial-sales';
     const entered = new Date(Date.now() - 2 * 86_400_000);
+    const prior = await db.stage.findUniqueOrThrow({ where: { id: 'qualified' } });
     await db.pipeline.create({ data: { id, tenantId: 'a', name: 'Custom Pipeline' } });
     await db.stage.create({ data: { id, tenantId: 'a', pipelineId: id, name: 'Follow-up', order: 0, rottenAfterDays: 1 } });
     await deal(id, id, 100, { pipelineId: id, stageChangedAt: entered });
     try {
+      await db.stage.update({ where: { id: 'qualified' }, data: { rottenAfterDays: 1 } });
+      await deal(salesDealId, 'qualified', 100, { stageChangedAt: entered });
       for (const [hide, stageName, duplicate] of [[true, 'Qualified', false], [false, 'Broken Qualified', false], [false, 'Qualified', true]] as const) {
         await db.pipeline.update({ where: { id: 'sales' }, data: { isArchived: hide } });
         await db.stage.update({ where: { id: 'qualified' }, data: { name: stageName } });
         if (duplicate) await db.pipeline.create({ data: { id: `${id}-duplicate`, tenantId: 'a', name: 'sales pipeline' } });
         const response = await http('/reporting/dashboard');
         expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toBe('no-store');
         const { data } = await response.json();
         expect(data).toMatchObject({ pipeline: null, metrics: { totalRevenue: null, activeDeals: null }, warnings: [expect.stringContaining('Sales Pipeline')] });
-        expect(data.actions.filter((row: { id: string }) => row.id === id)).toEqual([expect.objectContaining({ href: `/crm/deals/${id}`, kind: 'deal' })]);
+        const expected = hide ? [id] : [id, salesDealId];
+        expect(data.actions.filter((row: { id: string }) => [id, salesDealId].includes(row.id))).toEqual(
+          expected.map(dealId => expect.objectContaining({ id: dealId, href: `/crm/deals/${dealId}`, kind: 'deal' })),
+        );
+        expect(data.pendingActions).toBe(data.actions.length);
         expect((await http('/reporting/pipeline-summary')).status).toBe(409);
       }
     } finally {
-      await db.stage.update({ where: { id: 'qualified' }, data: { name: 'Qualified' } });
+      await db.stage.update({ where: { id: 'qualified' }, data: { name: prior.name, rottenAfterDays: prior.rottenAfterDays } });
       await db.pipeline.update({ where: { id: 'sales' }, data: { isArchived: false } });
       await db.pipeline.deleteMany({ where: { id: `${id}-duplicate` } });
-      await db.deal.delete({ where: { id } });
+      await db.deal.deleteMany({ where: { id: { in: [id, salesDealId] } } });
       await db.stage.delete({ where: { id } });
       await db.pipeline.delete({ where: { id } });
     }

@@ -76,7 +76,6 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
     const leadWhere = { ...access.leadScope, tenantId, isArchived: false, deletedAt: null, convertedAt: null };
     if (access.leads) result.metrics.totalLeads = await tx.lead.count({ where: leadWhere });
 
-    let invalidSalesPipelines: string[] = [];
     if (access.deals) {
       // Same authoritative lookup used by Lead -> Product Deal automation; read-only.
       const pipelines = await tx.pipeline.findMany({ where: { tenantId, isArchived: false, name: { equals: 'Sales Pipeline', mode: 'insensitive' } },
@@ -95,7 +94,6 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
       }
       if (configurationError) {
         if (strictSalesPipeline) throw configurationError;
-        invalidSalesPipelines = pipelines.map(pipeline => pipeline.id);
         result.warnings.push(configurationError.message);
       } else if (!pipelines.length) {
         Object.assign(result.metrics, { totalRevenue: 0, forecastedRevenue: 0, activeDeals: 0, won: 0, lost: 0, winRate: 0, currentWon: 0, totalDeals: 0, unattributedWon: 0, unattributedRevenue: 0, openPipelineValue: 0 });
@@ -253,7 +251,7 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         priority: 'High', dueDate: null, overdue: false, href: `/crm/leads/${encodeURIComponent(lead.id)}` })));
     }
     if (access.deals) {
-      const stages = await tx.stage.findMany({ where: { tenantId, pipelineId: { notIn: invalidSalesPipelines },
+      const stages = await tx.stage.findMany({ where: { tenantId,
         pipeline: { tenantId, isArchived: false }, isWon: false, isLost: false, rottenAfterDays: { gt: 0 } },
         select: { id: true, pipelineId: true, rottenAfterDays: true } });
       if (stages.length) {
