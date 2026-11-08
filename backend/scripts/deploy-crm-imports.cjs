@@ -243,7 +243,7 @@ async function main() {
   const db = new PrismaClient({ log: [], datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } } });
   try {
     if (mode === '--recover') { await recoverRetirement(db); return; }
-    if (mode === '--deploy' || mode === '--plan') {
+    if (mode === '--deploy' || mode === '--plan' || mode === '--assert-no-pending') {
       const records = await migrationRecords(db), names = readdirSync(join(root, 'migrations'));
       verifyAppliedHistory(records, names);
       const plan = deploymentPlan(records, names);
