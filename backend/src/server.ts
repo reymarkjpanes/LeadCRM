@@ -9,6 +9,7 @@ import { drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignSched
 import { purgeExpiredSessions } from './core/auth/session.service';
 import { startImportCleanupScheduler } from './modules/crm/imports/import-cleanup.service';
 import { validateEnvironment } from './config/validate-env';
+import { shouldStartBackgroundWorkers } from './config/background-workers';
 import { startWorkflowScheduler } from './modules/automation/workflows/workflow-queue';
 import { startSmsStatusReconciliation } from './modules/marketing/campaigns/sms-status-reconciliation';
 import prisma from './config/database.config';
@@ -68,6 +69,10 @@ let backgroundStarted = false;
 let backgroundDrain: Promise<void> | undefined;
 function startBackground() {
   if (backgroundStarted) return;
+  if (!shouldStartBackgroundWorkers()) {
+    console.info('[workers] Background workers are disabled by production policy.');
+    return;
+  }
   resumeCampaignSubmissions();
   backgroundStarted = true;
   stopCampaignRecovery = startCampaignRecoveryScheduler();

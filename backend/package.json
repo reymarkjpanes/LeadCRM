@@ -32,6 +32,7 @@
     "test:workflows:integration": "node scripts/test-workflow-policy-postgres.mjs",
     "test:workflow-policy:browser": "node scripts/verify-workflow-policy-browser.mjs",
     "db:deploy": "node scripts/deploy-crm-imports.cjs --deploy",
+    "db:assert-no-pending": "node scripts/deploy-crm-imports.cjs --assert-no-pending",
     "db:imports:recover": "node scripts/deploy-crm-imports.cjs --recover",
     "db:imports:verify": "node scripts/deploy-crm-imports.cjs --verify",
     "db:imports:retire": "node scripts/deploy-crm-imports.cjs --retire",
