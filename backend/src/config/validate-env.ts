@@ -4,6 +4,9 @@ import { readDataRetentionPolicy } from './data-retention.config';
 /** Report variable names only; configuration errors must never echo secrets. */
 export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): void {
   readDataRetentionPolicy(env);
+  if (env.BACKGROUND_WORKERS_ENABLED && !['true', 'false'].includes(env.BACKGROUND_WORKERS_ENABLED)) {
+    throw new Error('BACKGROUND_WORKERS_ENABLED must be true or false.');
+  }
   for (const key of ['DATABASE_URL', 'JWT_SECRET']) {
     if (!env[key]?.trim()) throw new Error(`Missing required environment variable: ${key}`);
   }

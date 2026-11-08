@@ -238,7 +238,7 @@ function migrate(through, exclude = [], options = {}) {
 
 async function main() {
   const mode = process.argv[2];
-  if (!['--deploy', '--plan', '--expand', '--recover', '--verify', '--retire'].includes(mode)) fail('INVALID_ROLLOUT_MODE');
+  if (!['--deploy', '--plan', '--assert-no-pending', '--expand', '--recover', '--verify', '--retire'].includes(mode)) fail('INVALID_ROLLOUT_MODE');
   if (mode === '--expand') { migrate(expansion); return; }
   const db = new PrismaClient({ log: [], datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } } });
   try {
@@ -247,10 +247,10 @@ async function main() {
       const records = await migrationRecords(db), names = readdirSync(join(root, 'migrations'));
       verifyAppliedHistory(records, names);
       const plan = deploymentPlan(records, names);
-      if (mode === '--plan') {
-        const pending = names.filter(name => /^\d+_/.test(name) && name <= plan.through && !plan.exclude.includes(name)
-          && !records.some(row => row.migration_name === name && finished(row))).sort();
+      const pending = pendingMigrations(records, names, plan);
+      if (mode === '--plan' || mode === '--assert-no-pending') {
         console.log(JSON.stringify({ ...plan, pending, applied: records.filter(finished).length, checksums: 'verified' }));
+        if (mode === '--assert-no-pending' && pending.length) fail('PENDING_MIGRATIONS_REQUIRE_REVIEW');
         return;
       }
       await db.$disconnect();
@@ -273,7 +273,12 @@ async function main() {
     }
   } finally { await db.$disconnect(); }
 }
-module.exports = { deploymentTarget, deploymentPlan, migrate, recoverRetirement, checksumMatches, verifyAppliedHistory };
+function pendingMigrations(records, names, plan) {
+  return names.filter(name => /^\d+_/.test(name) && name <= plan.through && !plan.exclude.includes(name)
+    && !records.some(row => row.migration_name === name && finished(row))).sort();
+}
+
+module.exports = { deploymentTarget, deploymentPlan, migrate, recoverRetirement, checksumMatches, verifyAppliedHistory, pendingMigrations };
 if (require.main === module) main().catch(error => {
   // Assertion/Prisma payloads can contain historical PII. Report codes only.
   console.error('[crm-import-rollout]', error.code || error.errorCode || error.name, 'Rollout stopped; legacy data has not been discarded by the verifier.');

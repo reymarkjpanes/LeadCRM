@@ -9,6 +9,9 @@ const production = {
 it('allows core configuration without optional integration credentials', () => {
   expect(() => validateEnvironment(production)).not.toThrow();
 });
+it.each(['yes', '1', 'TRUE'])('rejects invalid BACKGROUND_WORKERS_ENABLED value %s', BACKGROUND_WORKERS_ENABLED => {
+  expect(() => validateEnvironment({ ...production, BACKGROUND_WORKERS_ENABLED })).toThrow('BACKGROUND_WORKERS_ENABLED');
+});
 it.each(['DATABASE_URL', 'JWT_SECRET', 'BREVO_API_KEY', 'BREVO_FROM_EMAIL', 'APP_URL', 'ALLOWED_ORIGINS'])('rejects missing production %s', key => {
   expect(() => validateEnvironment({ ...production, [key]: '' })).toThrow(key);
 });
