@@ -220,9 +220,16 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu><DropdownMenuTrigger className={toolbarButton} aria-label="Dashboard date range" title={dateRangeLabel}><Calendar size={14} aria-hidden="true" /><span className="hidden sm:inline">{dateRangeLabel}</span><ChevronDown size={12} aria-hidden="true" className="hidden sm:block" /></DropdownMenuTrigger>
-            <DropdownMenuContent align="end">{ranges.map(range => <DropdownMenuItem key={range.id} aria-current={query.range === range.id || undefined} onClick={() => selectRange(range.id)}>
-              <span className="w-4 shrink-0" aria-hidden="true">{query.range === range.id && <Check size={13} />}</span>{range.label}
-            </DropdownMenuItem>)}</DropdownMenuContent>
+            <DropdownMenuContent align="end" focusSelectedItem>
+              {ranges.map(range => {
+                const selected = query.range === range.id;
+                return <DropdownMenuItem key={range.id} role="menuitemradio" aria-checked={selected}
+                  className={`focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected ? 'bg-accent text-accent-foreground' : 'focus:bg-transparent focus:text-inherit'}`}
+                  onSelect={() => selectRange(range.id)}>
+                  {range.label}
+                </DropdownMenuItem>;
+              })}
+            </DropdownMenuContent>
           </DropdownMenu>
           {renderToolbarActions?.({ query, report, error, loading, className: toolbarButton })}
           <button onClick={handleRefresh} disabled={loading} className={toolbarButton} title="Sync Metrics" aria-label={loading ? 'Syncing…' : 'Sync Metrics'}><RefreshCw size={14} aria-hidden="true" className={loading ? 'animate-spin' : ''} /><span className="hidden sm:inline">{loading ? 'Syncing…' : 'Sync Metrics'}</span></button>

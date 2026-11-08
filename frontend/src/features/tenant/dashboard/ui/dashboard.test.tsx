@@ -235,14 +235,14 @@ it('preserves chart report data, compact ticks, exact tooltips and opt-in data p
 it('preserves Reports global, revenue interval and historical funnel filters', () => {
   render(<Dashboard presentation="reporting" />);
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Last 3 Months' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last 3 Months' }));
   fireEvent.click(screen.getByRole('button', { name: 'Filter Revenue Trend' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Week' }));
   fireEvent.click(screen.getByRole('button', { name: 'Filter Deal Pipeline Conversion Funnel' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Year' }));
   expect(mocks.query).toMatchObject({ range: 'last3', revenueInterval: 'week', funnelRange: 'year' });
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Custom Date Range' }));
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2020-01-01' } });
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2020-01-02' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply dates' }));
@@ -260,7 +260,7 @@ it('keeps source dates independent of Revenue Trend, Pipeline Overview and Sync 
   const range = screen.getByRole('button', { name: 'Dashboard date range' });
   expect(range.getAttribute('title')).toBe('This Month');
   fireEvent.click(range);
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Last 3 Months' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last 3 Months' }));
   expect(screen.getByLabelText('Current date and time')).toBeTruthy();
   const pipeline = screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML;
   fireEvent.click(screen.getByRole('button', { name: 'Filter Revenue Trend' }));
@@ -289,11 +289,48 @@ it('validates custom source dates without applying invalid ranges', () => {
   expect(screen.getByRole('alert').textContent).toContain('maximum two years');
   expect(mocks.query!.leadSourceRange).toBe('thisMonth');
 });
-it('applies and clears custom reporting dates from the Dashboard toolbar', () => {
+it.each(['dashboard', 'reporting'] as const)('highlights the applied toolbar range in %s', async presentation => {
+  render(<Dashboard presentation={presentation} />);
+  const range = screen.getByRole('button', { name: 'Dashboard date range' });
+  range.focus();
+  fireEvent.click(range);
+  const initialMenu = screen.getByRole('menu');
+  const thisMonth = within(initialMenu).getByRole('menuitemradio', { name: 'This Month', checked: true });
+  expect(Array.from(initialMenu.querySelectorAll('.bg-accent'))).toEqual([thisMonth]);
+  expect(initialMenu.querySelector('svg')).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(thisMonth));
+
+  fireEvent.click(within(initialMenu).getByRole('menuitemradio', { name: 'This Year', checked: false }));
+  expect(range.getAttribute('title')).toBe('This Year');
+  fireEvent.keyDown(range, { key: 'ArrowDown' });
+  const reopenedMenu = screen.getByRole('menu');
+  const thisYear = within(reopenedMenu).getByRole('menuitemradio', { name: 'This Year', checked: true });
+  await waitFor(() => expect(document.activeElement).toBe(thisYear));
+  fireEvent.keyDown(thisYear, { key: 'Home' });
+  const today = within(reopenedMenu).getByRole('menuitemradio', { name: 'Today', checked: false });
+  expect(document.activeElement).toBe(today);
+  expect(today.classList.contains('focus:bg-transparent')).toBe(true);
+  expect(today.classList.contains('focus-visible:ring-2')).toBe(true);
+  expect(Array.from(reopenedMenu.querySelectorAll('.bg-accent'))).toEqual([thisYear]);
+});
+
+it('highlights custom dates only when applied and clears them on preset selection', () => {
   render(<Dashboard />);
   const range = screen.getByRole('button', { name: 'Dashboard date range' });
   fireEvent.click(range);
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Custom Date Range' }));
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply dates' }));
+  expect(mocks.failure).toHaveBeenCalledWith('Choose valid start and end dates.');
+  fireEvent.click(range);
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('This Month');
+  fireEvent.click(range);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByLabelText('Start date')).toBeNull();
+
+  fireEvent.click(range);
+  expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('This Month');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Custom Date Range' }));
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2020-01-01' } });
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2020-01-02' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply dates' }));
@@ -301,7 +338,9 @@ it('applies and clears custom reporting dates from the Dashboard toolbar', () =>
   expect(range.getAttribute('title')).toContain('2020');
   expect(screen.queryByLabelText('Start date')).toBeNull();
   fireEvent.click(range);
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Last Month' }));
+  const applied = screen.getByRole('menuitemradio', { name: 'Custom Date Range', checked: true });
+  expect(applied.classList.contains('bg-accent')).toBe(true);
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last Month' }));
   expect(mocks.query).toMatchObject({ range: 'lastMonth', start: undefined, end: undefined, leadSourceRange: 'thisMonth' });
   expect(range.getAttribute('title')).toBe('Last Month');
 });
