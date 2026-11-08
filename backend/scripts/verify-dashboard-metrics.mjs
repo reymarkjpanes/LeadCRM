@@ -10,6 +10,11 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   const fetchReport = query => http(`/reporting/dashboard?${query}`);
   const overview=page.getByRole('region',{name:'Pipeline Overview',exact:true});
   const sources=page.getByRole('region',{name:'Lead Source Performance',exact:true});
+  const toolbar = page.getByRole('button', { name: 'Dashboard date range', exact: true });
+  async function selectRange(label) {
+    await toolbar.click();
+    await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+  }
   const reconcile = report => {
     assert.equal(report.metrics.totalRevenue, report.trend.reduce((sum,row) => sum + row.revenue,0));
     assert.equal(report.metrics.won, report.trend.reduce((sum,row) => sum + row.won,0));
@@ -25,7 +30,7 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   }
   assert.ok(await page.getByText('No won revenue in the selected period.', { exact: true }).isVisible());
   assert.ok(await page.getByRole('region', { name: 'Pipeline Overview' }).getByText('No open deals.', { exact: true }).isVisible());
-  record('Zero revenue, resolved outcomes and current Win Rate have honest empty states');
+  record('Zero revenue and no closed outcomes have honest empty states');
   async function create(title, value, index = 0) {
     const product = await prisma.productInterest.create({ data: { tenantId: tenant.id, name: title, dealValue: value } });
     const deal = await http('/crm/deals', 'POST', { title, pipelineId: pipeline.id, stageId: stages[0].id, productInterestIds: [product.id], assignedUserId: agent.id });
@@ -55,7 +60,7 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     prisma.dealStageHistory.deleteMany({ where: { dealId: unknown.id } }),
   ]);
   await expectValue('Total Revenue', money(6500));
-  await expectValue('Win Rate', '42.9%');
+  await expectValue('Win Rate', '75%');
   await page.getByRole('region', { name: 'Sales Leaderboard' }).getByText('2 deals', { exact: true }).waitFor();
   assert.ok(await page.getByText(/1 won deals.*5,000.00 without verified eligible sales credit/).isVisible());
   await page.getByText(/Reporting warnings/).click();
@@ -92,11 +97,10 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   for (const theme of ['light','dark']) {
     await page.evaluate(theme => { localStorage.setItem('app_theme', theme === 'dark' ? 'Dark' : 'Light'); window.dispatchEvent(new CustomEvent('themechange', { detail: { theme, mode: theme === 'dark' ? 'Dark' : 'Light' } })); }, theme);
     await until(() => page.locator('.crm-shell[data-theme-container]').evaluate((element,dark) => element.classList.contains('dark') === dark, theme === 'dark'), 'Theme applied');
-    for (const interval of ['Week','Month','Year']) {
-      await page.getByRole('button', { name: 'Filter Revenue Trend', exact: true }).click();
-      await page.getByRole('menuitem', { name: interval, exact: true }).click();
-      await page.getByRole('heading', { name: 'Revenue Trend', exact: true }).waitFor();
-      const report = await fetchReport(`range=thisMonth&revenueInterval=${interval.toLowerCase()}`); reconcile(report);
+    for (const [label, range, interval] of [['Today', 'today', 'Week'], ['Last 3 Months', 'last3', 'Month']]) {
+      await selectRange(label);
+      await page.getByRole('img', { name: new RegExp(`^Revenue Trend by ${interval}:`) }).waitFor();
+      const report = await fetchReport(`range=${range}&revenueInterval=${interval.toLowerCase()}`); reconcile(report);
       for (const width of [320,375,390,430,768,1024,1440]) {
         await page.setViewportSize({ width, height: 1000 }); await wait(350);
         const dimensions = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
@@ -118,6 +122,8 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     await page.screenshot({ path: resolve(output, `${theme}-metrics-320.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await selectRange('Today');
+  await page.getByRole('img', { name: /^Revenue Trend by Week:/ }).waitFor();
   await revenue().scrollIntoViewIfNeeded(); await wait(1100);
   const canvas = revenue().locator('canvas');
   const point = await canvas.evaluate(canvas => canvas.__points.find(point => point.radius === 6));
@@ -127,6 +133,8 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   await until(() => canvas.evaluate(canvas => canvas.__labels.some(label => label.includes('Revenue (PHP):') && label.includes('6,500.00'))), 'Exact revenue tooltip');
   await page.mouse.move(0,0);
   record('Single revenue bucket is centered, visible and exposes the exact recorded revenue tooltip');
+  await selectRange('This Month');
+  await expectValue('Total Revenue', money(6500), false);
 
   await prisma.deal.update({ where: { id: winner.id }, data: { assignedUserId: replacement.id } });
   assert.equal((await fetchReport('range=thisMonth')).leaderboard[0].id, agent.id);
@@ -141,8 +149,7 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   record('Sync failure retains authoritative values; retry recovers; reassignment retains historical revenue owner');
 
   await page.goto(base + '/reporting');
-  await page.getByRole('button', { name: 'Dashboard date range', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Custom Date Range', exact: true }).click();
+  await selectRange('Custom Date Range');
   await page.getByLabel('Start date', { exact: true }).fill('2020-01-01');
   await page.getByLabel('End date', { exact: true }).fill('2020-01-02');
   await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
@@ -152,28 +159,31 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   assert.equal((await fetchReport('range=custom&start=2020-01-01&end=2020-01-02')).conversion.cohort, 7);
   record('Custom global date filter changes period charts while current KPIs and independent cohort stay consistent');
   await page.goto(base + '/dashboard');
-  await page.getByRole('button', { name: 'Lead Source date range', exact: true }).waitFor();
+  await expectSources(initial);
+  assert.equal(await page.getByRole('button', { name: /Filter Revenue Trend|Lead Source date range/ }).count(), 0);
   for (const [label, range] of [['Last Month','lastMonth'],['Today','today'],['Custom Date Range','custom']]) {
     const before = await page.getByRole('region', { name: 'Pipeline Overview' }).innerHTML();
-    const response = page.waitForResponse(response => response.url().includes('/reporting/dashboard?') && new URL(response.url()).searchParams.get('leadSourceRange') === range);
-    await page.getByRole('button', { name: 'Lead Source date range', exact: true }).click();
-    await page.getByRole('menuitem', { name: label, exact: true }).click();
+    const response = page.waitForResponse(response => response.url().includes('/reporting/dashboard?') && new URL(response.url()).searchParams.get('range') === range);
+    await selectRange(label);
     if (range === 'custom') {
-      await page.getByLabel('Lead Source start date', { exact: true }).fill(today);
-      await page.getByLabel('Lead Source end date', { exact: true }).fill(today);
-      await page.getByRole('button', { name: 'Apply source dates', exact: true }).click();
+      await page.getByLabel('Start date', { exact: true }).fill(today);
+      await page.getByLabel('End date', { exact: true }).fill(today);
+      await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
     }
     const filtered = await response; const report = (await filtered.json()).data;
-    assert.equal(new URL(filtered.url()).searchParams.get('range'), 'thisMonth');
-    await until(async () => await sources.getAttribute('aria-busy') === 'false', 'Source chart loaded');
+    const params = new URL(filtered.url()).searchParams;
+    assert.equal(params.get('leadSourceRange'), range);
+    assert.equal(params.get('leadSourceStart'), params.get('start'));
+    assert.equal(params.get('leadSourceEnd'), params.get('end'));
+    assert.deepEqual(report.leadSourcePerformance.period, { start: report.period.start, end: report.period.end, timezone: report.period.timezone });
     if (report.leadSourcePerformance.sources.length) await expectSources(report);
     else await sources.getByText('No won deals for this period.', { exact: true }).waitFor();
     assert.equal(await page.getByRole('region', { name: 'Pipeline Overview' }).innerHTML(), before);
-    await expectValue('Total Revenue', money(6500), false);
-    record(`Independent ${label} source filter preserves all other Dashboard metrics`);
+    await expectValue('Total Revenue', money(report.metrics.totalRevenue), false);
+    await expectValue('Win Rate', range === 'lastMonth' ? '0%' : '75%', false);
+    record(`Toolbar ${label} filters sales metrics while preserving the current Pipeline Overview`);
   }
-  await page.getByRole('button', { name: 'Lead Source date range', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'This Month', exact: true }).click();
+  await selectRange('This Month');
   await expectSources(initial);
   const invalid = await create('Metrics missing money', 100, 0);
   await prisma.deal.update({ where: { id: invalid.id }, data: { value: null } });
@@ -297,21 +307,20 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     let release;
     const pending = new Promise(resolve => { release = resolve; });
     const delayed = async route => {
-      if (new URL(route.request().url()).searchParams.get('leadSourceRange') === 'lastMonth') {
-        await pending; await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Source filter unavailable' } }) });
+      if (new URL(route.request().url()).searchParams.get('range') === 'lastMonth') {
+        await pending; await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Selected range unavailable' } }) });
       } else await route.continue();
     };
     await page.route('**/api/proxy/reporting/dashboard?*', delayed);
-    await page.getByRole('button', { name: 'Lead Source date range' }).click();
-    await page.getByRole('menuitem', { name: 'Last Month', exact: true }).click();
-    await sources.getByRole('status', { name: 'Loading Lead Source Performance' }).waitFor();
-    assert.equal(await overview.innerHTML(), pipelineBefore);
+    await selectRange('Last Month');
+    await page.getByLabel('Loading Dashboard').waitFor();
+    assert.equal(await sources.count(), 0);
     release();
-    await sources.getByRole('alert').filter({ hasText: 'Source filter unavailable' }).waitFor();
-    assert.equal(await overview.innerHTML(), pipelineBefore);
+    await page.getByRole('alert').filter({ hasText: 'Selected range unavailable' }).waitFor();
     await page.unroute('**/api/proxy/reporting/dashboard?*', delayed);
-    await sources.getByRole('button', { name: 'Retry Lead Source Performance' }).click();
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await sources.getByText('No won deals for this period.', { exact: true }).waitFor();
-    record('Source-only loading, failure, Retry and an empty period preserve Pipeline Overview');
+    assert.equal(await overview.innerHTML(), pipelineBefore);
+    record('Range loading and failure hide stale charts; Retry restores the live Pipeline Overview');
   }
 }

@@ -267,6 +267,7 @@ try {
       tenantId: tenant.id, pipelineId: pipeline.id, stageId: stages[index === 2 ? 4 : 3].id,
       title: `Prior month fixture ${index + 1}`, value: amount, currency: 'PHP',
       ownerId: agent.id, assignedUserId: agent.id, createdAt: lastMonth.from, closedAt: new Date(+lastMonth.until - 1),
+      ...(index < 2 ? { leadSource: 'Referral', revenueOwnerId: agent.id, revenueOwnerEligible: true } : {}),
     } })));
     const savedWins = await prisma.deal.findMany({
       where: { id: { in: historicalRows.map(row => row.id) }, stage: { isWon: true, isLost: false } },
@@ -274,24 +275,33 @@ try {
     });
     assert.equal(savedWins.length, 2);
     const historicalRevenue = savedWins.reduce((sum, row) => sum + row.value, 0);
-    await expectValue('Win Rate', '66.7%');
+    await expectValue('Win Rate', '0%');
     await expectValue('Total Revenue', money(0));
     assert.equal(await dateRange.getAttribute('title'), 'This Month');
+    assert.equal(await page.getByRole('button', { name: /Filter Revenue Trend|Lead Source date range/ }).count(), 0);
+    await page.getByText('No won revenue in the selected period.', { exact: true }).waitFor();
+    await page.getByText('No won deals for this period.', { exact: true }).waitFor();
+    await page.getByText('No verified eligible sales attribution in this period.', { exact: true }).waitFor();
 
     const reportResponse = range => page.waitForResponse(response => response.ok() &&
       new URL(response.url()).pathname === '/api/proxy/reporting/dashboard' && new URL(response.url()).searchParams.get('range') === range);
     async function selectRange(label, range) {
       const pending = reportResponse(range);
       await dateRange.click();
-      await page.getByRole('menuitem', { name: label, exact: true }).click();
+      await page.getByRole('menuitemradio', { name: label, exact: true }).click();
       return (await (await pending).json()).data;
     }
     async function verifyHistoricalReport(report) {
       assert.equal(report.metrics.totalRevenue, historicalRevenue);
       assert.equal(report.trend.reduce((sum, row) => sum + row.revenue, 0), historicalRevenue);
       assert.deepEqual([report.metrics.won, report.metrics.lost, report.metrics.winRate], [2, 1, 66.7]);
+      assert.equal(report.leadSourcePerformance.period.start, report.period.start);
+      assert.equal(report.leadSourcePerformance.period.end, report.period.end);
       await expectValue('Total Revenue', money(historicalRevenue), false);
-      await expectValue('Win Rate', '66.7%');
+      await expectValue('Win Rate', '66.7%', false);
+      await page.getByRole('img', { name: /^Revenue Trend by Week:/ }).waitFor();
+      await page.getByText('Referral: 2 won deals', { exact: true }).waitFor({ state: 'attached' });
+      await page.getByRole('region', { name: 'Sales Leaderboard' }).getByText('2 deals', { exact: true }).waitFor();
     }
     await verifyHistoricalReport(await selectRange('Last Month', 'lastMonth'));
     assert.equal(await dateRange.getAttribute('title'), 'Last Month');
@@ -300,8 +310,8 @@ try {
     await page.setViewportSize({ width: 390, height: 850 });
     assert.equal((await dateRange.boundingBox()).width, 44);
     await dateRange.click();
-    assert.equal(await page.getByRole('menuitem', { name: 'Last Month', exact: true }).getAttribute('aria-current'), 'true');
-    await page.getByRole('menuitem', { name: 'Custom Date Range', exact: true }).click();
+    assert.equal(await page.getByRole('menuitemradio', { name: 'Last Month', exact: true }).getAttribute('aria-checked'), 'true');
+    await page.getByRole('menuitemradio', { name: 'Custom Date Range', exact: true }).click();
     await page.getByLabel('Start date', { exact: true }).fill(lastMonth.end);
     await page.getByLabel('End date', { exact: true }).fill(lastMonth.end);
     const customResponse = reportResponse('custom');
@@ -338,7 +348,7 @@ try {
       await expectValue('Total Revenue', money(stored.value));
       await expectValue('Forecasted Revenue', money(0));
       await expectValue('Active Deals', '0');
-      await expectValue('Win Rate', '75%');
+      await expectValue('Win Rate', '100%');
     });
     await assert.rejects(() => http(`/crm/deals/${current.id}`, 'PUT', { value: 5 }, agentToken), /historical snapshots/);
     await assert.rejects(() => http(stagePath, 'PATCH', { stageId: stages[2].id }, agentToken), /has been won/);
@@ -369,9 +379,36 @@ try {
       http(`/crm/deals/${current.id}/archive`, 'PATCH', undefined, agentToken), async () => {
       await expectValue('Total Revenue', money(0));
       await expectValue('Forecasted Revenue', money(cancelled.value));
-      await expectValue('Win Rate', '50%');
+      await expectValue('Win Rate', '0%');
     });
     assert.deepEqual(await Promise.all(dashboards.map(tab => tab.evaluate(() => performance.timeOrigin))), navigationStarts);
+    const overview = page.getByRole('region', { name: 'Pipeline Overview', exact: true });
+    const currentPipeline = await overview.innerText();
+    await selectRange('Last Month', 'lastMonth');
+    await expectValue('Win Rate', '66.7%', false);
+    assert.equal(await overview.innerText(), currentPipeline);
+    await expectValue('Forecasted Revenue', money(cancelled.value));
+    record('Changing the toolbar period keeps current Pipeline Overview and Forecast');
+
+    await page.goto(base + '/reporting');
+    await dateRange.click();
+    await page.getByRole('menuitemradio', { name: 'Last Month', exact: true }).click();
+    await expectValue('Total Revenue', money(historicalRevenue), false);
+    await expectValue('Win Rate', '50%', false);
+    await page.getByRole('button', { name: 'Filter Revenue Trend', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Year', exact: true }).click();
+    await page.getByRole('heading', { name: 'Revenue Trend by Year', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Filter Deal Pipeline Conversion Funnel', exact: true }).count(), 1);
+    const exported = page.waitForResponse(response => new URL(response.url()).pathname === '/api/proxy/reporting/dashboard/export');
+    const downloaded = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+    const csv = await exported;
+    const csvFilters = new URL(csv.url()).searchParams;
+    assert.equal(csv.ok(), true);
+    assert.equal(csvFilters.get('range'), 'lastMonth');
+    assert.equal(csvFilters.get('revenueInterval'), 'year');
+    assert.match(readFileSync(await (await downloaded).path(), 'utf8'), /"Win Rate","50","Current eligible Sales Pipeline \/ %"/);
+    record('Reports retains its independent chart controls and current Win Rate in CSV');
   } else if (metricsOnly) {
     const { verifyDashboardMetrics } = await import('./verify-dashboard-metrics.mjs');
     await verifyDashboardMetrics({ page, staffPage: staffSession.tab, base, output, http, prisma, tenant, agent, replacement, pipeline, stages, products, record, until, wait, expectValue, sourceOnly });
@@ -400,7 +437,7 @@ try {
   assert.equal(await prisma.dealStageHistory.count({ where: { dealId: deal.id, newStageId: stages[3].id } }),1); record('Repeated closure has one revenue recognition and one history milestone');
   const losing = await http('/crm/deals','POST',{ pipelineId: pipeline.id, stageId: stages[0].id, title: 'Lost and Reopened', productInterestIds:[products[0].id], assignedUserId:agent.id });
   await mutation('Lost closure and Win Rate denominator', () => http(`/crm/deals/${losing.id}/stage`,'PATCH',{ stageId:stages[4].id, lostReason:'Deferred' }), () => expectValue('Win Rate','50%'));
-  await mutation('Lost reopening removes current outcome and restores pipeline', () => http(`/crm/deals/${losing.id}/stage`,'PATCH',{ stageId:stages[2].id }), async () => { await expectValue('Active Deals','1'); await expectValue('Win Rate','50%'); });
+  await mutation('Lost reopening removes current outcome and restores pipeline', () => http(`/crm/deals/${losing.id}/stage`,'PATCH',{ stageId:stages[2].id }), async () => { await expectValue('Active Deals','1'); await expectValue('Win Rate','100%'); });
   const task = await mutation('Task creation updates Action Center', () => http('/operations/tasks','POST',{ requestId:randomUUID(), title:'Browser overdue follow-up', dueDate:new Date(Date.now()-86400000).toISOString(), priority:'High', assignedUserId:agent.id, dealIds:[deal.id] }), async () => { await page.getByText('Browser overdue follow-up',{exact:true}).waitFor(); await staffSession.tab.getByText('Browser overdue follow-up',{exact:true}).waitFor(); });
   const actionLayout = await page.getByRole('link').filter({hasText:'Browser overdue follow-up'}).evaluate(el=>({height:el.parentElement.clientHeight,itemHeight:el.getBoundingClientRect().height,overflow:getComputedStyle(el.parentElement).overflowY,clipped:el.getBoundingClientRect().bottom>el.parentElement.getBoundingClientRect().bottom+1})); assert.ok(Math.abs(actionLayout.height-actionLayout.itemHeight)<=1); assert.ok(actionLayout.itemHeight<108); assert.equal(actionLayout.overflow,'auto'); assert.equal(actionLayout.clipped,false); record('Action Center uses a compact content-based scroll viewport',actionLayout);
   await mutation('Task completion removes pending action', () => http(`/operations/tasks/${task.id}/complete`,'PATCH'), async () => until(async () => await page.getByText('Browser overdue follow-up',{exact:true}).count() === 0, 'Task disappeared'));
@@ -434,7 +471,7 @@ try {
   await page.goto(base+'/reporting');
   await page.getByRole('button',{name:'Dashboard date range',exact:true}).waitFor();
   for (const label of ['Today','Last 7 Days','Last 30 Days','This Month','Last Month','Last 3 Months','Last 6 Months','This Year']) {
-    await page.getByRole('button',{name:'Dashboard date range',exact:true}).click(); await page.getByRole('menuitem',{name:label,exact:true}).click();
+    await page.getByRole('button',{name:'Dashboard date range',exact:true}).click(); await page.getByRole('menuitemradio',{name:label,exact:true}).click();
     await page.getByRole('heading',{name:/^Revenue Trend by /}).waitFor();
     await until(async () => !await page.getByRole('button',{name:'Syncing…',exact:true}).count(),'Date query complete');
   }
@@ -443,7 +480,7 @@ try {
   const fixtureStart = dashboardToday(new Date(deal.createdAt));
   let fixtureEnd = dashboardToday();
   async function applyFixtureDates() {
-    await page.getByRole('button',{name:'Dashboard date range',exact:true}).click(); await page.getByRole('menuitem',{name:'Custom Date Range',exact:true}).click();
+    await page.getByRole('button',{name:'Dashboard date range',exact:true}).click(); await page.getByRole('menuitemradio',{name:'Custom Date Range',exact:true}).click();
     await page.getByLabel('Start date',{exact:true}).fill(fixtureStart); await page.getByLabel('End date',{exact:true}).fill(fixtureEnd); await page.getByRole('button',{name:'Apply dates',exact:true}).click();
   }
   await applyFixtureDates();

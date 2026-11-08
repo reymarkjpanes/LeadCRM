@@ -154,6 +154,27 @@ const sourceSnapshot = (won: number, revenue = 45000) => ({
   leadSourcePerformance: { period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila' }, sources: [{ name: 'Referral', won }] },
 });
 
+it('keeps the latest complete report when toolbar ranges change rapidly', async () => {
+  let finishLastMonth: (response: unknown) => void = () => {};
+  const latest = { ...sourceSnapshot(2, 300), trend: [{ revenue: 300 }], leaderboard: [{ id: 'current-agent' }] };
+  mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(0, 0) })
+    .mockImplementationOnce(() => new Promise(resolve => { finishLastMonth = resolve; }))
+    .mockResolvedValueOnce({ data: latest });
+  const hook = renderHook(({ range }: { range: 'thisMonth' | 'lastMonth' | 'last3' }) =>
+    useDashboard({ range, leadSourceRange: range, revenueInterval: range === 'last3' ? 'month' : 'week' }),
+  { initialProps: { range: 'thisMonth' } });
+  await waitFor(() => expect(hook.result.current.report?.metrics.totalRevenue).toBe(0));
+
+  hook.rerender({ range: 'lastMonth' });
+  expect(hook.result.current.report).toBeNull();
+  hook.rerender({ range: 'last3' });
+  await waitFor(() => expect(hook.result.current.report).toEqual(latest));
+  await act(async () => finishLastMonth({ data: sourceSnapshot(9, 999) }));
+  expect(hook.result.current.report).toEqual(latest);
+  expect(mocks.get.mock.calls.at(-1)?.[0]).toContain('range=last3&revenueInterval=month&leadSourceRange=last3');
+  expect(Feed.instances).toHaveLength(1);
+});
+
 it.each(['queued', 'in flight'] as const)('preserves a %s full refresh when Lead Source dates change', async timing => {
   vi.useFakeTimers();
   mocks.get.mockResolvedValueOnce({ data: sourceSnapshot(12) });
