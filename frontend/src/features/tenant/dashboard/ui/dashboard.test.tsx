@@ -4,9 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DashboardReport, DashboardQuery } from '@leadcrm/shared';
 import Dashboard from './dashboard';
 
-const mocks = vi.hoisted(() => ({ report: null as DashboardReport | null, query: null as DashboardQuery | null, error: null as string | null, loading: false, sourceLoading: false, sourceError: null as string | null, refresh: vi.fn(async () => true), charts: [] as any[], success: vi.fn(), failure: vi.fn() }));
+const mocks = vi.hoisted(() => ({ report: null as DashboardReport | null, query: null as DashboardQuery | null, error: null as string | null, loading: false, refresh: vi.fn(async () => true), charts: [] as any[], success: vi.fn(), failure: vi.fn() }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'agent', firstName: 'Sales' } }) }));
-vi.mock('../hooks/use-dashboard-report', () => ({ useDashboard: (query: DashboardQuery) => { mocks.query = query; return { report: mocks.report, error: mocks.error, loading: mocks.loading, sourceLoading: mocks.sourceLoading, sourceError: mocks.sourceError, refresh: mocks.refresh }; } }));
+vi.mock('../hooks/use-dashboard-report', () => ({ useDashboard: (query: DashboardQuery) => { mocks.query = query; return { report: mocks.report, error: mocks.error, loading: mocks.loading, refresh: mocks.refresh }; } }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error: mocks.failure } }));
 vi.mock('react-chartjs-2', () => ({
   Bar: (props: any) => { mocks.charts.push({ type: 'bar', ...props }); return <canvas />; },
@@ -16,7 +16,7 @@ vi.mock('react-chartjs-2', () => ({
 
 beforeEach(() => {
   mocks.charts = [];
-  mocks.loading = false; mocks.error = null; mocks.sourceLoading = false; mocks.sourceError = null;
+  mocks.loading = false; mocks.error = null;
   mocks.refresh.mockResolvedValue(true); mocks.success.mockClear(); mocks.failure.mockClear();
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const stages = ['Lead','Contacted','Qualified','Closed Deal','Cancelled'].map((name, order) => ({
@@ -96,7 +96,18 @@ it('renders exactly five mapped KPIs and the five requested sections in sample o
   expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('₱37,000.00').textContent).toBe('₱37K');
   expect(within(screen.getByRole('group', { name: 'Open Deals' })).getByText('3')).toBeTruthy();
   expect(within(screen.getByRole('group', { name: 'Leads' })).getByText('1')).toBeTruthy();
-  expect(within(screen.getByRole('group', { name: 'Win Rate' })).getByText('8%')).toBeTruthy();
+  expect(within(screen.getByRole('group', { name: 'Win Rate' })).getByText('100%')).toBeTruthy();
+});
+
+it.each([
+  { won: 1, lost: 2, expected: '33.3%' },
+  { won: 1, lost: 0, expected: '100%' },
+  { won: 0, lost: 2, expected: '0%' },
+  { won: null, lost: null, expected: 'Unavailable' },
+])('shows $expected for $won wins and $lost cancellations even when revenue is zero', ({ won, lost, expected }) => {
+  Object.assign(mocks.report!.metrics, { totalRevenue: 0, won, lost });
+  render(<Dashboard />);
+  expect(within(screen.getByRole('group', { name: 'Win Rate' })).getByText(expected)).toBeTruthy();
 });
 
 it('shows exact compact amounts on keyboard focus', async () => {
@@ -138,25 +149,16 @@ it('replaces the Dashboard funnel with backend source counts and a horizontal ch
   expect(chart.data.datasets[0].data).toEqual([12, 2]);
   expect(chart.options.plugins.legend.display).toBe(false);
   expect(chart.plugins).toHaveLength(1);
-  expect(source.getByRole('button', { name: 'Lead Source date range' }).textContent).toBe('This Month');
+  expect(source.queryByRole('button', { name: 'Lead Source date range' })).toBeNull();
   for (const removed of ['Conversion Funnel', 'Historical Conversion Rates', 'Current pipeline stage counts']) expect(screen.queryByText(removed)).toBeNull();
 });
-it('distinguishes an empty source period, unavailable access, loading and chart errors', () => {
+it('distinguishes an empty source period from unavailable access', () => {
   mocks.report!.leadSourcePerformance!.sources = [];
   const view = render(<Dashboard />);
   const source = within(screen.getByRole('region', { name: 'Lead Source Performance' }));
   expect(source.getByText('No won deals for this period.')).toBeTruthy();
   expect(mocks.charts.filter(chart => chart.type === 'bar')).toHaveLength(0);
-  mocks.report!.leadSourcePerformance = null; mocks.sourceLoading = true;
-  view.rerender(<Dashboard />);
-  expect(source.getByRole('status', { name: 'Loading Lead Source Performance' })).toBeTruthy();
-  expect(screen.getByRole('region', { name: 'Pipeline Overview' })).toBeTruthy();
-  mocks.sourceLoading = false; mocks.sourceError = 'Source request failed';
-  view.rerender(<Dashboard />);
-  expect(source.getByRole('alert').textContent).toContain('Source request failed');
-  fireEvent.click(source.getByRole('button', { name: 'Retry Lead Source Performance' }));
-  expect(mocks.refresh).toHaveBeenCalledWith(true);
-  mocks.sourceError = null; mocks.report!.access.deals = false;
+  mocks.report!.leadSourcePerformance = null; mocks.report!.access.deals = false;
   view.rerender(<Dashboard />);
   expect(source.getByText('Deal reporting unavailable.')).toBeTruthy();
   expect(source.queryByRole('img')).toBeNull();
@@ -227,8 +229,8 @@ it('preserves chart report data, compact ticks, exact tooltips and opt-in data p
   expect(mocks.charts.filter(chart => chart.type === 'area')).toHaveLength(1);
   expect(trend.data.datasets[0].data).toEqual([45000]);
   expect(trend.data.datasets[0].pointRadius).toBe(6);
-  expect(trend.options.scales.x.ticks.callback(0)).toBe('Jan');
-  expect(trend.options.plugins.tooltip.callbacks.title([{ label: '2020-01-01' }])).toBe('Jan 2020');
+  expect(trend.options.scales.x.ticks.callback(0)).toBe('Jan 1');
+  expect(trend.options.plugins.tooltip.callbacks.title([{ label: '2020-01-01' }])).toBe('Week of Jan 1, 2020');
   expect(trend.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Revenue (PHP)' }, parsed: { y: 45000 } })).toBe('Revenue (PHP): ₱45,000.00');
 });
 
@@ -255,39 +257,38 @@ it('preserves Reports global, revenue interval and historical funnel filters', (
   expect(mocks.query).toMatchObject({ range: 'custom', start: '2020-01-01', end: '2020-01-02', funnelRange: 'custom', funnelStart: '2020-01-03', funnelEnd: '2020-01-04' });
 });
 
-it('keeps source dates independent of Revenue Trend, Pipeline Overview and Sync Metrics', async () => {
-  const view = render(<Dashboard />);
+it('updates all period sales metrics together while keeping Pipeline Overview live', () => {
+  const olderPeriod = mocks.report!;
+  mocks.report = {
+    ...olderPeriod,
+    metrics: { ...olderPeriod.metrics, totalRevenue: 0, won: 0, lost: 0, unattributedWon: 0, unattributedRevenue: 0 },
+    trend: [],
+    leadSourcePerformance: { ...olderPeriod.leadSourcePerformance!, sources: [] },
+    leaderboard: [],
+  };
+  render(<Dashboard />);
   const range = screen.getByRole('button', { name: 'Dashboard date range' });
   expect(range.getAttribute('title')).toBe('This Month');
+  expect(mocks.query).toMatchObject({ range: 'thisMonth', revenueInterval: 'week', leadSourceRange: 'thisMonth' });
+  expect(screen.queryByRole('button', { name: 'Filter Revenue Trend' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Lead Source date range' })).toBeNull();
+  expect(within(screen.getByRole('group', { name: 'Revenue' })).getByText('₱0')).toBeTruthy();
+  expect(within(screen.getByRole('group', { name: 'Win Rate' })).getByText('0%')).toBeTruthy();
+  expect(screen.getByText('No won revenue in the selected period.')).toBeTruthy();
+  expect(screen.getByText('No won deals for this period.')).toBeTruthy();
+  expect(screen.getByText('No verified eligible sales attribution in this period.')).toBeTruthy();
+
+  const pipeline = screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML;
+  mocks.report = olderPeriod;
   fireEvent.click(range);
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last 3 Months' }));
-  expect(screen.getByLabelText('Current date and time')).toBeTruthy();
-  const pipeline = screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML;
-  fireEvent.click(screen.getByRole('button', { name: 'Filter Revenue Trend' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Week' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Lead Source date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Last Month' }));
-  expect(mocks.query).toMatchObject({ range: 'last3', revenueInterval: 'week', leadSourceRange: 'lastMonth' });
-  fireEvent.click(screen.getByRole('button', { name: 'Lead Source date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
-  fireEvent.change(screen.getByLabelText('Lead Source start date'), { target: { value: '2020-01-03' } });
-  fireEvent.change(screen.getByLabelText('Lead Source end date'), { target: { value: '2020-01-04' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply source dates' }));
-  expect(mocks.query).toMatchObject({ range: 'last3', start: undefined, end: undefined, revenueInterval: 'week', leadSourceRange: 'custom', leadSourceStart: '2020-01-03', leadSourceEnd: '2020-01-04' });
+  expect(mocks.query).toMatchObject({ range: 'last3', revenueInterval: 'month', leadSourceRange: 'last3' });
+  expect(within(screen.getByRole('group', { name: 'Revenue' })).getByText('₱45K')).toBeTruthy();
+  expect(within(screen.getByRole('group', { name: 'Win Rate' })).getByText('100%')).toBeTruthy();
+  expect(screen.getByRole('img', { name: 'Revenue Trend by Month: ₱45,000.00 for the selected period.' })).toBeTruthy();
+  expect(screen.getByText('Referral: 12 won deals')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Sales Leaderboard' })).getByText('Historical Agent')).toBeTruthy();
   expect(screen.getByRole('region', { name: 'Pipeline Overview' }).innerHTML).toBe(pipeline);
-  fireEvent.click(screen.getByRole('button', { name: 'Sync Metrics' }));
-  await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
-  view.unmount(); render(<Dashboard />);
-  expect(mocks.query).toMatchObject({ range: 'thisMonth', revenueInterval: 'month', leadSourceRange: 'thisMonth' });
-});
-it('validates custom source dates without applying invalid ranges', () => {
-  render(<Dashboard />);
-  fireEvent.click(screen.getByRole('button', { name: 'Lead Source date range' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Custom Date Range' }));
-  fireEvent.change(screen.getByLabelText('Lead Source start date'), { target: { value: '2010-01-03' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply source dates' }));
-  expect(screen.getByRole('alert').textContent).toContain('maximum two years');
-  expect(mocks.query!.leadSourceRange).toBe('thisMonth');
 });
 it.each(['dashboard', 'reporting'] as const)('highlights the applied toolbar range in %s', async presentation => {
   render(<Dashboard presentation={presentation} />);
@@ -332,16 +333,16 @@ it('highlights custom dates only when applied and clears them on preset selectio
   expect(screen.getByRole('menuitemradio', { checked: true }).textContent).toBe('This Month');
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Custom Date Range' }));
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2020-01-01' } });
-  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2020-01-02' } });
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2020-01-31' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply dates' }));
-  expect(mocks.query).toMatchObject({ range: 'custom', start: '2020-01-01', end: '2020-01-02', leadSourceRange: 'thisMonth' });
+  expect(mocks.query).toMatchObject({ range: 'custom', start: '2020-01-01', end: '2020-01-31', revenueInterval: 'week', leadSourceRange: 'custom', leadSourceStart: '2020-01-01', leadSourceEnd: '2020-01-31' });
   expect(range.getAttribute('title')).toContain('2020');
   expect(screen.queryByLabelText('Start date')).toBeNull();
   fireEvent.click(range);
   const applied = screen.getByRole('menuitemradio', { name: 'Custom Date Range', checked: true });
   expect(applied.classList.contains('bg-accent')).toBe(true);
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last Month' }));
-  expect(mocks.query).toMatchObject({ range: 'lastMonth', start: undefined, end: undefined, leadSourceRange: 'thisMonth' });
+  expect(mocks.query).toMatchObject({ range: 'lastMonth', start: undefined, end: undefined, leadSourceRange: 'lastMonth', leadSourceStart: undefined, leadSourceEnd: undefined });
   expect(range.getAttribute('title')).toBe('Last Month');
 });
 
@@ -371,6 +372,9 @@ it('uses the simplified loading skeleton and preserves permission-based unavaila
   mocks.report = null; mocks.loading = true;
   const view = render(<Dashboard />);
   expect(screen.getByLabelText('Loading Dashboard')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Dashboard date range' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Last Month' }));
+  expect(mocks.query).toMatchObject({ range: 'lastMonth', leadSourceRange: 'lastMonth' });
   mocks.loading = false; mocks.error = 'Your reporting access changed.';
   view.rerender(<Dashboard />);
   expect(screen.getByRole('alert').textContent).toContain('Your reporting access changed.');

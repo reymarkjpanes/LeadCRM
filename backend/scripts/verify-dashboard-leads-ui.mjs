@@ -13,7 +13,7 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
     await wait(400);
     const source = page.getByRole('region', { name: 'Lead Source Performance', exact: true });
     assert.equal(await source.getByRole('heading', { name: 'Lead Source Performance', exact: true }).count(), 1);
-    assert.equal(await page.getByRole('region', { name: 'Lead Source Performance', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: /Filter Revenue Trend|Lead Source date range/ }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Dashboard date range', exact: true }).getAttribute('title'), 'This Month');
     const dimensions = await revenue().evaluate(region => {
       const card=region.closest('section'),action=document.querySelector('section[aria-label="Action Center"]');
@@ -50,7 +50,7 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
     assert.ok(Math.abs(dimensions.sections[4].width-(dimensions.width>=1024?dimensions.action.width+dimensions.card.width+dimensions.columnGap:dimensions.card.width))<=1,'Full-width leaderboard');
     record(label,dimensions);return dimensions;
   }
-  async function interval(label, range = 'thisMonth') {
+  async function reportsInterval(label, range) {
     const response = page.waitForResponse(r => r.url().includes('/reporting/dashboard?') && new URL(r.url()).searchParams.get('revenueInterval') === label.toLowerCase());
     await page.getByRole('button', { name: 'Filter Revenue Trend', exact: true }).click();
     await page.getByRole('menuitem', { name: label, exact: true }).click();
@@ -67,12 +67,13 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   const won = await http('/crm/deals', 'POST', { title: 'UI polish actual win', pipelineId: pipeline.id, stageId: stages[0].id, productInterestIds: [products[0].id], assignedUserId: agent.id });
   for (const stage of stages.slice(1, 4)) await http(`/crm/deals/${won.id}/stage`, 'PATCH', { stageId: stage.id });
   await expectValue('Total Revenue', currency(45000));
-  const single = await http('/reporting/dashboard?range=thisMonth&revenueInterval=month');
-  assert.equal(single.trend.length, 1); assert.equal(single.trend[0].revenue, 45000);
+  const trend = await http('/reporting/dashboard?range=thisMonth&revenueInterval=week');
+  assert.equal(trend.trend.filter(row => row.revenue > 0).length, 1);
+  assert.equal(trend.trend.reduce((sum, row) => sum + row.revenue, 0), 45000);
   const singleLayout = await layout('Single actual PHP 45,000 observation fills card');
-  assert.ok(singleLayout.points.some(point => point.radius === 6), 'Single data point is drawn');
+  assert.ok(singleLayout.points.some(point => point.radius > 0), 'Revenue point is drawn');
   await wait(1100); // Existing Chart.js value animation must finish before hit testing.
-  const singlePoint = await revenue().locator('canvas').evaluate(c => c.__points.find(p => p.radius === 6));
+  const singlePoint = await revenue().locator('canvas').evaluate(c => c.__points.reduce((top, point) => point.y < top.y ? point : top));
   await revenue().locator('canvas').hover({ position: { x: singlePoint.x, y: singlePoint.y } });
   await until(() => revenue().locator('canvas').evaluate(canvas => canvas.__labels.some(text => text.startsWith('Revenue (PHP):') && text.includes('45,000.00'))), 'Single-point currency tooltip');
   await page.mouse.move(0, 0);
@@ -174,15 +175,12 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   record('Scrolled action retains its existing task record navigation');
   await page.goto(base + '/dashboard');
   await actionList().getByRole('link').last().waitFor();
-  for (const label of ['Week', 'Year', 'Month']) {
-    const report = await interval(label);
-    assert.equal(report.metrics.totalRevenue, 45000);
-    for (const width of widths) {
-      await page.setViewportSize({ width, height: 1000 });
-      await layout(`${label} chart responsive ${width}`);
-      await revenue().scrollIntoViewIfNeeded();
-      await page.screenshot({ path: resolve(output, `dashboard-${label.toLowerCase()}-${width}.png`) });
-    }
+  await page.getByRole('img', { name: /^Revenue Trend by Week:/ }).waitFor();
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 1000 });
+    await layout(`This Month chart responsive ${width}`);
+    await revenue().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: resolve(output, `dashboard-week-${width}.png`) });
   }
   // Historical observations are created only in this disposable database.
   const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit' }).format(new Date());
@@ -193,10 +191,10 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   }
   await page.goto(base + '/reporting');
   await page.getByRole('button', { name: 'Dashboard date range', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Last 3 Months', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Last 3 Months', exact: true }).click();
   await expectValue('Total Revenue', currency(95000), false);
   for (const label of ['Week', 'Year', 'Month']) {
-    const report = await interval(label, 'last3');
+    const report = await reportsInterval(label, 'last3');
     assert.equal(report.metrics.totalRevenue, 95000);
     if (label === 'Month') { assert.equal(report.trend.length, 3); assert.deepEqual(report.trend.map(row => row.revenue), [30000, 20000, 45000]); }
     for (const width of widths) {
@@ -244,7 +242,8 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   }
   const hotLeads = [];
   for (const [firstName, lastName] of [['Reyn', 'Panes'], ['Lisa', 'Manoban'], ['Shaun', 'Mendes']]) {
-    hotLeads.push(await http('/crm/leads', 'POST', { firstName, lastName, email: `${firstName.toLowerCase()}@example.test`, status: 'Hot', assignedUserId: agent.id }));
+    const lead = await http('/crm/leads', 'POST', { firstName, lastName, email: `${firstName.toLowerCase()}@example.test`, status: 'Inquiry', assignedUserId: agent.id });
+    hotLeads.push(await http(`/crm/leads/${lead.id}`, 'PUT', { status: 'Hot' }));
   }
   await prisma.stage.update({ where: { id: stages[0].id }, data: { rottenAfterDays: 1 } });
   const stale = await http('/crm/deals', 'POST', { title: 'Configured stagnant deal requiring attention with a longer title', priority: 'LOW', pipelineId: pipeline.id, stageId: stages[0].id, productInterestIds: [products[1].id], assignedUserId: agent.id });

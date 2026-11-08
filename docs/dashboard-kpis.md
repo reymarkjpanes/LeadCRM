@@ -12,7 +12,7 @@ Eligible Leads are unconverted, unarchived and not deleted, separate from the De
 
 ## Dates
 
-The Dashboard and Reports toolbars both default to **This Month**. Use the date selector to change the period for Revenue, Revenue Trend, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
+The Dashboard and Reports toolbars both default to **This Month**. The Dashboard toolbar controls the period for Revenue, Win Rate, Revenue Trend, Lead Source Performance, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
 
 | Option | Inclusive calendar interval |
 | --- | --- |
@@ -24,7 +24,7 @@ The Dashboard and Reports toolbars both default to **This Month**. Use the date 
 | This Year | January 1 through today |
 | Custom | Valid ordered start and end, maximum 732 days |
 
-Revenue Trend defaults to calendar Month. Week (Monday start), Month and Year group identical eligible closures inside the global date interval; they never change that interval. Only calendar buckets intersecting the selected period are generated. Empty successful buckets are zero. Query failures do not produce empty reports. Prisma timestamps store UTC without timezone; SQL explicitly casts input boundaries to UTC and groups closing dates in Manila. Asia/Manila is the existing shared reporting convention; there is no tenant-specific timezone field.
+Dashboard Revenue Trend groups ranges of up to 31 days by calendar week (Monday start) and longer ranges by calendar month. Reports defaults to Month and offers Week, Month, and Year grouping inside the selected dates. Only calendar buckets intersecting the selected period are generated. Empty successful buckets are zero. Query failures do not produce empty reports. Prisma timestamps store UTC without timezone; SQL explicitly casts input boundaries to UTC and groups closing dates in Manila. Asia/Manila is the existing shared reporting convention; there is no tenant-specific timezone field.
 
 ## KPIs and charts
 
@@ -35,7 +35,8 @@ Revenue Trend defaults to calendar Month. Week (Monday start), Month and Year gr
 | Forecasted Revenue | Sum current Qualified-stage amounts in the authoritative Sales Pipeline, resolved by its validated Stage ID; probabilities and expectedCloseDate do not narrow or weight the forecast |
 | Active Deals | Distinct currently Lead, Contacted or Qualified Deals |
 | Total Leads | Current eligible Leads-module population |
-| Win Rate | Currently won eligible Deals divided by all current eligible Deals (open, won, or cancelled), × 100. Zero when there are no eligible Deals. Independent of the selected period. |
+| Dashboard Win Rate | Eligible wins divided by eligible wins plus cancellations closed in the selected period, × 100, rounded to one decimal. No wins means 0%. Valid wins count regardless of amount or currency. Unavailable outcome counts produce an unavailable rate. |
+| Reports and CSV Win Rate | Currently won eligible Deals divided by all current eligible Deals (open, won, or cancelled), × 100. Zero when there are no eligible Deals. Independent of the selected period. |
 | Average Deal Velocity | Mean fractional days from creation to eligible period Won closure, rounded to one decimal; no wins means unavailable |
 | Won vs. Lost | Current terminal outcomes grouped by valid `closedAt` in the selected period |
 | Pipeline Distribution | Current counts in three official open stages; sum equals Active Deals |
@@ -49,7 +50,7 @@ Currencies are never converted or mixed. Money uses tenant currency (PHP when un
 
 Dashboard shows distinct currently Won Deals grouped by trimmed saved `Deal.leadSource`, using the existing authorized Sales Pipeline population and valid `closedAt` boundaries. Missing or blank sources are “Not specified”; related Lead/Contact sources are not inferred. Counts include eligible Deals regardless of their currency or monetary-data validity.
 
-The independent date dropdown defaults to This Month and reuses the date options above. It changes the date scope of this chart. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays “No won deals for this period.” Request errors remain visible.
+The chart uses the Dashboard toolbar dates, including applied custom dates. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays “No won deals for this period.” Request errors appear in the Dashboard report status.
 
 Up to five individual source groups are shown, reserving one slot for nonzero “Not specified”. Overflow and saved “Others” values form a single Others bar. Displayed bars sort by won count descending, then source name. Revenue, current Pipeline Overview, and other metrics retain their existing definitions.
 
@@ -83,7 +84,7 @@ Database triggers update tenant revisions in the same transaction as Deal/Stage/
 
 Streams observe committed counters every three seconds, heartbeat and end at 45 seconds. EventSource reconnects after three seconds. Sessions/RBAC are revalidated every observation; payloads contain counters only. Next preserves streaming/no-buffer headers. Auth access subscriptions remain outside module guards so revocation and later grants refresh existing permissions.
 
-The hook batches bursts, ignores identical notifications, refreshes authoritative aggregates on connection/reconnect/focus/wake/online, and reconciles every 30 seconds while foregrounded. Changing chart filters does not create another subscription. A pending full refresh still applies all KPIs when Lead Source dates change. Request generation/cancellation prevent stale identity/filter responses. Failed data requests preserve the prior report with an error; access loss clears it. The connection-status subtitle is removed. No frontend metric persistence or incremental event arithmetic. Sync Metrics is a read-only fallback. CSV takes a fresh authorized snapshot using identical definitions, selected chart filters, observation cutoff, diagnostic warnings, time bases and formula-injection escaping.
+The hook batches bursts, ignores identical notifications, refreshes authoritative aggregates on connection/reconnect/focus/wake/online, and reconciles every 30 seconds while foregrounded. Changing the Dashboard toolbar dates requests one report for all sales metrics and keeps the existing subscription. Request generation and cancellation prevent stale identity or filter responses. Failed refreshes preserve the prior report for the same filters with an error. Access loss clears it. Sync Metrics is a read-only fallback. CSV takes a fresh authorized snapshot using the Reports definitions, selected chart filters, observation cutoff, diagnostic warnings, time bases and formula-injection escaping.
 
 ## Stage colors
 
