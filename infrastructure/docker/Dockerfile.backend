@@ -12,7 +12,7 @@ RUN npm --prefix shared run build && npm --prefix backend run build
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production PORT=4000 STORAGE_ROOT=/var/lib/leadcrm/files
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/* && mkdir -p /var/lib/leadcrm/files && chown node:node /var/lib/leadcrm/files
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl && rm -rf /var/lib/apt/lists/* && mkdir -p /var/lib/leadcrm/files && chown node:node /var/lib/leadcrm/files
 # Prisma CLI and guarded deployment scripts are required at startup.
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/package.json /app/package-lock.json ./
