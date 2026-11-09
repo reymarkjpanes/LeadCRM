@@ -637,7 +637,7 @@ export default function ComposeModal({ isOpen, onClose, onSent, initialDraft, au
           onKeyUp={updateActiveFormats}
           onMouseUp={updateActiveFormats}
           onPaste={event => { event.preventDefault(); const html = event.clipboardData.getData('text/html'); document.execCommand(html ? 'insertHTML' : 'insertText', false, html ? safeMailboxHtml(html) : event.clipboardData.getData('text/plain')); }}
-          className="w-full flex-1 px-4 py-3 text-[13px] text-slate-900 dark:text-white bg-transparent focus:outline-none overflow-y-auto leading-relaxed min-h-[100px] [&_a]:text-blue-500 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-0.5"
+          className="inbox-message-typography w-full flex-1 px-4 py-3 text-slate-900 dark:text-white bg-transparent focus:outline-none overflow-y-auto min-h-[100px] [&_a]:text-blue-500 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-0.5"
           suppressContentEditableWarning
         />
 

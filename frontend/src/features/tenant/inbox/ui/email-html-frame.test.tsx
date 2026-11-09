@@ -92,3 +92,68 @@ it('passes the subject to distinguish Outlook forwards from reply history', () =
   view.rerender(<EmailHtmlFrame body={body} inlineImages={{}} subject="Re: Proposal" />);
   expect(frame.getAttribute('srcdoc')).not.toContain('Forwarded content');
 });
+
+it('reuses only the active app fonts and normalizes sender typography without changing formatting or source HTML', () => {
+  const fonts = document.createElement('style');
+  fonts.textContent = '@font-face{font-family:"App Poppins";src:url(../media/regular.woff2);font-weight:400}' +
+    '@font-face{font-family:"App Poppins";src:url(../media/bold.woff2);font-weight:700}' +
+    '@font-face{font-family:Heading;src:url(../media/heading.woff2)}';
+  document.head.append(fonts);
+  Object.defineProperty(fonts.sheet!, 'href', { value: 'https://app.test/styles/fonts.css' });
+  // jsdom omits font-face src descriptors; browsers retain them in cssText.
+  const rules = fonts.textContent.match(/@font-face\{[^}]+\}/g)!;
+  [...fonts.sheet!.cssRules].forEach((rule, index) => Object.defineProperty(rule, 'cssText', { value: rules[index] }));
+  const html = '<div style="font:italic 700 24px/3 serif!important;color:red">Hello <b>bold</b> <em>italic</em>' +
+    '<a href="https://example.test">link</a><br>Second line</div><pre>First\nSecond <code>code</code></pre>';
+  try {
+    const view = render(<EmailHtmlFrame body={html} inlineImages={{}} />);
+    const frame = view.getByTitle('Email message content') as HTMLIFrameElement;
+    Object.assign(frame.style, { fontFamily: '"App Poppins", sans-serif', fontSize: '13px', fontWeight: '400', lineHeight: '1.625' });
+    const source = frame.getAttribute('srcdoc');
+    const doc = frame.contentDocument!;
+    doc.body.innerHTML = html;
+    fireEvent.load(frame);
+    const copiedFonts = doc.querySelector('style[data-mailbox-typography]')!.textContent;
+    expect(copiedFonts).toContain('https://app.test/media/regular.woff2');
+    expect(copiedFonts).toContain('https://app.test/media/bold.woff2');
+    expect(copiedFonts).not.toContain('heading.woff2');
+    for (const element of [doc.body, ...doc.body.querySelectorAll<HTMLElement>('*')]) {
+      expect(element.style.fontFamily).toBe('"App Poppins", sans-serif');
+      expect(element.style.fontSize).toBe('13px');
+      expect(element.style.lineHeight).toBe('1.625');
+    }
+    const formatted = doc.querySelector('div')!;
+    expect(doc.body.style.fontWeight).toBe('400');
+    expect(formatted.style.fontWeight).toBe('700');
+    expect(formatted.style.fontStyle).toBe('italic');
+    expect(formatted.style.color).toBe('red');
+    expect(doc.querySelector('b')?.textContent).toBe('bold');
+    expect(doc.querySelector('em')?.textContent).toBe('italic');
+    expect(doc.querySelector('a')?.getAttribute('href')).toBe('https://example.test');
+    expect(doc.querySelectorAll('br')).toHaveLength(1);
+    expect(doc.querySelector('pre')?.textContent).toBe('First\nSecond code');
+    expect(frame.getAttribute('srcdoc')).toBe(source);
+    expect(source).toContain("font-src 'self'");
+    expect(source).toContain("script-src 'none'");
+    expect(source).toContain("connect-src 'none'");
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts');
+    fireEvent.load(frame);
+    expect(doc.querySelectorAll('style[data-mailbox-typography]')).toHaveLength(1);
+  } finally { fonts.remove(); }
+});
+
+it('remeasures after fonts load and removes the font listener on unmount', async () => {
+  const view = await loadFrame();
+  const fonts = new EventTarget();
+  Object.defineProperty(view.frame.contentDocument!, 'fonts', { value: fonts, configurable: true });
+  const remove = vi.spyOn(fonts, 'removeEventListener');
+  fireEvent.load(view.frame); flushFrame();
+  Object.defineProperty(view.body, 'scrollHeight', { value: 160, configurable: true });
+  fonts.dispatchEvent(new Event('loadingdone'));
+  flushFrame();
+  expect(view.frame.style.height).toBe('160px');
+  view.unmount();
+  expect(remove).toHaveBeenCalledWith('loadingdone', expect.any(Function));
+  fonts.dispatchEvent(new Event('loadingdone'));
+  expect(frames.size).toBe(0);
+});

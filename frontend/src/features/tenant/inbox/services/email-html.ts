@@ -214,7 +214,7 @@ export function mailboxDisplayDocument(html: string, inlineImages: Record<string
     if (!/^https?:\/\//i.test(element.getAttribute('background') ?? '')) element.removeAttribute('background');
   });
   const head = root.querySelector('head');
-  const csp = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src https: http: blob:; font-src 'none'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+  const csp = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src https: http: blob:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
   head?.insertAdjacentHTML('afterbegin', `<meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><style>html{background:white;color:#111}body{margin:0;display:flow-root;overflow-wrap:anywhere}img{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}summary{cursor:pointer;margin:12px 0;font:12px sans-serif;color:#666}</style>`);
   return '<!doctype html>' + root.outerHTML;
 }
