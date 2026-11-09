@@ -77,15 +77,26 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
   }
 }
 
-export async function dispatchQueuedWorkflows() {
+export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
   const now = new Date();
   let progressed = false;
+  // Scope by the saved definition so an edit cannot enable additional actions
+  // on the limited worker. Leave other runs for the regular worker.
+  const scope: Prisma.WorkflowExecutionRunWhereInput = dealStageWorkflowId ? {
+    workflowId: dealStageWorkflowId,
+    entityType: 'deal',
+    AND: [
+      { definitionSnapshot: { path: ['trigger'], equals: 'deal.updated' } },
+      { definitionSnapshot: { path: ['actions', '0', 'type'], equals: 'move_deal_stage' } },
+      { definitionSnapshot: { path: ['actions', '1'], equals: Prisma.DbNull } },
+    ],
+  } : {};
   // Historical runs have null context and can never be mistaken for recoverable work.
-  const expired = await prisma.workflowExecutionRun.findMany({ where: { status: 'running', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: { not: null }, leaseUntil: { lt: now } }, select: { id: true, tenantId: true }, take: 50 });
+  const expired = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'running', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: { not: null }, leaseUntil: { lt: now } }, select: { id: true, tenantId: true }, take: 50 });
   for (const run of expired) await tenantContext.run({ tenantId: run.tenantId }, () => prisma.$transaction(async tx => {
     await interruptWorkflowRun(tx, run, { status: 'running', leaseUntil: { lt: now } }, now);
   }));
-  const due = await prisma.workflowExecutionRun.findMany({ where: { status: 'queued', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 10, include: { trigger: true } });
+  const due = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'queued', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 10, include: { trigger: true } });
   for (const item of due) await tenantContext.run({ tenantId: item.tenantId }, async () => {
     const leaseId = randomUUID();
     const claim = await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, tenantId: item.tenantId, status: 'queued', dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, data: { leaseId, leaseUntil: new Date(Date.now() + 300000) } });
@@ -129,7 +140,7 @@ export async function dispatchQueuedWorkflows() {
   return due.length === 10 && progressed;
 }
 
-export function startWorkflowScheduler() {
+export function startWorkflowScheduler(dealStageWorkflowId?: string) {
   let stopping = false;
   let requested = false;
   let pending: Promise<void> | undefined;
@@ -143,7 +154,7 @@ export function startWorkflowScheduler() {
       let more: boolean;
       do {
         requested = false;
-        more = await dispatchQueuedWorkflows();
+        more = await dispatchQueuedWorkflows(dealStageWorkflowId);
       } while (!stopping && (requested || more));
     }).catch(error => console.error('[Workflow] Queue tick failed', { failureClass: error instanceof Error ? error.name : 'UnknownError' }))
       .finally(() => { pending = undefined; if (requested && !stopping) tick(); });

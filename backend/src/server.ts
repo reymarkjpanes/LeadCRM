@@ -67,10 +67,18 @@ let stopSessions: (() => Promise<void>) | undefined;
 let stopImports: (() => Promise<void>) | undefined;
 let backgroundStarted = false;
 let backgroundDrain: Promise<void> | undefined;
+const backgroundWorkersEnabled = shouldStartBackgroundWorkers();
+const dealStageWorkflowId = process.env.DEAL_STAGE_WORKFLOW_ID?.trim() || undefined;
 function startBackground() {
   if (backgroundStarted) return;
-  if (!shouldStartBackgroundWorkers()) {
-    console.info('[workers] Background workers are disabled by production policy.');
+  if (!backgroundWorkersEnabled) {
+    if (dealStageWorkflowId) {
+      stopWorkflows = startWorkflowScheduler(dealStageWorkflowId);
+      backgroundStarted = true;
+      console.info('[workers] Scoped Deal stage workflow worker started.');
+    } else {
+      console.info('[workers] Background workers are disabled by production policy.');
+    }
     return;
   }
   resumeCampaignSubmissions();
@@ -93,7 +101,7 @@ async function stopBackground() {
   backgroundDrain = Promise.all([
     stopMailbox?.(), stopNotifications?.(), stopCampaignRecovery?.(), stopSmsReconciliation?.(),
     stopCampaignSchedule?.(), stopWorkflows?.(), stopSmsReplies?.(), stopCustomerClassification?.(),
-    stopSessions?.(), stopImports?.(), drainCampaignSubmissions(),
+    stopSessions?.(), stopImports?.(), backgroundWorkersEnabled ? drainCampaignSubmissions() : undefined,
   ]).then(() => undefined);
   try { await backgroundDrain; } finally { backgroundDrain = undefined; }
 }
