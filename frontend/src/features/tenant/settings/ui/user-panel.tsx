@@ -131,7 +131,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
   const canChangeGroups = canManageGroups && saved?.status === 'active';
   const saveField = async (field: string, value: string | string[]) => {
     const permitted = field === 'role' ? canChangeRole : field === 'groupIds' ? canChangeGroups
-      : ['firstName', 'lastName', 'phone', 'jobTitle'].includes(field) && canEdit;
+      : ['firstName', 'lastName', 'phone'].includes(field) && canEdit;
     if (!saved || !permitted) throw new Error('You do not have permission to edit this field.');
     if (locked.current) throw new Error('Another request is in progress. Please try again.');
     if (field === 'role' && !roles.some(role => role.name === value)) throw new Error('Select an active custom role.');
@@ -150,7 +150,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
       throw new Error(error.fieldErrors?.[field]?.[0] || error.message || 'Unable to save field.');
     } finally { locked.current = false; setBusy(false); }
   };
-  const profileRow = (field: 'firstName' | 'lastName' | 'phone' | 'jobTitle'): InlineRowDef => ({
+  const profileRow = (field: 'firstName' | 'lastName' | 'phone'): InlineRowDef => ({
     label: labels[field], value: field === 'phone' ? normalizePhInput(saved?.phone ?? '') : saved?.[field],
     displayValue: field === 'phone' ? saved?.phone : undefined, apiField: canEdit ? field : undefined,
     required: field === 'firstName' || field === 'lastName', alwaysVisible: true, preserveWhitespace: true,
@@ -171,7 +171,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
   ];
   const organizationRows: InlineRowDef[] = [
     { label: 'Role', value: saved?.role, apiField: canChangeRole ? 'role' : undefined, type: 'select', options: roles.map(role => role.name), alwaysVisible: true },
-    profileRow('jobTitle'),
+    { label: 'Job Title', value: saved?.jobTitle, alwaysVisible: true },
     { label: 'Login Security', value: saved?.securityLockedAt ? 'Locked — contact an administrator' : 'Unlocked', alwaysVisible: true },
     { label: 'Status', value: saved?.status, displayValue: saved?.status ? saved.status[0].toUpperCase() + saved.status.slice(1) : '—', alwaysVisible: true },
     { label: 'Groups', value: JSON.stringify(saved?.groups?.map(group => group.id) ?? []),

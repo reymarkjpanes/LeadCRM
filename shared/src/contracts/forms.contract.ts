@@ -3,6 +3,7 @@ import { AttributionContextSchema, type SourceAttribution } from './source-attri
 import { AdministrationPhoneSchema } from '../validation/administration-user.schema';
 import type { CrmFieldCatalogEntry } from './field-catalog';
 import type { ProductInterest } from './product-interests.contract';
+import { isDirectMailSource } from './record-experience';
 
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 export const FORM_PRODUCT_INTERESTS = [
@@ -89,7 +90,15 @@ export function leadCatalogFormField(field: CrmFieldCatalogEntry): Omit<FormFiel
     case 'boolean': type = 'checkbox'; break;
     default: return; // References and private file uploads have no public Forms integration.
   }
-  return { label: field.label, type, required: field.required, ...(mapToField ? { mapToField } : { customFieldId: field.customFieldId }), ...(type === 'dropdown' ? { options: [...field.options ?? []] } : {}) };
+  const options = field.options ?? [];
+  return { label: field.label, type, required: field.required, ...(mapToField ? { mapToField } : { customFieldId: field.customFieldId }),
+    ...(type === 'dropdown' ? { options: mapToField === 'source' ? options.filter(option => !isDirectMailSource(option)) : [...options] } : {}) };
+}
+
+export function withoutRetiredFormSources(fields: FormField[]) {
+  return fields.map(field => field.mapToField === 'source' && field.options
+    ? { ...field, options: field.options.filter(option => !isDirectMailSource(option)) }
+    : field);
 }
 export type FormProductCatalog = { categories: string[]; products: Pick<ProductInterest, 'id' | 'name' | 'category'>[] };
 export type PublicFormDefinition = Omit<FormDefinition, 'settings'> & { version: number; trackUrlParams: boolean; allowedEmbedOrigins?: string[]; productCatalog?: FormProductCatalog };

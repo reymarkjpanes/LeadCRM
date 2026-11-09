@@ -26,7 +26,7 @@ export async function sweepCustomerClassifications(now = new Date()) {
         const position = typeof positions[kind] === 'string' ? positions[kind] as string : '';
         const where = { tenantId, isArchived: false, deletedAt: null, ...(position ? { id: { gt: position } } : {}) };
         const rows = kind === 'lead'
-          ? await prisma.lead.findMany({ where: { ...where, convertedAt: null }, orderBy: { id: 'asc' }, take: 50, select: { id: true } })
+          ? await prisma.lead.findMany({ where, orderBy: { id: 'asc' }, take: 50, select: { id: true } })
           : await prisma.contact.findMany({ where, orderBy: { id: 'asc' }, take: 50, select: { id: true } });
         for (const row of rows) await salesTransaction(async tx => {
           await resolveCrmActor(tx, { tenantId, userId: actor.id });

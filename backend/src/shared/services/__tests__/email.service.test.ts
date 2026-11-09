@@ -52,13 +52,13 @@ describe('existing Brevo transport', () => {
     await sendMail({ to: 'staff@example.com', subject: 'Reset', html: 'Reset', requireDelivery: true, category: 'password-reset' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).tags).toEqual(['leadcrm-password-reset']);
   });
-  it.each([{ tags: ['leadcrm-password-reset'] }, { tag: '["leadcrm-password-reset"]' }])('acknowledges explicitly tagged reset receipts without database access (%j)', async tags => {
-    const lookup = vi.spyOn(prisma.emailDeliveryLog, 'findFirst');
+  it.each([{ tags: ['leadcrm-password-reset'] }, { tag: '["leadcrm-password-reset"]' }, { tags: ['leadcrm-profile-email-change'] }])('acknowledges explicitly tagged security receipts without database access (%j)', async tags => {
+    const lookup = vi.spyOn(prisma.emailDeliveryLog, 'findMany');
     await expect(processBrevoEvent({ event: 'delivered', email: 'staff@example.com', 'message-id': 'reset-message', ...tags })).resolves.toBeUndefined();
     expect(lookup).not.toHaveBeenCalled();
   });
   it.each([{}, { tag: 'malformed' }, { tags: ['campaign'] }, { tags: ['prefix-leadcrm-password-reset'] }])('retains retry behavior for unclassified campaign receipts (%j)', async tags => {
-    const lookup = vi.spyOn(prisma.emailDeliveryLog, 'findFirst').mockResolvedValue(null);
+    const lookup = vi.spyOn(prisma.emailDeliveryLog, 'findMany').mockResolvedValue([]);
     await expect(processBrevoEvent({ event: 'delivered', email: 'staff@example.com', 'message-id': 'pending-campaign', ...tags })).rejects.toMatchObject({ statusCode: 503 });
     expect(lookup).toHaveBeenCalledOnce();
   });

@@ -7,7 +7,6 @@ import { replayCrmMigrations } from '../../../tests/replay-crm-migrations';
 import { installTenantScoping } from '../../../core/tenant/tenant-prisma';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { crmActor } from '../access/crm-record-access.service';
-import { manualStatusCheckpoint } from '../status-checkpoint';
 import type { GmailEmail } from '../../../integrations/gmail/gmail.types';
 import { EMPTY_PERMISSION_FLAGS, type CrmStatus } from '@leadcrm/shared';
 
@@ -20,7 +19,6 @@ let service: typeof import('../deals/deals.service');
 let customer: typeof import('../customer-classification.service');
 let ingestion: typeof import('../../../integrations/gmail/mailbox-ingestion.service');
 let audiences: typeof import('../../marketing/campaigns/audiences.service');
-let leadRepo: typeof import('../contacts/contacts.repository');
 let contactRepo: typeof import('../contacts-v2/contacts-v2.repository');
 let tenantId: string, actorId: string, pipelineId: string, leadId: string, email: string, accountId: string;
 let a: string, b: string;
@@ -35,7 +33,7 @@ beforeAll(async () => {
   service = await import('../deals/deals.service'); customer = await import('../customer-classification.service');
   ingestion = await import('../../../integrations/gmail/mailbox-ingestion.service');
   audiences = await import('../../marketing/campaigns/audiences.service');
-  leadRepo = await import('../contacts/contacts.repository'); contactRepo = await import('../contacts-v2/contacts-v2.repository');
+  contactRepo = await import('../contacts-v2/contacts-v2.repository');
   tenantId = (await db.tenant.create({ data: { name: 'Status isolation', slug: randomUUID(), status: 'ACTIVE' } })).id;
   actorId = (await db.user.create({ data: { tenantId, email: 'status-admin@camxian.com', firstName: 'Status', lastName: 'Admin', role: 'Client Admin', status: 'ACTIVE', mustChangePassword: false, onboardingCompletedAt: new Date() } })).id;
   pipelineId = (await db.pipeline.create({ data: { tenantId, name: 'Sales Pipeline' } })).id;
@@ -90,6 +88,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     const record = kind === 'lead' ? await db.lead.update({ where: { id: leadId }, data: { status: 'Hot' } })
       : await db.contact.create({ data: { tenantId, firstName: 'Contact', lastName: 'Timeline', status: 'HOT', assignedUserId: actorId } });
     const sibling = await deal(b), selected = await deal(a), startedAt = new Date();
+    if (kind === 'lead') await db.leadDeal.deleteMany({ where: { tenantId, leadId } });
     await editPerson(kind, record.id, 'Warm');
     const { findAllActivities } = await import('../activities/activities.repository');
     const page = await scope(() => findAllActivities(tenantId, { [`${kind}Id`]: record.id, type: 'stage_change' }));
@@ -103,6 +102,7 @@ describe('isolated Deal and inbound reply transitions', () => {
   it.each(['lead', 'contact'] as const)('does not record an unchanged legacy %s status', async kind => {
     const record = kind === 'lead' ? await db.lead.update({ where: { id: leadId }, data: { status: 'HOT' } })
       : await db.contact.create({ data: { tenantId, firstName: 'Unchanged', lastName: 'Contact', status: 'HOT', assignedUserId: actorId } });
+    if (kind === 'lead') await db.leadDeal.deleteMany({ where: { tenantId, leadId } });
     await editPerson(kind, record.id, 'Hot');
     expect(await db.activity.count({ where: { tenantId, [`${kind}Id`]: record.id, type: 'stage_change' } })).toBe(0);
     expect(await db.auditLog.count({ where: { tenantId, entityId: record.id, action: 'customer.status_changed' } })).toBe(0);
@@ -121,12 +121,12 @@ describe('isolated Deal and inbound reply transitions', () => {
   });
   it('moves a manually qualified Deal back to Contacted with distinct status and stage entries', async () => {
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Hot' }));
-    const before = await person(), sibling = await deal(b);
+    const sibling = await deal(b);
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Warm' }));
     expect(await deal(a)).toMatchObject({ stageId: stages.Contacted, engagementStatus: 'Warm' });
     const entries = await db.activity.findMany({ where: { tenantId, dealId: a, OR: [{ title: 'Deal engagement changed from Hot to Warm' }, { title: 'Deal moved from "Qualified" to "Contacted"' }] } });
     expect(entries).toHaveLength(2);
-    expect(await person()).toEqual(before); expect(await deal(b)).toEqual(sibling);
+    expect(await person()).toMatchObject({ status: 'Warm' }); expect(await deal(b)).toEqual(sibling);
   });
   it('retains Workflow qualification and quotation evidence after Hot to Warm and later engagement edits', async () => {
     const { workflow } = await qualifyByWorkflow();
@@ -135,7 +135,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     const receipt = await db.mailboxSendReceipt.create({ data: { tenantId, accountId, requestId: randomUUID(), payloadHash: 'qualification quotation', operation: 'send', status: 'sent',
       authorizationContext: { quotation: { fingerprint: 'a'.repeat(64), draft: { quotationId: randomUUID(), templateId: randomUUID(), recipientType: 'Lead', recipientId: leadId,
         dealId: a, products: [{ productId: randomUUID(), quantity: 1 }], quotationDate: '2026-11-01', validUntil: '2026-12-01', notes: '' } } } } });
-    const before = await deal(a), sibling = await deal(b), lead = await person();
+    const before = await deal(a), sibling = await deal(b);
     const history = await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } });
     for (const engagementStatus of ['Warm', 'Inquiry', 'Hot', 'Cold'] as const) {
       await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus }));
@@ -143,7 +143,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     }
     expect(await db.dealStageHistory.findMany({ where: { tenantId, dealId: a } })).toEqual(history);
     expect(await db.mailboxSendReceipt.findUniqueOrThrow({ where: { id: receipt.id } })).toEqual(receipt);
-    expect(await deal(b)).toEqual(sibling); expect(await person()).toEqual(lead);
+    expect(await deal(b)).toEqual(sibling); expect(await person()).toMatchObject({ status: 'Inquiry' });
   });
   it.each([true, false])('does not protect a Deal from a definition alone or unmet conditions (definition only=%s)', async definitionOnly => {
     const workflow = await qualificationWorkflow(false);
@@ -208,6 +208,7 @@ describe('isolated Deal and inbound reply transitions', () => {
   it.each(['lead', 'contact', 'deal'] as const)('rolls back %s status Activities and audits with their mutation', async kind => {
     const { salesTransaction } = await import('../leads/lead-automation.service');
     const contact = kind === 'contact' ? await db.contact.create({ data: { tenantId, firstName: 'Rollback', lastName: 'Contact', status: 'HOT', assignedUserId: actorId } }) : undefined;
+    if (kind === 'lead') await db.leadDeal.deleteMany({ where: { tenantId, leadId } });
     const id = kind === 'deal' ? a : contact?.id ?? leadId;
     const activityCount = await db.activity.count({ where: { tenantId } }), auditCount = await db.auditLog.count({ where: { tenantId } });
     const before = kind === 'deal' ? await deal(id) : kind === 'lead' ? await person() : contact;
@@ -238,13 +239,14 @@ describe('isolated Deal and inbound reply transitions', () => {
     expect(await deal(a)).toMatchObject({ stageId: stages.Lead, engagementStatus: 'Inquiry', closedAt: null, lostReason: null });
     expect(await deal(b)).toEqual(sibling); expect(await person()).toEqual(before);
   });
-  it('synchronizes manual Warm, Hot and Cold without changing the customer or sibling', async () => {
-    const before = await person(), sibling = await deal(b);
+  it('applies Warm, Hot and Inquiry-over-Cold to the customer without changing the sibling', async () => {
+    const sibling = await deal(b);
     for (const [status, stage] of [['Warm', 'Contacted'], ['Hot', 'Qualified'], ['Cold', 'Qualified']] as const) {
       await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: status }));
       expect(await deal(a)).toMatchObject({ engagementStatus: status, stageId: stages[stage] });
+      expect(await person()).toMatchObject({ status: status === 'Cold' ? 'Inquiry' : status });
     }
-    expect(await person()).toEqual(before); expect(await deal(b)).toEqual(sibling);
+    expect(await deal(b)).toEqual(sibling);
   });
   it('protects a same-value Deal selection against scheduled aging', async () => {
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Inquiry' }));
@@ -288,7 +290,7 @@ describe('isolated Deal and inbound reply transitions', () => {
   });
   it('does not guess a Deal for customer-only replies', async () => {
     await ingest('inbound');
-    expect(await person()).toMatchObject({ status: 'Warm' });
+    expect(await person()).toMatchObject({ status: 'Inquiry' });
     for (const id of [a, b]) expect(await deal(id)).toMatchObject({ engagementStatus: 'Inquiry', stageId: stages.Lead });
   });
   it('does not classify a Deal when a sender matches multiple customer records', async () => {
@@ -306,7 +308,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     expect((await deal(a)).manualStatusContext).toMatchObject({ source: 'reply', replyAt: message.date });
     expect(await db.mailboxMessage.count({ where: { tenantId, rfcMessageId: message.rfcMessageId, meaningful: true } })).toBe(1);
   });
-  it.each([true, false])('scopes configured all-matching workflows to the inbound reply Deal (associated=%s)', async associated => {
+  it.each([true, false])('prevents derived customer status from moving Deals back through workflows (associated=%s)', async associated => {
     const { createWorkflow } = await import('../../automation/workflows/workflows.service');
     const { flushWorkflowQueue } = await import('../../automation/workflows/__tests__/workflow-queue-test-helper');
     await db.deal.update({ where: { id: b }, data: { stageId: associated ? stages.Contacted : stages.Lead } });
@@ -315,7 +317,7 @@ describe('isolated Deal and inbound reply transitions', () => {
       actions: [{ type: 'move_deal_stage', config: { stageId: stages.Qualified, currentStageId: associated ? stages.Contacted : stages.Lead, targetMode: 'all_matching' } }] }));
     await ingest('inbound', associated ? a : undefined);
     await flushWorkflowQueue(tenantId);
-    expect(await deal(a)).toMatchObject({ stageId: associated ? stages.Qualified : stages.Lead });
+    expect(await deal(a)).toMatchObject({ stageId: associated ? stages.Contacted : stages.Lead });
     expect(await deal(b)).toMatchObject({ stageId: associated ? stages.Contacted : stages.Lead });
   });
   it('retains the originating Deal through confirmed-sale conversion workflows', async () => {
@@ -328,12 +330,12 @@ describe('isolated Deal and inbound reply transitions', () => {
     await flushWorkflowQueue(tenantId);
     expect(await deal(a)).toMatchObject({ stageId: stages['Closed Deal'], engagementStatus: 'Closed Deal' });
     expect(await deal(b)).toMatchObject({ stageId: stages.Lead, engagementStatus: 'Inquiry' });
-    const lead = await person(); expect(lead.status).toBe('Closed Deal'); expect(lead.contactId).toBeTruthy();
-    expect(await db.contact.findUniqueOrThrow({ where: { id: lead.contactId! } })).toMatchObject({ status: 'CLOSED_DEAL', lifecycleStage: 'CUSTOMER' });
+    const lead = await person(); expect(lead.status).toBe('Inquiry'); expect(lead.contactId).toBeTruthy();
+    expect(await db.contact.findUniqueOrThrow({ where: { id: lead.contactId! } })).toMatchObject({ status: 'INQUIRY', lifecycleStage: 'CUSTOMER' });
   });
   it('preserves manual selections against delayed history and duplicate RFC identities', async () => {
     const { account, message } = await ingest('inbound', a);
-    await scope(() => leadRepo.updateContact(leadId, tenantId, { status: 'Cold' }, actorId, 'Warm'));
+    await db.leadDeal.deleteMany({ where: { tenantId, leadId, dealId: b } });
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Cold' }));
     await scope(() => ingestion.ingestMailboxMessages(account, [{ ...message, id: randomUUID() }, { ...message, id: randomUUID(), rfcMessageId: '<old-newly-discovered@example.test>', date: new Date(Date.now() - 86400000).toISOString() }], permissions));
     expect(await person()).toMatchObject({ status: 'Cold' });
@@ -355,7 +357,7 @@ describe('isolated Deal and inbound reply transitions', () => {
   });
   it('keeps cancelled terminal records closed to email activity', async () => {
     await scope(() => service.updateDeal(a, tenantId, actorId, { engagementStatus: 'Cancelled', lostReason: 'Ended' }));
-    await db.lead.update({ where: { id: leadId }, data: { status: 'Cancelled', manualCancellation: true, manualStatusContext: manualStatusCheckpoint('Cancelled') } });
+    await scope(() => service.updateDeal(b, tenantId, actorId, { engagementStatus: 'Cancelled', lostReason: 'Other Deal ended' }));
     await ingest('inbound', a);
     expect(await person()).toMatchObject({ status: 'Cancelled' });
     expect(await deal(a)).toMatchObject({ stageId: stages.Cancelled, engagementStatus: 'Cancelled' });
@@ -387,7 +389,7 @@ describe('isolated Deal and inbound reply transitions', () => {
     const other = await db.lead.create({ data: { tenantId, firstName: 'Other', lastName: 'Customer', email: `${randomUUID()}@example.test`, assignedUserId: actorId } });
     const foreign = await db.deal.create({ data: { tenantId, title: 'Other customer Deal', pipelineId, stageId: stages.Lead, assignedUserId: actorId, leadDeals: { create: { leadId: other.id } } } });
     await ingest('inbound', foreign.id);
-    expect(await person()).toMatchObject({ status: 'Warm' });
+    expect(await person()).toMatchObject({ status: 'Inquiry' });
     for (const id of [a,b,foreign.id]) expect(await deal(id)).toMatchObject({ stageId: stages.Lead, engagementStatus: 'Inquiry' });
   });
   it('inventories archived IDs and active dependency blockers without performing deletion', async () => {

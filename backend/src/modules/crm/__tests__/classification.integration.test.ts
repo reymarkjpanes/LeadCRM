@@ -74,40 +74,61 @@ describe.skipIf(!disposable)('hybrid classification, selection and revisions on 
     const explicit = await scope(() => salesTransaction(tx => createAssignedLead(tx, person({ status: 'Warm' }), admin.id)));
     expect(explicit.status).toBe('Warm');
   });
-  it('isolates qualification from customer status and ages only the customer’s own evidence', async () => {
+  it('updates both linked records when a Deal is qualified', async () => {
     const a = await lead({ lastCustomerReplyAt: new Date(Date.now() - 60 * 86400000) }), b = await contact();
     const deal = await linkedDeal(a.id, b.id);
     await scope(() => deals.moveDealStage(deal.id, tenantId, qualifiedId, admin.id));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Inquiry');
-    expect((await prisma.contact.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('INQUIRY');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Hot');
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('HOT');
     await scope(() => salesTransaction(tx => classifyCustomerRecord(tx, tenantId, { leadId: a.id }, admin.id, { genuineReply: true })));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Cold');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Hot');
   });
-  it('keeps customer status independent of Deal stage changes and unlinking', async () => {
+  it('uses the highest linked Deal status after stage changes and unlinking', async () => {
     const a = await lead({ status: 'Warm', lastCustomerReplyAt: new Date() });
     const first = await linkedDeal(a.id), secondDeal = await linkedDeal(a.id);
     await scope(() => deals.moveDealStage(first.id, tenantId, qualifiedId, admin.id));
     await scope(() => deals.moveDealStage(secondDeal.id, tenantId, qualifiedId, admin.id));
     await scope(() => deals.moveDealStage(first.id, tenantId, initialId, admin.id));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Warm');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Hot');
     await scope(() => deals.syncLeadAssociations(secondDeal.id, tenantId, [], admin.id));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Warm');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Inquiry');
   });
-  it('preserves customer status after Deal cancellation and archival', async () => {
+  it('updates only the linked status fields when Deal edits commit concurrently', async () => {
+    const customer = await contact({ source: 'Direct Mail' });
+    const a = await linkedDeal(undefined, customer.id), b = await linkedDeal(undefined, customer.id);
+    const { updateDeal } = await import('../deals/deals.service');
+    await Promise.all([
+      scope(() => updateDeal(a.id, tenantId, admin.id, { engagementStatus: 'Hot' })),
+      scope(() => updateDeal(b.id, tenantId, admin.id, { engagementStatus: 'Cold' })),
+    ]);
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).toMatchObject({
+      status: 'HOT', source: 'Direct Mail', assignedUserId: customer.assignedUserId,
+    });
+    expect(await prisma.activity.count({ where: { tenantId, contactId: customer.id, type: 'stage_change' } })).toBe(1);
+    const path = '/crm/contacts/' + customer.id;
+    expect((await call(path, 'PUT', { source: 'Direct Mail' })).status).toBe(400);
+    expect((await call(path, 'PUT', { notes: 'Keep historical source' })).status).toBe(200);
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).source).toBe('Direct Mail');
+    await scope(() => deals.syncContactAssociations(a.id, tenantId, [], admin.id));
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).status).toBe('COLD');
+    await scope(() => deals.syncContactAssociations(b.id, tenantId, [], admin.id));
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).status).toBe('COLD');
+  });
+  it('derives cancellation and preserves status when the last open Deal is archived', async () => {
     for (const outcome of ['lost', 'archived']) {
       const a = await lead(); const deal = await linkedDeal(a.id);
       await scope(() => deals.moveDealStage(deal.id, tenantId, qualifiedId, admin.id));
       if (outcome === 'lost') await scope(() => deals.moveDealStage(deal.id, tenantId, lostId, admin.id, undefined, undefined, 'Customer declined.'));
       else await scope(() => deals.archiveDeal(deal.id, tenantId, 'Fixture', admin.id));
-      expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Inquiry');
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe(outcome === 'lost' ? 'Cancelled' : 'Hot');
     }
   });
-  it('restores a Deal independently and ages customer outreach evidence without a receiving device', async () => {
+  it('reconciles restored Deals and ages customer outreach evidence without a receiving device', async () => {
     const now = new Date(), a = await lead(), deal = await linkedDeal(a.id);
     await scope(() => deals.moveDealStage(deal.id, tenantId, qualifiedId, admin.id));
     await scope(() => deals.archiveDeal(deal.id, tenantId, 'Fixture', admin.id));
     await scope(() => restoreDeal(deal.id, tenantId, admin.id));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Inquiry');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Hot');
     const old = new Date(+now - 31 * 86400000);
     const touched = await lead({ firstStaffOutreachAt: old });
     const untouched = await lead({ createdAt: old });
@@ -116,7 +137,7 @@ describe.skipIf(!disposable)('hybrid classification, selection and revisions on 
     expect((await prisma.lead.findUniqueOrThrow({ where: { id: touched.id } })).status).toBe('Cold');
     expect((await prisma.lead.findUniqueOrThrow({ where: { id: untouched.id } })).status).toBe('Inquiry');
     expect((await prisma.contact.findUniqueOrThrow({ where: { id: replied.id } })).status).toBe('COLD');
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Inquiry');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Hot');
   });
   it('serializes concurrent weighted creation and retries without extra rotation', async () => {
     await prisma.lead.updateMany({ where: { tenantId }, data: { assignedUserId: null } });
@@ -128,14 +149,14 @@ describe.skipIf(!disposable)('hybrid classification, selection and revisions on 
     expect(retry.id).toBe(created[0].id);
     expect(await prisma.lead.count({ where: { tenantId, email: { in: inputs.map(row => row.email) } } })).toBe(4);
   });
-  it('does not cancel another participant when an explicitly cancelled customer closes a shared Deal', async () => {
+  it('synchronizes every participant after cancelling their only shared Deal', async () => {
     const a = await lead(), b = await lead(), deal = await linkedDeal(a.id);
     await prisma.leadDeal.create({ data: { tenantId, leadId: b.id, dealId: deal.id } });
     await scope(() => deals.moveDealStage(deal.id, tenantId, qualifiedId, admin.id));
     await prisma.lead.update({ where: { id: a.id }, data: { status: 'Cancelled' } });
     await scope(() => salesTransaction(tx => cancelOpenDeals(tx, tenantId, admin.id, { leadId: a.id }, 'Cancelled by customer.')));
     expect((await prisma.lead.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('Cancelled');
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('Inquiry');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('Cancelled');
   });
   it('preserves Inquiry during conversion with relationships and outreach evidence', async () => {
     const firstStaffOutreachAt = new Date(Date.now() - 86400000), a = await lead({ firstStaffOutreachAt });
@@ -266,7 +287,7 @@ describe.skipIf(!disposable)('hybrid classification, selection and revisions on 
     await processSmsReply({ ...event, smsId: randomUUID() }); expect((await prisma.lead.findUniqueOrThrow({ where: { id: foreign.id } })).status).toBe('Inquiry');
     const rejected = await fetch(`${base}/webhooks/textbee`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Signature': '0'.repeat(64) }, body }); expect(rejected.status).toBe(401);
   });
-  it('retains manual engagement through repeated explicit saves, sweeps and aging boundaries', async () => {
+  it('rejects direct linked status overrides and leaves only one activity per effective Deal change', async () => {
     const customer = await contact(), deal = await linkedDeal(undefined, customer.id);
     await scope(() => deals.moveDealStage(deal.id, tenantId, qualifiedId, admin.id));
     const qualifiedAt = new Date(Date.now() - 7 * 86400000);
@@ -274,40 +295,35 @@ describe.skipIf(!disposable)('hybrid classification, selection and revisions on 
     const before = await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } });
     const path = '/crm/contacts/' + customer.id;
     const saved = await call(path, 'PUT', { status: 'Cold', expectedUpdatedAt: before.updatedAt.toISOString() });
-    expect(saved.status, JSON.stringify(saved.body)).toBe(200); expect(saved.body.data.status).toBe('Cold');
-    const manual = await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } });
-    expect(manual.firstStaffOutreachAt).toEqual(before.firstStaffOutreachAt);
-    expect(manual.lastCustomerReplyAt).toEqual(before.lastCustomerReplyAt);
-    expect(manual.manualStatusContext).toBeTruthy();
-    await call(path, 'PUT', { status: 'Cold', notes: 'Unchanged engagement save' });
-    expect((await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).manualStatusContext).toMatchObject({ source: 'manual', status: 'Cold' });
+    expect(saved.status).toBe(400);
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).toEqual(before);
+    expect((await call(path, 'PUT', { notes: 'Unchanged engagement save' })).status).toBe(200);
     await scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, deal.id, admin.id)));
-    expect((await call(path)).body.data.status).toBe('Cold');
+    expect((await call(path)).body.data.status).toBe('Hot');
     const historyWhere = { tenantId, contactId: customer.id, type: 'stage_change' };
     const previousCount = await prisma.activity.count({ where: historyWhere });
     const boundary = new Date(+qualifiedAt + 8 * 86400000);
     await scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, deal.id, admin.id, [], boundary, true, deal.id, 'scheduler')));
-    expect((await call(path)).body.data.status).toBe('Cold');
-    expect((await prisma.contact.findUniqueOrThrow({ where: { id: customer.id } })).manualStatusContext).toBeTruthy();
+    expect((await call(path)).body.data.status).toBe('Hot');
     const history = await prisma.activity.findMany({ where: historyWhere, orderBy: { createdAt: 'desc' } });
     expect(history).toHaveLength(previousCount);
     await scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, deal.id, admin.id, [], boundary)));
     expect(await prisma.activity.count({ where: historyWhere })).toBe(history.length);
   });
-  it('requires explicit customer reopening only after explicit customer cancellation', async () => {
+  it('reopens the single cancelled Deal through the governed Contact action', async () => {
     const customer = await contact(), deal = await linkedDeal(undefined, customer.id);
     await scope(() => deals.moveDealStage(deal.id, tenantId, lostId, admin.id, undefined, undefined, 'Customer declined'));
     const path = '/crm/contacts/' + customer.id;
-    expect((await call(path)).body.data.status).toBe('Inquiry');
+    expect((await call(path)).body.data.status).toBe('Cancelled');
     expect((await call(path, 'PUT', { status: 'Cancelled' })).body.data.status).toBe('Cancelled');
     expect((await call(path, 'PUT', { status: 'Hot' })).status).toBe(400);
     const historyCount = await prisma.dealStageHistory.count({ where: { tenantId, dealId: deal.id } });
     expect((await call(path, 'PUT', { status: 'Inquiry' })).body.data.status).toBe('Inquiry');
     await scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, deal.id, admin.id)));
     expect((await call(path)).body.data.status).toBe('Inquiry');
-    expect((await call(path, 'PUT', { status: 'Hot' })).body.data.status).toBe('Hot');
-    expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stageId).toBe(lostId);
-    expect(await prisma.dealStageHistory.count({ where: { tenantId, dealId: deal.id } })).toBe(historyCount);
+    expect((await call(path, 'PUT', { status: 'Hot' })).status).toBe(400);
+    expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stageId).toBe(initialId);
+    expect(await prisma.dealStageHistory.count({ where: { tenantId, dealId: deal.id } })).toBe(historyCount + 1);
   });
   it('serializes versioned status writes and records only committed changes once', async () => {
     const customer = await contact(), path = '/crm/contacts/' + customer.id;

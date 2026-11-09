@@ -423,7 +423,7 @@ describe('authoritative dashboard', () => {
   });
   it('reconciles multiple agents for admins and authorized custom roles while keeping action details scoped', async () => {
     const before = await report();
-    await deal('second-agent-open', 'contacted', 2000, { assignedUserId: 'other-agent', ownerId: 'other-agent' });
+    await deal('second-agent-open', 'contacted', 2000, { assignedUserId: 'other-agent', ownerId: 'other-agent', engagementStatus: 'Hot' });
     await deal('second-agent-win', 'qualified', 21000, { assignedUserId: 'other-agent', ownerId: 'other-agent' });
     await close('second-agent-win', 'won');
     await db.lead.create({ data: { id: 'second-agent-lead', tenantId: 'a', firstName: 'Private', lastName: 'Other action', status: 'Hot', assignedUserId: 'other-agent' } });
@@ -437,8 +437,9 @@ describe('authoritative dashboard', () => {
     expect(organization.metrics).toMatchObject({ won: 2, lost: 1, currentWon: 2, totalDeals: 7, winRate: 28.6, averageDealDays: 4 });
     expect(organization.leaderboard.map(row => row.revenue).sort((a, b) => a! - b!)).toEqual([21000, 45000]);
     expect(organization.leaderboard.map(row => row.id).sort()).toEqual(['agent', 'other-agent']);
-    expect(organization.actions.some(row => row.id === 'second-agent-lead')).toBe(true);
-    expect(staff.actions.some(row => row.id === 'second-agent-lead')).toBe(true);
+    expect(organization.actions).toContainEqual(expect.objectContaining({ id: 'second-agent-open', kind: 'hot-deal', href: '/crm/deals/second-agent-open' }));
+    expect(staff.actions).toContainEqual(expect.objectContaining({ id: 'second-agent-open', kind: 'hot-deal' }));
+    expect(organization.actions.some(row => row.id === 'second-agent-lead')).toBe(false);
     await db.deal.updateMany({ where: { id: { in: ['second-agent-open','second-agent-win'] } }, data: { isArchived: true } });
     await db.lead.update({ where: { id: 'second-agent-lead' }, data: { isArchived: true } });
   });
@@ -664,8 +665,8 @@ describe('authoritative dashboard', () => {
           created.push(id);
         }
         for (let index = 0; index < 5; index++) {
-          const id = `scroll-lead-${owner}-${index}`;
-          await db.lead.create({ data: { id, tenantId: 'a', assignedUserId: owner, firstName: id, lastName: 'Action', status: 'Hot' } });
+          const id = `scroll-hot-deal-${owner}-${index}`;
+          await deal(id, 'lead', 100, { assignedUserId: owner, ownerId: owner, engagementStatus: 'Hot', ...(index ? { createdAt: now, stageChangedAt: now } : {}) });
           created.push(id);
         }
         for (let index = 0; index < 4; index++) {
@@ -683,6 +684,8 @@ describe('authoritative dashboard', () => {
       const authorizedIds = ids.filter(id => !id.startsWith('scroll-task-') || id.startsWith('scroll-task-agent-'));
       expect(staff.actions.filter(row => ids.includes(row.id))).toHaveLength(26);
       expect(staff.actions.filter(row => ids.includes(row.id)).map(row => row.id).sort()).toEqual(authorizedIds.sort());
+      expect(organization.actions.filter(row => row.kind === 'hot-deal' && ids.includes(row.id))).toHaveLength(10);
+      expect(organization.actions.filter(row => row.kind === 'hot-deal' && row.stale && ids.includes(row.id))).toHaveLength(2);
       expect(organization.pendingActions).toBe(organization.actions.length);
       expect(staff.pendingActions).toBe(staff.actions.length);
       expect(organization.actions.some(row => row.id === 'scroll-foreign')).toBe(false);

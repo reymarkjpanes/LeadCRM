@@ -97,7 +97,7 @@ export interface DashboardReport {
     qualifiedToWon: number | null; qualifiedToLost: number | null;
   } | null;
   leaderboard: Array<{ id: string; firstName: string; lastName: string; won: number; revenue: number | null }>;
-  actions: Array<{ id: string; title: string; kind: 'task' | 'lead' | 'deal'; dueDate: string | null; priority: string; overdue: boolean; href: string }>;
+  actions: Array<{ id: string; title: string; kind: 'task' | 'hot-deal' | 'deal'; stale?: boolean; dueDate: string | null; priority: string; overdue: boolean; href: string }>;
   pendingActions: number; warnings: string[];
 }
 

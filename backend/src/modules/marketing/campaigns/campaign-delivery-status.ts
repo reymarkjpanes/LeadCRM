@@ -14,6 +14,10 @@ type RecipientEvidence = {
 // Soft bounces are retryable. Opens, clicks, spam complaints and unsubscribes
 // describe engagement/preferences, not a terminal delivery failure.
 const terminalFailures = new Set(['failed', 'error', 'hard_bounce', 'blocked', 'invalid_email']);
+export const deliveredRecipientWhere: Prisma.CampaignContactWhereInput = {
+  status: { notIn: ['excluded', ...terminalFailures] },
+  OR: [{ failureReason: null }, { failureReason: { notIn: [...terminalFailures], mode: 'insensitive' } }],
+};
 export function recipientDeliveryFailed(recipient: RecipientEvidence) {
   return terminalFailures.has(recipient.status) || terminalFailures.has(recipient.failureReason?.toLowerCase() ?? '');
 }
@@ -76,7 +80,10 @@ export async function recalculateCampaignDelivery(tx: Prisma.TransactionClient, 
   const clicked = campaign.type === 'SMS' && campaign.smsTrackingVersion !== 1 ? 0 : eligible.filter(row => row.clickedAt).length;
   const bounced = eligible.filter(row => row.bouncedAt).length;
   const status = deriveCampaignDeliveryStatus(campaign, evidence);
-  if (skipUnchanged && campaign.status === status && campaign.sentCount === submitted && campaign.failedCount === failed && campaign.openedCount === opened && campaign.clickedCount === clicked) return campaign;
+  if (skipUnchanged && campaign.status === status && campaign.sentCount === submitted && campaign.failedCount === failed && campaign.openedCount === opened && campaign.clickedCount === clicked) {
+    const metrics = await tx.campaignMetrics.findFirst({ where, orderBy: { snapshotAt: 'desc' }, select: { deliveredCount: true, bouncedCount: true } });
+    if (metrics?.deliveredCount === delivered && metrics.bouncedCount === bounced) return campaign;
+  }
   const updated = await tx.campaign.update({ where: { id, tenantId }, data: {
     status, sentCount: submitted, failedCount: failed,
     openedCount: opened, clickedCount: clicked,

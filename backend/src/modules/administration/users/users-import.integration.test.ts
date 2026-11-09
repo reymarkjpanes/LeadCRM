@@ -52,12 +52,13 @@ describe.skipIf(!disposable)('user administration over authenticated HTTP', () =
     expect(created.body.data).not.toHaveProperty('passwordHash');
     expect(await prisma.userRole.count({ where: { userId, tenantId } })).toBe(1);
     expect((await call('/administration/users', 'POST', valid)).status).toBe(409);
-    expect((await call(`/administration/users/${userId}`, 'PUT', { jobTitle: ' Manager ' })).status).toBe(200);
-    expect((await call(`/administration/users/${userId}`)).body.data.jobTitle).toBe('Manager');
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).jobTitle).toBe('Manager');
+    expect((await call(`/administration/users/${userId}`, 'PUT', { jobTitle: ' Manager ' })).status).toBe(400);
+    expect((await call(`/administration/users/${userId}`)).body.data.jobTitle).toBe('Sales');
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).jobTitle).toBe('Sales');
+    expect((await call(`/administration/users/${userId}`, 'PUT', { lastName: ' Reyes ' })).body.data.lastName).toBe('Reyes');
     expect(await prisma.auditLog.count({ where: { tenantId, entityId: userId, action: { in: ['user.created', 'user.updated'] } } })).toBe(2);
     expect((await call(`/administration/users/${userId}`, 'PUT', { role: 'Other role' })).status).toBe(404);
-    expect((await call(`/administration/users/${otherUserId}`, 'PUT', { jobTitle: 'Cross tenant' })).status).toBe(404);
+    expect((await call(`/administration/users/${otherUserId}`, 'PUT', { firstName: 'Cross tenant' })).status).toBe(404);
     expect((await call(`/administration/users/${userId}`, 'PUT', { role: 'Sales manager', status: 'INACTIVE' })).status).toBe(200);
     const updated = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { userRoles: { include: { role: true } } } });
     expect(updated.status).toBe('INACTIVE');

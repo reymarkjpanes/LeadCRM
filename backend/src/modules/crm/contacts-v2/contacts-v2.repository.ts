@@ -1,7 +1,7 @@
 import { salesContext } from '../leads/sales-context';
 import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
 import { salesActivityDates } from '../sales-activity';
-import { assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
+import { applyManagedCustomerStatus, assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
 import { createLinkedAccount } from '../companies/organization-creation';
 import { assignmentSnapshot } from '../../notifications/assignment-presentation';
 import { formatAssignmentChange } from '@leadcrm/shared';
@@ -174,6 +174,8 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     if (dto.productInterests !== undefined || dto.productInterestIds !== undefined) Object.assign(dto, await productRelationData(tx, 'contact', tenantId, { ids: dto.productInterestIds as string[] | undefined, names: dto.productInterests as string[] | undefined }, current, true));
     let status = dto.status === undefined ? undefined : CrmStatusSchema.parse(dto.status);
     if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Contact changed. Reload its current status before saving.');
+    const managed = await applyManagedCustomerStatus(tx, tenantId, { contactId: id }, actorId, current.status, status);
+    if (managed) status = undefined;
     await assertCustomerStatusEdit(tx, tenantId, { contactId: id }, current, status);
     const preparedStatus = await prepareCustomerStatus(tx, tenantId, { contactId: id }, status);
     if (preparedStatus) status = preparedStatus.status;
@@ -181,7 +183,7 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
       if (normalizeCrmStatus(current.status) !== status) await assertClosedStatus(tx, tenantId, { contactId: id });
       await finalizeContactLifecycle(tx, tenantId, id, actorId);
     }
-    const { customFieldValues, productInterestIds: _productIds, newAccount, expectedUpdatedAt: _version, ...data } = dto;
+    const { customFieldValues, productInterestIds: _productIds, newAccount, expectedUpdatedAt: _version, status: _status, ...data } = dto;
     if (preparedStatus) data.manualStatusContext = preparedStatus.checkpoint;
     if (newAccount) {
       const account = await createLinkedAccount(tx, tenantId, newAccount, actorId);

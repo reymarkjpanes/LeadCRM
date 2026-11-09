@@ -92,7 +92,7 @@ export async function loginUser(dto: LoginDto, ctx: LoginContext = {}) {
     await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${verified.id} AND "tenantId" = ${verified.tenantId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "Tenant" WHERE "id" = ${verified.tenantId} FOR SHARE`;
     const current = await tx.user.findFirst({ where: { id: verified.id, tenantId: verified.tenantId }, include: authUserInclude });
-    if (!current || current.passwordHash !== verified.passwordHash) return { error: new AppError(INVALID_LOGIN_MESSAGE, 401, INVALID_LOGIN_CODE), events };
+    if (!current || current.passwordHash !== verified.passwordHash || current.email.toLowerCase() !== normalisedEmail) return { error: new AppError(INVALID_LOGIN_MESSAGE, 401, INVALID_LOGIN_CODE), events };
     if (current.securityLockedAt) return { error: accountLockedError(), events };
     try {
       await requireEmployeeAccount(current, tx);

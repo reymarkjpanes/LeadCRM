@@ -24,6 +24,16 @@ const internal = new AsyncLocalStorage<boolean>();
 const statusEvidence = new AsyncLocalStorage<boolean>();
 /** Classification evidence is tenant-authoritative; mutation authorization still runs. */
 export function readCrmStatusEvidence<T>(work: () => T): T { return statusEvidence.run(true, work); }
+
+/** Only the server-computed Deal aggregate writes through this boundary. */
+export function writeDerivedCustomerStatus(tx: Tx, tenantId: string, target: { leadId: string; contactId?: never } | { contactId: string; leadId?: never },
+  status: { lead: string; contact: import('@prisma/client').ContactStatus }, changedAt: Date) {
+  if (crmActor.getStore() && crmActor.getStore()!.tenantId !== tenantId) throw new AppError('Record not found.', 404);
+  const where = { tenantId, isArchived: false, deletedAt: null };
+  return internal.run(true, async () => await (target.leadId !== undefined
+    ? tx.lead.updateMany({ where: { ...where, id: target.leadId, status: { not: status.lead } }, data: { status: status.lead, lastStatusChangedAt: changedAt } })
+    : tx.contact.updateMany({ where: { ...where, id: target.contactId, status: { not: status.contact } }, data: { status: status.contact, lastStatusChangedAt: changedAt } })));
+}
 const creationAssignment = new AsyncLocalStorage<{ tx: Tx; module: CrmModule; assignedUserId: string | null }>();
 /** Only repositories enter this scope after validating explicit input and selecting
  * the automatic assignee. It authorizes that one create, never an existing row. */

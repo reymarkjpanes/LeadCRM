@@ -1,13 +1,13 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-const mocks = vi.hoisted(() => ({ save: vi.fn(), success: vi.fn(), error: vi.fn(), upload: vi.fn() }));
-const user = { id: 'me', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@camxian.com', role: 'User' };
+const mocks = vi.hoisted(() => ({ save: vi.fn(), success: vi.fn(), error: vi.fn(), upload: vi.fn(), requestEmail: vi.fn() }));
+const user = { id: 'me', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@camxian.com', role: 'User', jobTitle: 'Engineer' };
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user, updateProfile: mocks.save, applyAuthUser: vi.fn() }) }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error: mocks.error } }));
-vi.mock('@/shared/services/auth.api', () => ({ authApi: { uploadAvatar: mocks.upload } }));
+vi.mock('@/shared/services/auth.api', () => ({ authApi: { uploadAvatar: mocks.upload, requestProfileEmailChange: mocks.requestEmail } }));
 import { ProfileForm } from '../profile-form';
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => { vi.resetAllMocks(); user.role = 'User'; });
 afterEach(cleanup);
 
 it('starts read-only with database values and Cancel discards unsaved edits', () => {
@@ -18,18 +18,31 @@ it('starts read-only with database values and Cancel discards unsaved edits', ()
   expect(screen.getByLabelText('Groups').textContent).toBe('No groups assigned');
   expect(screen.queryByText('Save Changes')).toBeNull();
   fireEvent.click(screen.getByText('Edit'));
-  expect((screen.getByLabelText('Email Address') as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByLabelText('Email Address').tagName).toBe('P');
+  expect(screen.getByLabelText('Job Title').textContent).toBe('Engineer');
+  expect(screen.queryByRole('button', { name: 'Change email' })).toBeNull();
   fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Unsaved' } });
   fireEvent.click(screen.getByText('Cancel'));
   expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('Ada');
   expect(mocks.save).not.toHaveBeenCalled();
+});
+it('opens the verified email-change flow only for a Client Administrator', async () => {
+  user.role = 'Client Admin';
+  mocks.requestEmail.mockResolvedValue({ success: true });
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByRole('button', { name: 'Change email' }));
+  fireEvent.change(screen.getByLabelText('New email address'), { target: { value: ' New@Camxian.com ' } });
+  fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'current password' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
+  expect(await screen.findByLabelText('Verification code')).toBeTruthy();
+  expect(mocks.requestEmail).toHaveBeenCalledExactlyOnceWith({ email: 'new@camxian.com', currentPassword: 'current password' });
 });
 it('waits for server confirmation, blocks duplicate saves and remains editable on failure', async () => {
   let reject!: (reason: Error) => void;
   mocks.save.mockReturnValue(new Promise((_, r) => { reject = r; }));
   render(<ProfileForm />);
   fireEvent.click(screen.getByText('Edit'));
-  fireEvent.change(screen.getByLabelText('Job Title'), { target: { value: 'Engineer' } });
+  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Adele' } });
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.success).not.toHaveBeenCalled();
   expect((screen.getByText('Saving…') as HTMLButtonElement).disabled).toBe(true);
@@ -62,9 +75,6 @@ it('shows field errors for overlong profile fields and reuses the PH mobile rule
   fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'B'.repeat(51) } });
   expect((screen.getByLabelText('Last Name') as HTMLInputElement).value).toBe('Lovelace');
   expect(screen.getByText('Last name must not exceed 50 characters.')).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Job Title'), { target: { value: 'J'.repeat(101) } });
-  expect((screen.getByLabelText('Job Title') as HTMLInputElement).value).toBe('');
-  expect(screen.getByText('Job title must not exceed 100 characters.')).toBeTruthy();
   const phone = screen.getByLabelText('Phone Number') as HTMLInputElement;
   expect(screen.getByText('+63')).toBeTruthy();
   fireEvent.change(phone, { target: { value: '9123456789abc' } });

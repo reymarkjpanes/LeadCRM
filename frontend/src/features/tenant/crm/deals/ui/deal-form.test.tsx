@@ -229,11 +229,12 @@ it('rejects a stale changed selection before submitting and allows returning to 
 it('explicitly clears a redacted unavailable source without copying the automatic address', async () => {
   fixture.addressOptions = [{ type: 'account', id: 'account', label: 'Company: Customer', address: 'Current office' }];
   const save = vi.fn();
-  render(<DealForm mode="edit" initialData={{ title: 'Legacy source', addressSource: null, addressContext: { ...resolveDealAddress('', { type: 'lead', id: 'unavailable' }, fixture.addressOptions), source: null } }} onSubmit={save} onCancel={() => {}} />);
+  render(<DealForm mode="edit" initialData={{ title: 'Legacy source', leadSource: 'Direct Mail', addressSource: null, addressContext: { ...resolveDealAddress('', { type: 'lead', id: 'unavailable' }, fixture.addressOptions), source: null } }} onSubmit={save} onCancel={() => {}} />);
   expect(screen.getByLabelText('Customer Address')).toHaveProperty('value', '__unavailable__');
   fireEvent.change(screen.getByLabelText('Customer Address'), { target: { value: '' } });
   expect(screen.getByText('Current office')).toBeTruthy();
   fireEvent.submit(screen.getByLabelText(/Title/).closest('form')!);
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
-  expect(save.mock.calls[0][0]).toMatchObject({ addressSource: null, address: '' });
+  expect(screen.getByRole('option', { name: 'Direct Mail (historical)' })).toHaveProperty('disabled', true);
+  expect(save.mock.calls[0][0]).toMatchObject({ addressSource: null, address: '', leadSource: undefined });
 });

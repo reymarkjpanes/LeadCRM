@@ -8,7 +8,7 @@ import { issueAuthSession } from '../../../core/auth/auth-session';
 import * as service from './forms.service';
 import { getPublicForm, submitPublicForm } from './public-forms.service';
 import app from '../../../app';
-import { ClosingFieldInputSchema, EMAIL_AVAILABILITY_MESSAGES, FORM_PRODUCT_INTERESTS, LEAD_SOURCES, leadCatalogFormField, type FormField } from '@leadcrm/shared';
+import { ClosingFieldInputSchema, EMAIL_AVAILABILITY_MESSAGES, FORM_PRODUCT_INTERESTS, LEAD_SOURCES, SELECTABLE_LEAD_SOURCES, leadCatalogFormField, type FormField } from '@leadcrm/shared';
 import { ensureSalesGroup } from '../../administration/groups/sales-group';
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_forms_test_\d+$/.test(url.pathname);
@@ -85,7 +85,13 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     const source: FormField = { id: 'historicalSource', type: 'dropdown', label: 'Lead Source', mapToField: 'source', options: [...LEAD_SOURCES], required: true };
     await scoped(() => service.updateForm(form.id, tenantId, userId, { revision: form.revision, fields: [...form.fields as FormField[], source] }));
     const published = await publish(form.id);
+    // Simulate a published version created before the source was retired.
+    const oldConfig = { ...(published.publishedConfig as object), fields: [...form.fields as FormField[], source] };
+    await prisma.marketingForm.update({ where: { id: form.id }, data: { publishedConfig: oldConfig } });
     const before = await getPublicForm(form.publicId);
+    expect(before.fields.find(field => field.id === source.id)?.options).toEqual(SELECTABLE_LEAD_SOURCES);
+    await expect(submit(form.publicId, { ...values(), historicalSource: 'Direct Mail' }, published.publishedVersion))
+      .rejects.toMatchObject({ fieldErrors: { historicalSource: 'Select an available option.' } });
     const answers = { ...values(), historicalSource: 'Referral' };
     await submit(form.publicId, answers, published.publishedVersion);
     const lead = await prisma.lead.findFirstOrThrow({ where: { tenantId, email: answers.email } });
@@ -93,8 +99,9 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     const submission = await prisma.formSubmission.findFirstOrThrow({ where: { tenantId, formId: form.id } });
     expect(submission.values).toMatchObject({ historicalSource: 'Referral' });
     await scoped(() => service.updateForm(form.id, tenantId, userId, { revision: published.revision, name: 'Later draft name' }));
-    expect((await service.getFormById(form.id, tenantId)).fields).toContainEqual(source);
+    expect((await service.getFormById(form.id, tenantId)).fields).toContainEqual({ ...source, options: SELECTABLE_LEAD_SOURCES });
     expect(await getPublicForm(form.publicId)).toEqual(before);
+    expect((await prisma.marketingForm.findUniqueOrThrow({ where: { id: form.id } })).publishedConfig).toEqual(oldConfig);
     expect(await prisma.formSubmission.findUniqueOrThrow({ where: { id: submission.id } })).toEqual(submission);
   });
   it('persists every supported Lead Custom type, layout content and order through reload, publish and repeat submission', async () => {
@@ -387,8 +394,8 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     const deal = await prisma.deal.create({ data: { tenantId, pipelineId: pipeline.id, stageId: stage.id, wonConfirmedAt: new Date('2025-01-01'), wonConfirmedById: userId, hasEverBeenWon: true, wonHistoryVerified: true, leadDeals: { create: { leadId: l.id, position: 0 } }, title: 'Historic sale', productInterests: ['CCTV'], tags: [] } });
     await submit(form.publicId, v); await submit(form.publicId, v);
     const repaired = await prisma.lead.findUniqueOrThrow({ where: { id: l.id } }); expect(repaired.contactId).toBeTruthy();
-    expect(repaired.status).toBe('Inquiry');
-    expect(await prisma.contact.findUniqueOrThrow({ where: { id: repaired.contactId! } })).toMatchObject({ status: 'CLOSED_DEAL', lifecycleStage: 'CUSTOMER', customerSince: new Date('2025-01-01') });
+    expect(repaired.status).toBe('Closed Deal');
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: repaired.contactId! } })).toMatchObject({ status: 'INQUIRY', lifecycleStage: 'CUSTOMER', customerSince: new Date('2025-01-01') });
     expect(await prisma.deal.findUnique({ where: { id: deal.id }, include: { contactDeals: true } })).toMatchObject({
       id: deal.id, stageId: deal.stageId, value: deal.value, productInterests: deal.productInterests, contactDeals: [{ contactId: repaired.contactId }],
     });

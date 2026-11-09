@@ -1,3 +1,4 @@
+import { assertSelectableCrmSource } from '../record-validation';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as service from './contacts-v2.service';
@@ -24,6 +25,7 @@ export async function getContactById(req: Request, res: Response, next: NextFunc
 
 export async function createContact(req: Request, res: Response, next: NextFunction) {
   try {
+    assertSelectableCrmSource(req.body?.source);
     const { contact, replayed } = await service.createContact(req.user!.tenantId, ManualCreateClientContactSchema.parse(req.body), req.user!.userId);
     res.status(replayed ? 200 : 201).json({ success: true, data: contact });
   } catch (err) { next(err); }
@@ -31,6 +33,7 @@ export async function createContact(req: Request, res: Response, next: NextFunct
 
 export async function updateContact(req: Request, res: Response, next: NextFunction) {
   try {
+    assertSelectableCrmSource(req.body?.source);
     const contact = await service.updateContact(String(req.params.id), req.user!.tenantId, req.body, req.user!.userId);
     res.json({ success: true, data: contact });
   } catch (err) { next(err); }

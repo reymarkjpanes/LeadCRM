@@ -6,7 +6,7 @@ import { customerEmailAvailability } from '../../administration/users/user-email
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { convertClosedLead } from '../../crm/leads/lead-conversion.service';
-import { EMAIL_AVAILABILITY_MESSAGES, FormDefinitionSchema, FormFieldSchema, PublicSubmissionSchema, publicSubmissionContent, validateFormValues, withProductOptions, sourceAttribution } from '@leadcrm/shared';
+import { EMAIL_AVAILABILITY_MESSAGES, FormDefinitionSchema, FormFieldSchema, PublicSubmissionSchema, publicSubmissionContent, validateFormValues, withProductOptions, withoutRetiredFormSources, sourceAttribution } from '@leadcrm/shared';
 import type { PublicFormDefinition } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
@@ -37,7 +37,7 @@ export async function getPublicForm(publicId: string): Promise<PublicFormDefinit
       categories: await productCategories(tx, form.tenantId, { readOnly: true }),
       products: products.map(({ id, name, category }) => ({ id, name, category })),
     } : undefined;
-    return { name: config.name, fields: withProductOptions(config.fields, products), design: config.design, version: form.publishedVersion, trackUrlParams: config.settings.trackUrlParams, allowedEmbedOrigins: config.settings.allowedEmbedOrigins, ...(productCatalog ? { productCatalog } : {}) };
+    return { name: config.name, fields: withProductOptions(withoutRetiredFormSources(config.fields), products), design: config.design, version: form.publishedVersion, trackUrlParams: config.settings.trackUrlParams, allowedEmbedOrigins: config.settings.allowedEmbedOrigins, ...(productCatalog ? { productCatalog } : {}) };
   }));
 }
 
@@ -68,7 +68,7 @@ export async function submitPublicForm(publicId: string, body: unknown) {
           }
           if (live.publishedVersion !== input.version) throw new ConflictError('This form has changed. Reload it before submitting.');
           const config = await normalizeFormDefinitionForTenant(tx, scope.tenantId, FormDefinitionSchema.parse(live.publishedConfig));
-          config.fields = withProductOptions(config.fields, await productConfiguration(tx, scope.tenantId));
+          config.fields = withProductOptions(withoutRetiredFormSources(config.fields), await productConfiguration(tx, scope.tenantId));
           const validated = validateFormValues(config.fields, input.values);
           if (Object.keys(validated.errors).length) throw new SubmissionValidationError(validated.errors);
           const emailField = config.fields.find(field => field.mapToField === 'email');

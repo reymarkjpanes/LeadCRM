@@ -1,3 +1,4 @@
+import { assertSelectableCrmSource } from '../record-validation';
 import { presentDealResponse } from './deal-presentation';
 import { createDealBatch } from './deal-batch.service';
 ﻿import { Request, Response, NextFunction } from 'express';
@@ -45,6 +46,7 @@ export async function getDealById(req: Request, res: Response, next: NextFunctio
 
 export async function createDeal(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    assertSelectableCrmSource(req.body?.leadSource);
     const deal = await service.createDeal(req.user!.tenantId, req.user!.userId, req.body);
     res.status(201).json({ success: true, data: await presentDealResponse(req.user!.tenantId, deal) });
   } catch (err) { next(err); }
@@ -52,6 +54,7 @@ export async function createDeal(req: Request, res: Response, next: NextFunction
 
 export async function updateDeal(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    assertSelectableCrmSource(req.body?.leadSource);
     const deal = await service.updateDeal(String(req.params.id), req.user!.tenantId, req.user!.userId, req.body);
     res.json({ success: true, data: await presentDealResponse(req.user!.tenantId, deal) });
   } catch (err) { next(err); }
@@ -105,6 +108,7 @@ export async function duplicateDeal(req: Request, res: Response, next: NextFunct
 
 export async function createBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    assertSelectableCrmSource(req.body?.leadSource);
     const result = await createDealBatch(req.user!.tenantId, req.user!.userId, req.body);
     res.status(result.replayed ? 200 : 201).json({ success: true, data: await presentDealResponse(req.user!.tenantId, result) });
   } catch (error) { next(error); }

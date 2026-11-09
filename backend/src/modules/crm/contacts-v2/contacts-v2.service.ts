@@ -47,13 +47,15 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
   const withCustomChanges = await customFieldChangeTracker(tenantId, 'contacts', id, dto.customFieldValues);
   const contact = await repo.updateContact(id, tenantId, dto, actorId);
   if (!contact) throw new NotFoundError('Contact');
+  const presented = await presentContact(tenantId, contact);
   if (actorId) {
     await writeAuditLog({ tenantId, userId: actorId, action: 'contact.updated', entityType: 'Contact', entityId: id });
-    if (contact.status !== before.status) await fireContactStatusChanged({ tenantId, actorId, contact, prevStatus: before.status });
+    if (contact.status !== before.status && !presented.statusManagedByDeals) await fireContactStatusChanged({ tenantId, actorId, contact, prevStatus: before.status });
   }
-  const changes = await withCustomChanges(recordChanges(before, contact));
+  const previous = presented.statusManagedByDeals ? { ...before, status: contact.status } : before;
+  const changes = await withCustomChanges(recordChanges(previous, contact));
   if (changes.changedFields.length) await fireContactUpdated({ tenantId, actorId, record: contact, changedFields: changes.changedFields, changes });
-  return presentContact(tenantId, contact);
+  return presented;
   });
 }
 
