@@ -12,6 +12,10 @@ it('allows core configuration without optional integration credentials', () => {
 it.each(['yes', '1', 'TRUE'])('rejects invalid BACKGROUND_WORKERS_ENABLED value %s', BACKGROUND_WORKERS_ENABLED => {
   expect(() => validateEnvironment({ ...production, BACKGROUND_WORKERS_ENABLED })).toThrow('BACKGROUND_WORKERS_ENABLED');
 });
+it('requires a workflow UUID for the scoped stage worker', () => {
+  expect(() => validateEnvironment({ ...production, DEAL_STAGE_WORKFLOW_ID: 'Cancellation workflow' })).toThrow('DEAL_STAGE_WORKFLOW_ID');
+  expect(() => validateEnvironment({ ...production, DEAL_STAGE_WORKFLOW_ID: 'a853ecf3-9866-4f8b-a4fb-4738eb9a2012' })).not.toThrow();
+});
 it.each(['DATABASE_URL', 'JWT_SECRET', 'BREVO_API_KEY', 'BREVO_FROM_EMAIL', 'APP_URL', 'ALLOWED_ORIGINS'])('rejects missing production %s', key => {
   expect(() => validateEnvironment({ ...production, [key]: '' })).toThrow(key);
 });

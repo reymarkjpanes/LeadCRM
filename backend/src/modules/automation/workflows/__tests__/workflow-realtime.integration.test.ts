@@ -4,6 +4,7 @@ import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { salesTransaction } from '../../../crm/leads/lead-automation.service';
 import { updateDeal, moveDealStage, moveDealPipeline } from '../../../crm/deals/deals.service';
+import { saveField } from '../../../crm/closing-requirements/closing-requirements.service';
 import { createDeal } from '../../../crm/deals/deals.repository';
 import { bulkStageChange } from '../../../crm/deals/bulk-deals.service';
 import { fireDealUpdated } from '../../triggers/triggers.service';
@@ -32,6 +33,44 @@ describe.skipIf(!disposable)('post-commit workflow stage dispatch', () => {
   beforeEach(async () => { await prisma.workflow.updateMany({ where: { tenantId }, data: { isActive: false } }); });
   afterEach(async () => { await stop?.(); stop = undefined; });
   afterAll(async () => { await prisma.$disconnect(); });
+
+  it('cancels on a committed cancellation reason with only the configured stage workflow running', async () => {
+    const field = await scope(() => saveField(tenantId, actorId, {
+      module: 'deals', group: 'Additional Details', name: 'Reason for Cancellation', type: 'Long Text', required: false, options: [],
+    }));
+    const cancelled = await prisma.stage.create({ data: { tenantId, pipelineId, name: 'Cancelled', order: 2, isLost: true } });
+    const [backlogged, immediate, blank, mixed] = await Promise.all([deal(), deal(), deal(), deal()]);
+    const conditions = { operator: 'AND', conditions: [{ field: `deal.customFieldValues.${field.id}`, operator: 'is_not_empty', value: null }] };
+    const stageAction = { type: 'move_deal_stage', config: { stageId: cancelled.id } };
+    const configured = await workflow({ conditions, actions: [stageAction] });
+    const other = await workflow({ conditions, actions: [stageAction] });
+    const saveReason = (id: string, value: string) => scope(() => updateDeal(id, tenantId, actorId, { customFieldValues: { [field.id]: value } }));
+    const stageOf = async (id: string) => (await prisma.deal.findUniqueOrThrow({ where: { id } })).stageId;
+    const runStatus = async (workflowId: string, entityId: string) =>
+      (await prisma.workflowExecutionRun.findFirstOrThrow({ where: { workflowId, entityId } })).status;
+    await prisma.workflow.update({ where: { id: configured.id }, data: { actions: [
+      stageAction, { type: 'create_task', config: { title: 'Other action', assignedUserId: actorId } },
+    ] } });
+    await saveReason(mixed.id, 'Out of scope');
+    await prisma.workflow.update({ where: { id: configured.id }, data: { actions: [stageAction] } });
+    await saveReason(backlogged.id, 'Budget');
+    expect(await runStatus(configured.id, backlogged.id)).toBe('queued');
+
+    stop = startWorkflowScheduler(configured.id);
+    await vi.waitFor(async () => expect(await stageOf(backlogged.id)).toBe(cancelled.id), { timeout: 5000 });
+    await saveReason(blank.id, '   ');
+    await saveReason(immediate.id, 'Budget');
+    await vi.waitFor(async () => expect(await runStatus(configured.id, immediate.id)).toBe('completed'), { timeout: 5000 });
+    expect(await stageOf(immediate.id)).toBe(cancelled.id);
+    expect(await stageOf(blank.id)).toBe(initialId);
+    expect(await stageOf(mixed.id)).toBe(initialId);
+    expect(await runStatus(configured.id, mixed.id)).toBe('queued');
+    expect(await runStatus(other.id, immediate.id)).toBe('queued');
+    // Keep the unrelated durable runs for their intended worker, then clean up the fixture.
+    await stop(); stop = undefined;
+    await prisma.workflow.updateMany({ where: { id: { in: [configured.id, other.id] } }, data: { isActive: false } });
+    await dispatchQueuedWorkflows();
+  });
 
   it('moves a Deal after a field edit promptly, publishes content and deduplicates competing dispatch', async () => {
     const saved = await deal(); const configured = await workflow();
