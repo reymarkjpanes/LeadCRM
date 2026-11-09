@@ -24,6 +24,31 @@ const groupChoices = [
 const fillNewUser = () => {
   change('First Name', 'New'); change('Last Name', 'Staff'); change('Email', 'new@camxian.com'); change('Phone', '9171234567'); change('Role', 'Sales');
 };
+
+it('checks both new user names as they change and blocks creation until corrected', async () => {
+  mocks.create.mockResolvedValue({ data: user });
+  renderPanel();
+  fillNewUser();
+  change('First Name', 'John123');
+  const firstError = screen.getByText('First name must not contain numbers.');
+  expect(screen.getByLabelText('First Name', { exact: false }).getAttribute('aria-describedby')).toBe(firstError.id);
+  change('Last Name', '123');
+  const lastError = screen.getByText('Last name must not contain numbers.');
+  const create = screen.getByRole('button', { name: 'Create User' });
+  fireEvent.click(create);
+  expect(mocks.create).not.toHaveBeenCalled();
+
+  change('First Name', 'María');
+  expect(screen.queryByText(firstError.textContent!)).toBeNull();
+  expect(lastError.isConnected).toBe(true);
+  fireEvent.click(create);
+  expect(mocks.create).not.toHaveBeenCalled();
+  change('Last Name', 'O’Connor');
+  expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  fireEvent.click(create);
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' })));
+});
+
 it('submits a Client Admin selection from an existing admin without changing the create payload shape', async () => {
   mocks.actor.role = 'Client Admin';
   const created = { ...user, role: 'Client Admin' };

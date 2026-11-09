@@ -1,7 +1,7 @@
 'use client';
 import { feedbackError } from '@/shared/utils/feedback-error';
 import { showCrmMutationError } from '@/shared/utils/crm-mutation-error';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { Loader2, Pencil } from 'lucide-react';
 import { CrmEmailSchema, INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR } from '@leadcrm/shared';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ import { Textarea } from '@/shared/components/ui/textarea';
 import type { ProductInterestRecord } from '@leadcrm/shared';
 import { productCategoriesForSelection } from './product-category-value';
 import { normalizePhInput, toE164 } from '@/shared/utils/ph-phone';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 const displayText = (value: unknown): string => Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '') || '—';
 const present = (value: unknown) => value !== undefined && value !== null && value !== '' && (!Array.isArray(value) || value.length > 0);
 
@@ -63,6 +64,9 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
     setProductCatalog(previous => JSON.stringify(previous) === JSON.stringify(products) ? previous : products);
   }, []);
   const editingField = rows.find(row => (row.technicalKey ?? row.label) === editingKey)?.apiField ?? null;
+  const errorId = useId();
+  const nameDigitError = getNameDigitError(editingField ?? undefined, editValue);
+  const inputError = nameDigitError ?? fieldError;
   const dirty = editingKey !== null && JSON.stringify(initialValue) !== JSON.stringify(editValue);
   useEffect(() => { onEditStateChange?.({ field: editingField, dirty, busy: isSaving }); }, [editingField, dirty, isSaving, onEditStateChange]);
   const blocked = isSaving || disabled;
@@ -84,7 +88,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
     else cancelEdit();
   };
   const commitEdit = async (apiField: string) => {
-    if (blocked || !canEdit) return;
+    if (blocked || !canEdit || nameDigitError) return;
     setFieldError('');
     const row = rows.find(row => row.apiField === apiField);
     if (row?.editorDisabled) return;
@@ -132,9 +136,9 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
                   ) : type === 'textarea' ? (
                     <Textarea placeholder={`Enter ${label.toLowerCase()}...`} aria-label={label} disabled={blocked} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} rows={3} autoFocus onKeyDown={e => { if (e.key === 'Escape') escapeEdit(e); }} className="w-full rounded-md border px-2 py-1 text-xs resize-none" />
                   ) : (
-                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!fieldError} maxLength={type === 'email' ? 254 : required ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", fieldError ? "border-red-500" : "")} />
+                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!inputError} aria-describedby={!customEditorActions && inputError ? errorId : undefined} maxLength={type === 'email' ? 254 : required ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", inputError ? "border-red-500" : "")} />
                   )}
-                  {!customEditorActions && (fieldError || editorError) && <p role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{fieldError || editorError}</p>}
+                  {!customEditorActions && (inputError || editorError) && <p id={errorId} role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{inputError || editorError}</p>}
                   {!customEditorActions && <div className="flex flex-wrap justify-end gap-1">
                     <button type="button" onClick={() => void commitEdit(apiField)} disabled={blocked || editorDisabled} className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-colors">{isSaving ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving…</> : 'Save'}</button>
                     <button type="button" onClick={cancelEdit} disabled={blocked} className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent disabled:opacity-50 transition-colors">Cancel</button>

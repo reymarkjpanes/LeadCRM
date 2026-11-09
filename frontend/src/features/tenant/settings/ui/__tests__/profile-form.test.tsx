@@ -10,6 +10,35 @@ import { ProfileForm } from '../profile-form';
 beforeEach(() => { vi.resetAllMocks(); user.role = 'User'; });
 afterEach(cleanup);
 
+it('checks names immediately and retains the length rule after digits are removed', async () => {
+  mocks.save.mockResolvedValue(undefined);
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByText('Edit'));
+  const first = screen.getByLabelText('First Name');
+  const last = screen.getByLabelText('Last Name');
+  const overlong = 'A'.repeat(51);
+  fireEvent.input(first, { target: { value: overlong + '1' } });
+  const firstError = screen.getByText('First name must not contain numbers.');
+  expect(first.getAttribute('aria-describedby')).toBe(firstError.id);
+  expect(first).toHaveProperty('value', overlong + '1');
+  fireEvent.input(last, { target: { value: 'Rey2es' } });
+  const lastError = screen.getByText('Last name must not contain numbers.');
+  expect(last.getAttribute('aria-describedby')).toBe(lastError.id);
+  fireEvent.click(screen.getByText('Save Changes'));
+  expect(mocks.save).not.toHaveBeenCalled();
+
+  fireEvent.input(first, { target: { value: overlong } });
+  expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
+  expect(screen.getByText('First name must not exceed 50 characters.')).toBeTruthy();
+  expect(lastError.isConnected).toBe(true);
+  fireEvent.input(first, { target: { value: 'Anne-Marie' } });
+  fireEvent.input(last, { target: { value: 'Reyes' } });
+  expect(screen.queryByText('Last name must not contain numbers.')).toBeNull();
+  fireEvent.click(screen.getByText('Save Changes'));
+  await waitFor(() => expect(screen.getByText('Edit')).toBeTruthy());
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'Anne-Marie', lastName: 'Reyes' }));
+});
+
 it('starts read-only with database values and Cancel discards unsaved edits', () => {
   render(<ProfileForm />);
   expect(screen.queryByLabelText('Time Zone')).toBeNull();

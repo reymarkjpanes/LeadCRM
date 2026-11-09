@@ -13,6 +13,8 @@ export const CANVAS_DROPPABLE_ID = 'form-canvas';
 function FieldRow({ field, design, configured, onUpdate, onRemove, productCatalog }: { field: FormField; design: FormDesign; configured?: CrmFieldCatalogEntry; onUpdate: (patch: Partial<FormField>) => void; onRemove: () => void; productCatalog?: FormProductCatalog }) {
   const [editing, setEditing] = useState(false);
   const [previewProducts, setPreviewProducts] = useState<string[]>([]);
+  const [previewName, setPreviewName] = useState('');
+  const isNameField = field.mapToField === 'firstName' || field.mapToField === 'lastName';
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
   const layout = ['header', 'heading', 'paragraph', 'divider'].includes(field.type);
   return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? .4 : 1 }} className={'min-w-0 p-1 ' + (field.width === 'half' ? '' : 'sm:col-span-2')}>
@@ -22,7 +24,10 @@ function FieldRow({ field, design, configured, onUpdate, onRemove, productCatalo
       <button type="button" aria-label={'Remove ' + field.label} onClick={onRemove} className="p-2 text-red-600"><Trash2 size={14} /></button>
     </div>
     <div style={{ '--surface': design.fieldBg || '#ffffff', '--background': design.fieldBg || '#ffffff', '--text-primary': design.fieldText || '#0f172a', '--border': design.fieldBorder || '#cbd5e1', '--input': design.fieldBorder || '#cbd5e1', '--muted-foreground': `color-mix(in srgb, ${design.fieldText || '#0f172a'} 70%, ${design.fieldBg || '#ffffff'})` } as CSSProperties}>
-      <FormInput field={field} design={design} productCatalog={productCatalog} value={field.mapToField === 'productInterest' ? previewProducts : undefined} onChange={value => { if (field.mapToField === 'productInterest' && Array.isArray(value)) setPreviewProducts(value); }} />
+      <FormInput field={field} design={design} productCatalog={productCatalog} value={field.mapToField === 'productInterest' ? previewProducts : isNameField ? previewName : undefined} onChange={value => {
+        if (field.mapToField === 'productInterest' && Array.isArray(value)) setPreviewProducts(value);
+        if (isNameField && typeof value === 'string') setPreviewName(value);
+      }} />
     </div>
     {editing && <div className={panelThemeClass + " mt-3 p-3 border rounded-md text-xs space-y-3"}>
       <label className="block">Label<Input placeholder="Enter field label..." className="w-full p-2 border rounded mt-1" value={field.label} maxLength={500} onChange={e => onUpdate({ label: e.target.value })} /></label>

@@ -1,4 +1,5 @@
 'use client';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { applyCrmFieldErrors, showCrmMutationError, isStaffEmailError } from '@/shared/utils/crm-mutation-error';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
@@ -162,6 +163,8 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   }, [initialData?.id]);
 
   const selectedProducts = watch('productInterest') || [];
+  const firstNameError = getNameDigitError('firstName', watch('firstName')) ?? errors.firstName?.message;
+  const lastNameError = getNameDigitError('lastName', watch('lastName')) ?? errors.lastName?.message;
   const emailCheck = useEmailAvailability(watch('email'), 'contacts', !isEdit && canSubmit);
   const emailError = emailCheck.error || errors.email?.message;
   const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'contacts', canSubmit);
@@ -171,6 +174,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   const saving = useRef(false);
   const onSubmit = async (data: CreateContactFormValues | UpdateContactFormValues): Promise<void> => {
     if (!canSubmit || saving.current) return;
+    if (getNameDigitError('firstName', data.firstName) || getNameDigitError('lastName', data.lastName)) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email!)) return;
     setPhoneTouched(true);
@@ -233,23 +237,23 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
 
           {/* First & Last Name (required) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={errors.firstName?.message}>
+            <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={firstNameError}>
               <Input
                 {...register('firstName')}
                 id={`${fieldId}-firstName`}
-                aria-invalid={!!errors.firstName}
-                aria-describedby={errors.firstName ? `${fieldId}-firstName-error` : undefined}
-                className={`${inputCls}  ${errors.firstName ? inputErrorCls : ''}`}
+                aria-invalid={!!firstNameError}
+                aria-describedby={firstNameError ? `${fieldId}-firstName-error` : undefined}
+                className={`${inputCls}  ${firstNameError ? inputErrorCls : ''}`}
                 placeholder="Enter first name"
               />
             </FieldWrap>
-            <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={errors.lastName?.message}>
+            <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={lastNameError}>
               <Input
                 {...register('lastName')}
                 id={`${fieldId}-lastName`}
-                aria-invalid={!!errors.lastName}
-                aria-describedby={errors.lastName ? `${fieldId}-lastName-error` : undefined}
-                className={`${inputCls}  ${errors.lastName ? inputErrorCls : ''}`}
+                aria-invalid={!!lastNameError}
+                aria-describedby={lastNameError ? `${fieldId}-lastName-error` : undefined}
+                className={`${inputCls}  ${lastNameError ? inputErrorCls : ''}`}
                 placeholder="Enter last name"
               />
             </FieldWrap>

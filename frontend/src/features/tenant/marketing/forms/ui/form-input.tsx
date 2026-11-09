@@ -4,11 +4,13 @@ import type { FormField, FormDesign, FormProductCatalog } from '@leadcrm/shared'
 import { ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
 import { Input } from '@/shared/components/ui/input';
 import { Textarea } from '@/shared/components/ui/textarea';
-export function FormInput({ field: f, value = '', onChange, onBlur, error, design, productCatalog }: { field: FormField; value?: string | boolean | string[]; onChange: (v: string | boolean | string[]) => void; onBlur?: () => void; error?: string; design: FormDesign; productCatalog?: FormProductCatalog }) {
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
+export function FormInput({ field: f, value = '', onChange, onBlur, error: validationError, design, productCatalog }: { field: FormField; value?: string | boolean | string[]; onChange: (v: string | boolean | string[]) => void; onBlur?: () => void; error?: string; design: FormDesign; productCatalog?: FormProductCatalog }) {
   const id = 'input-' + f.id;
   if (f.type === 'header' || f.type === 'heading') return <h2 className="text-2xl font-bold break-words">{f.label}</h2>;
   if (f.type === 'paragraph') return <p className="whitespace-pre-wrap break-words">{f.label}</p>;
   if (f.type === 'divider') return <hr />;
+  const error = getNameDigitError(f.mapToField, value) ?? validationError;
   const style: CSSProperties = { backgroundColor: design.fieldBg || '#ffffff', borderColor: design.fieldBorder || '#cbd5e1', color: design.fieldText || '#0f172a',
     borderRadius: { none: 0, sm: 4, md: 6, lg: 12, full: 24 }[design.fieldRadius], padding: design.fieldSize === 'lg' ? 12 : design.fieldSize === 'sm' ? 6 : 9 };
   const props = { id, onBlur, 'aria-invalid': !!error, 'aria-describedby': error ? id + '-error' : undefined, required: f.required, className: 'h-auto w-full min-w-0 max-w-full border text-sm', style };
