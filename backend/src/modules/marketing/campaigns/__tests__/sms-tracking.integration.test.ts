@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
-import { processTextBeeEvent, applyTextBeeEvidence } from '../textbee-webhook';
+import { processTextBeeEvent, applyTextBeeEvidence, verifyTextBeeSignature } from '../textbee-webhook';
 import { dispatchTenantNotifications } from '../../../notifications/notification-events.service';
 import { notificationCounts, deleteNotifications } from '../../../notifications/notifications.repository';
 import { saveNotificationPreferences } from '../../../notifications/notification-preferences.service';
@@ -64,6 +64,23 @@ describe.skipIf(!disposable)('SMS tracking on native disposable PostgreSQL', () 
     const delta = await scope(() => notificationCounts(tenantId, sender));
     expect(delta.activeSmsUntil).toBe(new Date(+campaign.submissionStartedAt! + 300000).toISOString());
     expect((await scope(() => notificationCounts(tenantId, creator))).activeSmsUntil).toBeNull();
+  });
+
+  it('accepts a fresh timestamped delivery receipt without a sent timestamp', async () => {
+    const { campaign, rows: [row] } = await submitted();
+    const { sentAt: _sentAt, ...payload } = event(row, 'delivered');
+    const raw = Buffer.from(JSON.stringify(payload));
+    const secret = 'fixture-secret-with-more-than-20-characters';
+    vi.stubEnv('TEXTBEE_WEBHOOK_SECRET', secret);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = (at: number) => `t=${at},v1=${createHmac('sha256', secret).update(at + '.').update(raw).digest('hex')}`;
+    const legacy = createHmac('sha256', secret).update(raw).digest('hex');
+    expect(() => verifyTextBeeSignature(raw, legacy)).not.toThrow();
+    expect(() => verifyTextBeeSignature(raw, undefined, signature(timestamp))).not.toThrow();
+    expect(() => verifyTextBeeSignature(raw, legacy, signature(timestamp - 301))).toThrow('Unauthorized');
+    await processTextBeeEvent(payload);
+    expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ status: 'delivered', sentAt: null });
+    expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({ status: 'DELIVERED' });
   });
 
   it('persists ordered Sent/Delivered results once for the staff sender, excludes the admin creator, and preserves deletion identity', async () => {

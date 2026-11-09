@@ -17,7 +17,7 @@ import { productRelationData } from '../leads/product-relations';
 import { parseLeadCreatedFilter } from '../leads/lead-created-filter';
 import { convertClosedLead } from '../leads/lead-conversion.service';
 import { assertClosedStatus, cancelOpenDeals, recordCustomerStatusChange } from '../engagement.service';
-import { assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
+import { applyManagedCustomerStatus, assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
 import { ConflictError, NotFoundError, ValidationError } from '../../../shared/errors/http-error';
 import { assertCustomerEmail } from '../../administration/users/user-email';
 import prisma from '../../../config/database.config';
@@ -203,11 +203,17 @@ export async function updateContact(
       await assertExternalCustomerEmail(tx, tenantId, dto.email !== undefined ? dto.email : current.email);
       await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone : current.phone);
       if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Lead changed. Reload its current status before saving.');
-      await assertCustomerStatusEdit(tx, tenantId, { leadId: id }, current, dto.status);
-      const preparedStatus = await prepareCustomerStatus(tx, tenantId, { leadId: id }, dto.status);
-      if (preparedStatus) { data.manualStatusContext = preparedStatus.checkpoint; data.status = preparedStatus.status; }
-      if (dto.status !== undefined && (dto.status !== current.status || Object.keys(dto).filter(key => key !== 'expectedUpdatedAt').length === 1)) data.manualCancellation = dto.status === 'Cancelled';
       if (current.convertedAt) throw new ValidationError('This Lead has been converted. Update the linked Contact instead.');
+      const managed = await applyManagedCustomerStatus(tx, tenantId, { leadId: id }, updatedById, current.status, dto.status);
+      if (managed) {
+        delete data.status;
+        delete data.lastStatusChangedAt;
+      } else {
+        await assertCustomerStatusEdit(tx, tenantId, { leadId: id }, current, dto.status);
+        const preparedStatus = await prepareCustomerStatus(tx, tenantId, { leadId: id }, dto.status);
+        if (preparedStatus) { data.manualStatusContext = preparedStatus.checkpoint; data.status = preparedStatus.status; }
+        if (dto.status !== undefined && (dto.status !== current.status || Object.keys(dto).filter(key => key !== 'expectedUpdatedAt').length === 1)) data.manualCancellation = dto.status === 'Cancelled';
+      }
       await assertContactAccountSelection(tx, tenantId, dto.accountId, current.accountId);
       if (dto.newAccount) {
         const account = await createLinkedAccount(tx, tenantId, dto.newAccount, updatedById);
@@ -223,7 +229,8 @@ export async function updateContact(
       const previousCustom = dto.customFieldValues === undefined ? undefined : await readRecordValues(tx, tenantId, 'leads', id);
       await saveRecordValues(tx, tenantId, 'leads', id, dto.customFieldValues, updatedById);
       const finish = async <T extends LeadRecord>(saved: T): Promise<T> => {
-        const changes = recordChanges(current, saved);
+        const previous = managed ? { ...current, status: saved.status } : current;
+        const changes = recordChanges(previous, saved);
         if (previousCustom) {
           const after = await readRecordValues(tx, tenantId, 'leads', id);
           for (const key of new Set([...Object.keys(previousCustom), ...Object.keys(after)])) {
@@ -233,10 +240,10 @@ export async function updateContact(
           }
         }
         if (updatedById && changes.changedFields.length) await tx.auditLog.create({ data: { tenantId, userId: updatedById, action: 'lead.updated', entityType: 'Lead', entityId: id, metadata: { changedFields: changes.changedFields } } });
-        if (onCommitted) await onCommitted(current, saved, changes);
+        if (onCommitted) await onCommitted(previous, saved, changes);
         return saved;
       };
-      if (dto.status) {
+      if (data.status) {
         if (normalizeCrmStatus(String(data.status)) !== normalizeCrmStatus(current.status)) data.lastStatusChangedAt = new Date();
         else delete data.lastStatusChangedAt;
         if (data.status === 'Closed Deal' && data.status !== current.status) await assertClosedStatus(tx, tenantId, { leadId: id });
@@ -264,7 +271,7 @@ export async function updateContact(
         updatedBy:    { select: { id: true, firstName: true, lastName: true } },
       },
     });
-      if (updatedById && dto.status && normalizeCrmStatus(updated.status) !== normalizeCrmStatus(current.status)) await recordCustomerStatusChange(tx, tenantId, updatedById, { leadId: id }, current.status, normalizeCrmStatus(updated.status), 'Staff changed the CRM status.');
+      if (updatedById && data.status && normalizeCrmStatus(updated.status) !== normalizeCrmStatus(current.status)) await recordCustomerStatusChange(tx, tenantId, updatedById, { leadId: id }, current.status, normalizeCrmStatus(updated.status), 'Staff changed the CRM status.');
       if (updatedById && dto.assignedUserId !== undefined && dto.assignedUserId !== current.assignedUserId) {
         const assignment = dto.assignedUserId ? await assignmentSnapshot(tx, tenantId, current.assignedUserId, dto.assignedUserId, updatedById) : undefined;
         await tx.activity.create({ data: {
@@ -275,7 +282,7 @@ export async function updateContact(
       }
       if (updated.status !== 'Closed Deal' && (dto.assignedUserId || dto.productInterest)) await createProductDeals(tx, tenantId, id, updatedById);
       if (updatedById && data.manualCancellation === true) await cancelOpenDeals(tx, tenantId, updatedById, { leadId: id }, 'Staff explicitly cancelled the opportunity.');
-      if (updated.status === 'Closed Deal' && updatedById) {
+      if (!managed && updated.status === 'Closed Deal' && updatedById) {
         await convertClosedLead(tx, tenantId, id, updatedById, { previousLead: current, emitLeadEvents: !onCommitted });
         return finish(await tx.lead.findFirstOrThrow({ where: { id, tenantId }, include: {
           assignedUser: { select: { id: true, firstName: true, lastName: true } }, account: { select: { id: true, name: true, industry: true, size: true, website: true, address: true } },

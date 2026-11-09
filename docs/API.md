@@ -131,7 +131,9 @@ All paths are relative to /api/v1. See [authentication and onboarding](authentic
 | POST | /auth/login | Password verification and a normal HttpOnly session cookie |
 | POST | /auth/login-lockout | Restore active cooldown only with a signed HttpOnly proof from a denied login; optional normalized email verifies the proof's identity |
 | GET | /auth/me | Current database-backed account state, including mustChangePassword, passwordChangedAt, and read-only Group summaries |
-| PATCH | /auth/profile | Update only the authenticated user's firstName, lastName, phone, jobTitle; returns the canonical user |
+| PATCH | /auth/profile | Update only the authenticated user's firstName, lastName, and phone. Returns the canonical user |
+| POST | /auth/profile/email/request | Client Administrator only. Validates the current password and sends a verification code to the new address |
+| POST | /auth/profile/email/confirm | Client Administrator only. Consumes the code in the requesting session, updates the verified address, and revokes old sessions and recovery tokens |
 | POST | /auth/profile/avatar | Authenticated raw JPEG/PNG/WebP body, maximum 5 MB; stores a normalized 512×512 WebP in private persistent storage and returns the canonical user |
 | GET | /auth/profile/avatar/:avatarId | Authenticated retrieval of the current user's saved avatar; private, uncached response |
 | POST | /auth/logout | Revoke session and expire cookie |

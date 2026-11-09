@@ -17,7 +17,7 @@ import { requestNotificationDispatch } from '../../notifications/notification-ev
 import { audienceDefinition, validateAudienceReferences, campaignScope, resolveAudience, campaignFieldsForAudienceSource } from './audiences.service';
 import { sanitizeCampaignHtml, prepareCampaignHtml, renderCampaignMessage } from './campaign-content';
 import { findCampaignReport } from './campaigns.repository';
-import { recalculateCampaignDelivery, recipientDeliveryFailed } from './campaign-delivery-status';
+import { deliveredRecipientWhere, recalculateCampaignDelivery, recipientDeliveryFailed } from './campaign-delivery-status';
 import type { CampaignRecipient, CampaignClickedLink } from '@leadcrm/shared';
 import { CAMPAIGN_LEASE_MS, interruptCampaignSubmission } from './campaign-submission-recovery';
 import { readAuthUser } from '../../../core/auth/auth-user';
@@ -159,7 +159,8 @@ export async function getCampaignById(id: string, tenantId: string) {
   if (!c) throw new AppError('Campaign not found.', 404);
   const where = { ...campaignScope(tenantId), campaignId: id };
   const [deliveredCount, bouncedCount] = await Promise.all([
-    prisma.campaignContact.count({ where: { ...where, deliveredAt: { not: null }, ...(c.type === 'SMS' ? { status: { not: 'failed' } } : {}) } }),
+    prisma.campaignContact.count({ where: { ...where, AND: [deliveredRecipientWhere,
+      c.type === 'SMS' ? { OR: [{ deliveredAt: { not: null } }, { status: 'delivered' }] } : { deliveredAt: { not: null } }] } }),
     prisma.campaignContact.count({ where: { ...where, bouncedAt: { not: null } } }),
   ]);
   const reviews = await smsReviewCampaignIds(tenantId, c.type === 'SMS' ? [id] : []);
@@ -432,6 +433,7 @@ async function deliverPrepared(id: string, tenantId: string, userId: string, pre
         result = recipient.channel === 'SMS'
           ? await sendSms(recipient.phone!, recipient.sms, { deviceId: preparation.smsDeviceId! })
           : await sendMail({ to: recipient.email!, subject: recipient.subject, html: recipient.html, requireDelivery: true });
+        if (recipient.channel === 'EMAIL' && result.submitted && !result.messageId) throw new EmailSubmissionError('unconfirmed');
       } catch (error) {
         const rejected = (error instanceof EmailSubmissionError || error instanceof SmsSubmissionError) && error.outcome === 'rejected';
         const reason = rejected ? `${recipient.channel === 'SMS' ? 'TEXTBEE' : 'BREVO'}_HTTP_${error.httpStatus}` : 'PROVIDER_SUBMISSION_UNCONFIRMED';

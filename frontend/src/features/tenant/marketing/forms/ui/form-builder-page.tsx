@@ -2,7 +2,7 @@
 import { useMediaQuery } from '@/shared/hooks/use-media-query';
 import { useWorkspacePanel } from '@/shared/lib/overlay-state';
 import { panelThemeClass, panelHeaderClass, panelTitleClass, panelCloseClass } from '@/shared/components/side-panel-styles';
-import { withProductOptions } from '@leadcrm/shared';
+import { withProductOptions, withoutRetiredFormSources } from '@leadcrm/shared';
 import { useProductInterests } from '@/shared/hooks/use-product-interests';
 import { useEffect, useRef, useState } from 'react';
 import { useReadRecordNotifications } from '@/features/tenant/notifications/hooks/use-record-notifications';
@@ -36,7 +36,7 @@ export function FormBuilderPage({ form, onBack, onFormUpdate }: { form: FormReco
   const router = useRouter();
   const canEdit = userCan('forms', 'canEdit');
   const canPublish = userCan('forms', 'canPublish');
-  const [local, setLocal] = useState<FormRecord>({ ...form, design: { ...DEFAULT_DESIGN, ...form.design }, settings: { ...DEFAULT_SETTINGS, ...form.settings } });
+  const [local, setLocal] = useState<FormRecord>({ ...form, fields: withoutRetiredFormSources(form.fields), design: { ...DEFAULT_DESIGN, ...form.design }, settings: { ...DEFAULT_SETTINGS, ...form.settings } });
   const [tab, setTab] = useState<'Builder' | 'Settings' | 'Share'>('Builder');
   const [panel, setPanel] = useState<'Fields' | 'Design'>('Fields');
   const [dirty, setDirty] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState('');

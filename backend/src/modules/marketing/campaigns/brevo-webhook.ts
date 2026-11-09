@@ -43,6 +43,17 @@ export function verifyWebhookAuthorization(header?: string) {
   const expected = createHash('sha256').update(`Bearer ${token}`).digest();
   if (!timingSafeEqual(actual, expected)) throw new AppError('Unauthorized webhook.', 401);
 }
+const failedEvents = ['hard_bounce', 'blocked', 'invalid_email', 'error'];
+const terminalEvents = ['delivered', ...failedEvents];
+const deliveryEvents = ['request', 'deferred', 'soft_bounce', ...terminalEvents];
+
+function hasChanges(current: Record<string, unknown>, update: Record<string, unknown>) {
+  return Object.entries(update).some(([key, value]) => {
+    const before = current[key];
+    return value !== undefined && (value instanceof Date && before instanceof Date ? +value !== +before : value !== before);
+  });
+}
+
 export async function processBrevoEvent(input: unknown) {
   const event = BrevoEventSchema.parse(input);
   let tags: unknown = event.tags;
@@ -51,15 +62,22 @@ export async function processBrevoEvent(input: unknown) {
   }
   // The route authenticates Brevo before processing. Account recovery messages
   // are deliberately untracked by campaigns; acknowledge their delivery events.
-  if (Array.isArray(tags) && tags.includes('leadcrm-password-reset')) return;
+  if (Array.isArray(tags) && tags.some(tag => ['leadcrm-password-reset', 'leadcrm-profile-email-change'].includes(tag))) return;
   const rawId = event['message-id'];
   const bareId = rawId.replace(/^<|>$/g, '');
-  const log = await prisma.emailDeliveryLog.findFirst({ where: { brevoMessageId: { in: [rawId, bareId, `<${bareId}>`] }, toEmail: event.email.toLowerCase(), campaignId: { not: null } } });
+  const logs = await prisma.emailDeliveryLog.findMany({ where: { brevoMessageId: { in: [rawId, bareId, `<${bareId}>`] },
+    toEmail: { equals: event.email, mode: 'insensitive' }, campaignId: { not: null } }, take: 2 });
+  if (logs.length > 1) throw new AppError('Delivery record is ambiguous.', 409);
+  const [log] = logs;
   // A provider callback can race the send response. A retryable status avoids losing it.
   if (!log) throw new AppError('Delivery record is not available.', 503);
   return tenantContext.run({ tenantId: log.tenantId }, async () => {
     const scope = { tenantId: log.tenantId };
     const type = event.event === 'unique_opened' ? 'opened' : event.event === 'unsubscribed' ? 'unsubscribe' : event.event;
+    const timedDelivery = deliveryEvents.includes(type);
+    if (timedDelivery && event.ts_event == null && event.ts == null && event.ts_epoch == null) {
+      throw new AppError('Delivery events require a provider timestamp.', 400);
+    }
     await prisma.$transaction(async tx => {
       // Serialize events for this campaign so aggregate counters cannot overwrite newer values.
       await tx.campaign.update({ where: { id: log.campaignId!, ...scope }, data: { engagement: { increment: 0 } } });
@@ -69,36 +87,53 @@ export async function processBrevoEvent(input: unknown) {
       // The payload's id identifies the webhook subscription, not the event.
       // Include both provider timestamps: ts_epoch can refer to the original send.
       const repeatable = type === 'click' || type === 'opened';
-      const eventKey = repeatable
+      const eventKey = timedDelivery ? legacyKey + ':at:' + at.toISOString() : repeatable
         ? `${log.id}:${type}:v2:${createHash('sha256').update(JSON.stringify([event.link ?? '', event.ts_epoch ?? null, event.ts_event ?? event.ts ?? null])).digest('hex')}`
         : legacyKey;
       // Recognize retries of receipts saved before the expanded event key.
-      if (repeatable && await tx.emailEvent.findFirst({ where: { ...scope, deliveryLogId: log.id, providerEventKey: legacyKey,
-        createdAt: { gte: new Date(Math.floor(at.getTime() / 1000) * 1000), lt: new Date(Math.floor(at.getTime() / 1000) * 1000 + 1000) } } })) return;
-      const inserted = await tx.emailEvent.createMany({ data: [{ ...scope, deliveryLogId: log.id, eventType: type,
-        url: type === 'click' ? event.link : undefined, createdAt: at, providerEventKey: eventKey }], skipDuplicates: true });
-      if (!inserted.count) return;
-      const blocked = ['hard_bounce', 'blocked', 'invalid_email'].includes(type);
-      const bounced = blocked || type === 'soft_bounce';
+      const legacyReceipt = (repeatable || timedDelivery) && await tx.emailEvent.findFirst({ where: { ...scope, deliveryLogId: log.id, providerEventKey: legacyKey,
+        createdAt: { gte: new Date(Math.floor(at.getTime() / 1000) * 1000), lt: new Date(Math.floor(at.getTime() / 1000) * 1000 + 1000) } } });
+      const inserted = !legacyReceipt && (await tx.emailEvent.createMany({ data: [{ ...scope, deliveryLogId: log.id, eventType: type,
+        url: type === 'click' ? event.link : undefined, createdAt: at, providerEventKey: eventKey }], skipDuplicates: true })).count > 0;
+      if (!inserted && !timedDelivery) return;
       const current = await tx.emailDeliveryLog.findFirstOrThrow({ where: { id: log.id, ...scope } });
-      const rank: Record<string, number> = { pending: 0, submitted: 0.5, sent: 1, request: 1, deferred: 1, soft_bounce: 1.5, delivered: 2, opened: 3, click: 4, clicked: 4, error: 5, invalid_email: 6, hard_bounce: 6, blocked: 6, spam: 6, unsubscribed: 7 };
-      const eventStatus = type === 'unsubscribe' ? 'unsubscribed' : type === 'click' ? 'clicked' : type;
-      const status = (rank[eventStatus] ?? 0) > (rank[current.status] ?? 0) ? eventStatus : current.status;
-      await tx.campaignContact.updateMany({ where: { ...scope, campaignId: log.campaignId!, messageId: log.brevoMessageId }, data: { status,
-        ...(type === 'request' ? { sentAt: current.sentAt ?? at } : {}),
-        ...(type === 'delivered' ? { deliveredAt: at } : {}),
+      const recipientWhere = { ...scope, campaignId: log.campaignId!, messageId: log.brevoMessageId,
+        email: { equals: log.toEmail, mode: 'insensitive' as const } };
+      const recipient = await tx.campaignContact.findFirst({ where: recipientWhere });
+      // Terminal receipts outrank retryable transport events. Within terminal
+      // outcomes the latest provider evidence wins, independent of arrival order.
+      const terminal = await tx.emailEvent.findMany({ where: { ...scope, deliveryLogId: log.id, eventType: { in: terminalEvents } },
+        orderBy: [{ createdAt: 'desc' }, { eventType: 'asc' }], distinct: ['eventType'], select: { eventType: true, createdAt: true } });
+      if (recipient?.deliveredAt && !terminal.some(receipt => receipt.eventType === 'delivered')) {
+        terminal.push({ eventType: 'delivered', createdAt: recipient.deliveredAt });
+      }
+      terminal.sort((a, b) => +b.createdAt - +a.createdAt || Number(b.eventType === 'delivered') - Number(a.eventType === 'delivered'));
+      const latest = terminal[0];
+      const lifecycle = latest?.eventType ?? (timedDelivery &&
+        (!recipient?.providerUpdatedAt || at >= recipient.providerUpdatedAt) ? type : undefined);
+      const failureReason = latest ? failedEvents.includes(latest.eventType) ? latest.eventType.toUpperCase() : null : undefined;
+      const bounce = ['soft_bounce', 'hard_bounce', 'blocked', 'invalid_email'].includes(type);
+      const sharedUpdate = {
+        ...(lifecycle ? { status: lifecycle === 'request' ? 'sent' : lifecycle } : {}),
+        ...(type === 'request' ? { sentAt: recipient?.submittedAt && current.sentAt && current.sentAt < at ? current.sentAt : at } : {}),
         ...(type === 'opened' ? { openedAt: current.openedAt && current.openedAt < at ? current.openedAt : at } : {}),
         ...(type === 'click' ? { clickedAt: current.clickedAt && current.clickedAt < at ? current.clickedAt : at } : {}),
-        ...(bounced ? { bouncedAt: at, ...(blocked ? { failureReason: type.toUpperCase() } : {}) } : {}),
-        ...(type === 'error' ? { failureReason: 'ERROR' } : {}),
+        ...(bounce ? { bouncedAt: current.bouncedAt && current.bouncedAt > at ? current.bouncedAt : at } : {}),
+      };
+      const recipientUpdate = { ...sharedUpdate,
+        ...(lifecycle ? { providerUpdatedAt: latest?.createdAt ?? at } : {}),
+        ...(latest?.eventType === 'delivered' ? { deliveredAt: recipient?.deliveredAt && recipient.deliveredAt < latest.createdAt ? recipient.deliveredAt : latest.createdAt } : {}),
+        failureReason,
         ...(type === 'unsubscribe' ? { unsubscribed: true } : {}),
-      } });
-      await tx.emailDeliveryLog.update({ where: { id: log.id, ...scope }, data: { status,
-        ...(type === 'request' ? { sentAt: current.sentAt ?? at } : {}),
-        ...(type === 'opened' ? { openedAt: current.openedAt && current.openedAt < at ? current.openedAt : at } : {}), ...(type === 'click' ? { clickedAt: current.clickedAt && current.clickedAt < at ? current.clickedAt : at } : {}),
-        ...(bounced ? { bouncedAt: at } : {}),
-      } });
-      await recalculateCampaignDelivery(tx, log.campaignId!, log.tenantId);
+      };
+      if (recipient && hasChanges(recipient, recipientUpdate)) {
+        await tx.campaignContact.update({ where: { id: recipient.id, ...scope, campaignId: log.campaignId! }, data: recipientUpdate });
+      }
+      const suppression = type === 'unsubscribe' || current.status === 'unsubscribed' ? 'unsubscribed'
+        : type === 'spam' || current.status === 'spam' ? 'spam' : undefined;
+      const logUpdate = { ...sharedUpdate, ...(suppression ? { status: suppression } : {}) };
+      if (hasChanges(current, logUpdate)) await tx.emailDeliveryLog.update({ where: { id: log.id, ...scope }, data: logUpdate });
+      await recalculateCampaignDelivery(tx, log.campaignId!, log.tenantId, true);
     });
   });
 }

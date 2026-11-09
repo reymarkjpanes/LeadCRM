@@ -2,7 +2,7 @@ import { assertDealAddressSource } from './deal-address';
 import { ZodError } from 'zod';
 import { assertExternalCustomerParticipants } from '../record-validation';
 import { randomUUID } from 'node:crypto';
-import { refreshDealClassification } from '../customer-classification.service';
+import { refreshDealClassification, synchronizeDealCustomers } from '../customer-classification.service';
 import { changeDealAssociation, readDealAssociation, resolveManualDealAssociation } from './deal-association';
 import { salesContext } from '../leads/sales-context';
 import { resolveProducts, salesTransaction } from '../leads/lead-automation.service';
@@ -140,7 +140,7 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
       const stages = await tx.stage.findMany({ where: { tenantId, pipelineId: current.pipelineId,
         ...(engagementStatus === 'Cancelled' ? { isLost: true, isWon: false } : engagementStatus === 'Closed Deal' ? { isWon: true, isLost: false } : { name: { equals: stageName, mode: 'insensitive' }, isWon: false, isLost: false }) }, take: 2 });
       if (stages.length !== 1) throw new ValidationError('Configure one matching status stage in this Deal’s pipeline.');
-      await moveDealStage(id, tenantId, userId, { stageId: stages[0].id, lostReason });
+      await moveDealStage(id, tenantId, userId, { stageId: stages[0].id, lostReason }, undefined, { deferCustomerStatus: true });
     }
     const changedAt = new Date();
     await tx.deal.update({ where: { tenantId, id }, data: { engagementStatus, manualStatusContext: manualStatusCheckpoint(engagementStatus), engagementEvaluatedAt: changedAt } });
@@ -153,6 +153,11 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     }
     deal = await repo.findDealById(id, tenantId);
     if (!deal) throw new NotFoundError('Deal');
+  }
+
+  if (engagementStatus !== undefined || dto.leadIds !== undefined || dto.contactIds !== undefined) {
+    await synchronizeDealCustomers(salesContext.getStore()!, tenantId, [id], userId,
+      [...before.leadDeals.map(({ leadId }) => ({ leadId })), ...before.contactDeals.map(({ contactId }) => ({ contactId }))]);
   }
 
   const { before: changedBefore, after: changedAfter } = buildChangeset(

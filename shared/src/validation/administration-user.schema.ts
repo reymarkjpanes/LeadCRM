@@ -25,7 +25,7 @@ export const CreateAdministrationUserSchema = z.object({
   groupIds: z.array(z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
 
-export const UpdateAdministrationUserSchema = CreateAdministrationUserSchema.omit({ email: true }).partial()
+export const UpdateAdministrationUserSchema = CreateAdministrationUserSchema.omit({ email: true, jobTitle: true }).partial()
   .extend({ status: z.enum(['ACTIVE', 'INACTIVE']).optional() }).strict();
 
 export type CreateAdministrationUserInput = z.infer<typeof CreateAdministrationUserSchema>;

@@ -204,8 +204,8 @@ export async function updateDeal(id: string, tenantId: string, dto: UpdateDealDt
       await tx.deal.update({ where: { id, tenantId }, data: { ...updateData, ...(updateData.addressSource === null ? { addressSource: Prisma.DbNull } : {}) } as never });
       // A rejected relationship rolls back the scalar edit too. Ordered
       // junctions are the only mutable relationship authority.
-      if (dto.contactIds !== undefined) await syncContactAssociations(id, tenantId, dto.contactIds, actorId, tx);
-      if (dto.leadIds !== undefined) await syncLeadAssociations(id, tenantId, dto.leadIds, actorId, tx);
+      if (dto.contactIds !== undefined) await syncContactAssociations(id, tenantId, dto.contactIds, actorId, tx, true);
+      if (dto.leadIds !== undefined) await syncLeadAssociations(id, tenantId, dto.leadIds, actorId, tx, true);
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
@@ -303,7 +303,7 @@ export async function moveDealStage(
       await tx.activity.create({ data: { ...scope, dealId: id, createdById: movedById, type: 'stage_change',
         title: `Deal moved from "${deal.stage.name}" to "${newStage.name}"`, description: note ?? lostReason ?? 'Staff changed the Deal stage.' } });
     }
-    if (stageHistory) await refreshDealClassification(tx, tenantId, id, movedById);
+    if (stageHistory && !policy.deferCustomerStatus) await refreshDealClassification(tx, tenantId, id, movedById);
     const fullDeal = await tx.deal.findFirstOrThrow({ where: { id, ...scope }, include: {
       stage: true, pipeline: true, organization: true, assignedUser: { select: { id: true, firstName: true, lastName: true } },
       leadDeals: { orderBy: participantOrder, include: { lead: true } }, contactDeals: { orderBy: participantOrder, include: { contact: true } },
@@ -449,7 +449,7 @@ export async function findDealsGroupedByStage(
  * ContactDeal junction. New IDs are validated against the Contact table within the tenant.
  */
 export async function syncContactAssociations(
-  dealId: string, tenantId: string, contactIds: string[], userId?: string, client?: Prisma.TransactionClient
+  dealId: string, tenantId: string, contactIds: string[], userId?: string, client?: Prisma.TransactionClient, deferCustomerStatus = false
 ): Promise<void> {
   const work = async (tx: Prisma.TransactionClient) => {
     await assertCrmRecordMutation(tx, 'deals', dealId);
@@ -497,7 +497,7 @@ export async function syncContactAssociations(
     for (const [position, contactId] of [...targetIds].entries()) {
       if (currentIds.has(contactId)) await tx.contactDeal.updateMany({ where: { dealId, tenantId, contactId }, data: { position } });
     }
-    if (userId && classificationDeal) await refreshDealClassification(tx, tenantId, dealId, userId, current);
+    if (!deferCustomerStatus && userId && classificationDeal) await refreshDealClassification(tx, tenantId, dealId, userId, current);
   };
   if (client) await work(client);
   else await salesTransaction(work);
@@ -508,7 +508,7 @@ export async function syncContactAssociations(
  * junction. New IDs are validated against the Lead table within the tenant.
  */
 export async function syncLeadAssociations(
-  dealId: string, tenantId: string, leadIds: string[], userId?: string, client?: Prisma.TransactionClient
+  dealId: string, tenantId: string, leadIds: string[], userId?: string, client?: Prisma.TransactionClient, deferCustomerStatus = false
 ): Promise<void> {
   const work = async (tx: Prisma.TransactionClient) => {
     await assertCrmRecordMutation(tx, 'deals', dealId);
@@ -556,7 +556,7 @@ export async function syncLeadAssociations(
     for (const [position, leadId] of [...targetIds].entries()) {
       if (currentIds.has(leadId)) await tx.leadDeal.updateMany({ where: { dealId, tenantId, leadId }, data: { position } });
     }
-    if (userId && classificationDeal) await refreshDealClassification(tx, tenantId, dealId, userId, current);
+    if (!deferCustomerStatus && userId && classificationDeal) await refreshDealClassification(tx, tenantId, dealId, userId, current);
   };
   if (client) await work(client);
   else await salesTransaction(work);

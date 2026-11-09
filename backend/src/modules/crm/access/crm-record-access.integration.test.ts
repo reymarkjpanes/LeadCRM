@@ -215,13 +215,16 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       for (const field of definitions) await prisma.closingFieldDefinition.update({ where: { tenantId_id: { tenantId, id: field.id } }, data: { definition: field.definition! } });
     }
   });
-  it('an assigned Deal may become Lost without changing its other-agent Contact', async () => {
+  it('synchronizes only derived status on an other-agent Contact when an assigned Deal becomes Lost', async () => {
     const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Lost', lastName: 'QA', email: 'lost-reference@example.test', assignedUserId: b.id } });
     const deal = await prisma.deal.create({ data: { tenantId, title: 'Owned Lost reference', assignedUserId: a.id, pipelineId: pipeline.id,
       stageId: stage.id, productInterestId: product.id, productsNormalized: true, value: 100 } });
     await prisma.contactDeal.create({ data: { tenantId, dealId: deal.id, contactId: contact.id } });
     expect((await call(`/deals/${deal.id}/stage`, a, 'PATCH', { stageId: lost.id, lostReason: 'Cascade QA' })).status).toBe(200);
-    expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toEqual(contact);
+    expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toEqual({
+      ...contact, status: 'CANCELLED', lastStatusChangedAt: expect.any(Date), updatedAt: expect.any(Date),
+    });
+    expect((await call(`/contacts/${contact.id}`, a, 'PUT', { firstName: 'Unauthorized' })).status).toBe(403);
   });
   it('nested Lead junction writes cannot change another-agent Deal', async () => {
     const before = await snapshot();
@@ -437,11 +440,11 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect((await call(`/${module}/${records[module].foreign.id}`, ordinary, 'PUT', { status: 'Hot' })).status).toBe(404);
   });
 
-  it('rejects direct writes to calculated Deal engagement even for Client Admin', async () => {
-    const id = records.deals.own.id;
-    const before = await prisma.deal.findUniqueOrThrow({ where: { id } });
-    expect((await call(`/deals/${id}`, admin, 'PUT', { engagementStatus: 'Hot' })).status).toBe(400);
-    expect(await prisma.deal.findUniqueOrThrow({ where: { id } })).toEqual(before);
+  it('permits governed Deal engagement edits and rejects unsupported status values', async () => {
+    const deal = await prisma.deal.create({ data: { tenantId, title: 'Governed status', assignedUserId: a.id, pipelineId: pipeline.id, stageId: stage.id } });
+    expect((await call(`/deals/${deal.id}`, admin, 'PUT', { engagementStatus: 'Cold' })).status).toBe(200);
+    expect((await call(`/deals/${deal.id}`, admin, 'PUT', { engagementStatus: 'Unsupported' })).status).toBe(400);
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ engagementStatus: 'Cold', stageId: stage.id });
   });
   it('ignores retired group metadata and preserves role-authorized manual status edits', async () => {
     const staff = await person('ScopedStaff', false, 'Scoped CRM Staff');

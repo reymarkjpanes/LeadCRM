@@ -107,7 +107,6 @@ it('renders the user identity, two accessible accordions, every field and only t
 it.each([
   ['firstName', 'First Name', ' Maria ', 'Maria'],
   ['lastName', 'Last Name', ' Reyes ', 'Reyes'],
-  ['jobTitle', 'Job Title', ' Manager ', 'Manager'],
   ['phone', 'Phone', '09181234567', '+639181234567'],
 ] as const)('saves only %s and synchronizes the persisted value without closing', async (field, label, input, persisted) => {
   const updated = { ...user, [field]: persisted };
@@ -124,10 +123,12 @@ it.each([
 it('cancels only the current field and retains other field drafts across a parent refresh', () => {
   const { rerender, onSaved, onClose } = renderPanel(user);
   fireEvent.click(screen.getByRole('button', { name: 'Edit First Name' })); change('First Name', 'Draft');
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Title' })); change('Job Title', 'Discard');
-  const jobEditor = screen.getByRole('textbox', { name: 'Job Title' }).closest('dd')!;
-  fireEvent.click(within(jobEditor).getByRole('button', { name: 'Cancel' }));
-  expect(screen.getByRole('button', { name: 'Edit Job Title' }).textContent).toContain('Agent');
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Last Name' })); change('Last Name', 'Discard');
+  const lastNameEditor = screen.getByRole('textbox', { name: 'Last Name' }).closest('dd')!;
+  fireEvent.click(within(lastNameEditor).getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('button', { name: 'Edit Last Name' }).textContent).toContain('Dela Cruz');
+  expect(screen.queryByRole('button', { name: 'Edit Job Title' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit Email' })).toBeNull();
   rerender(<UserPanel user={{ ...user, lastName: 'Refreshed' }} roles={roles} canEdit onSaved={onSaved} onClose={onClose} />);
   expect(screen.getByRole('textbox', { name: 'First Name' })).toHaveProperty('value', 'Draft');
   expect(screen.getByText('Refreshed', { exact: true })).toBeTruthy();
@@ -136,15 +137,15 @@ it('cancels only the current field and retains other field drafts across a paren
 
 it('keeps a failed editor and persisted value, shows server field errors and allows retry', async () => {
   const { onSaved } = renderPanel(user);
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Title' })); change('Job Title', ' Manager ');
-  mocks.update.mockRejectedValueOnce(Object.assign(new Error('Invalid input'), { fieldErrors: { jobTitle: ['Try another title'] } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Last Name' })); change('Last Name', ' Manager ');
+  mocks.update.mockRejectedValueOnce(Object.assign(new Error('Invalid input'), { fieldErrors: { lastName: ['Try another name'] } }));
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Try another title');
-  expect(screen.getByRole('textbox', { name: 'Job Title' })).toHaveProperty('value', ' Manager ');
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Try another name');
+  expect(screen.getByRole('textbox', { name: 'Last Name' })).toHaveProperty('value', ' Manager ');
   expect(onSaved).not.toHaveBeenCalled();
-  mocks.update.mockResolvedValue({ data: { ...user, jobTitle: 'Manager' } });
+  mocks.update.mockResolvedValue({ data: { ...user, lastName: 'Manager' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByRole('button', { name: 'Edit Job Title' });
+  await screen.findByRole('button', { name: 'Edit Last Name' });
   expect(screen.getByText('Manager', { exact: true })).toBeTruthy();
 });
 
@@ -171,13 +172,13 @@ it('blocks duplicate and concurrent saves without discarding a waiting field dra
   let resolve!: (value: unknown) => void;
   mocks.update.mockReturnValue(new Promise(done => { resolve = done; }));
   const firstSave = screen.getByRole('button', { name: 'Save' }); fireEvent.click(firstSave); fireEvent.click(firstSave);
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Title' })); change('Job Title', 'Waiting');
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Last Name' })); change('Last Name', 'Waiting');
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   expect(await screen.findByText('Another request is in progress. Please try again.')).toBeTruthy();
   expect(mocks.update).toHaveBeenCalledTimes(1);
   resolve({ data: { ...user, firstName: 'Maria' } });
   await screen.findByRole('button', { name: 'Edit First Name' });
-  expect(screen.getByRole('textbox', { name: 'Job Title' })).toHaveProperty('value', 'Waiting');
+  expect(screen.getByRole('textbox', { name: 'Last Name' })).toHaveProperty('value', 'Waiting');
 });
 
 it('allows role-only assignment and protects Client Admin and permission-denied roles', async () => {

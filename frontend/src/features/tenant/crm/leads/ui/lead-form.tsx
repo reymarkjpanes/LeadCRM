@@ -7,7 +7,7 @@ import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
 import { LeadPhoneSchema, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
 
-import { LeadFieldsSchema, LEAD_SOURCES, LeadNameSchema, OptionalLeadSourceSchema } from '@leadcrm/shared';
+import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, LeadNameSchema, OptionalLeadSourceSchema } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
@@ -65,7 +65,7 @@ type LeadFormData = z.infer<typeof LeadFormSchema>;
 
 const STATUS_OPTIONS = LEAD_STATUSES.map(value => ({ value, label: value }));
 
-const SOURCE_OPTIONS = LEAD_SOURCES;
+const SOURCE_OPTIONS = SELECTABLE_LEAD_SOURCES;
 
 interface LeadFormProps {
   initialData?: Lead;
@@ -200,7 +200,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         phone: '',
         companyName: '',
         status: 'Inquiry',
-        source: OptionalLeadSourceSchema.safeParse(prefill?.source ?? '').data ?? '',
+        source: isDirectMailSource(prefill?.source) ? '' : OptionalLeadSourceSchema.safeParse(prefill?.source ?? '').data ?? '',
         sourceDetail: prefill?.sourceDetail ?? '',
         accountId: '',
         assignedUserId: '',
@@ -235,8 +235,9 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
       ...organization.payload(),
       status: isEdit && data.status === normalizeCrmStatus(statusVersion.current?.status) ? undefined : data.status || 'Inquiry',
       ...(isEdit && data.status !== normalizeCrmStatus(statusVersion.current?.status) ? { expectedUpdatedAt: statusVersion.current?.updatedAt } : {}),
-      ...((data.source || !initialData || OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').success) ? { source: data.source ?? '' } : {}),
-      sourceDetail: data.source === 'Others' ? data.sourceDetail?.trim() ?? '' : '',
+      ...(!isDirectMailSource(data.source) && (data.source || !initialData || OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').success) ? {
+        source: data.source ?? '', sourceDetail: data.source === 'Others' ? data.sourceDetail?.trim() ?? '' : '',
+      } : {}),
       assignedUserId: selfAssigned ? recordAccess.policy?.userId : data.assignedUserId || (isEdit ? '' : undefined),
       productInterest: productInterest,
       address: data.address?.trim() ?? '',
@@ -384,6 +385,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
                   className={selectCls}
                 >
                   <option value="">Select source...</option>
+                  {isDirectMailSource(initialData?.leadSource || initialData?.source) && <option value={initialData?.leadSource || initialData?.source} disabled>Direct Mail (historical)</option>}
                   {SOURCE_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}

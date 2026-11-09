@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RecordEmailAttachmentContextSchema = exports.CRM_FILE_FORMAT_ERROR = exports.CRM_FILE_SIZE_ERROR = exports.CRM_FILE_ACCEPT = exports.CRM_FILE_EXTENSIONS = exports.RECORD_FILE_MAX_BYTES = exports.LeadStatusSchema = exports.LEAD_STATUSES = exports.CrmStatusSchema = exports.COMPANY_SIZE_OPTIONS = exports.LeadSourceSchema = exports.LEAD_SOURCES = exports.CRM_STATUSES = void 0;
+exports.RecordEmailAttachmentContextSchema = exports.CRM_FILE_FORMAT_ERROR = exports.CRM_FILE_SIZE_ERROR = exports.CRM_FILE_ACCEPT = exports.CRM_FILE_EXTENSIONS = exports.RECORD_FILE_MAX_BYTES = exports.LeadStatusSchema = exports.LEAD_STATUSES = exports.CrmStatusSchema = exports.COMPANY_SIZE_OPTIONS = exports.LeadSourceSchema = exports.SELECTABLE_LEAD_SOURCES = exports.isDirectMailSource = exports.LEAD_SOURCES = exports.CRM_STATUSES = void 0;
 exports.isAssignableAgent = isAssignableAgent;
 exports.normalizeCrmStatus = normalizeCrmStatus;
 exports.crmFileExtension = crmFileExtension;
@@ -8,6 +8,9 @@ exports.crmFileValidationError = crmFileValidationError;
 const zod_1 = require("zod");
 exports.CRM_STATUSES = ['Inquiry', 'Hot', 'Warm', 'Cold', 'Closed Deal', 'Cancelled'];
 exports.LEAD_SOURCES = ['Google Ads', 'Referral', 'Email Campaign', 'Direct Email', 'Website', 'Social Media Advertisement', 'Direct Mail', 'Content Marketing', 'Others'];
+const isDirectMailSource = (value) => typeof value === 'string' && value.trim().toLowerCase() === 'direct mail';
+exports.isDirectMailSource = isDirectMailSource;
+exports.SELECTABLE_LEAD_SOURCES = exports.LEAD_SOURCES.filter(source => !(0, exports.isDirectMailSource)(source));
 exports.LeadSourceSchema = zod_1.z.enum(exports.LEAD_SOURCES);
 exports.COMPANY_SIZE_OPTIONS = ['1-10', '11-50', '51-200', '200+'];
 /** Keep assignment eligibility consistent between CRM controls and audience validation. */

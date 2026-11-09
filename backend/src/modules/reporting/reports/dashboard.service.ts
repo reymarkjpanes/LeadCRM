@@ -242,15 +242,16 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
       result.actions.push(...tasks.map(task => ({ id: task.id, kind: 'task' as const, title: task.title, priority: task.priority,
         dueDate: task.dueDate.toISOString(), overdue: task.dueDate < now, href: `/operations/taskboard?taskId=${encodeURIComponent(task.id)}` })));
     }
-    if (access.leads) {
-      const where = { ...leadWhere, status: 'Hot' };
-      const [count, leads] = await Promise.all([tx.lead.count({ where }), tx.lead.findMany({ where,
-        orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }], select: { id: true, firstName: true, lastName: true } })]);
-      result.pendingActions += count;
-      result.actions.push(...leads.map(lead => ({ id: lead.id, kind: 'lead' as const, title: `${lead.firstName} ${lead.lastName}`,
-        priority: 'High', dueDate: null, overdue: false, href: `/crm/leads/${encodeURIComponent(lead.id)}` })));
-    }
     if (access.deals) {
+      const hotDeals = await tx.deal.findMany({ where: { tenantId, isArchived: false, deletedAt: null,
+        engagementStatus: 'Hot', pipeline: { tenantId, isArchived: false }, stage: { tenantId, isWon: false, isLost: false },
+        AND: [access.dealScope] }, select: { id: true, title: true, priority: true } });
+      const dealAction = (deal: typeof hotDeals[number], kind: 'hot-deal' | 'deal') => ({
+        ...deal, kind, dueDate: null, overdue: false, href: `/crm/deals/${encodeURIComponent(deal.id)}`,
+      });
+      const hotActions = new Map(hotDeals.map(deal => [deal.id, { ...dealAction(deal, 'hot-deal'), stale: false }]));
+      result.actions.push(...hotActions.values());
+      result.pendingActions += hotActions.size;
       const stages = await tx.stage.findMany({ where: { tenantId,
         pipeline: { tenantId, isArchived: false }, isWon: false, isLost: false, rottenAfterDays: { gt: 0 } },
         select: { id: true, pipelineId: true, rottenAfterDays: true } });
@@ -263,13 +264,18 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
           }) }] }, select: { id: true, title: true, priority: true, ...dealStalenessSelect } });
         const staleness = await evaluateDealStaleness(tx, tenantId, candidates, now);
         const deals = candidates.filter(deal => staleness.get(deal.id)?.isStale);
-        result.pendingActions += deals.length;
-        result.actions.push(...deals.map(deal => ({ id: deal.id, kind: 'deal' as const, title: deal.title, priority: deal.priority,
-          dueDate: null, overdue: false, href: `/crm/deals/${encodeURIComponent(deal.id)}` })));
+        for (const deal of deals) {
+          const hotAction = hotActions.get(deal.id);
+          if (hotAction) hotAction.stale = true;
+          else {
+            result.pendingActions++;
+            result.actions.push(dealAction({ id: deal.id, title: deal.title, priority: deal.priority }, 'deal'));
+          }
+        }
       }
     }
     const priority = (value: string) => ({ high: 0, medium: 1, low: 2 }[value.toLowerCase()] ?? 3);
-    const kind = (value: string) => ({ task: 0, lead: 1, deal: 2 }[value] ?? 3);
+    const kind = (value: string) => ({ task: 0, 'hot-deal': 1, deal: 2 }[value] ?? 3);
     result.actions.sort((a, b) => Number(b.overdue) - Number(a.overdue) || kind(a.kind) - kind(b.kind) || priority(a.priority) - priority(b.priority) || (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.id.localeCompare(b.id));
     return result;
   }, { isolationLevel: 'RepeatableRead', timeout: 20000 });

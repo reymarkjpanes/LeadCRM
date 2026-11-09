@@ -89,7 +89,6 @@ exports.SOURCE_LINK_PRESETS = [
     { category: 'Email Campaign', source: 'newsletter', medium: 'email' },
     { category: 'Referral', source: 'partner', medium: 'referral' },
     { category: 'Website', source: 'company_website', medium: 'website' },
-    { category: 'Direct Mail', source: 'flyer', medium: 'direct_mail' },
     { category: 'Content Marketing', source: 'article', medium: 'content_marketing' },
     { category: 'Others', source: 'event', medium: 'offline' },
 ];

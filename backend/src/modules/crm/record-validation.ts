@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
-import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
+import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT, isDirectMailSource } from '@leadcrm/shared';
 import { normalizePhone } from './duplicate-detection/duplicate-detection.service';
 import { readCrmStatusEvidence } from './access/crm-record-access.service';
 
@@ -9,6 +9,12 @@ export const recordText = (max = 2000) => z.string().max(max)
   .refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value), 'Control characters are not allowed.')
   .transform(value => value.trim());
 export const recordName = (max = 100) => recordText(max).pipe(z.string().min(1, 'Name is required'));
+
+export function assertSelectableCrmSource(source: unknown) {
+  if (isDirectMailSource(source)) {
+    throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ['source'], message: 'Direct Mail is a historical source. Choose an available source.' }]);
+  }
+}
 
 /** User identity is internal regardless of role, activation or assignment eligibility. */
 export async function assertExternalCustomerEmail(tx: Prisma.TransactionClient, tenantId: string,

@@ -26,5 +26,5 @@ exports.CreateAdministrationUserSchema = zod_1.z.object({
     jobTitle: (0, exports.cleanText)(100).optional(),
     groupIds: zod_1.z.array(zod_1.z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
-exports.UpdateAdministrationUserSchema = exports.CreateAdministrationUserSchema.omit({ email: true }).partial()
+exports.UpdateAdministrationUserSchema = exports.CreateAdministrationUserSchema.omit({ email: true, jobTitle: true }).partial()
     .extend({ status: zod_1.z.enum(['ACTIVE', 'INACTIVE']).optional() }).strict();

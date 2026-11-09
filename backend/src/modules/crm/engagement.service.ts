@@ -6,7 +6,7 @@ import { convertClosedLead, type LeadConversionEvents } from './leads/lead-conve
 import { fireContactStatusChanged, fireContactUpdated, fireDealStageChanged, fireDealUpdated } from '../automation/triggers/triggers.service';
 import { recordChanges } from './record-updates';
 import { salesContext } from './leads/sales-context';
-import { authorizedWorkflowScope, readCrmStatusEvidence } from './access/crm-record-access.service';
+import { authorizedWorkflowScope, readCrmStatusEvidence, writeDerivedCustomerStatus } from './access/crm-record-access.service';
 
 export type CustomerLink = { leadId: string; contactId?: never } | { contactId: string; leadId?: never };
 type Tx = Prisma.TransactionClient;
@@ -31,9 +31,16 @@ export async function finalizeContactLifecycle(tx: Tx, tenantId: string, contact
   }
 }
 
-export async function changeCustomerStatus(tx: Tx, tenantId: string, actorId: string, link: CustomerLink, status: CrmStatus, reason: string, changedAt: Date, conversionEvents: LeadConversionEvents = {}, emit = true, source = 'customer_engagement') {
+export async function changeCustomerStatus(tx: Tx, tenantId: string, actorId: string, link: CustomerLink, status: CrmStatus, reason: string, changedAt: Date, conversionEvents: LeadConversionEvents = {}, emit = true, source = 'customer_engagement', derived = false) {
   const current = link.leadId ? await tx.lead.findFirst({ where: { tenantId, id: link.leadId } }) : await tx.contact.findFirst({ where: { tenantId, id: link.contactId } });
   if (!current) return;
+  if (derived) {
+    if (normalizeCrmStatus(current.status) === status) return;
+    const changed = await writeDerivedCustomerStatus(tx, tenantId, link, { lead: status, contact: contactStatusValue(status) }, changedAt);
+    if (!changed.count) return;
+    const activity = await recordCustomerStatusChange(tx, tenantId, actorId, link, current.status, status, reason, changedAt, source);
+    return { eventId: activity.id, prevStatus: current.status, status, id: current.id };
+  }
   if (emit && link.contactId && status === 'Closed Deal') {
     await finalizeContactLifecycle(tx, tenantId, link.contactId, actorId);
   }

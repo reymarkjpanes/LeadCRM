@@ -13,6 +13,10 @@ export type LoginPayload = import('@leadcrm/shared').LoginInput;
 export const authApi = {
   updateProfile: (profile: import('@leadcrm/shared').UpdateSelfProfile) =>
     apiClient.patch<AuthResponse>('/auth/profile', profile),
+  requestProfileEmailChange: (payload: { email: string; currentPassword: string }) =>
+    apiClient.post<{ success: boolean }>('/auth/profile/email/request', payload),
+  confirmProfileEmailChange: (payload: { code: string }) =>
+    apiClient.post<{ success: boolean }>('/auth/profile/email/confirm', payload),
   uploadAvatar: (file: Blob) => apiClient.upload<AuthResponse>('/auth/profile/avatar', file),
   login: (payload: LoginPayload) =>
     apiClient.post<import('@leadcrm/shared').LoginResponse>('/auth/login', payload),

@@ -375,7 +375,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   const links = module === 'deals' ? { dealId: id } : module === 'leads' ? { leadId: id } : module === 'contacts' ? { contactId: id } : { accountId: id };
   const activityLoading = timeline.isInitialLoad;
   const activityError = timeline.error;
-  const formRecord = { ...record, companyName: company, leadSource: source, organizationId: record.accountId, productInterests: record.productInterest ?? record.productInterests, status: status, statusManagedByDeals: statusManaged, manualCancellation: record.manualCancellation };
+  const formRecord = { ...record, companyName: company, leadSource: module === 'deals' ? text(record.leadSource) : source, organizationId: record.accountId, productInterests: record.productInterest ?? record.productInterests, status: status, statusManagedByDeals: statusManaged, manualCancellation: record.manualCancellation };
   const website = text(record.website);
   const websiteHref = website && !/^[a-z][a-z0-9+.-]*:/i.test(website) ? `https://${website}` : /^https?:\/\//i.test(website) ? website : undefined;
 

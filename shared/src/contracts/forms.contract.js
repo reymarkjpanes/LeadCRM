@@ -3,12 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_SETTINGS = exports.DEFAULT_DESIGN = exports.PublicSubmissionSchema = exports.UpdateFormSchema = exports.CreateFormSchema = exports.FormDefinitionSchema = exports.FormSettingsSchema = exports.FormDesignSchema = exports.FormFieldSchema = exports.FORM_MAPPINGS = exports.FormFieldTypeSchema = exports.FORM_TRACKING_KEYS = exports.FORM_PRODUCT_INTERESTS = void 0;
 exports.publicSubmissionContent = publicSubmissionContent;
 exports.leadCatalogFormField = leadCatalogFormField;
+exports.withoutRetiredFormSources = withoutRetiredFormSources;
 exports.getFormProductValues = getFormProductValues;
 exports.defaultContactForm = defaultContactForm;
 exports.validateFormValues = validateFormValues;
 const zod_1 = require("zod");
 const source_attribution_1 = require("./source-attribution");
 const administration_user_schema_1 = require("../validation/administration-user.schema");
+const record_experience_1 = require("./record-experience");
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 exports.FORM_PRODUCT_INTERESTS = [
     'CCTV Surveillance System', 'Biometrics', 'Door Access Control', 'Smart Lock',
@@ -120,7 +122,14 @@ function leadCatalogFormField(field) {
             break;
         default: return; // References and private file uploads have no public Forms integration.
     }
-    return { label: field.label, type, required: field.required, ...(mapToField ? { mapToField } : { customFieldId: field.customFieldId }), ...(type === 'dropdown' ? { options: [...field.options ?? []] } : {}) };
+    const options = field.options ?? [];
+    return { label: field.label, type, required: field.required, ...(mapToField ? { mapToField } : { customFieldId: field.customFieldId }),
+        ...(type === 'dropdown' ? { options: mapToField === 'source' ? options.filter(option => !(0, record_experience_1.isDirectMailSource)(option)) : [...options] } : {}) };
+}
+function withoutRetiredFormSources(fields) {
+    return fields.map(field => field.mapToField === 'source' && field.options
+        ? { ...field, options: field.options.filter(option => !(0, record_experience_1.isDirectMailSource)(option)) }
+        : field);
 }
 /** Product selections were historically stored as arrays or comma-separated IDs. */
 function getFormProductValues(value) {

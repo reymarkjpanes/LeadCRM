@@ -62,9 +62,10 @@ export function classifyDealEngagement(events: DealEngagementEvent[], now = new 
 }
 
 export function aggregateDealEngagement(deals: Array<{ engagementStatus: string; isArchived: boolean; pipelineArchived: boolean; isWon: boolean; isLost: boolean; confirmedWon: boolean }>): CrmStatus | undefined {
-  const open = deals.filter(deal => !deal.isArchived && !deal.pipelineArchived && !deal.isWon && !deal.isLost);
+  const eligible = deals.filter(deal => deal.confirmedWon || deal.isLost || (!deal.isArchived && !deal.pipelineArchived));
+  const open = eligible.filter(deal => !deal.isArchived && !deal.pipelineArchived && !deal.isWon && !deal.isLost);
   if (open.length) return (['Hot', 'Warm', 'Inquiry', 'Cold'] as const).find(status => open.some(deal => deal.engagementStatus === status)) ?? 'Inquiry';
-  if (deals.some(deal => deal.confirmedWon)) return 'Closed Deal';
-  if (deals.length && deals.every(deal => deal.engagementStatus === 'Cancelled' && deal.isLost)) return 'Cancelled';
+  if (eligible.some(deal => deal.confirmedWon)) return 'Closed Deal';
+  if (eligible.length && eligible.every(deal => deal.isLost)) return 'Cancelled';
   return undefined;
 }

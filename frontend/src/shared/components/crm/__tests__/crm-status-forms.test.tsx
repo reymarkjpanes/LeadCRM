@@ -199,22 +199,24 @@ it('retains all statuses while enabling only reopening for a manually cancelled 
   await waitFor(() => expect(change).toHaveBeenCalledExactlyOnceWith('Inquiry'));
 });
 
-it.each(['lead', 'contact'] as const)('edits a linked %s engagement while preserving other fields', async kind => {
+it.each(['lead', 'contact'] as const)('keeps linked %s engagement managed and preserves historical sources during edits', async kind => {
   const save = vi.fn();
-  const initialData = { id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z', firstName: 'Testing', lastName: 'Person', email: 'person@example.test', status: 'Hot', statusManagedByDeals: true };
+  const initialData = { id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z', firstName: 'Testing', lastName: 'Person', email: 'person@example.test', status: 'Hot', statusManagedByDeals: true, statusEditOptions: ['Hot', 'Cancelled'], leadSource: 'Direct Mail' };
   render(kind === 'lead'
     ? <LeadFormSheet isOpen initialData={initialData} onClose={() => {}} onSave={save} />
     : <ContactFormSheet isOpen initialData={initialData} onClose={() => {}} onSave={save} />);
   expect((screen.getByLabelText('Status') as HTMLSelectElement).disabled).toBe(false);
-  fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Warm' } });
+  expect(screen.getByRole('option', { name: 'Warm' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('option', { name: 'Direct Mail (historical)' })).toHaveProperty('disabled', true);
   fireEvent.change(screen.getByLabelText(/Last Name/), { target: { value: 'Updated' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ lastName: 'Updated', status: 'Warm' })));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ lastName: 'Updated', status: undefined })));
+  expect(save.mock.calls[0][0].source ?? save.mock.calls[0][0].leadSource).toBeUndefined();
 });
 
 it.each(['lead', 'contact'] as const)('keeps a %s status draft and its original version during background updates', async kind => {
   const save = vi.fn().mockRejectedValue(new Error('Recoverable status conflict'));
-  const initialData = { id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z', updatedAt: '2026-10-01T00:00:00.000Z', firstName: 'Testing', lastName: 'Person', email: 'person@example.test', status: 'Hot', statusManagedByDeals: true };
+  const initialData = { id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z', updatedAt: '2026-10-01T00:00:00.000Z', firstName: 'Testing', lastName: 'Person', email: 'person@example.test', status: 'Hot', statusManagedByDeals: false };
   const view = (record: typeof initialData) => kind === 'lead'
     ? <LeadFormSheet isOpen initialData={record} onClose={() => {}} onSave={save} />
     : <ContactFormSheet isOpen initialData={record} onClose={() => {}} onSave={save} />;

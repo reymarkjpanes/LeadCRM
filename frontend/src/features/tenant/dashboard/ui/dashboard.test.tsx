@@ -173,16 +173,15 @@ it('keeps action ordering, summaries, links, actual priority and Manila due date
   mocks.report!.actions = [
     { id: 'task', kind: 'task', title: 'Call customer', dueDate: '2020-01-14T18:00:00Z', priority: 'High', overdue: true, href: '/operations/taskboard?taskId=task' },
     { id: 'pending', kind: 'task', title: 'Prepare proposal', dueDate: null, priority: 'Low', overdue: false, href: '/operations/taskboard?taskId=pending' },
-    { id: 'lead', kind: 'lead', title: 'Doris Joe', dueDate: null, priority: 'High', overdue: false, href: '/crm/leads/lead' },
+    { id: 'hot', kind: 'hot-deal', title: 'Doris Deal', stale: true, dueDate: null, priority: 'High', overdue: false, href: '/crm/deals/hot' },
     { id: 'deal', kind: 'deal', title: 'Customer renewal', dueDate: null, priority: 'Medium', overdue: false, href: '/crm/deals/deal' },
   ];
   mocks.report!.pendingActions = 4;
   render(<Dashboard />);
   const actions = within(screen.getByRole('region', { name: 'Action Center' }));
-  expect(actions.getByText('1 overdue task · 1 hot lead · 1 stale deal')).toBeTruthy();
+  expect(actions.getByText('1 overdue task · 1 hot deal · 2 stale deals')).toBeTruthy();
   expect(actions.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(mocks.report!.actions.map(action => action.href));
-  expect(actions.getByText('DJ')).toBeTruthy();
-  expect(actions.getByText('Hot lead · High')).toBeTruthy();
+  expect(actions.getByText('Hot deal · Stale deal · High')).toBeTruthy();
   expect(actions.getByText('Pending task · Low')).toBeTruthy();
   expect(actions.getByText('Due Jan 15, 2020')).toBeTruthy();
   expect(actions.queryByText(/Follow-up overdue/)).toBeNull();

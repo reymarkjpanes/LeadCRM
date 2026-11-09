@@ -240,17 +240,18 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
   for (const [title, priority] of [['Follow lead for CCTV Panes', 'High'], ['A long overdue follow-up title that needs two visible lines without hiding the due date or overlapping the event category', 'Medium']]) {
     mixedTasks.push(await http('/operations/tasks', 'POST', { title, priority, dueDate: new Date(Date.now() - 86400000).toISOString(), assignedUserId: agent.id, dealIds: [won.id] }));
   }
-  const hotLeads = [];
-  for (const [firstName, lastName] of [['Reyn', 'Panes'], ['Lisa', 'Manoban'], ['Shaun', 'Mendes']]) {
-    const lead = await http('/crm/leads', 'POST', { firstName, lastName, email: `${firstName.toLowerCase()}@example.test`, status: 'Inquiry', assignedUserId: agent.id });
-    hotLeads.push(await http(`/crm/leads/${lead.id}`, 'PUT', { status: 'Hot' }));
+  const hotDeals = [];
+  for (const title of ['Reyn Panes renewal', 'Lisa Manoban proposal', 'Shaun Mendes follow-up']) {
+    const deal = await http('/crm/deals', 'POST', { title, pipelineId: pipeline.id, stageId: stages[0].id,
+      productInterestIds: [products[1].id], assignedUserId: agent.id });
+    hotDeals.push(await http(`/crm/deals/${deal.id}`, 'PUT', { engagementStatus: 'Hot' }));
   }
   await prisma.stage.update({ where: { id: stages[0].id }, data: { rottenAfterDays: 1 } });
   const stale = await http('/crm/deals', 'POST', { title: 'Configured stagnant deal requiring attention with a longer title', priority: 'LOW', pipelineId: pipeline.id, stageId: stages[0].id, productInterestIds: [products[1].id], assignedUserId: agent.id });
   await prisma.deal.update({ where: { id: stale.id }, data: { stageChangedAt: new Date(Date.now() - 3 * 86400000) } });
   await until(async () => await actionList().getByRole('link').count() === 6, 'Mixed actions arrive through Dashboard SSE');
   const mixed = await http('/reporting/dashboard?range=last3');
-  assert.deepEqual(mixed.actions.map(row => row.kind), ['task', 'task', 'lead', 'lead', 'lead', 'deal']);
+  assert.deepEqual(mixed.actions.map(row => row.kind), ['task', 'task', 'hot-deal', 'hot-deal', 'hot-deal', 'deal']);
   assert.deepEqual(await actionList().getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href'))), mixed.actions.map(row => row.href));
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => { localStorage.setItem('app_theme', theme === 'dark' ? 'Dark' : 'Light'); window.dispatchEvent(new CustomEvent('themechange', { detail: { theme, mode: theme === 'dark' ? 'Dark' : 'Light' } })); }, theme);
@@ -261,9 +262,9 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
       await actionList().evaluate(list => { list.scrollTop = 0; });
       const size = await layout(`${theme} mixed compact actions responsive ${width}`);
       const links = actionList().getByRole('link');
-      assert.equal(await links.filter({ hasText: /Hot lead/ }).count(), 3, 'All real hot leads remain');
+      assert.equal(await links.filter({ hasText: /Hot deal/ }).count(), 3, 'All real hot deals remain');
       assert.equal(await links.filter({ hasText: /Stale deal/ }).count(), 1, 'Real stale deal remains');
-      assert.ok(size.list.items[2].height < size.list.items[0].height, 'Hot leads are shorter than overdue tasks');
+      assert.ok(size.list.items[2].height < size.list.items[0].height, 'Hot deals are shorter than overdue tasks');
       assert.ok(Math.abs(size.list.items[1].titleHeight - size.list.items[1].titleLineHeight * 2) <= 1, 'Long task uses two title lines');
       const visible = size.list.items.filter(item => item.y >= size.list.y - 1 && item.bottom <= size.list.bottom + 1).length;
       assert.equal(visible, width >= 1024 ? 5 : 3);
@@ -281,9 +282,9 @@ export async function verifyDashboardLeadsUi({ page, staffPage, base, output, ht
     await page.waitForURL(url => url.pathname === row.href);
     await page.goto(base + '/dashboard'); await actionList().getByRole('link').last().waitFor();
   }
-  record('Hot Lead and stagnant Deal destinations retain navigation; overdue-first ordering and all six actions preserved');
+  record('Hot Deal and stagnant Deal destinations retain navigation; overdue-first ordering and all six actions preserved');
   for (const task of mixedTasks) await http(`/operations/tasks/${task.id}/complete`, 'PATCH');
-  for (const lead of hotLeads) await http(`/crm/leads/${lead.id}`, 'PUT', { status: 'Warm' });
+  for (const deal of hotDeals) await http(`/crm/deals/${deal.id}/archive`, 'PATCH');
   await http(`/crm/deals/${stale.id}/archive`, 'PATCH');
   await prisma.stage.update({ where: { id: stages[0].id }, data: { rottenAfterDays: null } });
   await until(async () => await actionList().getByRole('link').count() === 0, 'Mixed actions resolve without stale entries');

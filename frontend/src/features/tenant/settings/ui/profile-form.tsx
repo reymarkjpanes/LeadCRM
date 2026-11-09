@@ -10,15 +10,16 @@ import { UserAvatar } from '@/shared/components/user-avatar';
 import { normalizePhInput } from '@/shared/utils/ph-phone';
 import { AvatarCropDialog } from './avatar-crop-dialog';
 import { Input } from '@/shared/components/ui/input';
+import { ProfileEmailChange } from './profile-email-change';
 
 const fields = [
   ['firstName', 'First Name'], ['lastName', 'Last Name'], ['phone', 'Phone Number'],
-  ['jobTitle', 'Job Title'],
 ] as const;
 type Draft = Record<typeof fields[number][0], string>;
 
 export function ProfileForm() {
   const { user, tenant, updateProfile, applyAuthUser } = useAuth();
+  const [changingEmail, setChangingEmail] = useState(false);
   const saved = (): Draft => Object.fromEntries(fields.map(([key]) => [key, key === 'phone' ? normalizePhInput(user?.phone ?? '') : user?.[key] ?? ''])) as Draft;
   const [draft, setDraft] = useState<Draft>(saved);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -28,7 +29,7 @@ export function ProfileForm() {
   const busy = useRef(false);
   const picker = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!editing) { setDraft(saved()); setFieldErrors({}); } }, [user, editing]);
-  useEffect(() => { setEditing(false); setFile(null); setFieldErrors({}); }, [user?.id]);
+  useEffect(() => { setEditing(false); setChangingEmail(false); setFile(null); setFieldErrors({}); }, [user?.id]);
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing || busy.current) return;
@@ -116,8 +117,13 @@ export function ProfileForm() {
           {fieldErrors[key] && <p id={`profile-${key}-error`} role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors[key]}</p>}
         </div>)}
         <div><span className="block text-xs font-semibold text-slate-500 mb-1">Groups</span><p aria-label="Groups" className="text-sm">{user?.groups?.map(group => group.name).join(', ') || 'No groups assigned'}</p><p className="mt-1 text-xs text-slate-500">Managed in Team Management → Groups.</p></div>
-        <div><label htmlFor="profile-email" className="block text-xs font-semibold text-slate-500 mb-1">Email Address</label>
-          <Input id="profile-email" value={user?.email ?? ''} disabled className="w-full border rounded-lg px-3 py-2 text-sm" />
+        <div><span className="block text-xs font-semibold text-slate-500 mb-1">Job Title</span>
+          <p aria-label="Job Title" className="break-words text-sm">{user?.jobTitle || '—'}</p>
+        </div>
+        <div><span className="block text-xs font-semibold text-slate-500 mb-1">Email Address</span>
+          <p aria-label="Email Address" className="cursor-default break-all text-sm">{user?.email || '—'}</p>
+          {user?.role === 'Client Admin' && <button type="button" disabled={saving || editing} onClick={() => setChangingEmail(true)}
+            className="mt-2 text-sm font-medium text-primary disabled:opacity-50">Change email</button>}
         </div>
       </div>
       {editing && <div className="flex justify-end gap-2">
@@ -125,6 +131,7 @@ export function ProfileForm() {
         <button type="submit" disabled={saving} className="bg-primary text-white rounded-lg px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Save Changes'}</button>
       </div>}
     </form>
+    {changingEmail && user?.role === 'Client Admin' && <ProfileEmailChange onClose={() => setChangingEmail(false)} />}
     {file && <AvatarCropDialog file={file} onClose={() => setFile(null)} onApply={async blob => {
       if (!user) throw new Error('Authentication required');
       const expectedUserId = user.id;

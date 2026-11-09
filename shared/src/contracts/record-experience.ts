@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const CRM_STATUSES = ['Inquiry', 'Hot', 'Warm', 'Cold', 'Closed Deal', 'Cancelled'] as const;
 export const LEAD_SOURCES = ['Google Ads', 'Referral', 'Email Campaign', 'Direct Email', 'Website', 'Social Media Advertisement', 'Direct Mail', 'Content Marketing', 'Others'] as const;
+export const isDirectMailSource = (value: unknown) => typeof value === 'string' && value.trim().toLowerCase() === 'direct mail';
+export const SELECTABLE_LEAD_SOURCES = LEAD_SOURCES.filter(source => !isDirectMailSource(source));
 export const LeadSourceSchema = z.enum(LEAD_SOURCES);
 export const COMPANY_SIZE_OPTIONS = ['1-10', '11-50', '51-200', '200+'] as const;
 

@@ -2,7 +2,7 @@
 import { DealAddressSourceSchema, dealAddressKey, resolveDealAddress, dealAddressMessage, dealCustomerAddressMessage } from '@leadcrm/shared';
 import { useDealAddressOptions } from '@/shared/hooks/use-deal-address-options';
 import { applyCrmAssociationError, showCrmMutationError } from '@/shared/utils/crm-mutation-error';
-import { LEAD_SOURCES, defaultFieldGroupId, type DealAssociationChange } from '@leadcrm/shared';
+import { SELECTABLE_LEAD_SOURCES, isDirectMailSource, defaultFieldGroupId, type DealAssociationChange } from '@leadcrm/shared';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
 import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelInputClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
@@ -90,7 +90,7 @@ const PRIORITY_OPTIONS: { value: 'LOW' | 'MEDIUM' | 'HIGH'; label: string }[] = 
 
 
 
-const SOURCE_OPTIONS = LEAD_SOURCES;
+const SOURCE_OPTIONS = SELECTABLE_LEAD_SOURCES;
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
@@ -267,7 +267,7 @@ export function DealForm({
           ? data.expectedCloseDate
           : `${data.expectedCloseDate}T00:00:00.000Z`
         : isCreateMode ? undefined : '',
-      leadSource: isCreateMode ? data.leadSource || undefined : data.leadSource,
+      leadSource: isDirectMailSource(data.leadSource) ? undefined : isCreateMode ? data.leadSource || undefined : data.leadSource,
       ...(isCreateMode ? {
         leadIds: associationType === 'lead' ? [associationId!] : undefined,
         contactIds: associationType === 'contact' ? [associationId!] : undefined,
@@ -408,6 +408,7 @@ export function DealForm({
                 aria-invalid={!!errors.leadSource}
                 aria-describedby={errors.leadSource ? `${fieldId}-leadSource-error` : undefined} className={selectCls}>
                   <option value="">Select source...</option>
+                  {isDirectMailSource(initialData?.leadSource) && <option value={initialData?.leadSource} disabled>Direct Mail (historical)</option>}
                   {SOURCE_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}

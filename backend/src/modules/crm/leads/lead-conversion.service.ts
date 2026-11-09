@@ -145,10 +145,12 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
       after: await conversionWrite('setting the Account on a related Deal requires Deal edit access', () =>
         tx.deal.update({ where: { tenantId, id: deal.id }, data: { accountId } })) });
   }
-  const convertedLead = await tx.lead.update({ where: { tenantId, id: leadId }, data: { contactId: contact.id, accountId,
+  await tx.lead.update({ where: { tenantId, id: leadId }, data: { contactId: contact.id, accountId,
     convertedAt: lead.convertedAt ?? now, convertedById: lead.convertedById ?? actorId } });
   // Conversion emits its existing durable events below, using the combined Deal aggregate.
+  await classifyCustomerRecord(tx, tenantId, { leadId }, actorId, { dealOnly: true }, now, false);
   await classifyCustomerRecord(tx, tenantId, { contactId: contact.id }, actorId, {}, now, false);
+  const convertedLead = await tx.lead.findFirstOrThrow({ where: { tenantId, id: leadId } });
   contact = await tx.contact.findFirstOrThrow({ where: { tenantId, id: contact.id } });
   if (!lead.convertedAt) {
     const metadata = { contactId: contact.id, accountId, convertedAt: now.toISOString(), sourceLeadId: leadId };
@@ -165,13 +167,13 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
       const previousLead = events.previousLead ?? lead;
       const changes = recordChanges(previousLead, convertedLead);
       await fireLeadUpdated({ tenantId, actorId, eventId, record: convertedLead, changedFields: changes.changedFields, changes });
-      await fireLeadStatusChanged({ tenantId, actorId, eventId, lead: convertedLead, prevStatus: previousLead.status });
+      await fireLeadStatusChanged({ tenantId, actorId, originDealId: null, eventId, lead: convertedLead, prevStatus: previousLead.status });
     }
     if (!previousContact) await fireContactCreated({ tenantId, actorId, contact });
     else {
       const changes = recordChanges(previousContact, contact);
       await fireContactUpdated({ tenantId, actorId, eventId, record: contact, changedFields: changes.changedFields, changes });
-      await fireContactStatusChanged({ tenantId, actorId, eventId, contact, prevStatus: previousContact.status });
+      await fireContactStatusChanged({ tenantId, actorId, originDealId: null, eventId, contact, prevStatus: previousContact.status });
     }
     for (const { before, after } of updatedDeals) {
       if (after.id === events.dealEventHandledByCaller || after.isArchived || after.deletedAt) continue;

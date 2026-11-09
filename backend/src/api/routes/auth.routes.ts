@@ -1,6 +1,6 @@
-import { UpdateSelfProfileSchema, AVATAR_MAX_BYTES, LogoutSchema, SessionActivitySchema } from '@leadcrm/shared';
+import { ConfirmProfileEmailChangeSchema, RequestProfileEmailChangeSchema, UpdateSelfProfileSchema, AVATAR_MAX_BYTES, LogoutSchema, SessionActivitySchema } from '@leadcrm/shared';
 import { tenantMiddleware } from '../middleware/tenant.middleware';
-import { patchProfile, uploadAvatar, getAvatar } from '../../core/auth/profile.controller';
+import { confirmEmailChange, patchProfile, requestEmailChange, uploadAvatar, getAvatar } from '../../core/auth/profile.controller';
 import { Router, raw } from 'express';
 import { AppError } from '../../shared/errors/app-error';
 import { authRateLimiter, loginIpRateLimiter, passwordResetRateLimiter, passwordRecoveryAddressRateLimiter } from '../middleware/rate-limit.middleware';
@@ -15,6 +15,8 @@ import { authorizationEvents } from '../../modules/reporting/reports/dashboard.e
 const router = Router();
 const parseAvatar = raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: AVATAR_MAX_BYTES });
 router.patch('/profile', authMiddleware, tenantMiddleware, validate(UpdateSelfProfileSchema), patchProfile);
+router.post('/profile/email/request', authRateLimiter, authMiddleware, tenantMiddleware, validate(RequestProfileEmailChangeSchema), requestEmailChange);
+router.post('/profile/email/confirm', authRateLimiter, authMiddleware, tenantMiddleware, validate(ConfirmProfileEmailChangeSchema), confirmEmailChange);
 router.post('/profile/avatar', authMiddleware, tenantMiddleware, (req, res, next) => {
   parseAvatar(req, res, error => next(error?.type === 'entity.too.large'
     ? new AppError('Image must be no larger than 5 MB.', 413)

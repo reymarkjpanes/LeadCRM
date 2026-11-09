@@ -49,6 +49,12 @@ function CompactMoney({ value, currency }: { value: number | null | undefined; c
 }
 function countLabel(count: number, singular: string) { return `${count} ${singular}${count === 1 ? '' : 's'}`; }
 function initials(name: string) { return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase(); }
+function actionLabel(action: DashboardReport['actions'][number]) {
+  if (action.kind === 'hot-deal') return action.stale ? 'Hot deal · Stale deal' : 'Hot deal';
+  if (action.kind === 'deal') return 'Stale deal';
+  return action.overdue ? 'Overdue task' : 'Pending task';
+}
+
 function ActionCenterList({ children }: { children: React.ReactNode }) {
   const listRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -158,8 +164,8 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
   const largestStage = Math.max(0, ...openStages.map(stage => stage.count));
   const actionSummary = report ? [
     report.access.tasks && countLabel(report.actions.filter(action => action.kind === 'task' && action.overdue).length, 'overdue task'),
-    report.access.leads && countLabel(report.actions.filter(action => action.kind === 'lead').length, 'hot lead'),
-    report.access.deals && countLabel(report.actions.filter(action => action.kind === 'deal').length, 'stale deal'),
+    report.access.deals && countLabel(report.actions.filter(action => action.kind === 'hot-deal').length, 'hot deal'),
+    report.access.deals && countLabel(report.actions.filter(action => (action.kind === 'deal' || action.stale)).length, 'stale deal'),
   ].filter(Boolean).join(' · ') : '';
   const compactBucketLabel = (value: unknown) => {
     const multipleYears = new Set(report?.trend.map(row => row.name.slice(0, 4))).size > 1;
@@ -245,12 +251,12 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
             <section aria-label="Action Center" className={`${card} !p-4 sm:!p-5 lg:col-span-5 min-h-[280px]`}>
               <div className="mb-4 shrink-0"><h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Zap size={21} className="text-amber-500" aria-hidden="true" />Action Center</h3>{actionSummary && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{actionSummary}</p>}</div>
               <ActionCenterList>
-                {!report.access.tasks && !report.access.leads && !report.access.deals ? <Empty>No permitted action modules.</Empty> : report.pendingActions === 0 ? <Empty>No actions require attention.</Empty> : report.actions.map(action => {
-                  const urgent = action.overdue || action.kind === 'lead';
+                {!report.access.tasks && !report.access.deals ? <Empty>No permitted action modules.</Empty> : report.pendingActions === 0 ? <Empty>No actions require attention.</Empty> : report.actions.map(action => {
+                  const urgent = action.overdue || action.kind === 'hot-deal';
                   const ActionIcon = action.kind === 'task' ? ListTodo : Briefcase;
                   return <Link href={action.href} key={`${action.kind}:${action.id}`} title={action.title} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${urgent ? 'bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/30'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:-outline-offset-2`}>
-                    <span aria-hidden="true" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${urgent ? 'bg-red-100 text-destructive dark:bg-red-900/30' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>{action.kind === 'lead' ? initials(action.title) : <ActionIcon size={18} />}</span>
-                    <div className="min-w-0 flex-1"><p className="line-clamp-2 break-words text-sm font-semibold text-slate-900 dark:text-white">{action.title}</p><p className={`mt-0.5 break-words text-[11px] ${urgent ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}`}>{action.overdue ? 'Overdue task' : action.kind === 'lead' ? 'Hot lead' : action.kind === 'deal' ? 'Stale deal' : 'Pending task'} · {action.priority}</p>{action.dueDate && <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Due {new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: DASHBOARD_TIMEZONE }).format(new Date(action.dueDate))}</p>}</div>
+                    <span aria-hidden="true" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${urgent ? 'bg-red-100 text-destructive dark:bg-red-900/30' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>{<ActionIcon size={18} />}</span>
+                    <div className="min-w-0 flex-1"><p className="line-clamp-2 break-words text-sm font-semibold text-slate-900 dark:text-white">{action.title}</p><p className={`mt-0.5 break-words text-[11px] ${urgent ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}`}>{actionLabel(action)} · {action.priority}</p>{action.dueDate && <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Due {new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: DASHBOARD_TIMEZONE }).format(new Date(action.dueDate))}</p>}</div>
                     <CircleAlert size={19} aria-hidden="true" className={`shrink-0 ${urgent ? 'text-destructive' : 'text-amber-500'}`} />
                   </Link>;
                 })}
@@ -301,10 +307,10 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
             {metric?.totalRevenue == null ? <Empty>Revenue unavailable for this scope or incomplete data.</Empty> : metric.totalRevenue === 0 ? <Empty>No won revenue in the selected period.</Empty> : <div className="relative flex-1 min-h-[220px]" role="img" aria-label={`Revenue Trend by ${intervalLabel}: ${money(metric.totalRevenue)} for the selected period.`}><div className="absolute inset-0"><ResponsiveContainer width="100%" height="100%"><AreaChart data={report.trend}><CartesianGrid /><XAxis dataKey="name" tickFormatter={bucketLabel} /><YAxis domain={[0, 'auto']} tickFormatter={axisMoney} /><Tooltip labelFormatter={bucketLabel} formatter={value => money(Number(value))} /><Area dataKey="revenue" name={`Revenue (${currency})`} stroke="#3B82F6" /></AreaChart></ResponsiveContainer></div></div>}
           </div>
           <div className={`lg:col-span-4 ${card} min-h-[320px]`}>
-            <div className="mb-4 shrink-0"><h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2"><Zap size={16} className="text-amber-500" />Action Center</h3><p className="text-xs text-slate-500 mt-0.5">Current · Overdue tasks first, hot leads and configured stale deals</p></div>
+            <div className="mb-4 shrink-0"><h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2"><Zap size={16} className="text-amber-500" />Action Center</h3><p className="text-xs text-slate-500 mt-0.5">{actionSummary || 'Current · Overdue tasks first, hot deals and configured stale deals'}</p></div>
             <ActionCenterList>
-              {!report.access.tasks && !report.access.leads && !report.access.deals ? <div className="h-full flex"><Empty>No permitted action modules.</Empty></div> : report.pendingActions === 0 ? <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400 py-8"><Check size={28} className="text-emerald-500" /><p className="text-sm font-medium text-slate-600 dark:text-slate-300">All caught up!</p><p className="text-xs">No qualifying pending actions.</p></div> : report.actions.map(action => <Link href={action.href} key={`${action.kind}:${action.id}`} title={action.title} className={`block px-3 py-2.5 rounded-xl border ${action.overdue || action.kind === 'lead' ? 'bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/30'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:-outline-offset-2`}>
-                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5 block">{action.overdue ? 'Overdue task' : action.kind === 'lead' ? 'Hot lead' : action.kind === 'deal' ? 'Deal needs attention' : 'Pending task'} · {action.priority}</span><p className="text-sm font-semibold text-slate-800 dark:text-white break-words line-clamp-2">{action.title}</p>{action.dueDate && <p className="text-xs text-slate-500 mt-0.5">Due {new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' }).format(new Date(action.dueDate))}</p>}
+              {!report.access.tasks && !report.access.deals ? <div className="h-full flex"><Empty>No permitted action modules.</Empty></div> : report.pendingActions === 0 ? <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400 py-8"><Check size={28} className="text-emerald-500" /><p className="text-sm font-medium text-slate-600 dark:text-slate-300">All caught up!</p><p className="text-xs">No qualifying pending actions.</p></div> : report.actions.map(action => <Link href={action.href} key={`${action.kind}:${action.id}`} title={action.title} className={`block px-3 py-2.5 rounded-xl border ${action.overdue || action.kind === 'hot-deal' ? 'bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/30'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:-outline-offset-2`}>
+                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5 block">{actionLabel(action)} · {action.priority}</span><p className="text-sm font-semibold text-slate-800 dark:text-white break-words line-clamp-2">{action.title}</p>{action.dueDate && <p className="text-xs text-slate-500 mt-0.5">Due {new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' }).format(new Date(action.dueDate))}</p>}
               </Link>)}
             </ActionCenterList>
           </div>

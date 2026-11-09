@@ -6,7 +6,7 @@ import { STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 
-import { LEAD_SOURCES, defaultFieldLayout, getCrmFieldCatalog } from '@leadcrm/shared';
+import { SELECTABLE_LEAD_SOURCES, isDirectMailSource, defaultFieldLayout, getCrmFieldCatalog } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
@@ -50,7 +50,7 @@ import { Input } from '@/shared/components/ui/input';
 
 
 
-const SOURCES = LEAD_SOURCES;
+const SOURCES = SELECTABLE_LEAD_SOURCES;
 
 const STATUS_OPTIONS = CRM_STATUSES.map(value => ({ value, label: value }));
 
@@ -188,7 +188,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
       ...(isEdit ? { notes: data.notes || '' } : {}),
       status: isEdit && data.status === normalizeCrmStatus(statusVersion.current?.status) ? undefined : data.status || 'Inquiry',
       ...(isEdit && data.status !== normalizeCrmStatus(statusVersion.current?.status) ? { expectedUpdatedAt: statusVersion.current?.updatedAt } : {}),
-      leadSource: data.source || (isEdit ? '' : undefined),
+      leadSource: isDirectMailSource(data.source) ? undefined : data.source || (isEdit ? '' : undefined),
       assignedUserId: selfAssigned ? recordAccess.policy?.userId : data.assignedUserId || undefined,
       productInterest: data.productInterest || [],
       address: data.address || (isEdit ? '' : undefined),
@@ -342,6 +342,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
                 className={`${selectCls} ${errors.source ? inputErrorCls : ''}`}
               >
                 <option value="">Select source...</option>
+                  {isDirectMailSource(initialData?.leadSource) && <option value={initialData?.leadSource} disabled>Direct Mail (historical)</option>}
                 {SOURCES.map((src) => <option key={src} value={src}>{src}</option>)}
               </select>
               <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />

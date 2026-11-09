@@ -29,8 +29,8 @@ it.each([true, false])('excludes native Lead Source from palette drag/tap contro
   expect(paletteFieldsFromCatalog(catalog).some(field => field.mapToField === 'address')).toBe(true);
   expect(getCrmFieldCatalog('leads').find(field => field.technicalKey === 'source')).toEqual(source);
 });
-it.each(['draft', 'published'] as const)('keeps saved native Lead Source identity, options and settings when editing a %s Form', async status => {
-  const source = { id: 'historical-source', type: 'dropdown' as const, label: 'Lead Source', mapToField: 'source' as const, options: ['Website', 'Referral'], required: true };
+it.each(['draft', 'published'] as const)('removes Direct Mail from a saved native Lead Source in a %s Form', async status => {
+  const source = { id: 'historical-source', type: 'dropdown' as const, label: 'Lead Source', mapToField: 'source' as const, options: ['Website', 'Direct Mail', 'Referral'], required: true };
   const saved = { ...form, status, fields: [...form.fields, source] };
   vi.mocked(service.updateForm).mockImplementation(async (_id, dto) => ({ ...saved, ...dto, revision: 1 }));
   render(<FormBuilderPage form={saved} onBack={() => {}} onFormUpdate={() => {}} />);
@@ -38,7 +38,7 @@ it.each(['draft', 'published'] as const)('keeps saved native Lead Source identit
   fireEvent.change(screen.getByLabelText('Form name'), { target: { value: 'Preserved source' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await waitFor(() => expect(service.updateForm).toHaveBeenCalled());
-  expect(vi.mocked(service.updateForm).mock.calls[0][1].fields?.find(field => field.id === source.id)).toEqual(source);
+  expect(vi.mocked(service.updateForm).mock.calls[0][1].fields?.find(field => field.id === source.id)).toEqual({ ...source, options: ['Website', 'Referral'] });
 });
 const permissions = vi.hoisted(() => ({ edit: true, publish: true }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 'tenant' }, user: { }, userCan: (_module: string, permission: string) => permission === 'canEdit' ? permissions.edit : permission === 'canPublish' ? permissions.publish : true }) }));

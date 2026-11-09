@@ -77,12 +77,13 @@ function classifyDealEngagement(events, now = new Date(), outcome) {
     return status;
 }
 function aggregateDealEngagement(deals) {
-    const open = deals.filter(deal => !deal.isArchived && !deal.pipelineArchived && !deal.isWon && !deal.isLost);
+    const eligible = deals.filter(deal => deal.confirmedWon || deal.isLost || (!deal.isArchived && !deal.pipelineArchived));
+    const open = eligible.filter(deal => !deal.isArchived && !deal.pipelineArchived && !deal.isWon && !deal.isLost);
     if (open.length)
         return ['Hot', 'Warm', 'Inquiry', 'Cold'].find(status => open.some(deal => deal.engagementStatus === status)) ?? 'Inquiry';
-    if (deals.some(deal => deal.confirmedWon))
+    if (eligible.some(deal => deal.confirmedWon))
         return 'Closed Deal';
-    if (deals.length && deals.every(deal => deal.engagementStatus === 'Cancelled' && deal.isLost))
+    if (eligible.length && eligible.every(deal => deal.isLost))
         return 'Cancelled';
     return undefined;
 }

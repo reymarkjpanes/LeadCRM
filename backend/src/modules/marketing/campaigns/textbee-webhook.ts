@@ -17,15 +17,22 @@ const envelope = z.object({ smsId: identity, smsBatchId: identity, deviceId: ide
   webhookSubscriptionId: identity, idempotencyKey: identity, recipient: z.string().regex(/^\+[1-9]\d{7,14}$/), errorCode: z.unknown().optional(), errorMessage: z.unknown().optional() });
 export const TextBeeEventSchema = z.discriminatedUnion('webhookEvent', [
   envelope.extend({ webhookEvent: z.literal('MESSAGE_SENT'), status: z.literal('sent'), sentAt: timestamp }),
-  envelope.extend({ webhookEvent: z.literal('MESSAGE_DELIVERED'), status: z.literal('delivered'), sentAt: timestamp, deliveredAt: timestamp }),
+  envelope.extend({ webhookEvent: z.literal('MESSAGE_DELIVERED'), status: z.literal('delivered'), sentAt: timestamp.optional(), deliveredAt: timestamp }),
   envelope.extend({ webhookEvent: z.literal('MESSAGE_FAILED'), status: z.literal('failed'), failedAt: timestamp }),
   envelope.extend({ webhookEvent: z.literal('UNKNOWN_STATE'), status: z.string().min(1).max(100) }),
 ]);
 
-export function verifyTextBeeSignature(raw: Buffer, signature?: string) {
+export function verifyTextBeeSignature(raw: Buffer, signature?: string, timestampedSignature?: string) {
   const secret = process.env.TEXTBEE_WEBHOOK_SECRET?.trim();
   if (!secret || secret.length < 20) throw new AppError('SMS webhook is not configured.', 503);
-  const expected = createHmac('sha256', secret).update(raw).digest();
+  const hmac = createHmac('sha256', secret);
+  if (timestampedSignature !== undefined) {
+    const match = /^t=(\d{1,12}),\s*v1=([a-f\d]{64})$/.exec(timestampedSignature);
+    if (!match || Math.abs(Date.now() / 1000 - Number(match[1])) > 300) throw new AppError('Unauthorized webhook.', 401);
+    hmac.update(match[1] + '.');
+    signature = match[2];
+  }
+  const expected = hmac.update(raw).digest();
   if (!signature || !/^[a-f\d]{64}$/.test(signature) || !timingSafeEqual(expected, Buffer.from(signature, 'hex'))) {
     throw new AppError('Unauthorized webhook.', 401);
   }
@@ -99,7 +106,7 @@ export async function applyTextBeeEvidence(event: TextBeeEvidence, receiptKey?: 
       status: status === 'unknown' && smsSent(current) ? 'sent' : status,
       smsId: event.smsId,
       ...(['delivered', 'failed'].includes(status) ? { nextSmsCheckAt: null } : {}),
-      ...(at ? { providerUpdatedAt: current.providerUpdatedAt && current.providerUpdatedAt > at ? current.providerUpdatedAt : at } : {}),
+      ...(at && status !== 'unknown' ? { providerUpdatedAt: current.providerUpdatedAt && current.providerUpdatedAt > at ? current.providerUpdatedAt : at } : {}),
       ...(event.sentAt ? { sentAt: current.sentAt ?? event.sentAt } : {}),
       ...(event.deliveredAt ? { deliveredAt: current.deliveredAt ?? event.deliveredAt } : {}),
       failureReason: status === 'failed' ? 'TEXTBEE_FAILED' : status === 'unknown' ? 'TEXTBEE_UNKNOWN_STATE' : null,
@@ -121,7 +128,7 @@ textbeeWebhookRouter.post('/', rateLimit({ windowMs: 60000, limit: 1000, standar
   try {
     if (process.env.NODE_ENV === 'production' && !req.secure) throw new AppError('HTTPS is required.', 400);
     if (!Buffer.isBuffer(req.body)) throw new AppError('Raw SMS webhook body is required.', 400);
-    verifyTextBeeSignature(req.body, req.get('X-Signature'));
+    verifyTextBeeSignature(req.body, req.get('X-Signature'), req.get('X-TextBee-Signature'));
     let input: unknown;
     try { input = JSON.parse(req.body.toString('utf8')); } catch { throw new AppError('Invalid outbound SMS event.', 400); }
     if (input && typeof input === 'object' && 'webhookEvent' in input && input.webhookEvent === 'MESSAGE_RECEIVED') {
