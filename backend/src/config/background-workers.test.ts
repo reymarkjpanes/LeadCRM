@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { shouldStartBackgroundWorkers } from './background-workers';
+import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation } from './background-workers';
 
 it('keeps production background workers off unless explicitly enabled', () => {
   expect(shouldStartBackgroundWorkers({ NODE_ENV: 'production' })).toBe(false);
@@ -10,4 +10,13 @@ it('keeps production background workers off unless explicitly enabled', () => {
 it('preserves local worker behavior unless explicitly disabled', () => {
   expect(shouldStartBackgroundWorkers({ NODE_ENV: 'development' })).toBe(true);
   expect(shouldStartBackgroundWorkers({ NODE_ENV: 'development', BACKGROUND_WORKERS_ENABLED: 'false' })).toBe(false);
+});
+
+it('allows receipt reconciliation independently of submission and other workers', () => {
+  const production = { NODE_ENV: 'production', BACKGROUND_WORKERS_ENABLED: 'false', CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'true' };
+  expect(shouldStartCampaignDeliveryReconciliation(production)).toBe(true);
+  expect(shouldStartBackgroundWorkers(production)).toBe(false);
+  expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'production' })).toBe(false);
+  expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'development' })).toBe(true);
+  expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'development', CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'false' })).toBe(false);
 });

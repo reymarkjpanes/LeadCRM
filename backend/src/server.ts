@@ -9,9 +9,9 @@ import { drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignSched
 import { purgeExpiredSessions } from './core/auth/session.service';
 import { startImportCleanupScheduler } from './modules/crm/imports/import-cleanup.service';
 import { validateEnvironment } from './config/validate-env';
-import { shouldStartBackgroundWorkers } from './config/background-workers';
+import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation } from './config/background-workers';
 import { startWorkflowScheduler } from './modules/automation/workflows/workflow-queue';
-import { startSmsStatusReconciliation } from './modules/marketing/campaigns/sms-status-reconciliation';
+import { startCampaignDeliveryReconciliation } from './modules/marketing/campaigns/sms-status-reconciliation';
 import prisma from './config/database.config';
 import { installCrmRetirementMaintenance } from './core/maintenance/crm-retirement-maintenance';
 
@@ -59,7 +59,7 @@ let stopMailbox: (() => Promise<void>) | undefined;
 let stopNotifications: (() => Promise<void>) | undefined;
 let stopCampaignSchedule: (() => Promise<void>) | undefined;
 let stopCampaignRecovery: (() => Promise<void>) | undefined;
-let stopSmsReconciliation: (() => Promise<void>) | undefined;
+let stopCampaignDelivery: (() => Promise<void>) | undefined;
 let stopCustomerClassification: (() => Promise<void>) | undefined;
 let stopSmsReplies: (() => Promise<void>) | undefined;
 let stopWorkflows: (() => Promise<void>) | undefined;
@@ -68,15 +68,20 @@ let stopImports: (() => Promise<void>) | undefined;
 let backgroundStarted = false;
 let backgroundDrain: Promise<void> | undefined;
 const backgroundWorkersEnabled = shouldStartBackgroundWorkers();
+const campaignDeliveryEnabled = shouldStartCampaignDeliveryReconciliation();
 const dealStageWorkflowId = process.env.DEAL_STAGE_WORKFLOW_ID?.trim() || undefined;
 function startBackground() {
   if (backgroundStarted) return;
+  if (campaignDeliveryEnabled) {
+    stopCampaignDelivery = startCampaignDeliveryReconciliation();
+    console.info('[workers] Campaign delivery reconciliation started.');
+  }
   if (!backgroundWorkersEnabled) {
+    backgroundStarted = campaignDeliveryEnabled || !!dealStageWorkflowId;
     if (dealStageWorkflowId) {
       stopWorkflows = startWorkflowScheduler(dealStageWorkflowId);
-      backgroundStarted = true;
       console.info('[workers] Scoped Deal stage workflow worker started.');
-    } else {
+    } else if (!backgroundStarted) {
       console.info('[workers] Background workers are disabled by production policy.');
     }
     return;
@@ -84,7 +89,6 @@ function startBackground() {
   resumeCampaignSubmissions();
   backgroundStarted = true;
   stopCampaignRecovery = startCampaignRecoveryScheduler();
-  stopSmsReconciliation = startSmsStatusReconciliation();
   stopWorkflows = startWorkflowScheduler();
   stopSmsReplies = startSmsReplyScheduler();
   stopCustomerClassification = startCustomerClassificationScheduler();
@@ -99,7 +103,7 @@ async function stopBackground() {
   if (!backgroundStarted) return;
   backgroundStarted = false;
   backgroundDrain = Promise.all([
-    stopMailbox?.(), stopNotifications?.(), stopCampaignRecovery?.(), stopSmsReconciliation?.(),
+    stopMailbox?.(), stopNotifications?.(), stopCampaignRecovery?.(), stopCampaignDelivery?.(),
     stopCampaignSchedule?.(), stopWorkflows?.(), stopSmsReplies?.(), stopCustomerClassification?.(),
     stopSessions?.(), stopImports?.(), backgroundWorkersEnabled ? drainCampaignSubmissions() : undefined,
   ]).then(() => undefined);

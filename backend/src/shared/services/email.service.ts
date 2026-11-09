@@ -33,7 +33,7 @@ function getDevelopmentAllowlist(): Set<string> | null {
 }
 
 /** Returns true when a valid Brevo API key is configured. */
-function isBrevoConfigured(): boolean {
+export function isBrevoConfigured(): boolean {
   const key = process.env.BREVO_API_KEY;
   return !!key && key.startsWith('xkeysib-') && key.trim().length > 20;
 }

@@ -69,7 +69,7 @@ export async function processBrevoEvent(input: unknown) {
     toEmail: { equals: event.email, mode: 'insensitive' }, campaignId: { not: null } }, take: 2 });
   if (logs.length > 1) throw new AppError('Delivery record is ambiguous.', 409);
   const [log] = logs;
-  // A provider callback can race the send response. A retryable status avoids losing it.
+  // A callback can race the send response. The history lookup can recover a missed event.
   if (!log) throw new AppError('Delivery record is not available.', 503);
   return tenantContext.run({ tenantId: log.tenantId }, async () => {
     const scope = { tenantId: log.tenantId };

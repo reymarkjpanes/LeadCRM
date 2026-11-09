@@ -34,6 +34,7 @@ import { recoverCampaignSubmissions, interruptCampaignSubmission } from '../camp
 import { createAudience, getAudiences, resolveAudience } from '../audiences.service';
 import { createTemplate, getTemplates } from '../../templates/templates.service';
 import { processBrevoEvent } from '../brevo-webhook';
+import { reconcileBrevoStatuses } from '../brevo-status-reconciliation';
 import app from '../../../../app';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
@@ -104,6 +105,54 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     });
     const reloaded = await request(`/marketing/campaigns/${campaign.id}`);
     expect(reloaded.status).toBe(200); expect(reloaded.body.data.status).toBe('SUBMITTED'); expect(reloaded.body.data.deliveredCount).toBe(0);
+  });
+  it('recovers missed Brevo receipts from provider history without resending email', async ({ onTestFinished }) => {
+    const campaign = await draft();
+    onTestFinished(async () => {
+      // Hard-bounce history would suppress the shared audience in subsequent tests.
+      await prisma.emailDeliveryLog.deleteMany({ where: { tenantId, campaignId: campaign.id } });
+      await prisma.campaign.delete({ where: { tenantId, id: campaign.id } });
+    });
+    await scoped(() => sendCampaign(campaign.id, tenantId, userId));
+    const recipients = await prisma.campaignContact.findMany({
+      where: { tenantId, campaignId: campaign.id }, orderBy: { id: 'asc' },
+    });
+    expect(recipients).toHaveLength(2);
+    const [delivered, bounced] = recipients;
+    const submittedAt = new Date(Date.now() - 24 * 60 * 60_000);
+    const providerDate = new Date(+submittedAt + 1000).toISOString();
+    const lookupAt = new Date(+submittedAt + 3 * 60_000);
+    await prisma.campaignContact.updateMany({ where: { tenantId, campaignId: campaign.id }, data: { submittedAt } });
+    const fetchHistory = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin + url.pathname).toBe('https://api.brevo.com/v3/smtp/statistics/events');
+      expect(init?.method).toBe('GET');
+      const row = recipients.find(recipient => recipient.messageId === url.searchParams.get('messageId'))!;
+      const identity = { messageId: row.messageId, email: row.email };
+      return Response.json({ events: [
+        { ...identity, event: row.id === bounced.id ? 'hardBounces' : 'delivered', date: providerDate },
+        { ...identity, event: 'requests', date: submittedAt.toISOString() },
+        { ...identity, email: 'unrelated@example.test', event: 'hardBounces', date: lookupAt.toISOString() },
+      ] });
+    });
+    try {
+      await reconcileBrevoStatuses(undefined, lookupAt);
+      expect(fetchHistory).toHaveBeenCalledTimes(2);
+      await processBrevoEvent({ event: 'delivered', email: delivered.email, 'message-id': delivered.messageId, ts_epoch: Date.parse(providerDate) });
+      const log = await prisma.emailDeliveryLog.findUniqueOrThrow({ where: { brevoMessageId: delivered.messageId! } });
+      expect(await prisma.emailEvent.count({ where: { tenantId, deliveryLogId: log.id, eventType: 'delivered' } })).toBe(1);
+    } finally {
+      fetchHistory.mockRestore();
+    }
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(await prisma.campaignContact.findUnique({ where: { id: delivered.id } })).toMatchObject({
+      status: 'delivered', deliveredAt: new Date(providerDate),
+    });
+    expect(await prisma.campaignContact.findUnique({ where: { id: bounced.id } })).toMatchObject({
+      status: 'hard_bounce', failureReason: 'HARD_BOUNCE', deliveredAt: null,
+    });
+    const reloaded = await request(`/marketing/campaigns/${campaign.id}`);
+    expect(reloaded.body.data).toMatchObject({ status: 'PARTIALLY_SENT', deliveredCount: 1, failedCount: 1 });
   });
   it('persists pasted URLs and sends real anchors in the Brevo htmlContent payload', async () => {
     const transport = await vi.importActual<typeof import('../../../../shared/services/email.service')>('../../../../shared/services/email.service');

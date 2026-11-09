@@ -7,6 +7,9 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): void 
   if (env.BACKGROUND_WORKERS_ENABLED && !['true', 'false'].includes(env.BACKGROUND_WORKERS_ENABLED)) {
     throw new Error('BACKGROUND_WORKERS_ENABLED must be true or false.');
   }
+  if (env.CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED && !['true', 'false'].includes(env.CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED)) {
+    throw new Error('CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED must be true or false.');
+  }
   if (env.DEAL_STAGE_WORKFLOW_ID?.trim() && !z.string().uuid().safeParse(env.DEAL_STAGE_WORKFLOW_ID.trim()).success) {
     throw new Error('DEAL_STAGE_WORKFLOW_ID must be a workflow UUID.');
   }
