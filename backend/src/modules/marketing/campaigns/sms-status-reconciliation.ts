@@ -5,6 +5,7 @@ import { getSmsBatch, isSmsConfigured, SmsSubmissionError } from '../../../share
 import { applyTextBeeEvidence } from './textbee-webhook';
 import { recalculateCampaignDelivery } from './campaign-delivery-status';
 import { smsSent } from './sms-campaign-outcomes';
+import { reconcileBrevoStatuses } from './brevo-status-reconciliation';
 
 const DAY = 86400000;
 const delays = [5, 15, 60];
@@ -87,10 +88,16 @@ export async function reconcileSmsStatuses(now = new Date()) {
   return checked;
 }
 
-export function startSmsStatusReconciliation() {
+export function startCampaignDeliveryReconciliation() {
   let running: Promise<unknown> | undefined;
+  let brevoCursor: string | undefined;
   const run = () => {
-    if (!running) running = reconcileSmsStatuses().catch(() => console.warn('[Campaigns]', { event: 'sms_reconciliation_failed', category: 'persistence' })).finally(() => { running = undefined; });
+    if (running) return;
+    running = Promise.all([
+      reconcileSmsStatuses().catch(() => console.warn('[Campaigns]', { event: 'sms_reconciliation_failed', category: 'persistence' })),
+      reconcileBrevoStatuses(brevoCursor).then(cursor => { brevoCursor = cursor; })
+        .catch(() => console.warn('[Campaigns]', { event: 'brevo_reconciliation_failed', category: 'persistence' })),
+    ]).finally(() => { running = undefined; });
   };
   // Starting after one minute also limits calls across frequent deployments.
   const timer = setInterval(run, 60000); timer.unref();

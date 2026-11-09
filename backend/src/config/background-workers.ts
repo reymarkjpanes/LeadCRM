@@ -4,3 +4,8 @@ export function shouldStartBackgroundWorkers(env: NodeJS.ProcessEnv = process.en
   if (env.BACKGROUND_WORKERS_ENABLED === 'false') return false;
   return env.NODE_ENV !== 'production';
 }
+
+export function shouldStartCampaignDeliveryReconciliation(env: NodeJS.ProcessEnv = process.env): boolean {
+  const setting = env.CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED;
+  return setting ? setting === 'true' : shouldStartBackgroundWorkers(env);
+}
