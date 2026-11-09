@@ -20,15 +20,15 @@ it('maps Lead fields into real Contact columns and normalized Product links afte
   expect(await fixture.db.contact.findUniqueOrThrow({ where: { id: contact.id }, select: {
     productInterests: true, productLinks: { select: { productInterestId: true } },
   } })).toEqual({ productInterests: ['CRM Enterprise'], productLinks: [{ productInterestId: 'product' }] });
-  expect(result.lead).toMatchObject({ status: lead.status, contactId: contact.id, accountId: contact.accountId });
+  expect(result.lead).toMatchObject({ status: 'Closed Deal', contactId: contact.id, accountId: contact.accountId });
   expect(result.lead.convertedAt).toBeInstanceOf(Date);
   expect(await fixture.db.contactDeal.count({ where: { contactId: contact.id, dealId: deal.id } })).toBe(1);
   expect(await fixture.db.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ value: 12500, stageId: 'won', title: 'Original sale' });
 });
-it('basic conversion preserves the Lead status and existing open Deal without recording a sale', async () => {
+it('basic conversion synchronizes the Lead and Contact with the open Deal without recording a sale', async () => {
   const { lead, deal } = await fixture.inquiry('Not yet sold', false);
   const result = await fixture.convert(lead.id);
-  expect(result.lead).toMatchObject({ status: lead.status, contactId: result.contact.id });
+  expect(result.lead).toMatchObject({ status: 'Inquiry', contactId: result.contact.id });
   expect(result.lead.convertedAt).toBeInstanceOf(Date);
   const contact = await fixture.db.contact.findUniqueOrThrow({ where: { id: result.contact.id } });
   // Overall status follows the linked Inquiry Deal; conversion does not invent a reply.
