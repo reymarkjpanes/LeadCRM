@@ -5,6 +5,7 @@ import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { captureFormSource } from '../services/source-tracking';
 import { FormInput } from './form-input';
 import { showCrmMutationError } from '@/shared/utils/crm-mutation-error';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 const textTypes = new Set(['single-line', 'multi-line', 'email', 'contact-email', 'phone', 'contact-phone', 'url', 'company-website', 'contact-name', 'company-name']);
 export default function PublicFormPage({ publicId }: { publicId: string }) {
   const receipt = useRef<{ content: string; requestId: string } | undefined>(undefined);
@@ -50,7 +51,12 @@ export default function PublicFormPage({ publicId }: { publicId: string }) {
   }, [form]);
   async function submit(e: React.FormEvent) {
     e.preventDefault(); if (!form || submitting.current) return;
-    const checked = validateFormValues(form.fields, values); setErrors(checked.errors); setError(''); setAttempted(true);
+    const checked = validateFormValues(form.fields, values);
+    for (const field of form.fields) {
+      const error = getNameDigitError(field.mapToField, values[field.id]);
+      if (error) checked.errors[field.id] = error;
+    }
+    setErrors(checked.errors); setError(''); setAttempted(true);
     if (Object.keys(checked.errors).length) { document.getElementById('input-' + Object.keys(checked.errors)[0])?.focus(); return; }
     if (emailField && checked.values[emailField.id] && !emailCheck.confirm(emailValue.trim())) {
       emailCheck.retry(); document.getElementById('input-' + emailField.id)?.focus(); return;

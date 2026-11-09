@@ -1,4 +1,5 @@
 'use client';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelPrimaryActionClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 
 import { useAuth } from '@/store/AuthContext';
@@ -78,6 +79,10 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
     if (!result.success) for (const issue of result.error.issues) {
       const field = issue.path[0] as keyof Draft | 'groupIds';
       if (!next[field]) next[field] = issue.message;
+    }
+    for (const field of ['firstName', 'lastName'] as const) {
+      const error = getNameDigitError(field, value[field]);
+      if (error) next[field] = error;
     }
     if (creating && StaffEmailSchema.safeParse(value.email).success && actor?.role !== 'Client Admin' && !EmployeeEmailSchema.safeParse(value.email).success) next.email = 'Only Client Admin users can approve an external staff email.';
     if (value.role && (!roles.some(role => role.name === value.role) ||
@@ -192,7 +197,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
   ];
   const input = (key: keyof Draft, required = false) => {
     const id = `user-${key}`;
-    const error = key === 'email' ? emailCheck.error || errors.email : errors[key];
+    const error = key === 'email' ? emailCheck.error || errors.email : getNameDigitError(key, draft[key]) ?? errors[key];
     const props = { id, placeholder: placeholders[key], value: draft[key], disabled: busy || !canEdit || (key === 'email' && !creating), required,
       'aria-invalid': !!error, 'aria-describedby': error ? `${id}-error` : undefined,
       onBlur: () => { setTouched(prev => ({ ...prev, [key]: true })); setErrors(prev => ({ ...prev, [key]: validation(draft)[key] })); if (key === 'email') emailCheck.retry(); },

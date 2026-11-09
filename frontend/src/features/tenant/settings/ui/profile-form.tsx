@@ -8,6 +8,7 @@ import { useAuth } from '@/store/AuthContext';
 import { authApi } from '@/shared/services/auth.api';
 import { UserAvatar } from '@/shared/components/user-avatar';
 import { normalizePhInput } from '@/shared/utils/ph-phone';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { AvatarCropDialog } from './avatar-crop-dialog';
 import { Input } from '@/shared/components/ui/input';
 import { ProfileEmailChange } from './profile-email-change';
@@ -28,6 +29,14 @@ export function ProfileForm() {
   const [file, setFile] = useState<File | null>(null);
   const busy = useRef(false);
   const picker = useRef<HTMLInputElement>(null);
+  const errors = { ...fieldErrors };
+  if (editing) {
+    for (const key of ['firstName', 'lastName'] as const) {
+      const digitError = getNameDigitError(key, draft[key]);
+      if (digitError) errors[key] = digitError;
+      else if (draft[key].length > PROFILE_FIELD_LIMITS[key]) errors[key] = PROFILE_FIELD_LIMIT_ERRORS[key];
+    }
+  }
   useEffect(() => { if (!editing) { setDraft(saved()); setFieldErrors({}); } }, [user, editing]);
   useEffect(() => { setEditing(false); setChangingEmail(false); setFile(null); setFieldErrors({}); }, [user?.id]);
   const save = async (event: React.FormEvent) => {
@@ -36,12 +45,12 @@ export function ProfileForm() {
     const parsed = UpdateSelfProfileSchema.safeParse(draft);
     const phoneInput = ProfilePhoneInputSchema.safeParse(draft.phone);
     if (!parsed.success || !phoneInput.success) {
-      const errors: Record<string, string> = parsed.success ? {} : Object.fromEntries(parsed.error.issues.flatMap(issue => issue.path.length ? [[String(issue.path[0]), issue.message]] : []));
-      if (!phoneInput.success) errors.phone = phoneInput.error.issues[0].message;
-      setFieldErrors(errors);
+      const validationErrors: Record<string, string> = parsed.success ? {} : Object.fromEntries(parsed.error.issues.flatMap(issue => issue.path.length ? [[String(issue.path[0]), issue.message]] : []));
+      if (!phoneInput.success) validationErrors.phone = phoneInput.error.issues[0].message;
+      setFieldErrors(validationErrors);
       return;
     }
-    if (Object.values(fieldErrors).some(Boolean)) return;
+    if (Object.values(errors).some(Boolean)) return;
     setFieldErrors({});
     busy.current = true;
     setSaving(true);
@@ -96,7 +105,7 @@ export function ProfileForm() {
             {key === 'phone' && <span aria-hidden="true" className="flex shrink-0 items-center border-r border-slate-200 dark:border-slate-700 px-3 text-sm text-slate-500">+63</span>}
             <Input id={`profile-${key}`} aria-label={label} value={draft[key]} disabled={!editing || saving} required={key === 'firstName' || key === 'lastName'}
               type={key === 'phone' ? 'tel' : 'text'} inputMode={key === 'phone' ? 'numeric' : undefined}
-              aria-invalid={!!fieldErrors[key]} aria-describedby={fieldErrors[key] ? `profile-${key}-error` : undefined}
+              aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `profile-${key}-error` : undefined}
               placeholder={key === 'phone' ? '9XXXXXXXXX' : `Enter ${label.toLowerCase()}...`}
               onChange={event => {
                 const value = event.target.value;
@@ -105,6 +114,10 @@ export function ProfileForm() {
                   return;
                 }
                 if (key !== 'phone' && value.length > PROFILE_FIELD_LIMITS[key]) {
+                  // Keep a name with digits editable even when the same paste exceeds the length limit.
+                  if (getNameDigitError(key, value) || value.length <= draft[key].length) {
+                    setDraft(current => ({ ...current, [key]: value }));
+                  }
                   setFieldErrors(current => ({ ...current, [key]: PROFILE_FIELD_LIMIT_ERRORS[key] }));
                   return;
                 }
@@ -112,9 +125,9 @@ export function ProfileForm() {
                 const result = (key === 'phone' ? ProfilePhoneInputSchema : SelfProfileFieldSchemas[key]).safeParse(value);
                 setFieldErrors(current => ({ ...current, [key]: result.success ? '' : result.error.issues[0].message }));
               }}
-              className={`w-full min-w-0 ${key === 'phone' ? 'flex-1 rounded-r-lg' : 'border rounded-lg'}  ${fieldErrors[key] ? 'border-red-500' : ''} px-3 py-2 text-sm disabled:cursor-default`} />
+              className={`w-full min-w-0 ${key === 'phone' ? 'flex-1 rounded-r-lg' : 'border rounded-lg'}  ${errors[key] ? 'border-red-500' : ''} px-3 py-2 text-sm disabled:cursor-default`} />
           </div>
-          {fieldErrors[key] && <p id={`profile-${key}-error`} role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors[key]}</p>}
+          {errors[key] && <p id={`profile-${key}-error`} role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{errors[key]}</p>}
         </div>)}
         <div><span className="block text-xs font-semibold text-slate-500 mb-1">Groups</span><p aria-label="Groups" className="text-sm">{user?.groups?.map(group => group.name).join(', ') || 'No groups assigned'}</p><p className="mt-1 text-xs text-slate-500">Managed in Team Management → Groups.</p></div>
         <div><span className="block text-xs font-semibold text-slate-500 mb-1">Job Title</span>

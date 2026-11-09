@@ -1,4 +1,5 @@
 'use client';
+import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
@@ -157,6 +158,8 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
   const phoneError = phoneCheck.error || errors.phone?.message || (phoneTouched ? validatePhMobile(phoneLocal) : null);
   const watchedFirstName = watch('firstName');
   const watchedLastName = watch('lastName');
+  const firstNameError = getNameDigitError('firstName', watchedFirstName) ?? errors.firstName?.message;
+  const lastNameError = getNameDigitError('lastName', watchedLastName) ?? errors.lastName?.message;
   const { matches: duplicateMatches, isChecking: isDuplicateChecking, hasDuplicates, dismiss: dismissDuplicates } = useDuplicateCheck({
     email: watchedEmail || undefined,
     phone: phoneLocal ? toE164(phoneLocal) : undefined,
@@ -212,6 +215,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
 
   const onFormSubmit = async (data: LeadFormData): Promise<void> => {
     if (!canSubmit || saving.current) return;
+    if (getNameDigitError('firstName', data.firstName) || getNameDigitError('lastName', data.lastName)) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email)) return;
     setPhoneTouched(true);
@@ -278,23 +282,23 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         <div className="space-y-4">
           <SectionHeader num={1} title="Basic Information" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={errors.firstName?.message}>
+            <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={firstNameError}>
               <Input
                 {...register('firstName')} maxLength={100} required aria-required="true"
                 id={`${fieldId}-firstName`}
-                aria-invalid={!!errors.firstName}
-                aria-describedby={errors.firstName ? `${fieldId}-firstName-error` : undefined}
-                className={`${inputCls}${errors.firstName ? `  ${errorInputCls}` : ''}`}
+                aria-invalid={!!firstNameError}
+                aria-describedby={firstNameError ? `${fieldId}-firstName-error` : undefined}
+                className={`${inputCls}${firstNameError ? `  ${errorInputCls}` : ''}`}
                 placeholder="Enter first name"
               />
             </FieldWrap>
-            <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={errors.lastName?.message}>
+            <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={lastNameError}>
               <Input
                 {...register('lastName')} maxLength={100} required aria-required="true"
                 id={`${fieldId}-lastName`}
-                aria-invalid={!!errors.lastName}
-                aria-describedby={errors.lastName ? `${fieldId}-lastName-error` : undefined}
-                className={`${inputCls}${errors.lastName ? `  ${errorInputCls}` : ''}`}
+                aria-invalid={!!lastNameError}
+                aria-describedby={lastNameError ? `${fieldId}-lastName-error` : undefined}
+                className={`${inputCls}${lastNameError ? `  ${errorInputCls}` : ''}`}
                 placeholder="Enter last name"
               />
             </FieldWrap>

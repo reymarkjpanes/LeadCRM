@@ -2,7 +2,7 @@ vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () 
 import React from 'react';
 vi.mock('@/shared/hooks/use-email-availability', () => ({ useEmailAvailability: (email: string) => ({ available: true, blocked: false, confirm: () => true, email: email.trim(), retry: vi.fn(), reject: vi.fn() }) }));
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { InlineEditRows } from '../inline-edit-rows';
 import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR as employeeMessage } from '@leadcrm/shared';
 import { toast } from '@/shared/utils/toast';
@@ -10,6 +10,12 @@ vi.mock('@/shared/utils/toast', () => ({ toast: { error: vi.fn(), success: vi.fn
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ users: [], organizations: [], contacts: [], pipelines: [] }) }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { role: 'Client Admin' }, userCan: () => true }) }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: () => true }));
+vi.mock('@/shared/hooks/use-cached-page', () => ({
+  useCachedPage: ({ params }: { params: { customFields?: boolean } }) => ({
+    data: params.customFields ? { fields: [], values: {}, files: [] } : undefined,
+    isInitialLoad: false, refetch: vi.fn(),
+  }),
+}));
 vi.mock('@/shared/hooks/use-scroll-to-error', () => ({ useScrollToError: vi.fn() }));
 vi.mock('@/features/tenant/crm/deals/ui/deal-account-field', () => ({ DealAccountField: () => <div /> }));
 vi.mock('@/features/tenant/crm/deals/ui/deal-contacts-field', () => ({ DealContactsField: () => <div /> }));
@@ -39,6 +45,66 @@ it('keeps an inline employee email edit open with an error toast and accepts cor
   await waitFor(() => expect(screen.queryByLabelText('Email')).toBeNull());
 });
 beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); });
+
+it.each([
+  ['Lead create', AddLeadForm, false],
+  ['Lead edit', AddLeadForm, true],
+  ['Contact create', ContactFormInner, false],
+  ['Contact edit', ContactFormInner, true],
+] as const)('%s checks both names before saving', async (_label, Form, editing) => {
+  const save = vi.fn();
+  const initialData = editing ? {
+    id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z',
+    firstName: 'Mar1a', lastName: 'Visitor', email: 'visitor@example.test', status: 'Inquiry' as const,
+  } : undefined;
+  const { container } = render(<Form initialData={initialData} onSave={save} onCancel={vi.fn()} />);
+  const first = screen.getByLabelText('First Name *');
+  const last = screen.getByLabelText('Last Name *');
+  if (!editing) {
+    fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'visitor@example.test' } });
+    fireEvent.input(first, { target: { value: 'Mar1a' } });
+  }
+  const firstError = screen.getByText('First name must not contain numbers.');
+  expect(first.getAttribute('aria-describedby')).toBe(firstError.id);
+  fireEvent.input(last, { target: { value: '123' } });
+  const lastError = screen.getByText('Last name must not contain numbers.');
+  expect(last.getAttribute('aria-describedby')).toBe(lastError.id);
+  expect(firstError.className).toBe(lastError.className);
+  expect(first).toHaveProperty('value', 'Mar1a');
+
+  const form = container.querySelector('form')!;
+  await act(async () => { fireEvent.submit(form); });
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.input(first, { target: { value: 'María' } });
+  expect(screen.queryByText(firstError.textContent!)).toBeNull();
+  expect(lastError.isConnected).toBe(true);
+  await act(async () => { fireEvent.submit(form); });
+  expect(save).not.toHaveBeenCalled();
+
+  fireEvent.input(last, { target: { value: 'O’Connor' } });
+  expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  await act(async () => { fireEvent.submit(form); });
+  expect(save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' }));
+});
+
+it.each([
+  ['firstName', 'First name', 'First name must not contain numbers.'],
+  ['lastName', 'Last name', 'Last name must not contain numbers.'],
+] as const)('blocks Save and Enter for an invalid inline %s and accepts a correction', async (field, label, message) => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<InlineEditRows canEdit onSave={save} rows={[{ label, apiField: field, value: '123John', required: true }]} />);
+  fireEvent.click(screen.getByRole('button', { name: `Edit ${label}` }));
+  const input = screen.getByLabelText(label);
+  expect(screen.getByText(message).id).toBe(input.getAttribute('aria-describedby'));
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.input(input, { target: { value: 'Anne-Marie' } });
+  expect(screen.queryByText(message)).toBeNull();
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: label })).toBeNull());
+  expect(save).toHaveBeenCalledExactlyOnceWith(field, 'Anne-Marie');
+});
 
 const emptyDeal: Deal = {
   id: 'deal', tenantId: 'tenant', pipelineId: 'pipeline', stageId: 'stage', title: '',

@@ -38,6 +38,35 @@ beforeEach(() => {
   vi.stubGlobal('fetch', mocks.fetch);
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it('validates renamed CRM name fields immediately and blocks posting until both are corrected', async () => {
+  definition.fields = definition.fields.map(field => field.mapToField === 'firstName'
+    ? { ...field, id: 'given', label: 'Given Name' }
+    : field.mapToField === 'lastName' ? { ...field, id: 'family', label: 'Family Name' } : field);
+  await mount();
+  change('Email Address', 'anne@example.com');
+  change('Given Name', '123John');
+  const firstError = screen.getByText('First name must not contain numbers.');
+  expect(screen.getByLabelText(/Given Name/).getAttribute('aria-describedby')).toBe(firstError.id);
+  change('Family Name', 'Dela Cru2z');
+  const lastError = screen.getByText('Last name must not contain numbers.');
+  expect(screen.getByLabelText(/Family Name/).getAttribute('aria-describedby')).toBe(lastError.id);
+  await advance();
+  await submit();
+  expect(posts()).toHaveLength(0);
+
+  change('Given Name', 'Anne-Marie');
+  expect(screen.queryByText(firstError.textContent!)).toBeNull();
+  expect(lastError.isConnected).toBe(true);
+  await submit();
+  expect(posts()).toHaveLength(0);
+  change('Family Name', 'O’Connor');
+  expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  await submit();
+  expect(posts()).toHaveLength(1);
+  expect(JSON.parse(posts()[0][1].body).values).toMatchObject({ given: 'Anne-Marie', family: 'O’Connor' });
+});
+
 it('captures legacy tagged links without a remember checkbox and reuses the submission identity on retry', async () => {
   definition.trackUrlParams = true;
   window.history.replaceState({}, '', '/forms/public?utm_source=google&utm_medium=cpc&utm_campaign=shared_before_cleanup');

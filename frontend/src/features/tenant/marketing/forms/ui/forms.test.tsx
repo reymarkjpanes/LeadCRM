@@ -50,6 +50,17 @@ const form = { ...defaultContactForm(), fields: withProductOptions(defaultContac
 beforeEach(() => { vi.resetAllMocks(); productCatalog.products = []; productCatalog.categories = []; permissions.edit = true; permissions.publish = true; vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} }); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('Forms UI', () => {
+  it('validates a sample name in the builder without changing the form definition', () => {
+    render(<FormBuilderPage form={form} onBack={() => {}} onFormUpdate={() => {}} />);
+    const first = screen.getByRole('textbox', { name: 'First Name' });
+    fireEvent.input(first, { target: { value: 'Mar1a' } });
+    expect(first).toHaveProperty('value', 'Mar1a');
+    expect(screen.getByText('First name must not contain numbers.').id).toBe(first.getAttribute('aria-describedby'));
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    fireEvent.input(first, { target: { value: 'María' } });
+    expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
+  });
+
   it('uses contextual fallbacks, preserves configured placeholders and retains public field design', () => {
     const text = `ñ é 中文 日本語 한글 مرحبا 😊 & ' " < > ∑ ₱ e\u0301`;
     const onChange = vi.fn();
