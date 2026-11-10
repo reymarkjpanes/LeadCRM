@@ -36,8 +36,8 @@ export const campaignsApi = {
     const res = await apiClient.get<{ success: boolean; data: ApiCampaign[]; meta: CampaignsResponse['meta'] }>(`/marketing/campaigns${buildQuery(query)}`);
     return { ...res, data: res.data.map(normalize) };
   },
-  get: async (id: string): Promise<CampaignDetailResponse> => {
-    const res = await apiClient.get<ApiCampaignDetailResponse>(`/marketing/campaigns/${id}`);
+  get: async (id: string, signal?: AbortSignal): Promise<CampaignDetailResponse> => {
+    const res = await apiClient.get<ApiCampaignDetailResponse>(`/marketing/campaigns/${id}`, { signal });
     return { ...res, data: { ...normalize(res.data), sendResult: res.data.sendResult } };
   },
   create: async (data: Partial<Campaign> | Partial<CreateCampaignInput>): Promise<CampaignResponse> => {

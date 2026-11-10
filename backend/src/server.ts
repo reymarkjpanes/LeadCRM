@@ -9,7 +9,7 @@ import { drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignSched
 import { purgeExpiredSessions } from './core/auth/session.service';
 import { startImportCleanupScheduler } from './modules/crm/imports/import-cleanup.service';
 import { validateEnvironment } from './config/validate-env';
-import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation } from './config/background-workers';
+import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation, shouldStartCampaignSubmissionWorkers } from './config/background-workers';
 import { startWorkflowScheduler } from './modules/automation/workflows/workflow-queue';
 import { startCampaignDeliveryReconciliation } from './modules/marketing/campaigns/sms-status-reconciliation';
 import prisma from './config/database.config';
@@ -69,30 +69,36 @@ let backgroundStarted = false;
 let backgroundDrain: Promise<void> | undefined;
 const backgroundWorkersEnabled = shouldStartBackgroundWorkers();
 const campaignDeliveryEnabled = shouldStartCampaignDeliveryReconciliation();
+const campaignSubmissionEnabled = shouldStartCampaignSubmissionWorkers();
 const dealStageWorkflowId = process.env.DEAL_STAGE_WORKFLOW_ID?.trim() || undefined;
 function startBackground() {
   if (backgroundStarted) return;
+  // Send Now also participates in maintenance/shutdown even when timers are off.
+  resumeCampaignSubmissions();
+  backgroundStarted = true;
+  if (campaignSubmissionEnabled) {
+    stopCampaignRecovery = startCampaignRecoveryScheduler();
+    stopCampaignSchedule = startCampaignScheduleScheduler();
+    console.info('[workers] Campaign scheduling and submission recovery started.');
+  } else {
+    console.info('[workers] Campaign scheduling and submission recovery disabled by policy.');
+  }
   if (campaignDeliveryEnabled) {
     stopCampaignDelivery = startCampaignDeliveryReconciliation();
     console.info('[workers] Campaign delivery reconciliation started.');
   }
   if (!backgroundWorkersEnabled) {
-    backgroundStarted = campaignDeliveryEnabled || !!dealStageWorkflowId;
     if (dealStageWorkflowId) {
       stopWorkflows = startWorkflowScheduler(dealStageWorkflowId);
       console.info('[workers] Scoped Deal stage workflow worker started.');
-    } else if (!backgroundStarted) {
+    } else {
       console.info('[workers] Background workers are disabled by production policy.');
     }
     return;
   }
-  resumeCampaignSubmissions();
-  backgroundStarted = true;
-  stopCampaignRecovery = startCampaignRecoveryScheduler();
   stopWorkflows = startWorkflowScheduler();
   stopSmsReplies = startSmsReplyScheduler();
   stopCustomerClassification = startCustomerClassificationScheduler();
-  stopCampaignSchedule = startCampaignScheduleScheduler();
   stopMailbox = startMailboxScheduler();
   if (process.env.NOTIFICATION_WORKER_ENABLED !== 'false') stopNotifications = startNotificationScheduler();
   stopSessions = startSessionPurgeScheduler();
@@ -105,7 +111,7 @@ async function stopBackground() {
   backgroundDrain = Promise.all([
     stopMailbox?.(), stopNotifications?.(), stopCampaignRecovery?.(), stopCampaignDelivery?.(),
     stopCampaignSchedule?.(), stopWorkflows?.(), stopSmsReplies?.(), stopCustomerClassification?.(),
-    stopSessions?.(), stopImports?.(), backgroundWorkersEnabled ? drainCampaignSubmissions() : undefined,
+    stopSessions?.(), stopImports?.(), drainCampaignSubmissions(),
   ]).then(() => undefined);
   try { await backgroundDrain; } finally { backgroundDrain = undefined; }
 }

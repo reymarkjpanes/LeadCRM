@@ -356,7 +356,9 @@ async function prepareCampaign(id: string, tenantId: string, expected: Scheduled
       ...resolved.records.filter(r => r.reason).map(r => ({ ...scope, campaignId: id, leadId: r.leadId, contactId: r.contactId, email: r.email, phone: r.phone, personalization: { ...r.personalization, ...sender }, status: 'excluded', failureReason: r.reason })),
     ] });
     if (campaign.type === 'EMAIL') await tx.emailDeliveryLog.createMany({ data: sends.map(r => ({ id: r.logId, ...scope, campaignId: id, leadId: r.leadId, contactId: r.contactId, fromEmail: sender.sender_email, toEmail: r.email!, subject: r.subject, status: 'pending' })) });
-    await tx.campaign.update({ where: { id, ...owned }, data: { recipientCount: eligible.length, submittedById, ...(campaign.type === 'SMS' ? { smsDeviceId, smsTrackingVersion: 0 } : {}), ...content } });
+    const scheduleConfig = expected ? CampaignScheduleConfigSchema.parse(campaign.scheduleConfig) : undefined;
+    if (scheduleConfig) delete scheduleConfig.scheduleFailureReason;
+    await tx.campaign.update({ where: { id, ...owned }, data: { recipientCount: eligible.length, submittedById, ...(scheduleConfig ? { scheduleConfig } : {}), ...(campaign.type === 'SMS' ? { smsDeviceId, smsTrackingVersion: 0 } : {}), ...content } });
     return { recipients: sends, leaseId, smsDeviceId };
   }, { timeout: 30000 });
   activePreparations.add(preparation);
@@ -588,20 +590,25 @@ export async function dispatchDueCampaigns(now = new Date()) {
       const definition = AudiencePreviewSchema.parse({ source: approved.source, matchMode: approved.matchMode, conditions: approved.conditions });
       const prepared = await crmActor.run({ tenantId: row.tenantId, userId: row.scheduledById, readRecords: true }, () => prepareCampaign(row.id, row.tenantId, { scheduledFor: row.scheduledFor!, scheduledById: row.scheduledById!, updatedAt: row.updatedAt, definition }, row.scheduledById!));
       dispatched++;
-      console.info('[Campaigns]', { event: 'schedule_claimed', campaignId: row.id, tenantId: row.tenantId, scheduledFor: row.scheduledFor.toISOString() });
+      console.info('[Campaigns]', { event: 'schedule_claimed', campaignId: row.id, tenantId: row.tenantId, scheduledFor: row.scheduledFor.toISOString(), delayMs: Math.max(0, Date.now() - +row.scheduledFor) });
       void trackSubmission(row.id, row.tenantId, row.scheduledById, prepared).catch(() => console.error('[Campaigns] Scheduled submission interrupted; review persisted recipient outcomes.'));
     } catch (error) {
       if (!acceptingSubmissions) return; // Shutdown preserves an unclaimed schedule for restart.
       // An expected-state conflict means another runner/cancel/reschedule won.
       if (error instanceof AppError && error.code === 'CAMPAIGN_CLAIM_CONFLICT') return;
+      const saved = row.scheduleConfig && typeof row.scheduleConfig === 'object' && !Array.isArray(row.scheduleConfig) ? row.scheduleConfig : {};
+      const unclaimed = { id: row.id, tenantId: row.tenantId, status: 'SCHEDULED' as const, scheduledFor: row.scheduledFor, scheduledById: row.scheduledById, updatedAt: row.updatedAt, submissionStartedAt: null };
       if (error instanceof SmsSubmissionError && (error.outcome === 'unconfirmed' || error.httpStatus === 429)
         || !(error instanceof AppError) && !(error instanceof z.ZodError)) {
         console.warn('[Campaigns]', { event: 'schedule_preflight_deferred', campaignId: row.id, tenantId: row.tenantId, code: error instanceof SmsSubmissionError ? `TEXTBEE_HTTP_${error.httpStatus ?? 'UNAVAILABLE'}` : 'INFRASTRUCTURE_UNAVAILABLE' });
+        const reason = error instanceof SmsSubmissionError
+          ? `TextBee gateway check temporarily unavailable${error.httpStatus ? ` (HTTP ${error.httpStatus})` : ''}. The schedule will retry.`
+          : 'Campaign preparation temporarily unavailable. The schedule will retry; check backend scheduler logs.';
+        if (saved.scheduleFailureReason !== reason) await prisma.campaign.updateMany({ where: unclaimed, data: { scheduleConfig: { ...saved, scheduleFailureReason: reason } } });
         return;
       }
       const reason = (error instanceof z.ZodError ? 'Approved scheduling configuration is invalid. Repair and schedule again.' : error.message).slice(0, 1000);
-      const saved = row.scheduleConfig && typeof row.scheduleConfig === 'object' && !Array.isArray(row.scheduleConfig) ? row.scheduleConfig : {};
-      await prisma.campaign.updateMany({ where: { id: row.id, tenantId: row.tenantId, status: 'SCHEDULED', scheduledFor: row.scheduledFor, scheduledById: row.scheduledById, updatedAt: row.updatedAt, submissionStartedAt: null }, data: { status: 'DRAFT', scheduledFor: null, scheduledById: null, scheduleConfig: { ...saved, scheduleFailureReason: reason } } });
+      await prisma.campaign.updateMany({ where: unclaimed, data: { status: 'DRAFT', scheduledFor: null, scheduledById: null, scheduleConfig: { ...saved, scheduleFailureReason: reason } } });
       console.warn('[Campaigns]', { event: 'schedule_preflight_failed', campaignId: row.id, tenantId: row.tenantId, code: error instanceof AppError ? error.code ?? `VALIDATION_${error.statusCode}` : 'INVALID_SCHEDULE' });
     }
   });
@@ -615,8 +622,8 @@ export function startCampaignScheduleScheduler() {
     const resumed = await resumePendingCampaigns();
     console.info('[Campaigns]', { event: 'scheduler_sweep', dispatched, resumed, durationMs: Math.round(performance.now() - started) });
   })().catch(() => console.error('[Campaigns]', { event: 'scheduler_sweep_failed' })).finally(() => { running = undefined; }); };
-  console.info('[Campaigns]', { event: 'scheduler_started', intervalMs: 30000 });
+  console.info('[Campaigns]', { event: 'scheduler_started', intervalMs: 5000 });
   run();
-  const interval = setInterval(run, 30_000); interval.unref();
+  const interval = setInterval(run, 5000); interval.unref();
   return async () => { clearInterval(interval); await running; };
 }

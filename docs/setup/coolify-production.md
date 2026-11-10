@@ -17,7 +17,8 @@ migrations are pending, startup stops and prints the plan; apply them only after
 explicit approval. Production background workers default to disabled and require
 `BACKGROUND_WORKERS_ENABLED=true` after the queues and provider behavior have been
 reviewed. Set `DEAL_STAGE_WORKFLOW_ID` to opt in one stage-move workflow while the
-broader worker switch is off. Set `CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED=true`
+broader worker switch is off. Set `CAMPAIGN_SUBMISSION_WORKERS_ENABLED=true` to
+start scheduled Email/SMS submission and recovery independently. Set `CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED=true`
 to recover missing Brevo and TextBee campaign receipts through provider lookups
 with the broader worker switch off. The lookup worker updates delivery facts and
 does not submit or resend campaigns. The backend image retains Prisma CLI and the deployment helpers. Mount
@@ -29,6 +30,28 @@ secret and HTTPS URL inputs; it exposes only container-network ports.
 See [local acceptance and release gate](../verification/system-qa.md) for counted
 disposable checks and clean-checkout/container validation. A source check does not
 establish successful container startup or production deployment.
+
+### Scheduled campaigns
+
+Before setting `CAMPAIGN_SUBMISSION_WORKERS_ENABLED=true`, confirm the active API
+release, guarded start command, runtime worker settings, and maintenance state.
+Inspect overdue schedules for the persisted UTC due time, approved scheduling
+actor, and existing attempt or provider evidence. Confirm that the pending
+campaigns are still intended to go out. The worker starts with an immediate sweep
+and can claim untouched overdue schedules as soon as it starts.
+
+Keep `BACKGROUND_WORKERS_ENABLED` and `CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED`
+at their existing values. After the coordinated release, check backend logs for
+`scheduler_started` with `intervalMs: 5000`, then for recurring
+`scheduler_sweep` events. Match `schedule_claimed` to the stored UTC due time and
+use `delayMs` to measure the time to claim. Use `schedule_preflight_deferred`,
+`schedule_preflight_failed`, and recipient submission outcomes to distinguish
+worker, validation, and provider problems.
+
+Verify any live Email and SMS canaries with designated test recipients. Compare
+the campaign list and open details with the persisted state, then confirm provider
+acceptance and later delivery evidence separately. Review existing uncertain
+attempts against provider history before any manual resend.
 
 | Setting | Frontend | Backend |
 | --- | --- | --- |
@@ -84,6 +107,7 @@ and do not prevent the rest of the CRM from starting.
 | DATABASE_URL | backend/prisma/schema.prisma; config/database.config.ts; config/validate-env.ts | Secret, core required | Intended development database | Private Coolify PostgreSQL `leadcrm`, restricted application role and verified TLS |
 | DIRECT_URL | backend/prisma/schema.prisma; scripts/deploy-crm-imports.cjs | Secret, deployment required | Development migration connection | Same private Coolify database, restricted migration role and verified TLS |
 | BACKGROUND_WORKERS_ENABLED | backend/src/config/background-workers.ts; backend/src/server.ts | Boolean, optional; production defaults false | Development defaults true | Keep false during initial deployment. Set true only after reviewing queues and approving automated provider work. |
+| CAMPAIGN_SUBMISSION_WORKERS_ENABLED | backend/src/config/background-workers.ts; backend/src/server.ts | Boolean, optional | Unset inherits the general worker policy | Set true to process scheduled campaigns and recover safe submission work independently. Set false to stop these timers. |
 | CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED | backend/src/server.ts; backend/src/modules/marketing/campaigns/sms-status-reconciliation.ts | Boolean, optional | Unset uses the general worker policy | Set true to check existing Brevo message IDs and TextBee batch IDs independently of submission workers. |
 | DEAL_STAGE_WORKFLOW_ID | backend/src/server.ts; backend/src/modules/automation/workflows/workflow-queue.ts | UUID, optional | Unset keeps the scoped worker disabled | With the other workers disabled, opt in one Deal Updated workflow whose saved run definition contains a single Move Deal Stage action. The API wakes it after a Deal save commits. |
 | JWT_SECRET | backend/src/config/app.config.ts; core/auth/jwt.service.ts; api/middleware/auth.middleware.ts | Secret, core required | Local secret may differ | Preserve Render secret and existing sessions |
@@ -160,7 +184,7 @@ provider cooldowns and persisted retry deadlines take precedence. At normal load
 new mail appears after the next check plus processing and SSE delivery time. This
 is periodic synchronization, not instantaneous provider push.
 
-The same backend process checks persisted scheduled sends every ten seconds.
+The same backend process checks persisted scheduled Gmail sends every ten seconds.
 Keep the existing migration-before-start command above. There is no extra cron
 service or separate queue subscription. Startup logs include `[mailbox-worker]`
 with the interval, and each bounded sync reports counts and duration without email

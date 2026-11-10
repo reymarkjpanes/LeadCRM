@@ -1498,6 +1498,41 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
   async function finished(id: string) {
     await vi.waitFor(async () => expect((await prisma.campaign.findUniqueOrThrow({ where: { id } })).submissionFinishedAt).not.toBeNull(), { timeout: 10000 });
   }
+  it('claims both channels on the next five-second sweep after an initial discovery failure', async () => {
+    const campaigns = [await scheduledFixture('EMAIL', 1), await scheduledFixture('SMS', 1)];
+    const ids = campaigns.map(campaign => campaign.id);
+    const due = new Date(Date.now() + 1000);
+    await prisma.campaign.updateMany({ where: { id: { in: ids } }, data: { scheduledFor: due } });
+    const discover = vi.spyOn(prisma.campaign, 'findMany').mockRejectedValueOnce(new Error('Fixture discovery failure'));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stop = startCampaignScheduleScheduler();
+    try {
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledWith('[Campaigns]', { event: 'scheduler_sweep_failed' }));
+      expect(sendMail).not.toHaveBeenCalled();
+      expect(sendSms).not.toHaveBeenCalled();
+      await Promise.all(ids.map(finished));
+      const rows = await prisma.campaign.findMany({ where: { id: { in: ids } } });
+      for (const row of rows) {
+        expect(row.status).toBe('SUBMITTED');
+        expect(+row.submissionStartedAt! - +due).toBeGreaterThanOrEqual(0);
+      }
+      expect(sendMail).toHaveBeenCalledOnce();
+      expect(sendSms).toHaveBeenCalledOnce();
+    } finally {
+      await stop();
+      discover.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
+  it.each(['EMAIL', 'SMS'] as const)('discovers a persisted overdue %s schedule at startup', async type => {
+    const campaign = await scheduledFixture(type, 1);
+    const stop = startCampaignScheduleScheduler();
+    try { await finished(campaign.id); } finally { await stop(); }
+    expect(type === 'EMAIL' ? sendMail : sendSms).toHaveBeenCalledOnce();
+    expect(await dispatchDueCampaigns()).toBe(0);
+  });
+
   it.each([['EMAIL', 1], ['EMAIL', 2], ['EMAIL', 6], ['SMS', 1], ['SMS', 3]] as const)('dispatches scheduled %s to all %i recipients and reports Submitted consistently', async (type, total) => {
     const campaign = await scheduledFixture(type, total);
     let release!: () => void;
@@ -1558,10 +1593,29 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     const campaign = await scheduledFixture('SMS', 1);
     vi.mocked(getSmsDeviceId).mockRejectedValueOnce(new SmsSubmissionError('unconfirmed', 503));
     expect(await dispatchDueCampaigns()).toBe(0);
-    expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({ status: 'SCHEDULED', submissionStartedAt: null });
+    expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({
+      status: 'SCHEDULED', submissionStartedAt: null,
+      scheduleConfig: { scheduleFailureReason: expect.stringContaining('TextBee gateway check temporarily unavailable (HTTP 503)') },
+    });
     expect(sendSms).not.toHaveBeenCalled();
     expect(await dispatchDueCampaigns()).toBe(1); await finished(campaign.id);
     expect(sendSms).toHaveBeenCalledOnce();
+    const row = await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(row.scheduleConfig).not.toHaveProperty('scheduleFailureReason');
+  });
+
+  it.each(['EMAIL', 'SMS'] as const)('claims %s at the saved UTC boundary, and only once across workers', async type => {
+    const campaign = await scheduledFixture(type, 1);
+    const due = new Date(Date.now() - 1);
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { scheduledFor: due } });
+    const transport = type === 'EMAIL' ? sendMail : sendSms;
+    expect(await dispatchDueCampaigns(new Date(+due - 1))).toBe(0);
+    expect(transport).not.toHaveBeenCalled();
+    const claims = await Promise.all([dispatchDueCampaigns(due), dispatchDueCampaigns(due)]);
+    expect(claims.reduce((sum, count) => sum + count)).toBe(1);
+    await finished(campaign.id);
+    expect(await dispatchDueCampaigns(new Date(+due + 1))).toBe(0);
+    expect(transport).toHaveBeenCalledOnce();
   });
   it('recovers safe untouched recipients after a crash, preserving accepted and uncertain outcomes', async () => {
     const campaign = await scheduledFixture('EMAIL', 6);

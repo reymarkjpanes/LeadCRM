@@ -246,7 +246,7 @@ export default function CampaignsPage() {
   const tableColumns = useModuleTableColumns('campaigns', CAMPAIGNS_TABLE_COLUMNS, campaignColumns.filter(column => canViewReports || !['submitted', 'opened', 'clicked', 'engagement'].includes(column.id)));
 
   if (showBuilder) {
-    return <CampaignBuilder key={`${user?.tenantId}`} initialCampaign={editingCampaign} initialType={builderInitialType} initialContent={builderInitialContent} initialSubject={builderSubject} canSend={canSendCampaign}
+    return <CampaignBuilder key={`${user?.tenantId}:${user?.id}:${editingCampaign?.id ?? 'new'}`} initialCampaign={editingCampaign} initialType={builderInitialType} initialContent={builderInitialContent} initialSubject={builderSubject} canSend={canSendCampaign}
       onBack={() => { setShowBuilder(false); setEditingCampaign(undefined); setBuilderInitialContent(undefined); setBuilderSubject(''); refetchCampaigns(); }} />;
   }
 

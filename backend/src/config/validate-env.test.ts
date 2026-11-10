@@ -16,6 +16,12 @@ it('requires a boolean setting for independent campaign delivery reconciliation'
   expect(() => validateEnvironment({ ...production, CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'yes' })).toThrow('CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED');
   expect(() => validateEnvironment({ ...production, CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'true' })).not.toThrow();
 });
+it.each(['yes', '1', 'TRUE'])('rejects invalid campaign submission worker setting %s', CAMPAIGN_SUBMISSION_WORKERS_ENABLED => {
+  expect(() => validateEnvironment({ ...production, CAMPAIGN_SUBMISSION_WORKERS_ENABLED })).toThrow('CAMPAIGN_SUBMISSION_WORKERS_ENABLED');
+});
+it.each(['true', 'false'])('accepts campaign submission worker setting %s', CAMPAIGN_SUBMISSION_WORKERS_ENABLED => {
+  expect(() => validateEnvironment({ ...production, CAMPAIGN_SUBMISSION_WORKERS_ENABLED })).not.toThrow();
+});
 it('requires a workflow UUID for the scoped stage worker', () => {
   expect(() => validateEnvironment({ ...production, DEAL_STAGE_WORKFLOW_ID: 'Cancellation workflow' })).toThrow('DEAL_STAGE_WORKFLOW_ID');
   expect(() => validateEnvironment({ ...production, DEAL_STAGE_WORKFLOW_ID: 'a853ecf3-9866-4f8b-a4fb-4738eb9a2012' })).not.toThrow();
