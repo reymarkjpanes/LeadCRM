@@ -11,6 +11,7 @@ import { normalizePhInput } from '@/shared/utils/ph-phone';
 import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { AvatarCropDialog } from './avatar-crop-dialog';
 import { Input } from '@/shared/components/ui/input';
+import { Button } from '@/shared/components/ui/button';
 import { ProfileEmailChange } from './profile-email-change';
 
 const fields = [
@@ -28,7 +29,17 @@ export function ProfileForm() {
   const [saving, setSaving] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const busy = useRef(false);
+  const suppressEmailFocus = useRef(false);
   const picker = useRef<HTMLInputElement>(null);
+  const canChangeEmail = editing && user?.role === 'Client Admin';
+  const openEmailChange = () => {
+    if (canChangeEmail && !saving) setChangingEmail(true);
+  };
+  const closeEmailChange = () => {
+    // The dialog restores focus to this input when it unmounts.
+    suppressEmailFocus.current = true;
+    setChangingEmail(false);
+  };
   const errors = { ...fieldErrors };
   if (editing) {
     for (const key of ['firstName', 'lastName'] as const) {
@@ -96,7 +107,7 @@ export function ProfileForm() {
     <form noValidate onSubmit={save} className="bg-card border border-gray-200 dark:border-white/[0.06] rounded-2xl p-5 space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div><h3 className="text-sm font-semibold">Personal Information</h3><p className="text-xs text-slate-500 mt-1">Your name and contact details visible to teammates</p></div>
-        {!editing && <button type="button" onClick={() => { setDraft(saved()); setEditing(true); }} className="flex items-center gap-1 border rounded-lg px-3 py-2 text-sm"><Pencil size={13} />Edit</button>}
+        {!editing && <Button type="button" onClick={() => { setDraft(saved()); setEditing(true); }} className="h-auto gap-1 border border-transparent px-3 py-2 text-sm [&_svg]:size-[13px]"><Pencil size={13} />Edit</Button>}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {fields.map(([key, label]) => <div key={key}>
@@ -133,10 +144,15 @@ export function ProfileForm() {
         <div><span className="block text-xs font-semibold text-slate-500 mb-1">Job Title</span>
           <p aria-label="Job Title" className="break-words text-sm">{user?.jobTitle || '—'}</p>
         </div>
-        <div><span className="block text-xs font-semibold text-slate-500 mb-1">Email Address</span>
-          <p aria-label="Email Address" className="cursor-default break-all text-sm">{user?.email || '—'}</p>
-          {user?.role === 'Client Admin' && <button type="button" disabled={saving || editing} onClick={() => setChangingEmail(true)}
-            className="mt-2 text-sm font-medium text-primary disabled:opacity-50">Change email</button>}
+        <div><label htmlFor={canChangeEmail ? 'profile-email' : undefined} className="block text-xs font-semibold text-slate-500 mb-1">Email Address</label>
+          {canChangeEmail ? <Input id="profile-email" value={user?.email ?? ''} readOnly disabled={saving}
+            aria-haspopup="dialog" aria-expanded={changingEmail} aria-controls={changingEmail ? 'profile-email-change-dialog' : undefined}
+            onClick={openEmailChange} onFocus={() => {
+              if (suppressEmailFocus.current) { suppressEmailFocus.current = false; return; }
+              openEmailChange();
+            }}
+            className="w-full min-w-0 cursor-pointer rounded-lg px-3 py-2 text-sm disabled:cursor-default" />
+            : <p aria-label="Email Address" className="cursor-default break-all text-sm">{user?.email || '—'}</p>}
         </div>
       </div>
       {editing && <div className="flex justify-end gap-2">
@@ -144,7 +160,7 @@ export function ProfileForm() {
         <button type="submit" disabled={saving} className="bg-primary text-white rounded-lg px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Save Changes'}</button>
       </div>}
     </form>
-    {changingEmail && user?.role === 'Client Admin' && <ProfileEmailChange onClose={() => setChangingEmail(false)} />}
+    {changingEmail && canChangeEmail && <ProfileEmailChange onClose={closeEmailChange} />}
     {file && <AvatarCropDialog file={file} onClose={() => setFile(null)} onApply={async blob => {
       if (!user) throw new Error('Authentication required');
       const expectedUserId = user.id;

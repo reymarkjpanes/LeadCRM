@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildPasswordResetEmail, buildWelcomeCredentialsEmail } from '../auth-email.templates';
+import { buildPasswordResetEmail, buildProfileEmailChangeEmail, buildWelcomeCredentialsEmail } from '../auth-email.templates';
 import { getAuthAppOrigin, getPasswordResetTtlMinutes } from '../../helpers/auth-email-config';
 
 beforeEach(() => {
@@ -30,6 +30,32 @@ describe('shared authentication templates', () => {
     expect(html).not.toContain('<synthetic&credential>');
     expect(html).toContain('href="https://lead-crm.tech/login"');
     expect(html).toContain('the first time you sign in');
+  });
+  it('brands email-change verification with selectable escaped code and the fixed 15-minute lifetime', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2027-02-01T00:00:00Z'));
+    vi.stubEnv('PASSWORD_RESET_TTL_MINUTES', '25');
+    const html = buildProfileEmailChangeEmail('<synthetic&code>');
+    expect(html).toContain('>Confirm your LeadCRM email address</h1>');
+    expect(html).toContain('src="https://lead-crm.tech/leadcrm_logo.png"');
+    expect(html).toContain('Camxian Technologies');
+    expect(html).toContain('font-family:Arial, Helvetica, sans-serif');
+    expect(html).toContain('font-family:monospace');
+    expect(html).toContain('word-break:break-all');
+    expect(html).toContain('<strong>&lt;synthetic&amp;code&gt;</strong>');
+    expect(html).not.toContain('<synthetic&code>');
+    expect(html).toContain('Enter the verification code below in Profile Settings');
+    expect(html).toContain('This code expires in 15 minutes.');
+    expect(html).toContain('You can safely ignore this email. Your account email address will stay unchanged unless you verify the change.');
+    expect(html).toContain('The LeadCRM team');
+    for (const path of ['/privacy-policy', '/terms-of-service', '/help']) expect(html).toContain(`href="https://lead-crm.tech${path}"`);
+    expect(html).toContain('href="mailto:leadcrm.tech@gmail.com"');
+    expect(html).toContain('&copy; 2027 LeadCRM &middot; Camxian Technologies');
+    expect(html).not.toMatch(/reset-password|Reset password|This link expires|<button|<script|<svg/);
+  });
+  it('centers a six-digit code without altering leading zeros or inserting spaces', () => {
+    const html = buildProfileEmailChangeEmail('000042');
+    expect(html).toContain('<strong>000042</strong>');
+    expect(html).toContain('align="center" style="padding:18px 20px;font-family:monospace;font-size:32px;letter-spacing:6px');
   });
   it('uses the configured expiry and exactly the same reset URL for CTA and fallback', () => {
     vi.stubEnv('PASSWORD_RESET_TTL_MINUTES', '25');

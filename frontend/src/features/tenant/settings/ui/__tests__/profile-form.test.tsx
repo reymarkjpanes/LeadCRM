@@ -1,13 +1,17 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-const mocks = vi.hoisted(() => ({ save: vi.fn(), success: vi.fn(), error: vi.fn(), upload: vi.fn(), requestEmail: vi.fn() }));
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+const mocks = vi.hoisted(() => ({ save: vi.fn(), success: vi.fn(), error: vi.fn(), upload: vi.fn(), requestEmail: vi.fn(), get: vi.fn() }));
 const user = { id: 'me', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@camxian.com', role: 'User', jobTitle: 'Engineer' };
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user, updateProfile: mocks.save, applyAuthUser: vi.fn() }) }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error: mocks.error } }));
 vi.mock('@/shared/services/auth.api', () => ({ authApi: { uploadAvatar: mocks.upload, requestProfileEmailChange: mocks.requestEmail } }));
+vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
 import { ProfileForm } from '../profile-form';
-beforeEach(() => { vi.resetAllMocks(); user.role = 'User'; });
+beforeEach(() => {
+  vi.resetAllMocks(); user.role = 'User';
+  mocks.get.mockResolvedValue({ success: true, data: { available: true } });
+});
 afterEach(cleanup);
 
 it('checks names immediately and retains the length rule after digits are removed', async () => {
@@ -59,14 +63,127 @@ it('opens the verified email-change flow only for a Client Administrator', async
   user.role = 'Client Admin';
   mocks.requestEmail.mockResolvedValue({ success: true });
   render(<ProfileForm />);
-  fireEvent.click(screen.getByRole('button', { name: 'Change email' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  act(() => screen.getByLabelText('Email Address').focus());
   fireEvent.change(screen.getByLabelText('New email address'), { target: { value: ' New@Camxian.com ' } });
   fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'current password' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send verification code' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
   expect(await screen.findByLabelText('Verification code')).toBeTruthy();
   expect(mocks.requestEmail).toHaveBeenCalledExactlyOnceWith({ email: 'new@camxian.com', currentPassword: 'current password' });
+  expect((screen.getByLabelText('Email Address') as HTMLInputElement).value).toBe(user.email);
 });
+
+it.each(['Client Admin', 'User', 'Sales', 'Admin'])('shows plain email and the shared primary Edit button for %s', role => {
+  user.role = role;
+  render(<ProfileForm />);
+  expect(screen.getByLabelText('Email Address').tagName).toBe('P');
+  expect(screen.getByLabelText('Email Address').textContent).toBe(user.email);
+  expect(screen.queryByText('Change email')).toBeNull();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  const edit = screen.getByRole('button', { name: 'Edit' });
+  expect(edit.classList.contains('bg-primary')).toBe(true);
+  expect(edit.querySelector('svg.lucide-pencil')).toBeTruthy();
+});
+
+it('reveals a read-only email input on Edit and opens the modal only when clicked', () => {
+  user.role = 'Client Admin';
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const email = screen.getByLabelText('Email Address') as HTMLInputElement;
+  expect(email.tagName).toBe('INPUT');
+  expect(email.value).toBe(user.email);
+  expect(email.readOnly).toBe(true);
+  expect(email.disabled).toBe(false);
+  expect(email.getAttribute('aria-haspopup')).toBe('dialog');
+  expect(email.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(email);
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(screen.getByRole('dialog').id).toBe(email.getAttribute('aria-controls'));
+  expect(email.getAttribute('aria-expanded')).toBe('true');
+});
+
+it.each(['close button', 'Escape', 'backdrop'])('preserves drafts and suppresses restored focus after %s dismissal', async dismissal => {
+  user.role = 'Client Admin';
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const first = screen.getByLabelText('First Name') as HTMLInputElement;
+  const last = screen.getByLabelText('Last Name') as HTMLInputElement;
+  const phone = screen.getByLabelText('Phone Number') as HTMLInputElement;
+  const email = screen.getByLabelText('Email Address') as HTMLInputElement;
+  fireEvent.change(first, { target: { value: 'Unsaved' } });
+  fireEvent.change(last, { target: { value: 'Reyes2' } });
+  fireEvent.change(phone, { target: { value: '9123456789' } });
+  act(() => email.focus());
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  if (dismissal === 'close button') fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  else if (dismissal === 'Escape') fireEvent.keyDown(window, { key: 'Escape' });
+  else fireEvent.click(screen.getByRole('dialog').previousElementSibling!);
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(document.activeElement).toBe(email);
+  expect(email.getAttribute('aria-expanded')).toBe('false');
+  expect(email.value).toBe(user.email);
+  expect(first.value).toBe('Unsaved');
+  expect(last.value).toBe('Reyes2');
+  expect(phone.value).toBe('9123456789');
+  expect(screen.getByText('Last name must not contain numbers.')).toBeTruthy();
+
+  // A click on the already-focused trigger must still reopen the modal.
+  fireEvent.click(email);
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.keyDown(window, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  act(() => first.focus());
+  act(() => email.focus());
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+});
+
+it('saves only ordinary profile fields after modal dismissal and Cancel still discards edits', async () => {
+  user.role = 'Client Admin';
+  mocks.save.mockResolvedValue(undefined);
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Anne' } });
+  fireEvent.change(screen.getByLabelText('Phone Number'), { target: { value: '9123456789' } });
+  act(() => screen.getByLabelText('Email Address').focus());
+  fireEvent.change(screen.getByLabelText('New email address'), { target: { value: 'pending@example.test' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ firstName: 'Anne', lastName: 'Lovelace', phone: '+639123456789' });
+  expect(screen.getByLabelText('Email Address').textContent).toBe(user.email);
+  expect(mocks.requestEmail).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Discard' } });
+  act(() => screen.getByLabelText('Email Address').focus());
+  fireEvent.keyDown(window, { key: 'Escape' });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('Ada');
+  expect(screen.getByLabelText('Email Address').tagName).toBe('P');
+  expect(mocks.save).toHaveBeenCalledTimes(1);
+});
+
+it.each(['User', 'Sales', 'Admin', 'Client Administrator'])('keeps email read-only and other fields editable for %s', role => {
+  user.role = role;
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const email = screen.getByLabelText('Email Address');
+  expect(email.tagName).toBe('P');
+  expect((screen.getByLabelText('First Name') as HTMLInputElement).disabled).toBe(false);
+  expect((screen.getByLabelText('Last Name') as HTMLInputElement).disabled).toBe(false);
+  expect((screen.getByLabelText('Phone Number') as HTMLInputElement).disabled).toBe(false);
+  fireEvent.click(email);
+  fireEvent.focus(email);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByText('Change email')).toBeNull();
+  expect(mocks.get).not.toHaveBeenCalled();
+  expect(mocks.requestEmail).not.toHaveBeenCalled();
+});
+
 it('waits for server confirmation, blocks duplicate saves and remains editable on failure', async () => {
+  user.role = 'Client Admin';
   let reject!: (reason: Error) => void;
   mocks.save.mockReturnValue(new Promise((_, r) => { reject = r; }));
   render(<ProfileForm />);
@@ -75,6 +192,7 @@ it('waits for server confirmation, blocks duplicate saves and remains editable o
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.success).not.toHaveBeenCalled();
   expect((screen.getByText('Saving…') as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Email Address') as HTMLInputElement).disabled).toBe(true);
   reject(new Error('Server rejected update'));
   await waitFor(() => expect(mocks.error).toHaveBeenCalledWith('Server rejected update'));
   expect(screen.getByText('Save Changes')).toBeTruthy();

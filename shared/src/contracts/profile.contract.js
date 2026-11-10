@@ -36,7 +36,7 @@ exports.RequestProfileEmailChangeSchema = zod_1.z.object({
     currentPassword: zod_1.z.string().min(1, 'Enter your current password.').max(72),
 }).strict();
 exports.ConfirmProfileEmailChangeSchema = zod_1.z.object({
-    code: zod_1.z.string().trim().regex(/^[A-Za-z0-9_-]{32}$/, 'Enter the verification code from your email.'),
+    code: zod_1.z.string().trim().regex(/^[0-9]{6}$/, 'Enter the 6-digit verification code from your email.'),
 }).strict();
 exports.AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 exports.AVATAR_MAX_BYTES = 5 * 1024 * 1024;

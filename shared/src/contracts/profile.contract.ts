@@ -37,7 +37,7 @@ export const RequestProfileEmailChangeSchema = z.object({
   currentPassword: z.string().min(1, 'Enter your current password.').max(72),
 }).strict();
 export const ConfirmProfileEmailChangeSchema = z.object({
-  code: z.string().trim().regex(/^[A-Za-z0-9_-]{32}$/, 'Enter the verification code from your email.'),
+  code: z.string().trim().regex(/^[0-9]{6}$/, 'Enter the 6-digit verification code from your email.'),
 }).strict();
 export const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;

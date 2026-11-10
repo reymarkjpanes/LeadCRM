@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>You're offline | LeadCRM</title>
+  <script>
+    (() => {
+      let mode;
+      try { mode = localStorage.getItem('app_theme'); } catch { /* Use the system theme when storage is unavailable. */ }
+      const system = window.matchMedia('(prefers-color-scheme: dark)');
+      const followsSystem = !['Light', 'Classic', 'Dark'].includes(mode);
+      const applyTheme = () => {
+        document.documentElement.dataset.theme = mode === 'Dark' || (followsSystem && system.matches) ? 'dark' : 'light';
+      };
+      applyTheme();
+      if (followsSystem) system.addEventListener('change', applyTheme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #F5F6F7;
+      --surface: #FFFFFF;
+      --text: #25313D;
+      --muted: #5A6B85;
+      --border: #E4E9F0;
+      --primary: #2563EB;
+      --primary-hover: #1D4ED8;
+      --icon: #2563EB;
+      --icon-background: rgba(37, 99, 235, 0.08);
+      --icon-border: rgba(37, 99, 235, 0.15);
+      --shadow: 0 2px 6px rgba(37, 49, 61, 0.08);
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --background: #0D0E11;
+      --surface: #16191E;
+      --text: #F1F5F9;
+      --muted: #94A3B8;
+      --border: #262A33;
+      --icon: #3B82F6;
+      --icon-background: #222731;
+      --icon-border: #262A33;
+      --shadow: none;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100svh;
+      display: flex;
+      padding: 24px 16px;
+      background: var(--background);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      width: 100%;
+      max-width: 640px;
+      margin: auto;
+      padding: 32px 40px 40px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .logo {
+      display: inline-block;
+      max-width: 100%;
+      padding: 10px 16px;
+      border-radius: 10px;
+    }
+    .logo img { display: block; width: 280px; max-width: 100%; height: auto; }
+    [data-theme="dark"] .logo { background: #FFFFFF; }
+    .powered-by { margin: 8px 0 0; color: var(--muted); font-size: 18px; line-height: 1.5; }
+    header { padding-bottom: 26px; border-bottom: 1px solid var(--border); }
+    .connection { padding: 26px 0 28px; }
+    svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .wifi {
+      display: grid;
+      place-items: center;
+      width: 112px;
+      height: 112px;
+      margin: 0 auto 22px;
+      border: 1px solid var(--icon-border);
+      border-radius: 26px;
+      background: var(--icon-background);
+      color: var(--icon);
+    }
+    .wifi svg { width: 52px; height: 52px; }
+    .status { margin: 0; color: var(--icon); font-size: 17px; font-weight: 700; line-height: 1.5; }
+    h1 { margin: 12px 0 16px; font-size: 48px; font-weight: 750; line-height: 1.15; letter-spacing: -0.025em; }
+    .description { margin: 0; color: var(--muted); font-size: 18px; line-height: 1.5; }
+    .checklist {
+      display: grid;
+      gap: 14px;
+      margin: 0;
+      padding: 24px 12px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      list-style: none;
+      text-align: left;
+      font-size: 18px;
+      line-height: 1.5;
+    }
+    .checklist li { display: flex; align-items: flex-start; gap: 14px; }
+    .checklist svg { flex: 0 0 24px; width: 24px; height: 24px; margin-top: 2px; color: #10B981; stroke-width: 2.5; }
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 248px;
+      max-width: 100%;
+      min-height: 56px;
+      margin-top: 30px;
+      padding: 14px 24px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--primary);
+      color: #FFFFFF;
+      font: inherit;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1.4;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(37, 49, 61, 0.04);
+    }
+    button svg { width: 26px; height: 26px; }
+    button:hover, button:active { background: var(--primary-hover); }
+    button:focus-visible { outline: 3px solid var(--icon); outline-offset: 4px; }
+    @media (max-width: 480px) {
+      body { padding: 16px; }
+      main { padding: 24px 20px 28px; border-radius: 16px; }
+      .logo { padding: 8px 12px; }
+      .logo img { width: 240px; }
+      .powered-by { font-size: 16px; }
+      header { padding-bottom: 22px; }
+      .connection { padding: 24px 0; }
+      .wifi { width: 88px; height: 88px; border-radius: 22px; margin-bottom: 20px; }
+      .wifi svg { width: 42px; height: 42px; }
+      .status { font-size: 14px; }
+      h1 { font-size: 36px; }
+      .description, .checklist { font-size: 16px; }
+      .checklist { padding: 22px 0; gap: 12px; }
+      .checklist li { gap: 10px; }
+      .checklist svg { flex-basis: 20px; width: 20px; height: 20px; }
+      button { margin-top: 24px; font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main aria-labelledby="offline-heading">
+    <header>
+      <div class="logo"><img src="/camxian_logo.png" alt="Camxian Technologies" width="1005" height="171"></div>
+      <p class="powered-by">Powered by LeadCRM</p>
+    </header>
+    <section class="connection" aria-labelledby="offline-heading">
+      <!-- Inline icons reuse Lucide (ISC) paths without a runtime dependency. -->
+      <div class="wifi" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></svg>
+      </div>
+      <p class="status">CONNECTION INTERRUPTED</p>
+      <h1 id="offline-heading">You're offline</h1>
+      <p class="description">LeadCRM can't reach the internet right now. Check your connection and try again.</p>
+    </section>
+    <ul class="checklist">
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Check your Wi-Fi or mobile data</span></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Reconnect to your network</span></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Try again when you're back online</span></li>
+    </ul>
+    <button type="button" id="retry">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      Try again
+    </button>
+  </main>
+  <script>
+    document.getElementById('retry').addEventListener('click', () => window.location.reload());
+  </script>
+</body>
+</html>

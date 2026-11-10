@@ -1,5 +1,6 @@
-const CACHE_NAME = 'leadcrm-cache-v10';
+const CACHE_NAME = 'leadcrm-cache-v11';
 const STATIC_ASSETS = [
+  '/offline.html',
   '/manifest.json',
   '/camxian_logo.png',
   '/camxian_logo_2.png',
@@ -51,11 +52,8 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() =>
-        caches.match(request).then(cached =>
-          cached || new Response(
-            'You are offline. LeadCRM requires an internet connection to sync data.',
-            { headers: { 'Content-Type': 'text/html' } }
-          )
+        caches.open(CACHE_NAME).then(cache =>
+          cache.match('/offline.html').then(cached => cached || Response.error())
         )
       )
     );
