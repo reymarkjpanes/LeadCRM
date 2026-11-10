@@ -12,6 +12,12 @@ it('allows core configuration without optional integration credentials', () => {
 it.each(['yes', '1', 'TRUE'])('rejects invalid BACKGROUND_WORKERS_ENABLED value %s', BACKGROUND_WORKERS_ENABLED => {
   expect(() => validateEnvironment({ ...production, BACKGROUND_WORKERS_ENABLED })).toThrow('BACKGROUND_WORKERS_ENABLED');
 });
+it.each(['yes', '1', 'TRUE'])('rejects invalid Workflow worker setting %s', WORKFLOW_WORKER_ENABLED => {
+  expect(() => validateEnvironment({ ...production, WORKFLOW_WORKER_ENABLED })).toThrow('WORKFLOW_WORKER_ENABLED');
+});
+it.each(['true', 'false'])('accepts Workflow worker setting %s', WORKFLOW_WORKER_ENABLED => {
+  expect(() => validateEnvironment({ ...production, WORKFLOW_WORKER_ENABLED })).not.toThrow();
+});
 it('requires a boolean setting for independent campaign delivery reconciliation', () => {
   expect(() => validateEnvironment({ ...production, CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'yes' })).toThrow('CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED');
   expect(() => validateEnvironment({ ...production, CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'true' })).not.toThrow();

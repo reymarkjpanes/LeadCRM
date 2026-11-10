@@ -28,4 +28,13 @@ describe('Workflow trigger action policy', () => {
     expect(workflowActionPolicyIssues(draft)[0]).toContain('Use Assign Agent');
     expect(workflowActionPolicyIssues({ ...draft, actions: [{ ...draft.actions[0], enabled: false }] })).toEqual([]);
   });
+  it.each(['lead', 'contact'] as const)('requires Deal-based stage rules instead of feedback from %s aggregate status', entity => {
+    const draft: WorkflowDraft = { name: 'Legacy stage rule', trigger: `${entity}.status_changed`, isActive: false,
+      actions: [{ type: 'move_deal_stage', config: { stageId: 'stage' } }] };
+    expect(workflowActionAllowed(draft.trigger, 'move_deal_stage')).toBe(false);
+    expect(workflowActionPolicyIssues(draft)[0]).toContain('Use a Deal-based stage rule');
+    expect(workflowActionAllowed(`${entity}.updated`, 'move_deal_stage')).toBe(true);
+    expect(workflowActionAllowed(draft.trigger, 'send_email')).toBe(true);
+    expect(workflowActionPolicyIssues({ ...draft, actions: [{ ...draft.actions[0], enabled: false }] })).toEqual([]);
+  });
 });

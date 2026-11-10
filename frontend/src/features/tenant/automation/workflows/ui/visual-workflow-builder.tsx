@@ -85,6 +85,7 @@ interface Props {
   canActivate: boolean;
   canPause?: boolean;
   canExecute?: boolean;
+  canViewRuns?: boolean;
   readOnly?: boolean;
   onSave: (draft: WorkflowDraft) => Promise<Workflow | void>;
   onPause?: () => Promise<Workflow>;
@@ -111,6 +112,7 @@ export default function WorkflowBuilder({
   canActivate,
   canPause = false,
   canExecute = false,
+  canViewRuns = false,
   readOnly,
   onSave,
   onPause,
@@ -918,7 +920,7 @@ export default function WorkflowBuilder({
       {view === 'activity' ? (
         <section aria-label="Workflow activity" className="min-h-0 flex-1 overflow-auto p-5">
           {savedId ? (
-            <WorkflowRuns workflowId={savedId} />
+            canViewRuns ? <WorkflowRuns workflowId={savedId} /> : <p className="text-sm text-muted-foreground">Run history requires permission to view workflow runs.</p>
           ) : (
             <p>Save this workflow to see its execution activity.</p>
           )}

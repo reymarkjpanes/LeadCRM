@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../../../shared/errors/app-error';
 import type { Server } from 'node:http';
 import { ACCOUNT_RETIREMENT_REASON, type WorkflowDraft, type WorkflowAction } from '@leadcrm/shared';
@@ -256,7 +256,7 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
       expect(notifications[0].userId).toBe(owner.id);
     }
   });
-  it.each(WORKFLOW_RECIPES)('executes configured catalog template: $name', async recipe => {
+  it.each(WORKFLOW_RECIPES)('validates configured catalog template: $name', async recipe => {
     const options = (await call('/automation/workflow-options')).body.data;
     const index = WORKFLOW_RECIPES.indexOf(recipe);
     let draft = prepareWorkflowRecipe(recipe, options, index);
@@ -271,6 +271,12 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
       if (action.type === 'update_field' && action.config.value === '') action.config.value = 'https://example.test';
       if (action.type === 'create_task' && draft.trigger.startsWith('account.')) action.config.assignmentTarget = { type: 'user', id: owner.id };
       if (action.type === 'move_deal_stage') action.config.stageId = contacted.id;
+    }
+    if (index === 23 || index === 24) {
+      await expect(create(draft.actions, { ...draft, name: `${draft.name} ${randomUUID()}`, isActive: true }))
+        .rejects.toThrow('Use a Deal-based stage rule');
+      expect(sendEmail).not.toHaveBeenCalled(); expect(sendSms).not.toHaveBeenCalled();
+      return;
     }
     const entity = draft.trigger.split('.')[0];
     const status = draft.conditions?.conditions.find(rule => rule.field === `${entity}.status` || rule.field === 'event.newStatus')?.value;
@@ -792,18 +798,21 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     const event = { tenantId, actorId: actor.id, eventId: randomUUID(), entityType: 'lead', entityId: sample.id, triggerType: 'lead.created', context: {} };
     await scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, event)));
     await prisma.lead.update({ where: { id: sample.id }, data: { firstName: 'Current' } });
-    const loading = vi.spyOn(prisma.workflow, 'findFirst').mockRejectedValueOnce(new Error('Transient database read failure'));
+    const loading = vi.spyOn(prisma.workflow, 'findFirst').mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('private database connection', { code: 'P1001', clientVersion: '5' }));
     try { await dispatchQueuedWorkflows(); }
     finally { loading.mockRestore(); }
     const queued = await prisma.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } });
-    expect(queued).toMatchObject({ status: 'queued', dispatchStartedAt: null, completedAt: null, leaseId: null, leaseUntil: null });
+    expect(queued).toMatchObject({ status: 'queued', dispatchStartedAt: null, completedAt: null, leaseId: null, leaseUntil: expect.any(Date),
+      dispatchContext: { preparation: { attempts: 1, failureClass: 'P1001' } } });
+    expect(queued.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
     expect(queued.steps).toHaveLength(0); expect(sendEmail).not.toHaveBeenCalled();
     const history = await runs(workflow.id);
     expect(history[0].trigger.payload).toMatchObject({ recordName: 'Queued Label' });
     expect(history[0]).not.toHaveProperty('dispatchContext');
     vi.mocked(sendEmail).mockResolvedValueOnce({ messageId: `recovered-${randomUUID()}`, threadId: `recovered-thread-${randomUUID()}` });
+    await prisma.workflowExecutionRun.update({ where: { id: queued.id }, data: { leaseUntil: new Date(Date.now() - 1) } });
     await dispatchQueuedWorkflows();
-    expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: queued.id } })).toMatchObject({ status: 'completed' });
+    expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: queued.id } })).toMatchObject({ status: 'completed', errorMessage: null });
     expect(await prisma.workflowExecutionRun.count({ where: { tenantId, workflowId: workflow.id } })).toBe(1);
     expect(sendEmail).toHaveBeenCalledOnce();
     await dispatchQueuedWorkflows(); expect(sendEmail).toHaveBeenCalledOnce();
@@ -813,9 +822,11 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     const event = { tenantId, actorId: actor.id, eventId: randomUUID(), entityType: 'lead', entityId: lead.id, triggerType: 'lead.created', context: {} };
     await scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, event)));
     const transaction = prisma.$transaction.bind(prisma);
-    const acknowledgement = vi.spyOn(prisma, '$transaction').mockImplementationOnce((async (work: (tx: Prisma.TransactionClient) => Promise<unknown>) => {
-      await transaction(work);
-      throw new Error('Lost committed dispatch acknowledgement');
+    let transactions = 0;
+    const acknowledgement = vi.spyOn(prisma, '$transaction').mockImplementation((async (work: (tx: Prisma.TransactionClient) => Promise<unknown>) => {
+      const result = await transaction(work);
+      if (++transactions === 2) throw new Error('Lost committed dispatch acknowledgement');
+      return result;
     }) as typeof prisma.$transaction);
     try { await dispatchQueuedWorkflows(); }
     finally { acknowledgement.mockRestore(); }
@@ -825,6 +836,106 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     expect(sendEmail).not.toHaveBeenCalled();
     await dispatchQueuedWorkflows(); expect(sendEmail).not.toHaveBeenCalled();
     expect((await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: interrupted.id } })).status).toBe('interrupted');
+  });
+  it('fails a permanent preparation error with one validation step and no provider attempt', async () => {
+    await flushWorkflowQueue(tenantId);
+    const workflow = await create([{ type: 'send_email', config: { templateId: template.id, senderUserId: actor.id } }]);
+    await scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, { tenantId, actorId: actor.id, eventId: randomUUID(),
+      entityType: 'lead', entityId: lead.id, triggerType: 'lead.created', context: {} })));
+    const loading = vi.spyOn(prisma.workflow, 'findFirst').mockRejectedValueOnce(new TypeError('private configuration details'));
+    try { await dispatchQueuedWorkflows(); } finally { loading.mockRestore(); }
+    const failed = await prisma.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } });
+    expect(failed).toMatchObject({ status: 'failed', completedAt: expect.any(Date), leaseId: null, leaseUntil: null, dispatchStartedAt: null,
+      dispatchContext: { preparation: { attempts: 1, failureClass: 'PERMANENT' } } });
+    expect(failed.errorMessage).not.toContain('private');
+    expect(failed.steps).toEqual([expect.objectContaining({ actionType: 'validation', stepIndex: -1, status: 'failed' })]);
+    expect(sendEmail).not.toHaveBeenCalled();
+    await dispatchQueuedWorkflows();
+    expect(await prisma.workflowExecutionStep.count({ where: { executionId: failed.id } })).toBe(1);
+  });
+  it.each(['snapshot', 'publisher'] as const)('fails an unavailable published %s before marking dispatch started', async missing => {
+    const workflow = await create([{ type: 'send_email', config: { templateId: template.id, senderUserId: actor.id } }]);
+    await scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, { tenantId, actorId: actor.id, eventId: randomUUID(),
+      entityType: 'lead', entityId: lead.id, triggerType: 'lead.created', context: {} })));
+    const queued = await prisma.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id } });
+    const { activatedById: _publisher, ...context } = queued.dispatchContext as Prisma.JsonObject;
+    await prisma.workflowExecutionRun.update({ where: { id: queued.id }, data: missing === 'snapshot'
+      ? { definitionSnapshot: Prisma.DbNull }
+      : { dispatchContext: context as Prisma.InputJsonObject } });
+    await dispatchQueuedWorkflows();
+    const failed = await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: queued.id }, include: { steps: true } });
+    expect(failed).toMatchObject({ status: 'failed', completedAt: expect.any(Date), leaseId: null, dispatchStartedAt: null,
+      steps: [{ actionType: 'validation', status: 'failed' }] });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+  it('allows a healthy queued execution past ten deferred preparation failures', async () => {
+    await flushWorkflowQueue(tenantId);
+    const sample = await prisma.lead.create({ data: { tenantId, firstName: 'Fairness', lastName: 'Fixture', email: `${randomUUID()}@example.test`, assignedUserId: actor.id } });
+    const actions: WorkflowAction[] = [{ type: 'send_email', config: { templateId: template.id, senderUserId: actor.id } }];
+    const failing = await create(actions), healthy = await create(actions);
+    const enqueue = (workflowId: string) => scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, { tenantId, actorId: actor.id,
+      eventId: randomUUID(), entityType: 'lead', entityId: sample.id, triggerType: 'lead.created', context: {} }, workflowId)));
+    for (let index = 0; index < 10; index++) await enqueue(failing.id);
+    await enqueue(healthy.id);
+    const loading = vi.spyOn(prisma.workflow, 'findFirst');
+    for (let index = 0; index < 10; index++) loading.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('private database address', { code: 'P1001', clientVersion: '5' }));
+    try {
+      expect(await dispatchQueuedWorkflows()).toBe(true);
+      expect(await prisma.workflowExecutionRun.count({ where: { workflowId: failing.id, status: 'queued', leaseId: null, leaseUntil: { gt: new Date() } } })).toBe(10);
+      await dispatchQueuedWorkflows();
+      expect(await prisma.workflowExecutionRun.findFirstOrThrow({ where: { workflowId: healthy.id } })).toMatchObject({ status: 'completed' });
+      expect(sendEmail).toHaveBeenCalledOnce();
+    } finally {
+      loading.mockRestore();
+      await prisma.workflow.update({ where: { id: failing.id }, data: { isActive: false, status: 'PAUSED' } });
+      await prisma.workflowExecutionRun.updateMany({ where: { workflowId: failing.id, status: 'queued' }, data: { leaseUntil: new Date(0) } });
+      await flushWorkflowQueue(tenantId);
+    }
+  });
+  it.each(['skipped', 'success', 'failed'] as const)('quarantines a queued execution with a prior %s step without replaying or erasing known delivery evidence', async stepStatus => {
+    await flushWorkflowQueue(tenantId);
+    const workflow = await create([{ type: 'send_email', config: { templateId: template.id, senderUserId: actor.id } }]);
+    await scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, { tenantId, actorId: actor.id, eventId: randomUUID(),
+      entityType: 'lead', entityId: lead.id, triggerType: 'lead.created', context: {} })));
+    const queued = await prisma.workflowExecutionRun.findFirstOrThrow({ where: { workflowId: workflow.id } });
+    const delivery = await prisma.emailDeliveryLog.create({ data: { tenantId, leadId: lead.id, fromEmail: actor.email, toEmail: lead.email,
+      subject: 'Known accepted fixture', gmailMessageId: randomUUID(), status: 'sent', sentAt: new Date() } });
+    const step = await prisma.workflowExecutionStep.create({ data: { tenantId, executionId: queued.id, stepIndex: 0, actionType: 'send_email',
+      status: stepStatus, resolvedInput: { deliveryLogId: delivery.id }, output: { providerMessageId: delivery.gmailMessageId } } });
+    // Evidence must be classified before a paused workflow could turn it into an ordinary skip.
+    await prisma.workflow.update({ where: { id: workflow.id }, data: { isActive: false, status: 'PAUSED' } });
+    await dispatchQueuedWorkflows();
+    expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: queued.id } })).toMatchObject({
+      status: 'interrupted', completedAt: expect.any(Date), leaseId: null, leaseUntil: null, dispatchStartedAt: null,
+      errorMessage: expect.stringContaining('prior action evidence') });
+    expect(await prisma.workflowExecutionStep.findUniqueOrThrow({ where: { id: step.id } })).toEqual(step);
+    expect(await prisma.emailDeliveryLog.findUniqueOrThrow({ where: { id: delivery.id } })).toEqual(delivery);
+    expect(sendEmail).not.toHaveBeenCalled(); expect(sendSms).not.toHaveBeenCalled();
+    await dispatchQueuedWorkflows(); expect(sendEmail).not.toHaveBeenCalled();
+  });
+  it('quarantines an unleased queued dispatch marker while preserving active claims and historical context-free rows', async () => {
+    await flushWorkflowQueue(tenantId);
+    const workflow = await create([{ type: 'send_email', config: { templateId: template.id, senderUserId: actor.id } }]);
+    const enqueue = () => scope(() => salesTransaction(tx => enqueueWorkflowTrigger(tx, { tenantId, actorId: actor.id, eventId: randomUUID(),
+      entityType: 'lead', entityId: lead.id, triggerType: 'lead.created', context: {} })));
+    await enqueue(); await enqueue(); await enqueue();
+    const queued = await prisma.workflowExecutionRun.findMany({ where: { workflowId: workflow.id }, orderBy: { id: 'asc' } });
+    const marker = new Date(Date.now() - 60000);
+    const orphan = await prisma.workflowExecutionRun.update({ where: { id: queued[0].id }, data: { dispatchStartedAt: marker } });
+    const active = await prisma.workflowExecutionRun.update({ where: { id: queued[1].id }, data: {
+      dispatchStartedAt: marker, leaseId: randomUUID(), leaseUntil: new Date(Date.now() + 300000) } });
+    const historical = await prisma.workflowExecutionRun.update({ where: { id: queued[2].id }, data: { dispatchContext: Prisma.DbNull } });
+    try {
+      await dispatchQueuedWorkflows();
+      expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: orphan.id } })).toMatchObject({ status: 'interrupted',
+        dispatchStartedAt: marker, errorMessage: expect.stringContaining('dispatch marker') });
+      expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: active.id } })).toEqual(active);
+      expect(await prisma.workflowExecutionRun.findUniqueOrThrow({ where: { id: historical.id } })).toEqual(historical);
+      expect(sendEmail).not.toHaveBeenCalled(); expect(sendSms).not.toHaveBeenCalled();
+    } finally {
+      await prisma.workflowExecutionRun.updateMany({ where: { id: { in: [active.id, historical.id] } }, data: {
+        status: 'interrupted', completedAt: new Date(), leaseId: null, leaseUntil: null, errorMessage: 'Isolated fixture cleanup' } });
+    }
   });
   it.each(['before provider write', 'after provider acceptance'] as const)('fences a suspended workflow %s after another worker interrupts its expired lease', async boundary => {
     const sample = await prisma.lead.create({ data: { tenantId, firstName: 'Lease', lastName: 'Recipient', email: `lease-${randomUUID()}@example.test`, assignedUserId: actor.id } });
@@ -947,10 +1058,11 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
   });
   it('filters history by current CRM View grants and never exposes dispatch or provider recovery data', async () => {
     const historyOwner = await prisma.user.findFirstOrThrow({ where: { tenantId, role: 'Workflow Viewer' } });
+    const historyLead = await scope(() => prisma.lead.create({ data: { tenantId, firstName: 'Owned', lastName: 'History', assignedUserId: historyOwner.id } }));
     const workflow = await prisma.workflow.create({ data: { tenantId, createdById: historyOwner.id,
       name: 'Owned history fixture ' + randomUUID(), trigger: 'lead.created', actions: [], isActive: false } });
-    const trigger = await prisma.workflowTriggerRecord.create({ data: { tenantId, workflowId: workflow.id, triggerType: 'lead.created', entityType: 'lead', entityId: lead.id, eventId: randomUUID() } });
-    const run = await prisma.workflowExecutionRun.create({ data: { tenantId, workflowId: workflow.id, triggerId: trigger.id, entityType: 'lead', entityId: lead.id,
+    const trigger = await prisma.workflowTriggerRecord.create({ data: { tenantId, workflowId: workflow.id, triggerType: 'lead.created', entityType: 'lead', entityId: historyLead.id, eventId: randomUUID() } });
+    const run = await prisma.workflowExecutionRun.create({ data: { tenantId, workflowId: workflow.id, triggerId: trigger.id, entityType: 'lead', entityId: historyLead.id,
       status: 'interrupted', completedAt: new Date(), dispatchContext: { version: 1, eventContext: { privateBody: 'private-dispatch-evidence' } },
       leaseId: randomUUID(), leaseUntil: new Date(), dispatchStartedAt: new Date(), definitionSnapshot: { name: workflow.name, trigger: workflow.trigger, actions: [] },
       steps: { create: ['send_email', 'send_sms'].map((actionType, stepIndex) => ({ stepIndex, actionType, status: 'failed',
@@ -972,7 +1084,7 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
         for (const step of item.steps) { expect(step).not.toHaveProperty('resolvedInput'); expect(step.output).toBeNull(); }
         expect(JSON.stringify(visible.body)).not.toMatch(/private-(dispatch|resolved|provider|recipient)/);
       }
-      const viewGrant = await prisma.rolePermission.create({ data: { tenantId, roleId: restrictedRole.id, module: 'leads', canView: true, canViewAll: true } });
+      const viewGrant = await prisma.rolePermission.create({ data: { tenantId, roleId: restrictedRole.id, module: 'leads', canView: true, canViewMy: true } });
       try {
         const visible = await call(`/automation/workflows/${workflow.id}/executions`, 'GET', undefined, viewerToken);
         expect(visible.body.data).toHaveLength(1); expect(visible.body.meta.total).toBe(1);
@@ -1009,6 +1121,52 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     const listed = (await call('/automation/workflows')).body.data.find((row: any) => row.id === workflow.id);
     expect(listed.totalRuns).toBe(1); expect(listed.successfulRuns).toBe(1); expect(listed.failedRuns).toBe(0);
     expect((await call(`/automation/workflows/${workflow.id}/executions/${history[0].id}`)).body.data.steps[0].status).toBe('success');
+  });
+  it('pages finished outcomes before counting and keeps pending and uncertain execution evidence intact', async () => {
+    const workflow = await create([{ type: 'update_field', config: { field: 'address', value: 'History fixture' } }], { isActive: false });
+    const trigger = await prisma.workflowTriggerRecord.create({ data: { tenantId, workflowId: workflow.id,
+      triggerType: 'lead.created', entityType: 'lead', entityId: lead.id, eventId: randomUUID(), payload: { recordName: 'History fixture' } } });
+    const statuses = ['completed', 'failed', 'skipped', 'interrupted', 'queued', 'running'];
+    const started = new Date('2026-11-10T10:00:00Z');
+    const inserted = await Promise.all(statuses.map((status, index) => prisma.workflowExecutionRun.create({ data: {
+      tenantId, workflowId: workflow.id, triggerId: trigger.id, entityType: 'lead', entityId: lead.id, status,
+      startedAt: new Date(started.getTime() + index * 1000),
+      ...(index < 4 ? { completedAt: new Date(started.getTime() + index * 1000 + 100) } : {}),
+      ...(status === 'interrupted' ? { errorMessage: 'Uncertain submission; automatic replay is disabled.' } : {}),
+    } })));
+    try {
+      const first = await call(`/automation/workflows/${workflow.id}/executions?view=outcomes&page=1&limit=2`);
+      expect(first.status).toBe(200);
+      expect(first.body.meta).toMatchObject({ total: 4, page: 1, limit: 2, hasMore: true });
+      expect(first.body.data.map((row: { status: string }) => row.status)).toEqual(['interrupted', 'skipped']);
+      const second = await call(`/automation/workflows/${workflow.id}/executions?view=outcomes&page=2&limit=2`);
+      expect(second.body.data.map((row: { status: string }) => row.status)).toEqual(['failed', 'completed']);
+      expect(second.body.meta.hasMore).toBe(false);
+      const all = await call(`/automation/workflows/${workflow.id}/executions`);
+      expect(all.body.meta.total).toBe(6);
+      expect(all.body.data.map((row: { status: string }) => row.status)).toEqual([...statuses].reverse());
+      const directory = await call(`/automation/workflows?view=outcomes&search=${encodeURIComponent(workflow.name)}`);
+      expect(directory.body.data[0]).toMatchObject({ id: workflow.id, totalRuns: 4, successfulRuns: 1, failedRuns: 2,
+        lastRunAt: new Date(started.getTime() + 3000).toISOString() });
+      const legacy = await call(`/automation/workflows?search=${encodeURIComponent(workflow.name)}`);
+      expect(legacy.body.data[0]).toMatchObject({ totalRuns: 6, failedRuns: 1, lastRunAt: new Date(started.getTime() + 5000).toISOString() });
+      const interrupted = inserted.find(row => row.status === 'interrupted')!;
+      expect((await call(`/automation/workflows/${workflow.id}/executions/${interrupted.id}`)).body.data.status).toBe('interrupted');
+      expect(await prisma.workflowExecutionRun.count({ where: { tenantId, workflowId: workflow.id, status: { in: ['queued', 'running'] } } })).toBe(2);
+      expect(sendEmail).not.toHaveBeenCalled(); expect(sendSms).not.toHaveBeenCalled();
+    } finally {
+      await prisma.workflowExecutionRun.deleteMany({ where: { tenantId, workflowId: workflow.id,
+        id: { in: inserted.filter(row => row.status === 'queued' || row.status === 'running').map(row => row.id) } } });
+    }
+  });
+  it('validates outcome-view requests without weakening history grants or tenant isolation', async () => {
+    const workflow = await create([{ type: 'update_field', config: { field: 'address', value: 'History permissions' } }], { isActive: false });
+    expect((await call(`/automation/workflows/${workflow.id}/executions?view=unknown`)).status).toBe(400);
+    expect((await call(`/automation/workflows/${workflow.id}/executions?view=all&view=outcomes`)).status).toBe(400);
+    expect((await call('/automation/workflows?view=unknown')).status).toBe(400);
+    expect((await call(`/automation/workflows/${workflow.id}/executions?view=outcomes`, 'GET', undefined, viewerToken)).status).toBe(403);
+    const foreign = await prisma.workflow.create({ data: { tenantId: otherTenantId, name: `Foreign history ${randomUUID()}`, trigger: 'lead.created', actions: [] } });
+    expect((await call(`/automation/workflows/${foreign.id}/executions?view=outcomes`)).status).toBe(404);
   });
   it('rejects foreign references, unexpected settings and protected fields even in drafts', async () => {
     for (const action of [

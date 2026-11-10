@@ -216,6 +216,8 @@ function workflowActionAllowed(triggerType, actionType) {
         return false;
     if (trigger.entity === 'account')
         return actionType === 'update_field';
+    if (actionType === 'move_deal_stage' && /^(lead|contact)\.status_changed$/.test(triggerType))
+        return false;
     return actionType !== 'assign_owner' || ['lead.created', 'contact.created', 'deal.created', 'lead.status_changed', 'contact.status_changed', 'deal.stage_changed'].includes(triggerType);
 }
 function workflowActionPolicyIssues(draft) {
@@ -223,6 +225,9 @@ function workflowActionPolicyIssues(draft) {
         if (action.enabled === false)
             return [];
         const prefix = `Action ${index + 1}: `;
+        if (action.type === 'move_deal_stage' && /^(lead|contact)\.status_changed$/.test(draft.trigger)) {
+            return [prefix + 'Customer status follows associated Deals. Use a Deal-based stage rule with explicit pipeline and source stage conditions instead.'];
+        }
         if (!workflowActionAllowed(draft.trigger, action.type))
             return [prefix + 'This action is unavailable for the selected trigger. Disable or remove it before activating.'];
         if (action.type === 'update_field' && action.config.field === 'assignedUserId')

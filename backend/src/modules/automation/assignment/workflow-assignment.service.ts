@@ -1,10 +1,10 @@
-import { weightedLeadScores, lowestWorkloadRotation } from '../../crm/leads/lead-workload';
+import { lowestWorkloadRotation } from '../../crm/leads/lead-workload';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { WorkflowAssignmentTargetSchema, workflowAssignmentTarget, LEAD_WORKLOAD_WEIGHTS, normalizeCrmStatus, type WorkflowAction, type WorkflowAssignmentPurpose, type WorkflowAssignmentTarget, type WorkflowEntity } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { ValidationError } from '../../../shared/errors/http-error';
-import { assignmentCandidates, assignmentPool, assignmentWorkloads } from './workflow-assignment.repository';
+import { assignmentCandidates, assignmentPool, assignmentWorkloads, assignmentLeadScores } from './workflow-assignment.repository';
 import { liveReservations, memberAvailable } from './workflow-assignment-policy';
 import { fenceWorkflowLease } from '../workflows/workflow-lease';
 
@@ -35,7 +35,7 @@ async function candidates(client: Prisma.TransactionClient, request: AssignmentR
       : 'The selected task assignee is unavailable, inactive or lacks Tasks access in this workspace.');
     return { users: [user], targetName: `${user.firstName} ${user.lastName}` };
   }
-  const pool = await assignmentPool(client, tenantId, target);
+  const pool = await assignmentPool(client, tenantId, target, purpose);
   if (!pool) throw new ValidationError(`The selected ${target.type} is no longer available. Choose another assignment target.`);
   const eligible = users.filter(user => user.role !== 'Client Admin' && pool.memberIds.includes(user.id));
   const configured = [...(target.availability?.members ?? []), ...(target.capacity?.members ?? [])];
@@ -94,7 +94,7 @@ export async function resolveWorkflowAssignee(request: AssignmentRequest) {
       candidateCount = available.length;
       const incoming = weighted && request.entityId ? await client.lead.findFirst({ where: { tenantId: request.tenantId, id: request.entityId }, select: { status: true } }) : null;
       const incomingWeight = LEAD_WORKLOAD_WEIGHTS[normalizeCrmStatus(incoming?.status ?? 'Inquiry')];
-      const scores = weighted ? await weightedLeadScores(client, request.tenantId, available.map(candidate => candidate.id), request.entityId) : new Map<string, number>();
+      const scores = weighted ? await assignmentLeadScores(client, request.tenantId, available.map(candidate => candidate.id), request.entityId) : new Map<string, number>();
       if (weighted) for (const candidate of available) scores.set(candidate.id, (scores.get(candidate.id) ?? 0) + (pending.get(`lead:${candidate.id}`) ?? []).filter(row => row.entityId !== request.entityId).reduce((sum, row) => sum + (typeof row.weight === 'number' && Number.isFinite(row.weight) && row.weight >= 0 ? row.weight : 1), 0) + (request.previewLoads?.get(`weighted-lead:${candidate.id}`) ?? 0));
       user = weighted ? lowestWorkloadRotation(available, scores, lastId)! : available.find(candidate => candidate.id > lastId) ?? available[0];
       reason = weighted ? `Lowest weighted Lead workload (${scores.get(user.id) ?? 0}); round-robin resolves ties` : 'Next active eligible member in rotation';

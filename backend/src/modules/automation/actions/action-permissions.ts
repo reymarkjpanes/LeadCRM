@@ -7,6 +7,8 @@ import { findTrigger } from '../triggers/trigger-catalog';
 import { findTemplate } from './actions.repository';
 import { campaignVariableFields } from '../../marketing/campaigns/audiences.service';
 import { workflowEmailContent } from './action-email-content';
+import type { Prisma } from '@prisma/client';
+import prisma from '../../../config/database.config';
 
 export async function assertAssignmentReferencePermissions(draft: WorkflowDraft, tenantId: string, userId: string) {
   const required: PermissionKey[] = [];
@@ -24,8 +26,8 @@ export async function assertAssignmentReferencePermissions(draft: WorkflowDraft,
 }
 
 /** Reuse the same active assignments and flag mapping as the HTTP RBAC guard. */
-export async function assertWorkflowPermissions(draft: WorkflowDraft, tenantId: string, userId: string, capability: 'workflows.activate' | 'workflows.pause' | 'workflows.execute' = 'workflows.activate') {
-  const user = await findUser(userId, tenantId);
+export async function assertWorkflowPermissions(draft: WorkflowDraft, tenantId: string, userId: string, capability: 'workflows.activate' | 'workflows.pause' | 'workflows.execute' = 'workflows.activate', db: Prisma.TransactionClient = prisma) {
+  const user = await findUser(userId, tenantId, db);
   if (!user || user.role.trim().toLowerCase() === 'guest') throw new AppError('Workflow author is unavailable.', 403);
   const entity = findTrigger(draft.trigger)?.entity;
   const required: PermissionKey[] = [capability, entity === 'deal' ? 'deals.view' : entity === 'account' ? 'accounts.view' : entity === 'lead' ? 'leads.view' : 'contacts.view'];
@@ -38,7 +40,7 @@ export async function assertWorkflowPermissions(draft: WorkflowDraft, tenantId: 
   for (const action of draft.actions) {
     if (action.enabled === false) continue;
     if (entity && ['create_task', 'send_email', 'send_sms'].includes(action.type)) {
-      const template = action.type === 'send_email' && action.config.templateId ? await findTemplate(String(action.config.templateId), tenantId) : null;
+      const template = action.type === 'send_email' && action.config.templateId ? await findTemplate(String(action.config.templateId), tenantId, db) : null;
       const emailContent = action.type === 'send_email' ? workflowEmailContent(action.config, template) : undefined;
       const content = emailContent ? `${emailContent.subject} ${emailContent.body}`
         : action.type === 'send_sms' ? String(action.config.message ?? '') : `${action.config.title ?? ''} ${action.config.description ?? ''}`;
@@ -69,11 +71,14 @@ export async function assertWorkflowPermissions(draft: WorkflowDraft, tenantId: 
     if (action.type === 'send_campaign') required.push('campaigns.view', 'campaigns.send');
     if (action.type === 'send_email') required.push('campaigns.send');
     if (action.type === 'send_email' && entity === 'deal') required.push(action.config.recipient === 'primary_lead' ? 'leads.view' : 'contacts.view');
-    if (action.type === 'send_sms') required.push('campaigns.send', 'contacts.view', 'contacts.edit');
+    if (action.type === 'send_sms' && entity) {
+      const recipientModule = workflowMessageEntity(entity, action.config.recipient) === 'lead' ? 'leads' : 'contacts';
+      required.push('campaigns.send', `${recipientModule}.view`, `${recipientModule}.edit`);
+    }
     if (['assign_owner', 'update_field'].includes(action.type)) required.push(entity === 'deal' ? 'deals.edit' : entity === 'account' ? 'accounts.edit' : entity === 'lead' ? 'leads.edit' : 'contacts.edit');
     if (action.type === 'move_deal_stage') required.push('deals.view', 'deals.edit');
     if (action.type === 'update_field' && action.config.field === 'accountId') required.push('accounts.view');
     if (action.type === 'update_field' && ['contactIds', 'leadIds'].includes(String(action.config.field))) required.push(action.config.field === 'leadIds' ? 'leads.view' : 'contacts.view');
   }
-  await assertPermissions({userId,tenantId,role:user.role},required);
+  await assertPermissions({userId,tenantId,role:user.role},required,db);
 }

@@ -15,14 +15,20 @@ describe('complete workflow recipe catalog', () => {
       [34, 'Automatic Deal Stage Update'], [17, 'Move New Deal Stage'], [18, 'Deal Marked as Won'],
       [31, 'Deal Marked as Lost'], [28, 'Deal Assigned'],
       [0, 'New Lead Follow-up'], [1, 'Hot Lead Urgent Response'], [7, 'New Lead Email Welcome'],
-      [23, 'Hot Lead → Move Related Deal'], [8, 'Contact Onboarding Handoff'],
-      [33, 'Contact Welcome Email Template'], [24, 'Hot Contact → Move Related Deal'], [26, 'Account Field Maintenance'],
+      [8, 'Contact Onboarding Handoff'], [33, 'Contact Welcome Email Template'], [26, 'Account Field Maintenance'],
     ]);
   });
   it.each(WORKFLOW_RECIPES)('$name matches supported metadata and validates after configuring references', recipe => {
     const original = structuredClone(recipe);
     const actions = getAvailableActions();
     expect(WorkflowDraftSchema.safeParse(recipe).success).toBe(true);
+    if (/^(lead|contact)\.status_changed$/.test(recipe.trigger) && recipe.actions.some(action => action.type === 'move_deal_stage')) {
+      expect(templateAvailability(recipe, WORKFLOW_TRIGGERS, actions).join(' ')).toContain('unavailable');
+      expect(recipe.description).toContain('Use Automatic Deal Stage Update');
+      expect(WORKFLOW_STARTER_TEMPLATES.some(entry => entry.recipe === recipe)).toBe(false);
+      expect(recipe).toEqual(original);
+      return;
+    }
     expect(templateAvailability(recipe, WORKFLOW_TRIGGERS, actions)).toEqual([]);
     for (const condition of recipe.conditions?.conditions ?? []) {
       if (condition.field === 'lead.status' || condition.field === 'contact.status') {

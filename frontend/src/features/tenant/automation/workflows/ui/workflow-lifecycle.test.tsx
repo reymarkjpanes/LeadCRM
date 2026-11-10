@@ -13,7 +13,8 @@ import { WorkflowRuns } from './workflow-execution-log-modal';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { contactsApi } from '@/shared/services/contacts.api';
 import { dealsApi } from '@/shared/services/deals.api';
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'viewer', tenantId: 'workspace' }, userCan: () => true }) }));
+import { clearPageCache } from '@/shared/cache/page-cache';
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'viewer', tenantId: 'workspace' }, tenant: { id: 'workspace' }, userCan: () => true }) }));
 vi.mock('@/shared/services/workflows.api', () => ({
   workflowsApi: { test: vi.fn(), getExecutions: vi.fn() },
   withWorkflowTimeout: <T,>(request: Promise<T>) => request,
@@ -27,6 +28,7 @@ vi.mock('@/shared/services/contacts-v2.api', () => ({
 vi.mock('@/shared/services/deals.api', () => ({ dealsApi: { list: vi.fn() } }));
 afterEach(() => {
   cleanup();
+  clearPageCache();
   vi.resetAllMocks();
 });
 describe('workflow test and activity', () => {
@@ -133,6 +135,8 @@ describe('workflow test and activity', () => {
       'saved-workflow',
       1,
       25,
+      'outcomes',
+      expect.any(AbortSignal),
     );
   });
 });

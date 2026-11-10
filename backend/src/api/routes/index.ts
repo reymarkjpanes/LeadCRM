@@ -15,6 +15,7 @@ import preferencesRoutes from '../../modules/preferences/preferences.routes';
 import tablePreferencesRoutes from '../../modules/preferences/table-preferences.routes';
 import { publicFormsRouter } from './public-forms.routes';
 import { crmRetirementMaintenance } from '../../core/maintenance/crm-retirement-maintenance';
+import { workflowWorkerStatus } from '../../modules/automation/workflows/workflow-worker-status';
 
 const router = Router();
 router.use('/webhooks/textbee', textbeeWebhookRouter);
@@ -23,12 +24,14 @@ router.use('/webhooks/textbee', textbeeWebhookRouter);
 // Unauthenticated — used to confirm the serving revision on either host.
 // GET /api/v1/health  →  { status, commit, env }
 router.get('/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
     status:    'ok',
     commit:    process.env.SOURCE_COMMIT ?? process.env.RENDER_GIT_COMMIT ?? 'unknown',
     env:       process.env.NODE_ENV ?? 'development',
     capabilities: ['canonical-crm-relations-v1', 'lead-form-contract-v1', 'contact-retirement-contract-v1', 'accounts-full-address-contract-v1', 'accounts-field-retirement-v1', 'accounts-activity-notes-v1', 'retired-relationships-v1', 'accounts-columns-retirement-v1', 'crm-columns-retirement-v1'],
     maintenance: { active: crmRetirementMaintenance.active, ...crmRetirementMaintenance.status() },
+    workers: { workflows: workflowWorkerStatus() },
   });
 });
 

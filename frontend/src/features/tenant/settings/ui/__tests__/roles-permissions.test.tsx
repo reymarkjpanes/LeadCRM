@@ -449,14 +449,14 @@ it('saves the complete edited permission payload once, including hidden and addi
   await openEdit(['leads.canView', 'contacts.canView', 'contacts.canEdit', 'roles.canView', 'roles.canEdit'], 2);
   fireEvent.change(screen.getByLabelText('Role Name *'), { target: { value: ' Staff Updated ' } });
   fireEvent.change(screen.getByLabelText('Description — Optional'), { target: { value: ' Updated description ' } });
-  fireEvent.click(screen.getByRole('checkbox', { name: 'View Leads' }));
-  fireEvent.click(selectModule('Contacts'));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'View Workflow Runs' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Delete Groups' }));
-  expect(screen.getByRole('checkbox', { name: 'View Groups' })).toHaveProperty('checked', true);
-  expect(screen.getByRole('checkbox', { name: 'View Users' })).toHaveProperty('checked', false);
+  fireEvent.click(screen.getByLabelText('View Leads'));
+  fireEvent.click(screen.getByLabelText('Select all Contacts permissions'));
+  fireEvent.click(screen.getByLabelText('View Workflow Runs'));
+  fireEvent.click(screen.getByLabelText('Delete Groups'));
+  expect(screen.getByLabelText('View Groups')).toHaveProperty('checked', true);
+  expect(screen.getByLabelText('View Users')).toHaveProperty('checked', false);
   expect(within(moduleRow('Team Management')).getByText('2/9')).toBeTruthy();
-  fireEvent.change(screen.getByRole('textbox', { name: 'Search modules' }), { target: { value: 'Contacts' } });
+  fireEvent.change(screen.getByLabelText('Search modules'), { target: { value: 'Contacts' } });
   let finish!: () => void; pending = new Promise(resolve => { finish = resolve; });
   const submit = screen.getByRole('button', { name: 'Save Changes' });
   const form = submit.closest('form')!;
@@ -486,10 +486,10 @@ it('saves the complete edited permission payload once, including hidden and addi
   expect(screen.getByLabelText('Role Name *')).toHaveProperty('value', body.name);
   expect(screen.getByLabelText('Description — Optional')).toHaveProperty('value', body.description);
   expect(screen.getByText(`14 / ${totalPermissions()} permissions enabled`)).toBeTruthy();
-  expect(selectModule('Contacts')).toHaveProperty('checked', true);
-  expect(screen.getByRole('checkbox', { name: 'Delete Groups' })).toHaveProperty('checked', true);
-  expect(screen.getByRole('checkbox', { name: 'View Leads' })).toHaveProperty('checked', false);
-  expect(screen.getByRole('textbox', { name: 'Search modules' })).toHaveProperty('value', '');
+  expect(screen.getByLabelText('Select all Contacts permissions')).toHaveProperty('checked', true);
+  expect(screen.getByLabelText('Delete Groups')).toHaveProperty('checked', true);
+  expect(screen.getByLabelText('View Leads')).toHaveProperty('checked', false);
+  expect(screen.getByLabelText('Search modules')).toHaveProperty('value', '');
 });
 
 it('validates edits, retains the draft on failure, and supports saving an empty permission replacement', async () => {

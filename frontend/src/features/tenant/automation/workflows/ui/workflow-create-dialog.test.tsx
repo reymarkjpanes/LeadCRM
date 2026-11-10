@@ -29,8 +29,8 @@ it.each(WORKFLOW_STARTER_TEMPLATES.map(({ recipe, index }) => [recipe.name, inde
 
 it('shows the supported starters and excludes hidden recipes from search', () => {
   setup();
-  expect(screen.getByRole('status').textContent).toBe('16 templates available');
-  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(16);
+  expect(screen.getByRole('status').textContent).toBe('14 templates available');
+  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(14);
   const starters = new Set(WORKFLOW_STARTER_TEMPLATES.map(entry => entry.index));
   WORKFLOW_RECIPES.forEach((recipe, index) => {
     if (starters.has(index)) return;
@@ -62,7 +62,7 @@ it('combines record, action, and text filters, restores focus and explains an em
   setup();
   fireEvent.change(screen.getByLabelText('Record type'), { target: { value: 'lead' } });
   fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'send_email' } });
-  expect(screen.getByRole('status').textContent).toBe('1 template of 16');
+  expect(screen.getByRole('status').textContent).toBe('1 template of 14');
   const name = 'Preview New Lead Email Welcome';
   fireEvent.click(screen.getByRole('button', { name }));
   expect(screen.getByText(/Connect the record’s assigned agent to Gmail/)).toBeTruthy();
@@ -76,20 +76,20 @@ it('combines record, action, and text filters, restores focus and explains an em
   fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'create_task' } });
   expect(screen.getByText('Try another search or clear your filters.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(16);
+  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(14);
   expect(document.activeElement).toBe(screen.getByRole('searchbox'));
 });
 
-it('finds actual movement templates and exposes related setup without creating a workflow', () => {
+it('offers Deal movement starters and excludes retired customer status routing', () => {
   const { onChoose } = setup();
   fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'move_deal_stage' } });
-  expect(screen.getByRole('status').textContent).toBe('4 templates of 16');
+  expect(screen.getByRole('status').textContent).toBe('2 templates of 14');
   expect(screen.queryByRole('button', { name: 'Preview Qualified Deal Follow-up' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Record type'), { target: { value: 'contact' } });
-  expect(screen.getByRole('status').textContent).toBe('1 template of 16');
-  fireEvent.click(screen.getByRole('button', { name: 'Preview Hot Contact → Move Related Deal' }));
-  expect(screen.getByRole('region', { name: 'Template setup requirements' }).textContent).toContain('different open source and target stages');
-  expect(screen.getByRole('region', { name: 'Template setup requirements' }).textContent).toContain('No matches produce no movement or task');
+  expect(screen.getByText('No matching templates')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Record type'), { target: { value: 'deal' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Automatic Deal Stage Update' }));
+  expect(screen.getByRole('region', { name: 'Template setup requirements' }).textContent).toMatch(/pipeline.*source.*target/i);
   expect(screen.getByRole('list', { name: 'Template steps' }).textContent).not.toContain('Create Task');
   expect(onChoose).not.toHaveBeenCalled();
 });
@@ -154,7 +154,7 @@ it('offers one configurable stage template after loading pipeline options', asyn
   const preview = await screen.findByRole('button', { name: 'Preview Deal Entered a Specific Stage' });
   await waitFor(() => expect(screen.queryByText('Loading pipeline templates…')).toBeNull());
   expect(document.querySelector('[data-template-id^="stage:"]')).toBeNull();
-  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(16);
+  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(14);
   fireEvent.click(preview);
   fireEvent.click(screen.getByText('Execution details'));
   expect(screen.getByRole('group', { name: 'Template behavior' }).textContent).toContain('Superseded queued entries are skipped');
@@ -169,7 +169,7 @@ it('recovers a failed options read without adding per-stage template cards', asy
   expect((await screen.findByRole('alert')).textContent).toContain('Pipeline choices unavailable');
   fireEvent.click(screen.getByRole('button', { name: 'Retry pipeline templates' }));
   await waitFor(() => expect(screen.queryByText('Pipeline choices unavailable')).toBeNull());
-  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(16);
+  expect(screen.getAllByRole('button', { name: /^Preview / })).toHaveLength(14);
 });
 
 it('retains the selected starter when pipeline options change; the builder validates the new choices', async () => {

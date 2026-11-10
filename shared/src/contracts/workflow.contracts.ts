@@ -188,6 +188,15 @@ export interface WorkflowExecutionStep {
   status: 'running' | 'success' | 'failed' | 'skipped'; output?: Record<string, unknown> | null;
   error?: string | null; executedAt: string;
 }
+export const WorkflowExecutionViewSchema = z.enum(['all', 'outcomes']);
+export type WorkflowExecutionView = z.infer<typeof WorkflowExecutionViewSchema>;
+export const WORKFLOW_OUTCOME_STATUSES = ['completed', 'failed', 'skipped', 'interrupted'] as const;
+export type WorkflowRunOutcome = 'completed' | 'failed' | 'skipped';
+/** Interrupted submissions remain uncertain internally and require review, never automatic replay. */
+export function workflowRunOutcome(status: WorkflowExecutionRun['status']): WorkflowRunOutcome | null {
+  if (status === 'interrupted') return 'failed';
+  return status === 'completed' || status === 'failed' || status === 'skipped' ? status : null;
+}
 export interface WorkflowExecutionRun {
   id: string; tenantId: string; workflowId: string; triggerId: string; entityType: string; entityId: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'interrupted'; startedAt: string; completedAt?: string | null;

@@ -16,8 +16,11 @@ only after a read-only migration preflight confirms there is nothing pending. If
 migrations are pending, startup stops and prints the plan; apply them only after
 explicit approval. Production background workers default to disabled and require
 `BACKGROUND_WORKERS_ENABLED=true` after the queues and provider behavior have been
-reviewed. Set `DEAL_STAGE_WORKFLOW_ID` to opt in one stage-move workflow while the
-broader worker switch is off. Set `CAMPAIGN_SUBMISSION_WORKERS_ENABLED=true` to
+reviewed. Set `WORKFLOW_WORKER_ENABLED=true` to process all Workflows independently
+after the [Workflow backlog review and approved cutover](../workflows/workflow-reliability-rollout.md).
+Set it false to stop Workflow processing. When unset, `DEAL_STAGE_WORKFLOW_ID` can
+still opt in one stage-move workflow while the broader worker switch is off.
+Set `CAMPAIGN_SUBMISSION_WORKERS_ENABLED=true` to
 start scheduled Email/SMS submission and recovery independently. Set `CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED=true`
 to recover missing Brevo and TextBee campaign receipts through provider lookups
 with the broader worker switch off. The lookup worker updates delivery facts and
@@ -107,6 +110,7 @@ and do not prevent the rest of the CRM from starting.
 | DATABASE_URL | backend/prisma/schema.prisma; config/database.config.ts; config/validate-env.ts | Secret, core required | Intended development database | Private Coolify PostgreSQL `leadcrm`, restricted application role and verified TLS |
 | DIRECT_URL | backend/prisma/schema.prisma; scripts/deploy-crm-imports.cjs | Secret, deployment required | Development migration connection | Same private Coolify database, restricted migration role and verified TLS |
 | BACKGROUND_WORKERS_ENABLED | backend/src/config/background-workers.ts; backend/src/server.ts | Boolean, optional; production defaults false | Development defaults true | Keep false during initial deployment. Set true only after reviewing queues and approving automated provider work. |
+| WORKFLOW_WORKER_ENABLED | backend/src/config/background-workers.ts; backend/src/server.ts | Boolean, optional | Unset preserves general/scoped Workflow policy | True processes all Workflows independently; false stops Workflows. Review the backlog and obtain cutover approval before enabling. |
 | CAMPAIGN_SUBMISSION_WORKERS_ENABLED | backend/src/config/background-workers.ts; backend/src/server.ts | Boolean, optional | Unset inherits the general worker policy | Set true to process scheduled campaigns and recover safe submission work independently. Set false to stop these timers. |
 | CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED | backend/src/server.ts; backend/src/modules/marketing/campaigns/sms-status-reconciliation.ts | Boolean, optional | Unset uses the general worker policy | Set true to check existing Brevo message IDs and TextBee batch IDs independently of submission workers. |
 | DEAL_STAGE_WORKFLOW_ID | backend/src/server.ts; backend/src/modules/automation/workflows/workflow-queue.ts | UUID, optional | Unset keeps the scoped worker disabled | With the other workers disabled, opt in one Deal Updated workflow whose saved run definition contains a single Move Deal Stage action. The API wakes it after a Deal save commits. |

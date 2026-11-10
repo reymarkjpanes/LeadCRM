@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api/client';
-import { clearPageCache, getPageCache, setPageCache } from '../page-cache';
+import { clearPageCache, getPageCache, setPageCache, subscribePageCacheInvalidation } from '../page-cache';
 
 beforeEach(() => {
   clearPageCache();
@@ -49,4 +49,29 @@ it('forwards the cancellation signal to fetch', async () => {
   const controller = new AbortController();
   await apiClient.get('/crm/leads', { signal: controller.signal });
   expect(vi.mocked(fetch).mock.calls[0][1]?.signal).toBe(controller.signal);
+});
+
+it('evicts mounted Workflow readers after group changes and notifies authorization-wide mutations', async () => {
+  const changed = vi.fn();
+  const unsubscribe = subscribePageCacheInvalidation(changed);
+  try {
+    await apiClient.patch('/administration/groups/group-id');
+    expect(changed).toHaveBeenCalledWith('workflows', undefined, true);
+    changed.mockClear();
+    await apiClient.patch('/administration/users/user-id');
+    expect(changed).toHaveBeenCalledWith('*');
+    changed.mockClear();
+    await apiClient.patch('/administration/roles/role-id');
+    expect(changed).toHaveBeenCalledWith('*');
+  } finally { unsubscribe(); }
+});
+
+it.each(['/automation/workflows/validate', '/automation/workflows/workflow-id/test'])('keeps read-only Workflow previews after %s', async path => {
+  const changed = vi.fn();
+  const unsubscribe = subscribePageCacheInvalidation(changed);
+  try {
+    await apiClient.post(path, {});
+    expect(getPageCache('workflows', 'tenant-a', {})).not.toBeNull();
+    expect(changed).not.toHaveBeenCalled();
+  } finally { unsubscribe(); }
 });

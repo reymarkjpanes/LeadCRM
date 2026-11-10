@@ -23,7 +23,7 @@ const options: WorkflowOptions = { users: [{ id: ownerId, name: 'Sales agent' }]
 describe('configured stage workflow catalog', () => {
   it('keeps the chooser small regardless of pipelines or stages', () => {
     const entries = workflowTemplateCatalog(options);
-    expect(entries).toHaveLength(16);
+    expect(entries).toHaveLength(14);
     expect(entries.some(entry => entry.id.startsWith('stage:'))).toBe(false);
     expect(workflowTemplateCatalog({ ...options, pipelines: [] }).map(entry => entry.id)).toEqual(entries.map(entry => entry.id));
     expect(entries.filter(entry => entry.recipe.trigger.startsWith('deal.')).map(entry => entry.recipe.name)).toEqual([

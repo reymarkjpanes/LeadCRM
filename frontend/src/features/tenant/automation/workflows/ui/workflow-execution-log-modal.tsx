@@ -4,9 +4,8 @@ import { useReadRecordNotifications } from '@/features/tenant/notifications/hook
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from '@/shared/utils/toast';
-import type { Workflow, WorkflowExecutionRun, WorkflowOptions } from '@leadcrm/shared';
 import { WorkflowDefinitionSummary, emptySnapshotOptions } from './workflow-definition-summary';
-import { workflowStateAction, WORKFLOW_TRIGGERS, WORKFLOW_ASSIGNMENT_METHODS } from '@leadcrm/shared';
+import { workflowStateAction, workflowRunOutcome, WORKFLOW_TRIGGERS, WORKFLOW_ASSIGNMENT_METHODS } from '@leadcrm/shared';
 import { workflowActionLabel } from '../services/workflow-editor';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { Button } from '@/shared/components/ui/button';
@@ -15,6 +14,7 @@ import { formatDateTime } from '@/shared/components/data-grid/cell-renderers';
 import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
 import { DataLoadingSkeleton, DataLoadingSpinner } from '@/shared/components/crm/data-view-states';
 import { useAuth } from '@/store/AuthContext';
+import { useCachedPage } from '@/shared/hooks/use-cached-page';
 import { RefreshButton } from '@/shared/components/crm/refresh-button';
 import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
@@ -50,24 +50,20 @@ export function WorkflowExecutionLogModal({
   const { userCan } = useAuth();
   const canViewRuns = userCan('workflows', 'canViewRuns');
   const canDelete = userCan('workflows', 'canDelete');
-  const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [revision, setRevision] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [runsLoading, setRunsLoading] = useState(canViewRuns);
-  const [error, setError] = useState('');
+  const { data: workflowResponse, isInitialLoad, isRefreshing, error, refetch } = useCachedPage({
+    module: 'workflows', params: { type: 'execution-workflow', workflowId },
+    disabled: !userCan('workflows', 'canView'), revalidateOnInvalidation: true,
+    fetchFn: signal => workflowsApi.get(workflowId, signal),
+  });
+  const workflow = workflowResponse?.data ?? null;
+  const loading = isInitialLoad || isRefreshing;
   const [busy, setBusy] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const lock = useRef(false);
   useEffect(() => { if (!canDelete) setArchiveOpen(false); }, [canDelete]);
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true); setError('');
-    workflowsApi.get(workflowId).then(response => { if (!cancelled) setWorkflow(response.data); })
-      .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load workflow.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [workflowId, revision]);
-  const refresh = () => { setLoading(true); setRunsLoading(canViewRuns); setRevision(value => value + 1); };
+  const refresh = () => { setRevision(value => value + 1); void refetch(); };
   const mutate = async (action: () => Promise<unknown>, message: string, propagateError = false) => {
     if (lock.current) return;
     lock.current = true; setBusy(true);
@@ -123,58 +119,46 @@ function runStatusClass(status: string) {
       return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
     case 'failed':
       return 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
-    case 'running':
-      return 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300';
     default:
       return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
   }
 }
 
 export function WorkflowRuns({ workflowId, layout = 'inline', refreshVersion = 0, onLoadingChange }: { workflowId: string; layout?: 'inline' | 'panel'; refreshVersion?: number; onLoadingChange?: (loading: boolean) => void }) {
-  const { userCan, user, tenant } = useAuth();
-  const optionScope = JSON.stringify([tenant?.id, user?.id, ...['users', 'roles', 'groups', 'products', 'leads', 'contacts', 'accounts', 'deals', 'campaigns', 'templates'].map(module => userCan(module, 'canView'))]);
-  const [optionState, setOptionState] = useState<{ scope: string; value: WorkflowOptions }>({ scope: '', value: emptySnapshotOptions });
-  const options = optionState.scope === optionScope ? optionState.value : emptySnapshotOptions;
-  useEffect(() => {
-    let cancelled = false;
-    // Reference labels are optional; run history remains usable without builder access.
-    Promise.resolve().then(() => workflowsApi.options()).then(response => { if (!cancelled) setOptionState({ scope: optionScope, value: response.data }); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [workflowId, optionScope]);
-  const [runs, setRuns] = useState<WorkflowExecutionRun[]>([]);
+  const { userCan } = useAuth();
+  const canViewRuns = userCan('workflows', 'canViewRuns');
+  const optionScope = JSON.stringify(['users', 'roles', 'groups', 'products', 'leads', 'contacts', 'accounts', 'deals', 'campaigns', 'templates'].map(module => userCan(module, 'canView')));
+  // The shared reader evicts both history and optional labels when authorization or group scope changes.
+  const { data: optionData } = useCachedPage({
+    module: 'workflows', params: { type: 'execution-reference-options', workflowId, optionScope },
+    disabled: !canViewRuns || !userCan('workflows', 'canView'), revalidateOnInvalidation: true,
+    fetchFn: async signal => (await workflowsApi.options(signal)).data,
+  });
+  const options = optionData ?? emptySnapshotOptions;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
+  const { data, isInitialLoad, isRefreshing, error, refetch } = useCachedPage({
+    module: 'workflows', params: { type: 'execution-outcomes', workflowId, page, pageSize, view: 'outcomes' },
+    disabled: !canViewRuns, intervalMs: 30000, pauseWhenHidden: true, revalidateOnInvalidation: true,
+    fetchFn: signal => workflowsApi.getExecutions(workflowId, page, pageSize, 'outcomes', signal),
+  });
+  const runs = (data?.data ?? []).flatMap(run => {
+    const outcome = workflowRunOutcome(run.status);
+    return outcome ? [{ ...run, outcome }] : [];
+  });
+  const total = data?.meta.total ?? 0;
+  const loading = isInitialLoad || isRefreshing;
+  const previousRefresh = useRef(refreshVersion);
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    onLoadingChange?.(true);
-    setError('');
-    workflowsApi
-      .getExecutions(workflowId, page, pageSize)
-      .then((response) => {
-        if (!cancelled) {
-          setRuns(response.data); setTotal(response.meta.total);
-          const lastPage = Math.max(1, Math.ceil(response.meta.total / pageSize));
-          if (page > lastPage) setPage(lastPage);
-        }
-      })
-      .catch((failure) => {
-        if (!cancelled)
-          setError(
-            failure instanceof Error ? failure.message : 'Unable to load runs.',
-          );
-      })
-      .finally(() => {
-        if (!cancelled) { setLoading(false); onLoadingChange?.(false); }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workflowId, page, pageSize, retry, refreshVersion, onLoadingChange]);
+    if (previousRefresh.current === refreshVersion) return;
+    previousRefresh.current = refreshVersion;
+    void refetch();
+  }, [refreshVersion, refetch]);
+  useEffect(() => { onLoadingChange?.(loading); }, [loading, onLoadingChange]);
+  useEffect(() => {
+    if (data) setPage(current => Math.min(current, Math.max(1, Math.ceil(data.meta.total / pageSize))));
+  }, [data, pageSize]);
+  if (!canViewRuns) return <p className="text-sm text-muted-foreground">Run history requires permission to view workflow runs.</p>;
   return (
     <div className={'min-w-0 [overflow-wrap:anywhere] ' + (layout === 'panel' ? 'flex min-h-0 flex-1 flex-col' : 'space-y-4')}>
       <div className={'relative ' + (layout === 'panel' ? panelBodyClass + ' space-y-4' : 'space-y-4')} aria-busy={loading}>
@@ -183,14 +167,14 @@ export function WorkflowRuns({ workflowId, layout = 'inline', refreshVersion = 0
           Runs show the action order at execution time. Older runs may differ from
           the current canvas.
         </p>
-        {layout === 'inline' && <RefreshButton label="Refresh workflow activity" refreshing={loading} onClick={() => { setLoading(true); setRetry(value => value + 1); }} />}
+        {layout === 'inline' && <RefreshButton label="Refresh workflow activity" refreshing={loading} onClick={() => void refetch()} />}
         {loading && !runs.length ? (
           <div role="status" aria-label="Loading workflow runs"><DataLoadingSkeleton rowCount={4} columnCount={2} /></div>
         ) : error && !runs.length ? (
           <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">{error}</p>
         ) : !loading && !runs.length ? (
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-600 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-300">
-            No runs on this page. Activity appears after a matching CRM event.
+            No finished runs on this page. Results appear after a matching CRM event is processed.
           </p>
         ) : (
           runs.map((run) => (
@@ -198,7 +182,7 @@ export function WorkflowRuns({ workflowId, layout = 'inline', refreshVersion = 0
               <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl p-4 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                 <ChevronRight aria-hidden="true" size={16} className="mt-1 shrink-0 text-slate-400 transition-transform group-open:rotate-90" />
                 <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-                  <span className={'rounded-full px-2.5 py-1 text-xs font-semibold capitalize ' + runStatusClass(run.status)}>{run.status}</span>
+                  <span className={'rounded-full px-2.5 py-1 text-xs font-semibold capitalize ' + runStatusClass(run.outcome)}>{run.outcome}</span>
                   <span className="text-slate-600 dark:text-slate-300">{formatDateTime(run.startedAt, { seconds: true })} · {run.entityType}</span>
                   {run.workflowVersion != null && <span className="text-xs text-muted-foreground">v{run.workflowVersion}</span>}
                 </span>
@@ -212,10 +196,11 @@ export function WorkflowRuns({ workflowId, layout = 'inline', refreshVersion = 0
                   Finished:{' '}
                   {run.completedAt
                     ? formatDateTime(run.completedAt, { seconds: true })
-                    : 'In progress or interrupted — review before replay'}
+                    : 'Completion time unavailable for this older run'}
                 </p>
                 {run.entityId && ['lead', 'contact', 'account', 'deal'].includes(run.entityType) && userCan(`${run.entityType}s`, 'canView') && <Link className="inline-flex rounded text-sm text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" href={`/crm/${run.entityType}s/${encodeURIComponent(run.entityId)}`}>Open {run.entityType}</Link>}
                 {run.errorMessage && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{run.errorMessage}</p>}
+                {run.status === 'interrupted' && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">The action outcome is uncertain. Review CRM and delivery history before replay; automatic replay is disabled.</p>}
                 {run.definitionSnapshot ? <details className="min-w-0 text-sm">
                   <summary className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Definition used in this run{run.workflowVersion != null ? ` · v${run.workflowVersion}` : ''}</summary>
                   <WorkflowDefinitionSummary definition={run.definitionSnapshot} options={options} />

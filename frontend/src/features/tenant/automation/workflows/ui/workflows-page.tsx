@@ -74,9 +74,9 @@ export default function WorkflowsPage() {
   }, [tenant?.id, user?.id, authLoading, authError, canView, retry]);
   const hasActiveCriteria = Boolean(search.trim() || statuses.length || triggers.length);
   const { data, isInitialLoad, isRefreshing, error: workflowsError, refetch: refreshWorkflows } = useCachedPage({
-    module: 'workflows', params: { page, pageSize, search, statuses, triggers, sort }, disabled: !canView,
+    module: 'workflows', params: { page, pageSize, search, statuses, triggers, sort, view: 'outcomes' }, disabled: !canView,
     fetchFn: async () => {
-      const result = await workflowsApi.list({ sort: `${sort.field}:${sort.direction}`, page, limit: pageSize, search, status: statuses.join(','), trigger: triggers.join(',') });
+      const result = await workflowsApi.list({ sort: `${sort.field}:${sort.direction}`, page, limit: pageSize, search, status: statuses.join(','), trigger: triggers.join(','), view: 'outcomes' });
       // Filtered totals cannot establish whether the user's workflow module is empty.
       const unfilteredTotal = hasActiveCriteria && result.meta.total === 0
         ? (await workflowsApi.list({ page: 1, limit: 1 })).meta.total

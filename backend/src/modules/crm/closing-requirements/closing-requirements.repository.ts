@@ -46,12 +46,17 @@ export async function validateValues(tx: Tx, tenantId: string, dealId: string, f
   }
   return errors;
 }
-export async function closingEvidence(tx: Tx, tenantId: string, deal: { id: string; stage: { name: string }; closingValues: Prisma.JsonValue }, actorId: string) {
+/** Validate persisted or projected evidence without initializing fields or writing data. */
+export async function validateClosingRequirements(tx: Tx, tenantId: string, deal: { id: string; stage: { name: string }; closingValues: Prisma.JsonValue }, fields: ClosingField[]) {
   if (deal.stage.name.trim().toLowerCase() !== 'qualified') throw new ValidationError('Deal must be Qualified before completing Closed Won requirements.');
-  const fields = (await readClosingFields(tx, tenantId)).filter(field => field.active);
   const values = deal.closingValues as ClosingValues;
   const errors = await validateValues(tx, tenantId, deal.id, fields.filter(field => field.required), values);
   if (Object.keys(errors).length) throw new ValidationError(`Complete all required Closed Won requirements before closing this Deal. ${Object.values(errors).join(' ')}`);
+  return values;
+}
+export async function closingEvidence(tx: Tx, tenantId: string, deal: { id: string; stage: { name: string }; closingValues: Prisma.JsonValue }, actorId: string) {
+  const fields = (await readClosingFields(tx, tenantId)).filter(field => field.active);
+  const values = await validateClosingRequirements(tx, tenantId, deal, fields);
   const files = await tx.recordFile.findMany({ where: { tenantId, dealId: deal.id, id: { in: fields.filter(f => f.type === 'File Upload').map(f => values[f.id]).filter((v): v is string => typeof v === 'string' && !!v) } }, select: { id: true, name: true, type: true, size: true, objectKey: true, uploadedAt: true } });
   return JSON.parse(JSON.stringify({ fields, values: Object.fromEntries(fields.map(f => [f.id, values[f.id] ?? null])), files, closedAt: new Date().toISOString(), closedById: actorId })) as Prisma.InputJsonValue;
 }

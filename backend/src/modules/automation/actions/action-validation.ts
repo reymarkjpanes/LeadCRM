@@ -1,4 +1,4 @@
-import { validateDealTargets } from './action-deal-targets';
+import { validateDealTargets, type WorkflowDealProjection } from './action-deal-targets';
 import { resolveTaskDealIds, validateTaskDealSelection } from './action-task-deals';
 import { z } from 'zod';
 import { workflowLossReasonIssue, workflowMessageEntity, EmailSubjectSchema, type WorkflowAction, type WorkflowEntity } from '@leadcrm/shared';
@@ -19,7 +19,7 @@ export function actionEntity(context: Record<string, unknown>): WorkflowEntity {
   if (matches.length !== 1) throw new ValidationError('Choose one triggering CRM record.');
   return matches[0];
 }
-export async function validateAction(action: WorkflowAction, entity: WorkflowEntity, tenantId: string, context?: Record<string, unknown>, incomplete = false): Promise<void> {
+export async function validateAction(action: WorkflowAction, entity: WorkflowEntity, tenantId: string, context?: Record<string, unknown>, incomplete = false, projection?: WorkflowDealProjection): Promise<void> {
   action = normalizeWorkflowEmailAction(action);
   if (retiredAccountWorkflowReferences({ trigger: `${entity}.updated`, actions: [action] }).length) {
     if (incomplete) return;
@@ -86,7 +86,7 @@ export async function validateAction(action: WorkflowAction, entity: WorkflowEnt
     if (action.config.currentStageId && (await repo.findStage(String(action.config.currentStageId), tenantId))?.pipelineId !== stage.pipelineId) throw new ValidationError('Current and target stages must belong to the same pipeline.');
     if (entity === 'deal' && (action.config.targetMode || action.config.productInterestId || action.config.currentStageId)) throw new ValidationError('Related Deal filters require a Lead or Contact trigger.');
     if (context) {
-      await validateDealTargets(action, entity, tenantId, context);
+      await validateDealTargets(action, entity, tenantId, context, projection);
     }
   }
   if (action.type === 'send_email') await validateEmail(action, entity, tenantId, context);

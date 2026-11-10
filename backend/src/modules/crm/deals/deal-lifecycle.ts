@@ -4,6 +4,7 @@ import { ValidationError } from '../../../shared/errors/http-error';
 
 type StageState = { id: string; name: string; isWon: boolean; isLost: boolean };
 type DealState = { id: string; stageId: string; hasEverBeenWon?: boolean; wonHistoryVerified?: boolean; wonConfirmedAt?: Date | null; stage: StageState };
+export type DealStageValidationState = Prisma.DealGetPayload<{ include: { stage: true } }>;
 
 /** Internal execution policy; never accepted from an HTTP request body. */
 export interface DealStageMovePolicy { optionalLossReason?: boolean; automatic?: boolean; deferCustomerStatus?: boolean }

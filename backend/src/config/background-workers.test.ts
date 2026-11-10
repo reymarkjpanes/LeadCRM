@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation, shouldStartCampaignSubmissionWorkers } from './background-workers';
+import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation, shouldStartCampaignSubmissionWorkers, workflowWorkerPolicy } from './background-workers';
 
 it('keeps production background workers off unless explicitly enabled', () => {
   expect(shouldStartBackgroundWorkers({ NODE_ENV: 'production' })).toBe(false);
@@ -30,4 +30,25 @@ it('allows receipt reconciliation independently of submission and other workers'
   expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'production' })).toBe(false);
   expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'development' })).toBe(true);
   expect(shouldStartCampaignDeliveryReconciliation({ NODE_ENV: 'development', CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED: 'false' })).toBe(false);
+});
+
+it.each([
+  [{ NODE_ENV: 'production' }, { mode: 'disabled' }],
+  [{ NODE_ENV: 'development' }, { mode: 'all' }],
+  [{ NODE_ENV: 'production', DEAL_STAGE_WORKFLOW_ID: ' workflow ' }, { mode: 'scoped', workflowId: 'workflow' }],
+  [{ BACKGROUND_WORKERS_ENABLED: 'true', DEAL_STAGE_WORKFLOW_ID: 'workflow' }, { mode: 'all' }],
+  [{ BACKGROUND_WORKERS_ENABLED: 'false', DEAL_STAGE_WORKFLOW_ID: 'workflow' }, { mode: 'scoped', workflowId: 'workflow' }],
+  [{ BACKGROUND_WORKERS_ENABLED: 'false', DEAL_STAGE_WORKFLOW_ID: 'workflow', WORKFLOW_WORKER_ENABLED: 'true' }, { mode: 'all' }],
+  [{ BACKGROUND_WORKERS_ENABLED: 'true', WORKFLOW_WORKER_ENABLED: 'false' }, { mode: 'disabled' }],
+  [{ BACKGROUND_WORKERS_ENABLED: 'false', DEAL_STAGE_WORKFLOW_ID: 'workflow', WORKFLOW_WORKER_ENABLED: 'false' }, { mode: 'disabled' }],
+])('resolves the independent Workflow policy for %j', (env, expected) => {
+  expect(workflowWorkerPolicy(env)).toEqual(expected);
+});
+
+it('does not enable general, campaign, or reconciliation workers with the Workflow opt-in', () => {
+  const env = { NODE_ENV: 'production', WORKFLOW_WORKER_ENABLED: 'true' };
+  expect(workflowWorkerPolicy(env)).toEqual({ mode: 'all' });
+  expect(shouldStartBackgroundWorkers(env)).toBe(false);
+  expect(shouldStartCampaignSubmissionWorkers(env)).toBe(false);
+  expect(shouldStartCampaignDeliveryReconciliation(env)).toBe(false);
 });

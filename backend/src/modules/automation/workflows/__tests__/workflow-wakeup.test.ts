@@ -1,10 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { salesContext, markWorkflowQueued, workflowTransactionCommitted } from '../../../crm/leads/sales-context';
 import { crmActor } from '../../../crm/access/crm-record-access.service';
 const mocks = vi.hoisted(() => ({ findMany: vi.fn(), updateMany: vi.fn(), findWorkflow: vi.fn() }));
 vi.mock('../../../../config/database.config', () => ({ default: {
   workflowExecutionRun: { findMany: mocks.findMany, updateMany: mocks.updateMany }, workflow: { findFirst: mocks.findWorkflow },
-  $transaction: async (work: (tx: unknown) => unknown) => work({ workflowExecutionRun: { updateMany: mocks.updateMany } }),
+  $transaction: async (work: (tx: unknown) => unknown) => work({ workflowExecutionRun: { updateMany: mocks.updateMany }, workflowExecutionStep: { count: async () => 0 } }),
 } }));
 import { dispatchQueuedWorkflows, startWorkflowScheduler } from '../workflow-queue';
 
@@ -31,13 +32,13 @@ it('wakes before the recovery tick and keeps the worker outside the requesting t
   expect(mocks.findMany).toHaveBeenCalledTimes(reads);
 });
 
-it('defers a batch that cannot prepare to the recovery tick instead of immediately retrying it', async () => {
+it('defers a transiently failing batch so a later batch can progress without immediately retrying it', async () => {
   mocks.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(Array.from({ length: 10 }, (_, index) => ({
     id: `run-${index}`, tenantId: 'tenant', workflowId: 'workflow', dispatchContext: { version: 1 },
   })));
   mocks.updateMany.mockResolvedValue({ count: 1 });
-  mocks.findWorkflow.mockRejectedValue(new Error('Temporary database failure'));
-  expect(await dispatchQueuedWorkflows()).toBe(false);
+  mocks.findWorkflow.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('private database address', { code: 'P1001', clientVersion: '5' }));
+  expect(await dispatchQueuedWorkflows()).toBe(true);
   expect(mocks.findWorkflow).toHaveBeenCalledTimes(10);
   expect(mocks.updateMany).toHaveBeenCalledTimes(20);
 });

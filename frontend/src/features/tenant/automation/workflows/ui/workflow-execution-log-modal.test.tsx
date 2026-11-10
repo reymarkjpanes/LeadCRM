@@ -1,6 +1,7 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { clearPageCache, invalidatePageCache } from '@/shared/cache/page-cache';
 import { WorkflowExecutionLogModal } from './workflow-execution-log-modal';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { toast } from '@/shared/utils/toast';
@@ -8,11 +9,12 @@ vi.mock('@/shared/utils/toast', () => ({ toast: { success: vi.fn(), warning: vi.
 const push = vi.fn();
 const permissions = vi.hoisted(() => ({ denied: [] as string[] }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ userCan: (module: string, action: string) => !permissions.denied.includes(module) && !permissions.denied.includes(`${module}.${action}`) }) }));
-vi.mock('@/shared/services/workflows.api', () => ({ workflowsApi: { get: vi.fn(), getExecutions: vi.fn(), toggle: vi.fn(), duplicate: vi.fn(), archive: vi.fn() } }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'viewer', role: 'Staff' }, tenant: { id: 'workspace' }, userCan: (module: string, action: string) => !permissions.denied.includes(module) && !permissions.denied.includes(`${module}.${action}`) }) }));
+vi.mock('@/shared/services/workflows.api', () => ({ workflowsApi: { get: vi.fn(), getExecutions: vi.fn(), options: vi.fn(), toggle: vi.fn(), duplicate: vi.fn(), archive: vi.fn() } }));
 const run = { id: 'run', status: 'completed', startedAt: '2026-10-01T12:00:00Z', completedAt: '2026-10-01T12:01:00Z', entityType: 'lead', trigger: { payload: { recordName: 'Ada Lovelace' }, triggerType: 'lead_created' }, steps: [{ id: 'step', stepIndex: 0, actionType: 'create_task', status: 'completed' }] };
 const workflow = { id: 'wf', name: 'Follow up', isActive: true, status: 'ACTIVE' };
 beforeEach(() => {
+  clearPageCache();
   permissions.denied = [];
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   vi.mocked(workflowsApi.get).mockResolvedValue({ data: workflow } as never);
@@ -38,7 +40,7 @@ it('hides output destinations when the viewer lacks their module permissions', a
   expect(screen.queryByRole('link', { name: 'Open Task' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'Open lead' })).toBeNull();
 });
-afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); clearPageCache(); vi.resetAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const mount = (close = vi.fn(), updated = vi.fn()) => render(<WorkflowExecutionLogModal workflowId="wf" name="Follow up" status="Active" onClose={close} onUpdated={updated} />);
 const settled = () => waitFor(() => expect((screen.getByLabelText('Refresh workflow activity') as HTMLButtonElement).disabled).toBe(false));
 it('offers the read-only definition without inheriting Pause from Activate', async () => {
@@ -113,16 +115,19 @@ it('uses shared pagination and retains loaded runs while refreshing definition p
   await screen.findByText('Page 1 of 3');
   expect(dialog.querySelectorAll('details')).toHaveLength(25);
   expect(dialog.querySelector('details')!.textContent).toContain('1. Create Task — completed');
-  fireEvent.click(screen.getByRole('button', { name: 'Next page' })); await screen.findByText('Page 2 of 3');
-  expect(workflowsApi.getExecutions).toHaveBeenLastCalledWith('wf', 2, 25);
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' })); await screen.findByText('Page 2 of 3'); await settled();
+  expect(workflowsApi.getExecutions).toHaveBeenLastCalledWith('wf', 2, 25, 'outcomes', expect.any(AbortSignal));
+  let finishRefresh!: (value: unknown) => void;
+  vi.mocked(workflowsApi.getExecutions).mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }) as never);
   fireEvent.click(screen.getByLabelText('Refresh workflow activity')); fireEvent.click(screen.getByLabelText('Refresh workflow activity'));
   expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeTruthy();
-  expect(screen.getByRole('status', { name: 'Refreshing workflow runs...' })).toBeTruthy();
+  expect(await screen.findByRole('status', { name: 'Refreshing workflow runs...' })).toBeTruthy();
   expect(dialog.querySelectorAll('details')).toHaveLength(25);
+  await act(async () => { finishRefresh({ data: Array.from({ length: 25 }, (_, i) => ({ ...run, id: `run-${i}` })), meta: { total: 51, page: 2, limit: 25, hasMore: true } }); });
   await settled();
   expect(workflowsApi.get).toHaveBeenCalledTimes(2); expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(3);
   fireEvent.click(screen.getByLabelText('Records per page')); fireEvent.click(screen.getByRole('option', { name: '10' }));
-  await screen.findByText('Page 1 of 6'); expect(workflowsApi.getExecutions).toHaveBeenLastCalledWith('wf', 1, 10);
+  await screen.findByText('Page 1 of 6'); expect(workflowsApi.getExecutions).toHaveBeenLastCalledWith('wf', 1, 10, 'outcomes', expect.any(AbortSignal));
   fireEvent.click(screen.getByLabelText('Close workflow details')); expect(close).toHaveBeenCalledOnce();
 });
 it('orders header actions and toggles, dismisses and executes the existing workflow menu', async () => {
@@ -143,4 +148,60 @@ it('orders header actions and toggles, dismisses and executes the existing workf
   menu(); fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' })); expect(workflowsApi.archive).not.toHaveBeenCalled();
   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Archive' }));
   await waitFor(() => expect(workflowsApi.archive).toHaveBeenCalledWith('wf')); await waitFor(() => expect(updated).toHaveBeenCalledTimes(4));
+});
+
+it('shows only finished outcome labels and retains uncertainty for interrupted submissions', async () => {
+  vi.mocked(workflowsApi.getExecutions).mockResolvedValue({ data: [
+    ...['completed', 'failed', 'skipped', 'interrupted', 'queued', 'running'].map(status => ({ ...run, id: status, status, steps: [] })),
+  ], meta: { total: 4, page: 1, limit: 25, hasMore: false } } as never);
+  mount(); await settled();
+  const summaries = [...screen.getByRole('dialog').querySelectorAll('summary')].map(summary => summary.textContent);
+  expect(summaries).toHaveLength(4);
+  expect(summaries.filter(text => text?.startsWith('completed'))).toHaveLength(1);
+  expect(summaries.filter(text => text?.startsWith('failed'))).toHaveLength(2);
+  expect(summaries.filter(text => text?.startsWith('skipped'))).toHaveLength(1);
+  expect(screen.getByText(/The action outcome is uncertain/).textContent).toContain('automatic replay is disabled');
+  expect(screen.queryByText('queued')).toBeNull(); expect(screen.queryByText('running')).toBeNull();
+});
+
+it.each([401, 403, 404])('clears previously loaded history after an authoritative %s denial', async status => {
+  mount(); await settled();
+  expect(screen.getAllByText(/Ada Lovelace/).length).toBeGreaterThan(0);
+  vi.mocked(workflowsApi.getExecutions).mockRejectedValue(Object.assign(new Error('History access unavailable.'), { status }));
+  fireEvent.click(screen.getByLabelText('Refresh workflow activity'));
+  await screen.findByText('History access unavailable.');
+  expect(screen.queryByText(/Ada Lovelace/)).toBeNull();
+});
+
+it('rejects late history responses after group-scope eviction without changing permission flags', async () => {
+  mount(); await settled();
+  let finishOld!: (value: unknown) => void;
+  vi.mocked(workflowsApi.getExecutions).mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }) as never)
+    .mockResolvedValue({ data: [], meta: { total: 0, page: 1, limit: 25, hasMore: false } } as never);
+  fireEvent.click(screen.getByLabelText('Refresh workflow activity'));
+  await waitFor(() => expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(2));
+  act(() => invalidatePageCache('workflows', 'workspace', true, true));
+  await waitFor(() => expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(3));
+  expect(screen.queryByText(/Ada Lovelace/)).toBeNull();
+  await act(async () => { finishOld({ data: [run], meta: { total: 1 } }); });
+  await settled();
+  expect(screen.queryByText(/Ada Lovelace/)).toBeNull();
+});
+
+it('refreshes finished outcomes while visible and stops polling when hidden or unmounted', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const view = mount(); await settled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(2);
+  hidden.mockReturnValue(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(2);
+  hidden.mockReturnValue(false);
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  await settled(); expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(3);
+  view.unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(workflowsApi.getExecutions).toHaveBeenCalledTimes(3);
+  hidden.mockRestore();
 });
