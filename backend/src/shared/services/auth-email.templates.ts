@@ -71,6 +71,16 @@ ${paragraph('All the best,<br /><strong style="color:#1e293b">The LeadCRM team</
 `, "You're receiving this email because a password reset was requested for your account.");
 }
 
+export function buildProfileEmailChangeEmail(code: string): string {
+  return wrapAuthEmail('Confirm your LeadCRM email address', `
+${paragraph('We received a request to change the email address for your LeadCRM account. Enter the verification code below in Profile Settings to confirm your new email address.')}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 12px;background:#f2f6fd;border:1px solid #e2e8f0;table-layout:fixed"><tr><td align="center" style="padding:18px 20px;font-family:monospace;font-size:32px;letter-spacing:6px;line-height:1.6;color:#1e293b;overflow-wrap:anywhere;word-break:break-all"><strong>${escape(code)}</strong></td></tr></table>
+<p style="margin:0;font-size:11px;line-height:1.8;color:${MUTED}">${icon('clock')}This code expires in 15 minutes.</p>
+${securityNotice("Didn't request this?", "You can safely ignore this email. Your account email address will stay unchanged unless you verify the change. If you're concerned about your account, please contact our support team.")}
+${paragraph('All the best,<br /><strong style="color:#1e293b">The LeadCRM team</strong>', '26px 0 0')}
+`, "You're receiving this email because a change to your LeadCRM account email address was requested.");
+}
+
 /** Plaintext credentials are retained only in the existing outgoing welcome flow. */
 export function buildWelcomeCredentialsEmail(user: { firstName: string; lastName: string; email: string }, temporaryPassword: string): string {
   const loginUrl = new URL('/login', getAuthAppOrigin()).href;

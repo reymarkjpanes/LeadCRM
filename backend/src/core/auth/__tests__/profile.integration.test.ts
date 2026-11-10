@@ -68,15 +68,27 @@ describe.skipIf(!disposable)('profile and sorting persistence through authentica
     const confirm = (authToken: string, code: string) => call(codePath + '/confirm', authToken, { code });
     vi.mocked(sendMail).mockResolvedValue({ submitted: true, messageId: 'fixture-email' });
     expect((await issue(staffSession.token)).status).toBe(403);
-    expect((await confirm(staffSession.token, 'A'.repeat(32))).status).toBe(403);
+    expect((await confirm(staffSession.token, '000000')).status).toBe(403);
     expect((await issue(adminSession.token, { email, currentPassword: 'wrong' })).status).toBe(400);
     expect((await issue(adminSession.token, { email: staff.email, currentPassword: password })).status).toBe(409);
     await prisma.passwordResetToken.create({ data: { userId: admin.id, email: admin.email, token: 'fixture-profile-recovery', expires: new Date(Date.now() + 60_000) } });
+    const requestedAt = Date.now();
     expect((await issue(adminSession.token)).status).toBe(200);
     const preference = { tenantId, userId: admin.id, module: 'auth', key: 'profile-email-change' };
     const pending = await prisma.userPreference.findFirstOrThrow({ where: preference });
-    const code = () => /<strong>([A-Za-z0-9_-]{32})<\/strong>/.exec(vi.mocked(sendMail).mock.lastCall![0].html)![1];
-    expect(vi.mocked(sendMail).mock.lastCall?.[0]).toMatchObject({ to: email, category: 'profile-email-change' });
+    const code = () => /<strong>([0-9]{6})<\/strong>/.exec(vi.mocked(sendMail).mock.lastCall![0].html)![1];
+    expect(vi.mocked(sendMail).mock.lastCall?.[0]).toMatchObject({ to: email, subject: 'Confirm your LeadCRM email address', category: 'profile-email-change', requireDelivery: true });
+    const html = vi.mocked(sendMail).mock.lastCall![0].html;
+    expect(html).toContain('>Confirm your LeadCRM email address</h1>');
+    expect(html).toContain('Camxian Technologies');
+    expect(html).toContain('This code expires in 15 minutes.');
+    expect(html).not.toContain('/reset-password');
+    expect(code()).toMatch(/^[0-9]{6}$/);
+    expect((pending.value as { expiresAt: number }).expiresAt).toBeGreaterThanOrEqual(requestedAt + 15 * 60_000);
+    expect((pending.value as { expiresAt: number }).expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60_000);
+    const sentCount = vi.mocked(sendMail).mock.calls.length;
+    expect((await issue(adminSession.token)).status).toBe(429);
+    expect(vi.mocked(sendMail).mock.calls.length).toBe(sentCount);
     expect(JSON.stringify(pending.value)).not.toContain(code());
     expect((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).email).toBe(admin.email);
     expect((await confirm(otherAdminSession.token, code())).status).toBe(400);
@@ -94,6 +106,91 @@ describe.skipIf(!disposable)('profile and sorting persistence through authentica
     expect(await prisma.passwordResetToken.count({ where: { userId: admin.id } })).toBe(0);
     expect((await request('/auth/login', 'POST', { email: admin.email, password }, false)).status).toBe(401);
     expect((await request('/auth/login', 'POST', { email, password }, false)).status).toBe(200);
+  });
+  it('persists five-attempt exhaustion across HTTP requests without extending or bypassing the resend cooldown', async () => {
+    const password = 'Disposable!Otp2026';
+    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email: 'profile-otp@camxian.com',
+      firstName: 'OTP', lastName: 'Admin', passwordHash: await hashPassword(password), mustChangePassword: false, onboardingCompletedAt: new Date() } });
+    const session = await issueAuthSession(admin), otherSession = await issueAuthSession(admin);
+    const call = (path: string, body: unknown, token = session.token) => fetch(base + '/auth/profile/email/' + path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body),
+    });
+    const email = 'profile-otp@example.test';
+    const issue = () => call('request', { email, currentPassword: password });
+    const confirm = (code: string, token = session.token) => call('confirm', { code }, token);
+    const preference = { tenantId, userId: admin.id, module: 'auth', key: 'profile-email-change' };
+    const read = () => prisma.userPreference.findFirstOrThrow({ where: preference });
+    const code = () => /<strong>([0-9]{6})<\/strong>/.exec(vi.mocked(sendMail).mock.lastCall![0].html)![1];
+    vi.mocked(sendMail).mockResolvedValue({ submitted: true, messageId: 'fixture-otp' });
+    expect((await issue()).status).toBe(200);
+    const original = code();
+    const wrong = original === '000000' ? '000001' : '000000';
+    expect((await confirm(original, otherSession.token)).status).toBe(400);
+    expect((await confirm('12345')).status).toBe(400);
+    expect((await confirm('A'.repeat(32))).status).toBe(400);
+    let row = await read();
+    const issuedAt = (row.value as { issuedAt: number }).issuedAt;
+    expect((row.value as { failedAttempts: number }).failedAttempts).toBe(0);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      expect((await confirm(wrong)).status).toBe(400);
+      expect(((await read()).value as { failedAttempts: number }).failedAttempts).toBe(attempt);
+    }
+    const concurrent = await Promise.all([confirm(wrong), confirm(wrong)]);
+    expect(concurrent.map(response => response.status).sort()).toEqual([400, 429]);
+    row = await read();
+    expect(row.value).toMatchObject({ failedAttempts: 5, issuedAt });
+    const exhausted = await confirm(original);
+    expect(exhausted.status).toBe(429);
+    expect((await exhausted.json()).error).toMatchObject({ code: 'PROFILE_EMAIL_CODE_ATTEMPTS_EXCEEDED' });
+    expect((await issue()).status).toBe(429);
+    // A recent counter update must not extend the issuance cooldown.
+    await prisma.userPreference.update({ where: { id: row.id }, data: {
+      value: { ...(row.value as Record<string, string | number>), issuedAt: Date.now() - 61_000 },
+    } });
+    expect((await issue()).status).toBe(200);
+    const replacement = code();
+    expect(replacement).not.toBe(original);
+    expect(((await read()).value as { failedAttempts: number }).failedAttempts).toBe(0);
+    expect((await confirm(original)).status).toBe(400);
+    const verified = await Promise.all([confirm(replacement), confirm(replacement)]);
+    expect(verified.filter(response => response.status === 200)).toHaveLength(1);
+    expect(await prisma.userPreference.count({ where: preference })).toBe(0);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).email).toBe(email);
+  });
+  it('requires a fresh code for a legacy challenge while retaining its resend cooldown', async () => {
+    const password = 'Disposable!Legacy2026';
+    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email: 'profile-legacy@camxian.com',
+      firstName: 'Legacy', lastName: 'Admin', passwordHash: await hashPassword(password), mustChangePassword: false, onboardingCompletedAt: new Date() } });
+    const session = await issueAuthSession(admin);
+    const preference = { tenantId, userId: admin.id, module: 'auth', key: 'profile-email-change' };
+    const row = await prisma.userPreference.create({ data: { ...preference, value: { codeHash: '0'.repeat(64), expiresAt: Date.now() + 15 * 60_000 } } });
+    const call = (path: string, body: unknown) => fetch(base + '/auth/profile/email/' + path, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` }, body: JSON.stringify(body) });
+    expect((await call('confirm', { code: '000000' })).status).toBe(400);
+    const input = { email: 'profile-legacy@example.test', currentPassword: password };
+    expect((await call('request', input)).status).toBe(429);
+    await prisma.userPreference.update({ where: { id: row.id }, data: { updatedAt: new Date(Date.now() - 61_000) } });
+    expect((await call('request', input)).status).toBe(200);
+    expect((await prisma.userPreference.findFirstOrThrow({ where: preference })).value).toMatchObject({ failedAttempts: 0, issuedAt: expect.any(Number) });
+  });
+  it.each(['rejected', 'not-submitted'] as const)('cleans up a %s verification delivery and allows retry without changing the email', async failure => {
+    const password = 'Disposable!Delivery2026';
+    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email: `profile-delivery-${failure}@camxian.com`,
+      firstName: 'Delivery', lastName: 'Admin', passwordHash: await hashPassword(password), mustChangePassword: false, onboardingCompletedAt: new Date() } });
+    const session = await issueAuthSession(admin);
+    const email = `profile-delivery-${failure}@example.test`;
+    const issue = () => fetch(base + '/auth/profile/email/request', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` }, body: JSON.stringify({ email, currentPassword: password }) });
+    if (failure === 'rejected') vi.mocked(sendMail).mockRejectedValueOnce(new Error('Provider unavailable'));
+    else vi.mocked(sendMail).mockResolvedValueOnce({ submitted: false, messageId: null });
+    expect((await issue()).status).toBe(503);
+    const preference = { tenantId, userId: admin.id, module: 'auth', key: 'profile-email-change' };
+    expect(await prisma.userPreference.count({ where: preference })).toBe(0);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).email).toBe(admin.email);
+    expect(await prisma.session.count({ where: { userId: admin.id } })).toBe(1);
+    vi.mocked(sendMail).mockResolvedValue({ submitted: true, messageId: 'fixture-email' });
+    expect((await issue()).status).toBe(200);
+    expect(await prisma.userPreference.count({ where: preference })).toBe(1);
   });
   it('stores optimized avatar bytes, persists the reference and reloads the image through authenticated HTTP', async () => {
     const png = await sharp({ create: { width: 700, height: 700, channels: 3, background: '#123abc' } }).png().toBuffer();
