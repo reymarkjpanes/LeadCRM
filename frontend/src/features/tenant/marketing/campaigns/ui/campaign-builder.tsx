@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { campaignsApi } from '@/shared/services/campaigns.api';
+import { CampaignStatusBadge } from './campaign-status-badge';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { Input, textFieldClassName } from '@/shared/components/ui/input';
 
@@ -72,7 +73,7 @@ interface CampaignBuilderProps {
 
 export function CampaignBuilder({
   onBack,
-  initialCampaign,
+  initialCampaign: campaignSnapshot,
   initialSubject,
   canSend = true,
   initialType,
@@ -80,6 +81,29 @@ export function CampaignBuilder({
 
 }: CampaignBuilderProps) {
   const { tenant, user } = useAuth();
+  // Draft inputs remain local. Saved scheduled/sent details follow canonical state.
+  const followStatus = !!campaignSnapshot && campaignSnapshot.status.toLowerCase() !== 'draft';
+  const [statusInterval, setStatusInterval] = useState(2500);
+  const [detailsUnavailable, setDetailsUnavailable] = useState(false);
+  const campaignPage = useCachedPage({
+    module: 'campaigns', params: { id: campaignSnapshot?.id, view: 'builder' },
+    disabled: !followStatus, intervalMs: statusInterval, pauseWhenHidden: true, revalidateOnInvalidation: true,
+    fetchFn: signal => campaignsApi.get(campaignSnapshot!.id, signal),
+  });
+  const initialCampaign = campaignPage.data?.data ?? campaignSnapshot;
+  const accessDenied = [401, 403, 404].includes(campaignPage.errorStatus ?? 0);
+  useEffect(() => {
+    const status = campaignPage.data?.data.status.toLowerCase();
+    if (status) setStatusInterval(['scheduled', 'sending'].includes(status) ? 2500 : ['submitted', 'sent', 'interrupted'].includes(status) ? 7500 : 0);
+    if (accessDenied) setDetailsUnavailable(true);
+    else if (campaignPage.data) setDetailsUnavailable(false);
+  }, [campaignPage.data, accessDenied]);
+  useEffect(() => {
+    if (!followStatus) return;
+    const refresh = () => { if (!document.hidden) void campaignPage.refetchSilently(); };
+    window.addEventListener('online', refresh);
+    return () => window.removeEventListener('online', refresh);
+  }, [followStatus, campaignPage.refetchSilently]);
   useReadRecordNotifications('Campaign', initialCampaign?.id, !!initialCampaign && !initialCampaign.isArchived);
   const router = useRouter();
 
@@ -94,6 +118,9 @@ export function CampaignBuilder({
   const scheduled = initialCampaign?.status.toLowerCase() === 'scheduled';
   const [sendMenuOpen, setSendMenuOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  useEffect(() => {
+    if (!scheduled) setScheduleOpen(false);
+  }, [scheduled]);
   const [scheduleSession, setScheduleSession] = useState(0);
   const [scheduledTime, setScheduledTime] = useState(initialCampaign?.scheduledFor ? manilaLocalDateTime(initialCampaign.scheduledFor) : '');
   const [targetAudience, setTargetAudience] = useState(initialCampaign?.targetAudienceId || initialCampaign?.audienceSource || '');
@@ -288,7 +315,7 @@ export function CampaignBuilder({
     if (smsLengthPreview.length > SMS_MAX_LENGTH) smsPreviewError = `SMS preview exceeds the ${SMS_MAX_LENGTH}-character limit after personalization.`;
   }
   function openSchedule() {
-    if (requestLock.current || !maySend) return;
+    if (requestLock.current || !maySend || initialCampaign && !['draft', 'scheduled'].includes(initialCampaign.status.toLowerCase())) return;
     let next = scheduledTime;
     try { campaignScheduleInstant(next); }
     catch { next = manilaLocalDateTime(new Date(Date.now() + 3600000)); }
@@ -375,7 +402,7 @@ export function CampaignBuilder({
     } finally { requestLock.current = false; setIsSending(false); setPendingIntent(null); }
   }
   async function manageSchedule(cancel: boolean, value?: string) {
-    if (requestLock.current || !initialCampaign || !maySend) return;
+    if (requestLock.current || !initialCampaign || !scheduled || !maySend) return;
     let due = '';
     if (!cancel) {
       try { due = campaignScheduleInstant(value || ''); }
@@ -388,7 +415,7 @@ export function CampaignBuilder({
       else { const result = await campaignsApi.schedule(initialCampaign.id, due); toast.success(scheduleSuccess(result.data.scheduledFor)); }
       setScheduleOpen(false); leaveBuilder();
     }
-    catch (error) { const message = error instanceof Error ? error.message : 'Unable to change schedule.'; setErrors({ form: message }); toast.error(message); }
+    catch (error) { const message = error instanceof Error ? error.message : 'Unable to change schedule.'; setErrors({ form: message }); toast.error(message); void campaignPage.refetchSilently(); }
     finally { requestLock.current = false; setIsSending(false); }
   }
   const handleSaveDraft = () => save('draft');
@@ -474,6 +501,8 @@ export function CampaignBuilder({
         </div>
   );
 
+  if (accessDenied || detailsUnavailable) return <div role="alert" className="space-y-3 p-4"><p>Campaign details are unavailable.</p><Button type="button" onClick={onBack}>Back to campaigns</Button></div>;
+
   return (
     <div className="w-full min-w-0 h-full flex flex-col">
       {/* Top Bar */}
@@ -511,8 +540,10 @@ export function CampaignBuilder({
       </div>
 
       <FieldError message={scheduleOpen ? undefined : errors.form || variableError || variableRepair || undefined} />
-      {initialCampaign?.scheduleConfig?.scheduleFailureReason && <p role="status" className="m-3 rounded border border-amber-300 p-3 text-sm text-amber-800">Schedule failed: {initialCampaign.scheduleConfig.scheduleFailureReason}</p>}
-      {scheduled && <div className="m-3 space-y-2 rounded border p-3 text-sm"><p>Approved content and audience rules are fixed. Cancel the schedule to edit them.</p><p>Scheduled for {manilaLocalDateTime(initialCampaign.scheduledFor || '').replace('T', ' ')} (Asia/Manila)</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={isSending || !maySend} onClick={openSchedule}>Reschedule</Button><Button type="button" variant="outline" disabled={isSending || !maySend} onClick={() => void manageSchedule(true)}>Cancel schedule</Button></div></div>}
+      {followStatus && initialCampaign && <div role="status" aria-label="Campaign status" className="mx-3 mt-3"><CampaignStatusBadge status={initialCampaign.status} reviewRequired={initialCampaign.reviewRequired} /></div>}
+      {campaignPage.error && <p role="alert" className="m-3 text-sm text-amber-800">{campaignPage.error}</p>}
+      {initialCampaign?.scheduleConfig?.scheduleFailureReason && <p role="status" className="m-3 rounded border border-amber-300 p-3 text-sm text-amber-800">Schedule {scheduled ? 'delayed' : 'failed'}: {initialCampaign.scheduleConfig.scheduleFailureReason}</p>}
+      {scheduled && <div className="m-3 space-y-2 rounded border p-3 text-sm"><p>Approved content and audience rules are fixed. Cancel the schedule to edit them.</p><p>Scheduled for {manilaLocalDateTime(initialCampaign.scheduledFor || '').replace('T', ' ')} (Asia/Manila)</p><div className="flex flex-wrap gap-2"><Button type="button" disabled={isSending || !maySend} onClick={openSchedule}>Reschedule</Button><Button type="button" variant="outline" disabled={isSending || !maySend} onClick={() => void manageSchedule(true)}>Cancel schedule</Button></div></div>}
       {/* Split Layout */}
       <div ref={formScrollRef} className="min-h-0 flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         {/* Editor */}

@@ -9,3 +9,8 @@ export function shouldStartCampaignDeliveryReconciliation(env: NodeJS.ProcessEnv
   const setting = env.CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED;
   return setting ? setting === 'true' : shouldStartBackgroundWorkers(env);
 }
+
+export function shouldStartCampaignSubmissionWorkers(env: NodeJS.ProcessEnv = process.env): boolean {
+  const setting = env.CAMPAIGN_SUBMISSION_WORKERS_ENABLED;
+  return setting ? setting === 'true' : shouldStartBackgroundWorkers(env);
+}

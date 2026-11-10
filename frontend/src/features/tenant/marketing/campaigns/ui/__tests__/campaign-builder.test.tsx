@@ -26,6 +26,7 @@ beforeEach(() => {
   vi.mocked(audiencesApi.fields).mockImplementation(async source => ({ success: true, data: campaignFields(source) }));
   vi.mocked(campaignsApi.schedule).mockImplementation(async (_id, scheduledFor) => ({ success: true, data: { id: 'saved-id', status: 'scheduled', scheduledFor } as never }));
   vi.mocked(campaignsApi.cancelSchedule).mockResolvedValue({ success: true, data: { id: 'saved-id', status: 'Draft' } as never });
+  vi.mocked(campaignsApi.get).mockReset();
   vi.mocked(campaignsApi.emailSettings).mockResolvedValue({ success: true, data: { senderName: 'Configured test sender', senderEmail: 'sender@example.test' } });
   vi.mocked(campaignsApi.smsSettings).mockResolvedValue({ success: true, data: { organizationName: 'Configured SMS organization', organizationEmail: 'info@example.test' } });
   vi.clearAllMocks(); vi.mocked(audiencesApi.list).mockResolvedValue({ success: true, data: [audience] });
@@ -757,6 +758,55 @@ describe('campaign composer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel schedule' }));
     await waitFor(() => expect(campaignsApi.cancelSchedule).toHaveBeenCalledWith('saved-id'));
     expect(campaignsApi.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['Email', 'Sms'])('updates scheduled %s details in place on the next visible poll', async type => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-09T23:44:59Z'));
+    let hidden = false;
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    const scheduled = { ...existingDraft, type, status: 'scheduled', scheduledFor: '2026-11-09T23:45:00.000Z' };
+    let current = scheduled;
+    vi.mocked(campaignsApi.get).mockImplementation(async () => ({ success: true, data: current } as never));
+    const onBack = vi.fn();
+    const view = render(<CampaignBuilder onBack={onBack} initialCampaign={scheduled as never} />);
+    try {
+      await act(async () => {});
+      const status = () => screen.getByRole('status', { name: 'Campaign status' }).textContent;
+      expect(status()).toBe('Scheduled');
+      expect(screen.getByText('Scheduled for 2026-11-10 07:45 (Asia/Manila)')).toBeTruthy();
+      const reschedule = screen.getByRole('button', { name: 'Reschedule' });
+      expect(reschedule.classList.contains('bg-primary')).toBe(true);
+      fireEvent.click(reschedule);
+      expect(screen.getByRole('dialog', { name: 'Reschedule Campaign' })).toBeTruthy();
+      current = { ...scheduled, status: 'sending' };
+      await act(async () => { await vi.advanceTimersByTimeAsync(2499); });
+      expect(status()).toBe('Scheduled');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(status()).toBe('Sending');
+      expect(screen.queryByRole('dialog', { name: 'Reschedule Campaign' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Cancel schedule' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Reschedule' })).toBeNull();
+      expect(onBack).not.toHaveBeenCalled();
+      vi.mocked(campaignsApi.get).mockRejectedValueOnce(new Error('Connection interrupted'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      expect(status()).toBe('Sending');
+      expect(screen.getByText('Connection interrupted')).toBeTruthy();
+      hidden = true;
+      current = { ...scheduled, status: 'submitted' };
+      const calls = vi.mocked(campaignsApi.get).mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(campaignsApi.get).toHaveBeenCalledTimes(calls);
+      hidden = false;
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(status()).toBe('Submitted');
+      current = { ...scheduled, status: 'delivered' };
+      await act(async () => { await vi.advanceTimersByTimeAsync(7500); });
+      expect(status()).toBe('Delivered');
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(campaignsApi.get).toHaveBeenCalledTimes(calls + 2);
+    } finally { visibility.mockRestore(); }
   });
 
   it('removes inline delivery controls and opens exactly two icon menu items without mutation', async () => {
