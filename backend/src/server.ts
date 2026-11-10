@@ -9,7 +9,7 @@ import { drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignSched
 import { purgeExpiredSessions } from './core/auth/session.service';
 import { startImportCleanupScheduler } from './modules/crm/imports/import-cleanup.service';
 import { validateEnvironment } from './config/validate-env';
-import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation, shouldStartCampaignSubmissionWorkers } from './config/background-workers';
+import { shouldStartBackgroundWorkers, shouldStartCampaignDeliveryReconciliation, shouldStartCampaignSubmissionWorkers, workflowWorkerPolicy } from './config/background-workers';
 import { startWorkflowScheduler } from './modules/automation/workflows/workflow-queue';
 import { startCampaignDeliveryReconciliation } from './modules/marketing/campaigns/sms-status-reconciliation';
 import prisma from './config/database.config';
@@ -70,7 +70,7 @@ let backgroundDrain: Promise<void> | undefined;
 const backgroundWorkersEnabled = shouldStartBackgroundWorkers();
 const campaignDeliveryEnabled = shouldStartCampaignDeliveryReconciliation();
 const campaignSubmissionEnabled = shouldStartCampaignSubmissionWorkers();
-const dealStageWorkflowId = process.env.DEAL_STAGE_WORKFLOW_ID?.trim() || undefined;
+const workflowPolicy = workflowWorkerPolicy();
 function startBackground() {
   if (backgroundStarted) return;
   // Send Now also participates in maintenance/shutdown even when timers are off.
@@ -87,16 +87,14 @@ function startBackground() {
     stopCampaignDelivery = startCampaignDeliveryReconciliation();
     console.info('[workers] Campaign delivery reconciliation started.');
   }
+  if (workflowPolicy.mode !== 'disabled') {
+    stopWorkflows = startWorkflowScheduler(workflowPolicy.mode === 'scoped' ? workflowPolicy.workflowId : undefined);
+  }
+  console.info('[workers] Workflow processing policy.', { mode: workflowPolicy.mode });
   if (!backgroundWorkersEnabled) {
-    if (dealStageWorkflowId) {
-      stopWorkflows = startWorkflowScheduler(dealStageWorkflowId);
-      console.info('[workers] Scoped Deal stage workflow worker started.');
-    } else {
-      console.info('[workers] Background workers are disabled by production policy.');
-    }
+    console.info('[workers] General background workers are disabled by production policy.');
     return;
   }
-  stopWorkflows = startWorkflowScheduler();
   stopSmsReplies = startSmsReplyScheduler();
   stopCustomerClassification = startCustomerClassificationScheduler();
   stopMailbox = startMailboxScheduler();

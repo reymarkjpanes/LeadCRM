@@ -309,16 +309,21 @@ describe('isolated Deal and inbound reply transitions', () => {
     expect(await db.mailboxMessage.count({ where: { tenantId, rfcMessageId: message.rfcMessageId, meaningful: true } })).toBe(1);
   });
   it.each([true, false])('prevents derived customer status from moving Deals back through workflows (associated=%s)', async associated => {
-    const { createWorkflow } = await import('../../automation/workflows/workflows.service');
+    const { createWorkflow, getWorkflowById } = await import('../../automation/workflows/workflows.service');
     const { flushWorkflowQueue } = await import('../../automation/workflows/__tests__/workflow-queue-test-helper');
     await db.deal.update({ where: { id: b }, data: { stageId: associated ? stages.Contacted : stages.Lead } });
-    await scope(() => createWorkflow(tenantId, actorId, { name: `Reply scoped action ${associated}`, trigger: 'lead.status_changed', isActive: true,
+    const legacy = { name: `Reply scoped action ${associated}`, trigger: 'lead.status_changed', isActive: true,
       conditions: { operator: 'AND', conditions: [{ field: 'event.newStatus', operator: 'equals', value: 'Warm' }] },
-      actions: [{ type: 'move_deal_stage', config: { stageId: stages.Qualified, currentStageId: associated ? stages.Contacted : stages.Lead, targetMode: 'all_matching' } }] }));
+      actions: [{ type: 'move_deal_stage', config: { stageId: stages.Qualified, currentStageId: associated ? stages.Contacted : stages.Lead, targetMode: 'all_matching' } }] };
+    await expect(scope(() => createWorkflow(tenantId, actorId, legacy))).rejects.toThrow('Use a Deal-based stage rule');
+    expect(await db.workflow.count({ where: { tenantId, name: legacy.name } })).toBe(0);
+    // Older saved definitions remain readable for repair and cannot feed derived status back into Deals.
+    const saved = await db.workflow.create({ data: { ...legacy, tenantId, createdById: actorId, activatedById: actorId, status: 'ACTIVE' } });
     await ingest('inbound', associated ? a : undefined);
     await flushWorkflowQueue(tenantId);
     expect(await deal(a)).toMatchObject({ stageId: associated ? stages.Contacted : stages.Lead });
     expect(await deal(b)).toMatchObject({ stageId: associated ? stages.Contacted : stages.Lead });
+    expect((await scope(() => getWorkflowById(saved.id, tenantId))).repairReason).toContain('Use a Deal-based stage rule');
   });
   it('retains the originating Deal through confirmed-sale conversion workflows', async () => {
     const { createWorkflow } = await import('../../automation/workflows/workflows.service');

@@ -1,5 +1,7 @@
 import { assertPermissions } from '../../../core/permissions/permission.service';
 import { AppError } from '../../../shared/errors/app-error';
+import { WorkflowExecutionViewSchema, type WorkflowExecutionView } from '@leadcrm/shared';
+import { ValidationError } from '../../../shared/errors/http-error';
 ﻿import { Request, Response, NextFunction } from 'express';
 import * as service from './workflows.service';
 export async function getWorkflowNameAvailability(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -22,7 +24,7 @@ export async function getExecution(req: Request, res: Response, next: NextFuncti
 
 export async function getWorkflows(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    res.json({ success: true, ...await presentWorkflows(req, await service.getWorkflows(req.user!.tenantId, req.query as Record<string, unknown>)) });
+    res.json({ success: true, ...await presentWorkflows(req, await service.getWorkflows(req.user!.tenantId, { ...req.query, view: executionView(req.query.view) })) });
   } catch (err) { next(err); }
 }
 
@@ -64,8 +66,15 @@ export async function getWorkflowExecutions(req: Request, res: Response, next: N
     const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 25;
-    res.json({ success: true, ...await service.getWorkflowExecutionPage(String(req.params.id), req.user!.tenantId, page, limit) });
+    res.json({ success: true, ...await service.getWorkflowExecutionPage(String(req.params.id), req.user!.tenantId, page, limit, executionView(req.query.view)) });
   } catch (err) { next(err); }
+}
+
+function executionView(value: unknown): WorkflowExecutionView {
+  if (value === undefined) return 'all';
+  const parsed = WorkflowExecutionViewSchema.safeParse(value);
+  if (!parsed.success) throw new ValidationError('Choose all executions or finished outcomes.');
+  return parsed.data;
 }
 
 export async function testWorkflow(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -19,7 +19,9 @@ import * as repo from './workflows.repository';
 import { validateWorkflow, validateConditionReferences } from './workflow-validation';
 import { findTrigger } from '../triggers/trigger-catalog';
 import { validateAction } from '../actions/action-validation';
-import { resolveDealTargets } from '../actions/action-deal-targets';
+import { resolveDealTargets, type WorkflowDealProjection } from '../actions/action-deal-targets';
+import { loadWorkflowDealProjection, projectWorkflowFields, projectWorkflowDealMove } from './workflow-preview';
+import type { WorkflowExecutionView } from '@leadcrm/shared';
 import { fieldUpdatePatch } from '../actions/action-fields';
 import { evaluateCondition, evaluateRule } from './workflow-conditions';
 import { safeWorkflowError } from '../actions/action-dispatcher';
@@ -185,15 +187,15 @@ export async function archiveWorkflow(id: string, tenantId: string, userId: stri
   await repo.updateWorkflow(id, tenantId, { isArchived: true, isActive: false, status: 'PAUSED' }, stored);
   await writeAuditLog({ tenantId, userId, action: 'workflow.archived', entityType: 'Workflow', entityId: id });
 }
-export async function getWorkflowExecutions(id: string, tenantId: string, page = 1) {
+export async function getWorkflowExecutions(id: string, tenantId: string, page = 1, view: WorkflowExecutionView = 'all') {
   requireScope(tenantId);
   await getWorkflowById(id, tenantId);
-  return repo.listExecutions(id, tenantId, page);
+  return repo.listExecutions(id, tenantId, page, 25, view);
 }
-export async function getWorkflowExecutionPage(id: string, tenantId: string, page: number, limit: number) {
+export async function getWorkflowExecutionPage(id: string, tenantId: string, page: number, limit: number, view: WorkflowExecutionView = 'all') {
   requireScope(tenantId);
   await getWorkflowById(id, tenantId);
-  const [data, total] = await Promise.all([repo.listExecutions(id, tenantId, page, limit), repo.countExecutions(id, tenantId)]);
+  const [data, total] = await Promise.all([repo.listExecutions(id, tenantId, page, limit, view), repo.countExecutions(id, tenantId, view)]);
   return paginate(data, total, { page, limit });
 }
 export async function testWorkflow(id: string, tenantId: string, entityId: string, userId?: string, stageHistoryId?: string, useDraft = false): Promise<WorkflowTestResult> {
@@ -230,19 +232,23 @@ export async function testWorkflow(id: string, tenantId: string, entityId: strin
   const previewLoads = new Map<string, number>();
   const policyIssues = workflowActionPolicyIssues(draft);
   let stoppedReason = policyIssues[0] ?? triggerReason ?? (!conditionsMatch ? 'Workflow conditions did not match. Actions would be skipped.' : undefined);
+  const projection: WorkflowDealProjection = new Map();
+  if (!stoppedReason && trigger.entity === 'deal' && draft.actions.some(action => action.enabled !== false && action.type === 'move_deal_stage')) {
+    await loadWorkflowDealProjection(tenantId, entityId, projection);
+  }
   for (const [actionIndex, action] of draft.actions.entries()) {
     if (action.enabled === false) {
       actions.push({ type: action.type, valid: true, status: 'skipped', message: 'Disabled. This action will be skipped.' });
       continue;
     }
     if (stoppedReason) { actions.push({ type: action.type, valid: true, status: 'skipped', message: stoppedReason }); continue; }
-    try { await validateAction(action, trigger.entity, tenantId, context);
+    try { await validateAction(action, trigger.entity, tenantId, context, false, projection);
       const resolvedAssignment = ['create_task', 'assign_owner'].includes(action.type) ? await resolveWorkflowAssignee({
         tenantId, workflowId: id, actionIndex, target: parseAssignment(action), purpose: assignmentPurpose(action),
         recordOwnerId: context[`${trigger.entity}.assignedUserId`] as string | undefined, entity: trigger.entity, entityId, dryRun: true, previewLoads,
       }) : undefined;
       const assignment = resolvedAssignment ? assignmentOutput(resolvedAssignment) : undefined;
-      const targets = action.type === 'move_deal_stage' ? await resolveDealTargets(action, trigger.entity, tenantId, context) : undefined;
+      const targets = action.type === 'move_deal_stage' ? await resolveDealTargets(action, trigger.entity, tenantId, context, projection) : undefined;
       const taskInput = action.type === 'create_task' ? await prepareWorkflowTaskInput({ action, entity: trigger.entity, tenantId, context, assignedUserId: assignment!.resolvedUserId }) : undefined;
       const preparedEmail = action.type === 'send_email' ? await prepareWorkflowEmailInput(action, trigger.entity, tenantId, context) : undefined;
       const preparedSms = action.type === 'send_sms' ? await prepareWorkflowSmsInput(action, trigger.entity, tenantId, context) : undefined;
@@ -253,22 +259,21 @@ export async function testWorkflow(id: string, tenantId: string, entityId: strin
         associationSummary: workflowTaskAssociationSummary(taskInput.dealIds!.length) } : undefined;
       if (taskPreview && JSON.stringify(taskPreview.deals.map(deal => deal.id)) !== JSON.stringify(taskPreview.dealIds))
         throw new ValidationError('Related deals changed during this check. Run the check again before saving.');
-      actions.push({ type: action.type, valid: true, status: 'ready', ...(assignment ? { assignment } : {}), ...(taskPreview ? { taskPreview } : {}), ...(emailPreview ? { emailPreview, warnings: emailPreview.warnings } : {}),
+      const ready: WorkflowTestResult['actions'][number] = { type: action.type, valid: true, status: 'ready', ...(assignment ? { assignment } : {}), ...(taskPreview ? { taskPreview } : {}), ...(emailPreview ? { emailPreview, warnings: emailPreview.warnings } : {}),
         message: assignment ? `${taskPreview ? `${taskPreview.associationSummary} ` : ''}Would assign ${assignment.resolvedUserName} (${assignment.candidateCount} eligible). ${assignment.reason}.${assignment.workload !== undefined ? ` Active workload: ${assignment.workload}${assignment.capacityLimit !== undefined ? ` / ${assignment.capacityLimit}` : ''}.` : ''} No records or assignment state changed.` : targets ? (targets.length ? `${targets.length} matching Deal(s): ${targets.join(', ')}. No changes made.` : 'No matching Deals. This action will be a no-op.')
-          : action.type === 'send_email' ? 'Recipient, sender permissions, mailbox ownership and projected assignment are valid. No email sent.' : preparedSms ? `SMS recipient ${preparedSms.phone} and personalized content are valid (${preparedSms.stats.characters} characters, ${preparedSms.stats.segments} segment(s)). No SMS sent.` : 'Configuration and references valid. No changes made.' });
+          : action.type === 'send_email' ? 'Recipient, sender permissions, mailbox ownership and projected assignment are valid. No email sent.' : preparedSms ? `SMS recipient ${preparedSms.phone} and personalized content are valid (${preparedSms.stats.characters} characters, ${preparedSms.stats.segments} segment(s)). No SMS sent.` : 'Configuration and references valid. No changes made.' };
       // Project validated earlier actions into this in-memory sample only.
-      if (action.type === 'assign_owner') context[`${trigger.entity}.assignedUserId`] = assignment!.resolvedUserId;
+      if (action.type === 'assign_owner') projectWorkflowFields(trigger.entity, context, { assignedUserId: assignment!.resolvedUserId }, projection);
       if (action.type === 'create_task' && assignment) {
         const key = `task:${assignment.resolvedUserId}`;
         previewLoads.set(key, (previewLoads.get(key) ?? 0) + 1);
       }
       if (action.type === 'update_field') {
         const patch = await fieldUpdatePatch(action, trigger.entity, tenantId);
-        for (const [field, value] of Object.entries(patch)) {
-          if (field === 'customFieldValues') for (const [id, customValue] of Object.entries(value as Record<string, unknown>)) context[`${trigger.entity}.customFieldValues.${id}`] = customValue;
-          else context[`${trigger.entity}.${field === 'productInterest' ? 'productInterestIds' : field}`] = value;
-        }
+        projectWorkflowFields(trigger.entity, context, patch, projection);
       }
+      if (targets) await projectWorkflowDealMove(action, targets, tenantId, trigger.entity, context, projection);
+      actions.push(ready);
     }
     catch (error) { actions.push({ type: action.type, valid: false, status: 'failed', message: safeWorkflowError(error) }); stoppedReason = 'An earlier action needs attention. Later actions would be skipped.'; }
   }

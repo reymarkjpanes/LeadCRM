@@ -1,7 +1,7 @@
 import { creatorWhere } from '../../crm/access/record-visibility';
 import { Prisma, type Workflow } from '@prisma/client';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
-import { workflowStatusLabel } from '@leadcrm/shared';
+import { workflowStatusLabel, WORKFLOW_OUTCOME_STATUSES, type WorkflowExecutionView } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { getPaginationParams } from '../../../shared/helpers/pagination';
 import { getCrmFieldCatalog, getWorkflowConditionFields, customFieldTechnicalKey, parseStoredCrmStatus, FieldLayoutSchema, CUSTOM_FIELD_MODULES, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowEntity, type FieldLayout } from '@leadcrm/shared';
@@ -31,6 +31,10 @@ async function executionVisibility(tenantId: string): Promise<Prisma.WorkflowExe
     return { entityType: entity, entityId: { in: ids.map(row => row.id) } };
   }));
   return { OR: scopes };
+}
+
+function executionOutcomes(view: WorkflowExecutionView): Prisma.WorkflowExecutionRunWhereInput {
+  return view === 'outcomes' ? { status: { in: [...WORKFLOW_OUTCOME_STATUSES] } } : {};
 }
 
 /** Dispatch snapshots and provider recovery evidence are server-only. */
@@ -114,13 +118,13 @@ export async function listWorkflows(tenantId: string, query: Record<string, unkn
     prisma.workflow.count({ where }),
   ]);
   const runs = await prisma.workflowExecutionRun.groupBy({ by: ['workflowId', 'status'],
-    where: { tenantId, workflowId: { in: rows.map(row => row.id) }, ...await executionVisibility(tenantId) }, _max: { startedAt: true }, _count: { _all: true } });
+    where: { tenantId, workflowId: { in: rows.map(row => row.id) }, ...executionOutcomes(query.view === 'outcomes' ? 'outcomes' : 'all'), ...await executionVisibility(tenantId) }, _max: { startedAt: true }, _count: { _all: true } });
   return { rows: orderPage(rows, ids).map(row => {
     const history = runs.filter(run => run.workflowId === row.id);
     return { ...row, lastRunAt: history.reduce<Date | null>((latest, run) => !latest || (run._max.startedAt && run._max.startedAt > latest) ? run._max.startedAt : latest, null),
       totalRuns: history.reduce((sum, run) => sum + run._count._all, 0),
       successfulRuns: history.find(run => run.status === 'completed')?._count._all ?? 0,
-      failedRuns: history.find(run => run.status === 'failed')?._count._all ?? 0 };
+      failedRuns: history.filter(run => run.status === 'failed' || query.view === 'outcomes' && run.status === 'interrupted').reduce((sum, run) => sum + run._count._all, 0) };
   }), total, page, limit };
 }
 function workflowData(draft: Partial<WorkflowDraft>): Prisma.WorkflowUncheckedUpdateInput {
@@ -207,11 +211,11 @@ export function updateExecutionRun(id: string, tenantId: string, data: { status:
 export function createExecutionStep(data: { tenantId: string; executionId: string; stepIndex: number; actionType: string; status: string; output?: object; error?: string }) {
   return workflowLeaseWrite(tx => tx.workflowExecutionStep.create({ data }));
 }
-export async function countExecutions(workflowId: string, tenantId: string) {
-  return prisma.workflowExecutionRun.count({ where: { workflowId, tenantId, ...await executionVisibility(tenantId) } });
+export async function countExecutions(workflowId: string, tenantId: string, view: WorkflowExecutionView = 'all') {
+  return prisma.workflowExecutionRun.count({ where: { workflowId, tenantId, ...executionOutcomes(view), ...await executionVisibility(tenantId) } });
 }
-export async function listExecutions(workflowId: string, tenantId: string, page = 1, limit = 25) {
-  const rows = await prisma.workflowExecutionRun.findMany({ where: { workflowId, tenantId, ...await executionVisibility(tenantId) }, orderBy: [{ startedAt: 'desc' }, { id: 'asc' }],
+export async function listExecutions(workflowId: string, tenantId: string, page = 1, limit = 25, view: WorkflowExecutionView = 'all') {
+  const rows = await prisma.workflowExecutionRun.findMany({ where: { workflowId, tenantId, ...executionOutcomes(view), ...await executionVisibility(tenantId) }, orderBy: [{ startedAt: 'desc' }, { id: 'asc' }],
     skip: (page - 1) * limit, take: limit,
     include: { steps: { orderBy: { stepIndex: 'asc' } }, trigger: { select: { triggerType: true, entityType: true, triggeredAt: true, payload: true } } } });
   const dealsVisible = await visibleExecutionDeals(tenantId, rows);

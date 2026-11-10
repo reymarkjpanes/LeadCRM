@@ -14,6 +14,7 @@ import { workflowActionLabel } from '../services/workflow-editor';
 import { formatDateTime } from '@/shared/components/data-grid/cell-renderers';
 import { useAuth } from '@/store/AuthContext';
 import { safeMailboxHtml } from '@/features/tenant/inbox/services/email-html';
+import { createPageCacheGuard, getPageCacheGeneration, subscribePageCacheInvalidation } from '@/shared/cache/page-cache';
 
 type StageHistory = NonNullable<DealResponse['data']['stageHistories']>[number];
 interface WorkflowTestPanelProps {
@@ -27,7 +28,8 @@ export function WorkflowTestPanel({
 }: WorkflowTestPanelProps) {
   const { user, userCan, permissions } = useAuth();
   const canExecute = userCan('workflows', 'canExecute');
-  const identity = `${user?.tenantId ?? ''}:${user?.id ?? ''}:${workflowId}:${trigger.type}:${JSON.stringify(permissions ?? {})}`;
+  const [scopeRevision, setScopeRevision] = useState(0);
+  const identity = `${user?.tenantId ?? ''}:${user?.id ?? ''}:${workflowId}:${trigger.type}:${JSON.stringify(permissions ?? {})}:${getPageCacheGeneration()}:${scopeRevision}`;
   const generation = useRef(0);
   const stageEvent = ['deal.stage_changed', 'deal.closed_won', 'deal.closed_lost'].includes(trigger.type);
   const [histories, setHistories] = useState<StageHistory[]>([]);
@@ -46,8 +48,17 @@ export function WorkflowTestPanel({
   const [loading, setLoading] = useState(true),
     [testing, setTesting] = useState(false),
     [result, setResult] = useState<WorkflowTestResult | null>(null);
+  useEffect(() => subscribePageCacheInvalidation((module, tenantId) => {
+    if (tenantId && tenantId !== user?.tenantId) return;
+    if (!['*', 'workflows', 'groups', 'users', `${trigger.entity}s`].includes(module)) return;
+    generation.current++;
+    setResult(null); setRecords([]); setSelected(''); setHistories([]); setStageHistoryId(''); setTesting(false);
+    setPage(1); setHasMore(false); setError(''); setHistoryError('');
+    setScopeRevision(value => value + 1);
+  }), [user?.tenantId, trigger.entity]);
   useEffect(() => {
     let cancelled = false;
+    const validScope = createPageCacheGuard('workflows');
     setLoading(true);
     setSelected('');
     setRecords([]);
@@ -67,7 +78,7 @@ export function WorkflowTestPanel({
               ? contactsV2Api.list(query)
               : contactsApi.list(query);
         const response = await withWorkflowTimeout(request());
-        if (cancelled) return;
+        if (cancelled || !validScope()) return;
         setRecords(
           response.data.map((record) => ({
             id: record.id,
@@ -80,14 +91,14 @@ export function WorkflowTestPanel({
         );
         setHasMore(response.meta.hasMore);
       } catch (failure) {
-        if (!cancelled)
+        if (!cancelled && validScope())
           setError(
             failure instanceof Error
               ? failure.message
               : 'Unable to load records.',
           );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && validScope()) setLoading(false);
       }
     }, 250);
     return () => {
@@ -98,31 +109,33 @@ export function WorkflowTestPanel({
   }, [identity, canExecute, trigger.entity, search, page, retry]);
   useEffect(() => {
     let cancelled = false;
+    const validScope = createPageCacheGuard('workflows');
     setHistories([]); setStageHistoryId(''); setHistoryError(''); setHistoryLoading(false);
     if (!canExecute || !stageEvent || !selected) return;
     setHistoryLoading(true);
     withWorkflowTimeout(dealsApi.get(selected)).then(response => {
-      if (!cancelled) setHistories((response.data.stageHistories ?? []).filter(history => history.previousStage && history.previousStage.id !== history.newStage.id));
+      if (!cancelled && validScope()) setHistories((response.data.stageHistories ?? []).filter(history => history.previousStage && history.previousStage.id !== history.newStage.id));
     }).catch(failure => {
-      if (!cancelled) setHistoryError(failure instanceof Error ? failure.message : 'Unable to load recorded stage transitions.');
-    }).finally(() => { if (!cancelled) setHistoryLoading(false); });
+      if (!cancelled && validScope()) setHistoryError(failure instanceof Error ? failure.message : 'Unable to load recorded stage transitions.');
+    }).finally(() => { if (!cancelled && validScope()) setHistoryLoading(false); });
     return () => { cancelled = true; };
   }, [identity, canExecute, selected, stageEvent, retry]);
   async function test() {
     if (testing || !canExecute) return;
     const current = ++generation.current;
+    const validScope = createPageCacheGuard('workflows');
     setTesting(true);
     setError('');
     setResult(null);
     try {
       const response = await workflowsApi.test(workflowId, selected, stageHistoryId || undefined);
-      if (generation.current === current) setResult(response.data);
+      if (generation.current === current && validScope()) setResult(response.data);
     } catch (failure) {
-      if (generation.current === current) setError(
+      if (generation.current === current && validScope()) setError(
         failure instanceof Error ? failure.message : 'Unable to test workflow.',
       );
     } finally {
-      if (generation.current === current) setTesting(false);
+      if (generation.current === current && validScope()) setTesting(false);
     }
   }
   if (!canExecute) return <p className="text-sm">You do not have permission to run workflow checks.</p>;

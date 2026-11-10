@@ -19,9 +19,10 @@ export async function interruptWorkflowEvidence(tx: Prisma.TransactionClient, ru
 }
 
 /** Both crash recovery and dispatch failures commit run/step/delivery evidence together. */
-export async function interruptWorkflowRun(tx: Prisma.TransactionClient, run: { id: string; tenantId: string }, condition: Prisma.WorkflowExecutionRunWhereInput, now = new Date()) {
+export async function interruptWorkflowRun(tx: Prisma.TransactionClient, run: { id: string; tenantId: string }, condition: Prisma.WorkflowExecutionRunWhereInput,
+  now = new Date(), reason = 'Dispatch was interrupted. Review CRM and delivery history; automatic replay is disabled.') {
   const changed = await tx.workflowExecutionRun.updateMany({ where: { AND: [{ id: run.id, tenantId: run.tenantId }, condition] },
-    data: { status: 'interrupted', completedAt: now, errorMessage: 'Dispatch was interrupted. Review CRM and delivery history; automatic replay is disabled.', leaseId: null, leaseUntil: null } });
+    data: { status: 'interrupted', completedAt: now, errorMessage: reason, leaseId: null, leaseUntil: null } });
   if (changed.count) await interruptWorkflowEvidence(tx, run);
   return changed.count > 0;
 }

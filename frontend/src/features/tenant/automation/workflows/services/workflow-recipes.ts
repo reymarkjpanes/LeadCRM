@@ -289,7 +289,7 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   },
   {
     name: 'Hot Lead → Move Related Deal',
-    description: 'When a Lead becomes Hot, move one matching persisted related open Deal from the selected source stage to a different open stage in the same pipeline. Choose both stages and optionally a Product. No matching Deal produces no movement or task; multiple matches require review.',
+    description: 'Legacy starter requires repair: customer status follows associated Deals. Use Automatic Deal Stage Update with a Deal event, explicit source stage and matching field change instead. Existing saved definitions are not rewritten.',
     trigger: 'lead.status_changed',
     isActive: false,
     conditions: { operator: 'AND', conditions: [{ field: 'event.newStatus', operator: 'equals', value: 'Hot' }] },
@@ -297,7 +297,7 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   },
   {
     name: 'Hot Contact → Move Related Deal',
-    description: 'When a Contact becomes Hot, move one matching persisted related open Deal from the selected source stage to a different open stage in the same pipeline. Choose both stages and optionally a Product. No matching Deal produces no movement or task; multiple matches require review.',
+    description: 'Legacy starter requires repair: customer status follows associated Deals. Use Automatic Deal Stage Update with a Deal event, explicit source stage and matching field change instead. Existing saved definitions are not rewritten.',
     trigger: 'contact.status_changed',
     isActive: false,
     conditions: { operator: 'AND', conditions: [{ field: 'event.newStatus', operator: 'equals', value: 'Hot' }] },
@@ -379,7 +379,7 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
 ];
 
 // Curate only the chooser. The registry and descriptors retain legacy URLs.
-const starterOrder = [27, 16, 25, 34, 17, 18, 31, 28, 0, 1, 7, 23, 8, 33, 24, 26];
+const starterOrder = [27, 16, 25, 34, 17, 18, 31, 28, 0, 1, 7, 8, 33, 26];
 export const WORKFLOW_STARTER_TEMPLATES = starterOrder.map(index => ({
   ...WORKFLOW_TEMPLATE_DESCRIPTORS.find(descriptor => descriptor.index === index)!, recipe: WORKFLOW_RECIPES[index],
 }));

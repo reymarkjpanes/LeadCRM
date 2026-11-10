@@ -9,6 +9,7 @@ import { loggerMiddleware } from './api/middleware/logger.middleware';
 import { rateLimitMiddleware } from './api/middleware/rate-limit.middleware';
 import router from './api/routes/index';
 import { crmRetirementMaintenance } from './core/maintenance/crm-retirement-maintenance';
+import { workflowWorkerStatus } from './modules/automation/workflows/workflow-worker-status';
 
 const app = express();
 
@@ -65,7 +66,8 @@ app.use('/api/v1', router);
 
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), workers: { workflows: workflowWorkerStatus() } });
 });
 
 // ── Error Handler (must be last) ──────────────────────

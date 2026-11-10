@@ -27,7 +27,7 @@ const routing = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => routing, usePathname: () => window.location.pathname }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ usePermissions: () => ['*'] }));
 vi.mock('@/shared/services/workflows.api', () => ({
-  workflowsApi: { validate: vi.fn() },
+  workflowsApi: { validate: vi.fn(), getExecutions: vi.fn() },
 }));
 beforeEach(() => {
   window.history.replaceState(null, '', '/automation/workflows/new');
@@ -104,6 +104,14 @@ it('shows run checks to read-only operators independently of management and hide
   view.rerender(<WorkflowBuilder {...props} canExecute={false} />);
   expect(screen.queryByRole('button', { name: 'Test draft' })).toBeNull();
   expect(props.onSave).not.toHaveBeenCalled();
+});
+
+it('does not mount Activity history without the run-history grant', () => {
+  render(<WorkflowBuilder initial={structuredClone(initial)} workflowId="private-workflow" triggers={WORKFLOW_TRIGGERS}
+    actions={getAvailableActions()} canActivate={false} canExecute={false} canViewRuns={false} readOnly onSave={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.click(button('Activity'));
+  expect(screen.getByText('Run history requires permission to view workflow runs.')).toBeTruthy();
+  expect(workflowsApi.getExecutions).not.toHaveBeenCalled();
 });
 
 it('does not use activation permission to grant pause control', () => {

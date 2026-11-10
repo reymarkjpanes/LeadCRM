@@ -9,6 +9,7 @@ import { interruptWorkflowEvidence } from './workflow-interruption';
 import { WorkflowDraftSchema, WorkflowActionSchema, normalizeSavedWorkflowAssignment, parseStoredCrmStatus, WORKFLOW_MODULES, ACCOUNT_RETIREMENT_REASON, workflowActionPolicyIssues, type WorkflowDraft } from '@leadcrm/shared';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { ValidationError, NotFoundError } from '../../../shared/errors/http-error';
+import { AppError } from '../../../shared/errors/app-error';
 import * as repo from './workflows.repository';
 import { findTrigger } from '../triggers/trigger-catalog';
 import { evaluateCondition } from './workflow-conditions';
@@ -183,7 +184,14 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
               }
               if (options?.dealId) {
                 const direct = trigger.entity === 'deal';
-                if (!direct && !await lockWorkflowCrmRecord(tx, 'deals', params.tenantId, options.dealId)) skipStaleWorkflowAction('The target Deal is no longer available.');
+                if (!direct) {
+                  if (!await lockWorkflowCrmRecord(tx, 'deals', params.tenantId, options.dealId)) skipStaleWorkflowAction('The target Deal is no longer available.');
+                  try { await assertCrmRecordRead(tx, 'deals', options.dealId); }
+                  catch (error) {
+                    if (error instanceof AppError && [403, 404].includes(error.statusCode)) skipStaleWorkflowAction('The target Deal is no longer available.');
+                    throw error;
+                  }
+                }
                 const target = await readWorkflowDealStage(tx, params.tenantId, options.dealId);
                 const expected = direct ? { id: params.entityId, stageId: expectedWrites['deal.stageId'], pipelineId: expectedWrites['deal.pipelineId'],
                   currentStageHistoryId: Object.prototype.hasOwnProperty.call(expectedWrites, 'internal.stageHistoryId') ? expectedWrites['internal.stageHistoryId'] : freshContext['internal.stageHistoryId'] }
@@ -194,6 +202,7 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
                 }
               }
               await assertWorkflowActionAdmission(tx, admission);
+              await assertWorkflowPermissions(draft, params.tenantId, workflow.activatedById!, 'workflows.activate', tx);
               if (stageHistoryId && !await claimStageActions(tx, params.tenantId, workflow.id, stageHistoryId, params.triggerType, run.id,
                 typeof context['event.continuationSourceId'] === 'string' ? context['event.continuationSourceId'] : undefined,
                 typeof context['event.continuationUpdateId'] === 'string' ? context['event.continuationUpdateId'] : undefined)) {

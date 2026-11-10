@@ -1,3 +1,5 @@
+import type { WorkflowExecutionView } from './workflow.contracts';
+
 /** List filters are applied before paging; multi-select values are comma-separated. */
 export interface CampaignListQuery {
   sort?: string;
@@ -9,6 +11,7 @@ export interface CampaignListQuery {
 }
 
 export interface WorkflowListQuery {
+  view?: WorkflowExecutionView;
   sort?: string;
   page?: number;
   limit?: number;

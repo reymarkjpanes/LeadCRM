@@ -4,8 +4,8 @@ import { workflowLeaseWrite } from '../workflows/workflow-lease';
 export function findAccount(id: string, tenantId: string) {
   return prisma.account.findFirst({ where: { id, tenantId, isArchived: false } });
 }
-export function findUser(id: string, tenantId: string) {
-  return prisma.user.findFirst({ where: { id, tenantId, status: 'ACTIVE' }, select: { id: true, role: true } });
+export function findUser(id: string, tenantId: string, db: Prisma.TransactionClient = prisma) {
+  return db.user.findFirst({ where: { id, tenantId, status: 'ACTIVE' }, select: { id: true, role: true } });
 }
 export function findPipeline(id: string, tenantId: string) {
   return prisma.pipeline.findFirst({ where: { id, tenantId, isArchived: false } });
@@ -13,8 +13,8 @@ export function findPipeline(id: string, tenantId: string) {
 export function findCampaign(id: string, tenantId: string) {
   return prisma.campaign.findFirst({ where: { id, tenantId, isArchived: false } });
 }
-export function findTemplate(id: string, tenantId: string) {
-  return prisma.template.findFirst({ where: { id, tenantId, isArchived: false, type: 'Email' } });
+export function findTemplate(id: string, tenantId: string, db: Prisma.TransactionClient = prisma) {
+  return db.template.findFirst({ where: { id, tenantId, isArchived: false, type: 'Email' } });
 }
 export function findStage(id: string, tenantId: string) {
   return prisma.stage.findFirst({ where: { id, tenantId, pipeline: { tenantId, isArchived: false } } });

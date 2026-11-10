@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WorkflowRevisionTokenSchema = exports.WorkflowRevisionWriteSchema = exports.WorkflowTestInputSchema = exports.WorkflowValidationSchema = exports.WorkflowDraftSchema = exports.WorkflowAssignmentTargetSchema = exports.WorkflowCapacitySchema = exports.WorkflowAvailabilitySchema = exports.WorkflowAssignmentStrategySchema = exports.WORKFLOW_ASSIGNMENT_METHODS = exports.WorkflowTaskAssociationSchema = exports.WorkflowActionSchema = exports.WorkflowConditionSchema = exports.WorkflowConditionRuleSchema = exports.WorkflowConditionOperatorSchema = void 0;
+exports.WorkflowRevisionTokenSchema = exports.WorkflowRevisionWriteSchema = exports.WorkflowTestInputSchema = exports.WORKFLOW_OUTCOME_STATUSES = exports.WorkflowExecutionViewSchema = exports.WorkflowValidationSchema = exports.WorkflowDraftSchema = exports.WorkflowAssignmentTargetSchema = exports.WorkflowCapacitySchema = exports.WorkflowAvailabilitySchema = exports.WorkflowAssignmentStrategySchema = exports.WORKFLOW_ASSIGNMENT_METHODS = exports.WorkflowTaskAssociationSchema = exports.WorkflowActionSchema = exports.WorkflowConditionSchema = exports.WorkflowConditionRuleSchema = exports.WorkflowConditionOperatorSchema = void 0;
 exports.missingWorkflowConditionValues = missingWorkflowConditionValues;
 exports.workflowLossReason = workflowLossReason;
 exports.workflowLossReasonIssue = workflowLossReasonIssue;
@@ -8,6 +8,7 @@ exports.workflowAssignmentTarget = workflowAssignmentTarget;
 exports.normalizeWorkflowAssignment = normalizeWorkflowAssignment;
 exports.normalizeSavedWorkflowAssignment = normalizeSavedWorkflowAssignment;
 exports.workflowOperators = workflowOperators;
+exports.workflowRunOutcome = workflowRunOutcome;
 exports.workflowStateAction = workflowStateAction;
 const zod_1 = require("zod");
 const condition_operators_1 = require("./condition-operators");
@@ -143,6 +144,14 @@ exports.WorkflowValidationSchema = exports.WorkflowDraftSchema.extend({ workflow
 function workflowOperators(type) {
     const keys = { gt: 'greater_than', gte: 'greater_than_or_equal', lt: 'less_than', lte: 'less_than_or_equal' };
     return (0, condition_operators_1.conditionOperators)('workflow', (0, condition_operators_1.conditionFieldKind)(type)).map(key => keys[key] ?? key);
+}
+exports.WorkflowExecutionViewSchema = zod_1.z.enum(['all', 'outcomes']);
+exports.WORKFLOW_OUTCOME_STATUSES = ['completed', 'failed', 'skipped', 'interrupted'];
+/** Interrupted submissions remain uncertain internally and require review, never automatic replay. */
+function workflowRunOutcome(status) {
+    if (status === 'interrupted')
+        return 'failed';
+    return status === 'completed' || status === 'failed' || status === 'skipped' ? status : null;
 }
 exports.WorkflowTestInputSchema = zod_1.z.object({ entityId: zod_1.z.string().uuid(), stageHistoryId: zod_1.z.string().uuid().optional(), useDraft: zod_1.z.boolean().optional() }).strict();
 exports.WorkflowRevisionWriteSchema = zod_1.z.object({ draft: exports.WorkflowDraftSchema, expectedDraftRevision: zod_1.z.number().int().min(0), expectedVersion: zod_1.z.number().int().min(1) }).strict();

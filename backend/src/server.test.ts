@@ -32,6 +32,7 @@ vi.mock('./core/auth/session.service', () => ({ purgeExpiredSessions: workers.pu
 beforeEach(() => {
   vi.resetModules(); vi.resetAllMocks();
   vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('BACKGROUND_WORKERS_ENABLED', 'false');
+  vi.stubEnv('WORKFLOW_WORKER_ENABLED', undefined);
   vi.stubEnv('CAMPAIGN_SUBMISSION_WORKERS_ENABLED', 'true');
   vi.stubEnv('CAMPAIGN_DELIVERY_RECONCILIATION_ENABLED', 'false'); vi.stubEnv('DEAL_STAGE_WORKFLOW_ID', '');
   for (const start of [workers.schedule, workers.recovery, workers.delivery, workers.workflow, workers.mailbox, workers.notifications, workers.replies, workers.classification, workers.imports]) start.mockReturnValue(workers.stop);
@@ -78,4 +79,31 @@ it('honors the explicit submission opt-out while keeping other enabled workers',
   await boot();
   expect(workers.schedule).not.toHaveBeenCalled(); expect(workers.recovery).not.toHaveBeenCalled();
   expect(workers.workflow).toHaveBeenCalledOnce(); expect(workers.mailbox).toHaveBeenCalledOnce();
+});
+
+it('starts all Workflows once through the independent override without starting unrelated jobs', async () => {
+  vi.stubEnv('WORKFLOW_WORKER_ENABLED', 'true'); vi.stubEnv('DEAL_STAGE_WORKFLOW_ID', 'selected-workflow');
+  vi.stubEnv('CAMPAIGN_SUBMISSION_WORKERS_ENABLED', 'false');
+  await boot(); workers.lifecycle!.start();
+  expect(workers.workflow).toHaveBeenCalledOnce();
+  expect(workers.workflow.mock.calls[0][0]).toBeUndefined();
+  for (const start of [workers.schedule, workers.recovery, workers.delivery, workers.mailbox, workers.notifications, workers.replies, workers.classification, workers.imports, workers.purge]) expect(start).not.toHaveBeenCalled();
+  await workers.lifecycle!.stop();
+  expect(workers.stop).toHaveBeenCalledOnce();
+  workers.lifecycle!.start(); expect(workers.workflow).toHaveBeenCalledTimes(2);
+});
+
+it('explicitly disables Workflows while preserving other general workers', async () => {
+  vi.useFakeTimers(); vi.stubEnv('BACKGROUND_WORKERS_ENABLED', 'true'); vi.stubEnv('WORKFLOW_WORKER_ENABLED', 'false');
+  vi.stubEnv('DEAL_STAGE_WORKFLOW_ID', 'selected-workflow');
+  await boot();
+  expect(workers.workflow).not.toHaveBeenCalled();
+  expect(workers.mailbox).toHaveBeenCalledOnce(); expect(workers.classification).toHaveBeenCalledOnce();
+});
+
+it('preserves scoped processing when the Workflow override is unset', async () => {
+  vi.stubEnv('DEAL_STAGE_WORKFLOW_ID', 'selected-workflow');
+  await boot();
+  expect(workers.workflow).toHaveBeenCalledExactlyOnceWith('selected-workflow');
+  expect(workers.mailbox).not.toHaveBeenCalled();
 });

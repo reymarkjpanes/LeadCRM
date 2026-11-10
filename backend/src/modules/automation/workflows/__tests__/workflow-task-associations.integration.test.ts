@@ -148,7 +148,7 @@ describe.skipIf(!disposable)('Workflow task matching and atomic associations on 
     ] } } });
     const runner = await prisma.user.create({ data: { tenantId, role: role.name, firstName: 'Task', lastName: 'Author',
       email: `${randomUUID()}@camxian.com`, userRoles: { create: { roleId: role.id } } } });
-    const deal = await newDeal();
+    const deal = await newDeal(undefined, undefined, { assignedUserId: runner.id });
     const action = taskAction();
     const workflow = await scope(() => workflows.createWorkflow(tenantId, runner.id, { name: randomUUID(), trigger: 'deal.updated', actions: [action], isActive: true }));
     await fire('deal', deal.id);
@@ -185,10 +185,11 @@ describe.skipIf(!disposable)('Workflow task matching and atomic associations on 
   it.each(['canCreate', 'canAssign', 'canAssignSelf', 'deals.view'] as const)('rechecks the Workflow author %s grant inside the Task write transaction', async revoked => {
     const lead = await newLead(); const deal = await newDeal(lead.id);
     const role = await scope(() => prisma.roleDefinition.create({ data: { tenantId, name: `Workflow runner ${randomUUID()}`, permissions: { create: [
-      { module: 'workflows', canView: true, canActivate: true }, { module: 'leads', canView: true }, { module: 'deals', canView: true },
+      { module: 'workflows', canView: true, canActivate: true }, { module: 'leads', canView: true }, { module: 'deals', canView: true, canViewMy: true },
       { module: 'tasks', canView: true, canCreate: true, canAssign: true }, { module: 'users', canView: true },
     ] } } }));
     const runner = await scope(() => prisma.user.create({ data: { tenantId, role: role.name, firstName: 'Workflow', lastName: 'Runner', email: `${randomUUID()}@camxian.com`, userRoles: { create: { roleId: role.id } } } }));
+    await prisma.deal.update({ where: { id: deal.id }, data: { assignedUserId: runner.id } });
     const action = taskAction(revoked === 'canAssignSelf' ? { assignedUserId: runner.id } : {});
     const workflow = await scope(() => workflows.createWorkflow(tenantId, runner.id, { name: `Permission race ${randomUUID()}`, trigger: 'deal.updated', actions: [action], isActive: true }));
     const original = taskPreparation.prepareWorkflowTaskInput;
@@ -198,7 +199,7 @@ describe.skipIf(!disposable)('Workflow task matching and atomic associations on 
         data: revoked === 'deals.view' ? { canView: false } : revoked === 'canCreate' ? { canCreate: false } : { canAssign: false } });
       return payload;
     });
-    try { await fire('deal', deal.id); } finally { prepare.mockRestore(); }
+    try { await fire('deal', deal.id); expect(prepare).toHaveBeenCalledOnce(); } finally { prepare.mockRestore(); }
     expect(await prisma.task.count({ where: { tenantId, title: String(action.config.title) } })).toBe(0);
     expect((await runs(workflow.id))[0]).toMatchObject({ status: 'failed', steps: [{ status: 'failed', error: 'Access denied' }] });
   });

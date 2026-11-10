@@ -17,8 +17,19 @@ import { interruptWorkflowRun } from './workflow-interruption';
 import { markWorkflowQueued, registerWorkflowWake } from '../../crm/leads/sales-context';
 import { assertWorkflowActionAdmission, isWorkflowAdmissionSkipped } from './workflow-admission';
 import { captureWorkflowFreshness, type WorkflowFreshnessEvidence } from './workflow-freshness';
+import { preparationAttempts, preparationContext, preparationFailure, preparationRetryAt, WORKFLOW_PREPARATION_ATTEMPTS } from './workflow-preparation';
+import { workflowWorkerStarted, workflowWorkerDraining, workflowWorkerStopped, workflowWorkerSweep } from './workflow-worker-status';
 
 const metadata = ['event.previousStageId', 'event.newStageId', 'event.stageHistoryId', 'event.previousStatus', 'event.newStatus', 'event.changedFields', 'event.originDealId', 'event.continuationSourceId', 'event.continuationUpdateId'];
+
+async function failPreparation(tx: Prisma.TransactionClient, run: { id: string; tenantId: string }, where: Prisma.WorkflowExecutionRunWhereInput,
+  errorMessage: string, dispatchContext: Prisma.InputJsonObject) {
+  const failed = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'failed', completedAt: new Date(), errorMessage,
+    dispatchContext, leaseId: null, leaseUntil: null } });
+  if (failed.count) await tx.workflowExecutionStep.createMany({ data: [{ tenantId: run.tenantId, executionId: run.id,
+    stepIndex: -1, actionType: 'validation', status: 'failed', error: errorMessage }], skipDuplicates: true });
+  return failed.count;
+}
 
 /** Snapshot the recipients in the source transaction. A replay never discovers new workflows. */
 export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, params: WorkflowFireParams, onlyWorkflowId?: string) {
@@ -96,17 +107,47 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
     ],
   } : {};
   // Historical runs have null context and can never be mistaken for recoverable work.
-  const expired = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'running', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: { not: null }, leaseUntil: { lt: now } }, select: { id: true, tenantId: true }, take: 50 });
+  const abandonedQueued: Prisma.WorkflowExecutionRunWhereInput = { status: 'queued', dispatchStartedAt: { not: null },
+    OR: [{ leaseId: null }, { leaseUntil: null }, { leaseUntil: { lte: now } }] };
+  const expired = await prisma.workflowExecutionRun.findMany({ where: { ...scope, dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: { not: null },
+    OR: [{ status: 'running', leaseUntil: { lt: now } }, abandonedQueued] }, select: { id: true, tenantId: true, status: true }, take: 50 });
   for (const run of expired) await tenantContext.run({ tenantId: run.tenantId }, () => prisma.$transaction(async tx => {
-    await interruptWorkflowRun(tx, run, { status: 'running', leaseUntil: { lt: now } }, now);
+    await interruptWorkflowRun(tx, run, run.status === 'queued' ? abandonedQueued : { status: 'running', leaseUntil: { lt: now } }, now,
+      run.status === 'queued' ? 'A queued execution already has a dispatch marker. Review CRM and delivery history; automatic replay is disabled.' : undefined);
   }));
-  const due = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'queued', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 10, include: { trigger: true } });
+  const due = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'queued', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 10, include: { trigger: true } });
   for (const item of due) await tenantContext.run({ tenantId: item.tenantId }, async () => {
     const leaseId = randomUUID();
-    const claim = await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, tenantId: item.tenantId, status: 'queued', dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, data: { leaseId, leaseUntil: new Date(Date.now() + 300000) } });
-    if (!claim.count) return;
+    const previousAttempts = preparationAttempts(item.dispatchContext);
+    const attempts = Math.min(previousAttempts + 1, WORKFLOW_PREPARATION_ATTEMPTS);
+    const claimedContext = preparationContext(item.dispatchContext, attempts);
     const context = item.dispatchContext as { version?: number; actorId?: string; activatedById?: string; ancestry?: string[]; context?: Record<string, unknown>; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
+    let claimed = false;
     try {
+      // Attempt evidence and the lease commit together, including a crash before admission.
+      const claim = await prisma.$transaction(async tx => {
+        const changed = await tx.workflowExecutionRun.updateMany({ where: { id: item.id, tenantId: item.tenantId,
+          status: 'queued', dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] },
+          data: { leaseId, leaseUntil: new Date(Date.now() + 300000), dispatchContext: claimedContext } });
+        if (!changed.count) return { count: 0, priorSteps: false, interrupted: false };
+        // Normal queued work has no steps: admission commits its marker before any step exists.
+        const priorSteps = await tx.workflowExecutionStep.count({ where: { executionId: item.id, tenantId: item.tenantId } }) > 0;
+        const interrupted = priorSteps && await interruptWorkflowRun(tx, item, { leaseId, status: 'queued', dispatchStartedAt: null }, new Date(),
+          'This queued execution contains prior action evidence. Review CRM and delivery history; automatic replay is disabled.');
+        return { count: changed.count, priorSteps, interrupted };
+      });
+      if (!claim.count) return;
+      claimed = true;
+      if (claim.priorSteps) { if (claim.interrupted) progressed = true; return; }
+      if (previousAttempts >= WORKFLOW_PREPARATION_ATTEMPTS) {
+        const failed = await prisma.$transaction(tx => failPreparation(tx, item, { id: item.id, tenantId: item.tenantId, leaseId,
+          status: 'queued', dispatchStartedAt: null }, 'Workflow preparation attempts were exhausted before dispatch. No actions were started.', claimedContext));
+        if (failed) {
+          progressed = true;
+          console.info('[Workflow]', { event: 'preparation_failed', executionId: item.id, attempts, failureClass: 'ATTEMPTS_EXHAUSTED' });
+        }
+        return;
+      }
       const workflow = await prisma.workflow.findFirst({ where: { id: item.workflowId, tenantId: item.tenantId } });
       if (workflow && (await accountWorkflowRetirementReferences(workflow, item.tenantId)).length) {
         await prisma.workflow.updateMany({ where: { id: workflow.id, tenantId: item.tenantId, version: workflow.version, isActive: true }, data: { isActive: false, status: 'PAUSED', version: { increment: 1 } } });
@@ -119,6 +160,10 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
         progressed = true;
         return;
       }
+      const snapshot = item.definitionSnapshot && typeof item.definitionSnapshot === 'object' && !Array.isArray(item.definitionSnapshot) ? item.definitionSnapshot : null;
+      if (!snapshot || !context.activatedById) throw new ValidationError('Published workflow snapshot is unavailable.');
+      const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
+      const { fireWorkflowTrigger } = await import('./workflow.engine.js');
       const admission = await prisma.$transaction(async tx => {
         const where = { id: item.id, tenantId: item.tenantId, leaseId, status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } };
         try {
@@ -129,28 +174,46 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
           const skipped = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'skipped', completedAt: new Date(), errorMessage: error.message, leaseId: null, leaseUntil: null } });
           return skipped.count ? 'skipped' : 'unclaimed';
         }
-        const started = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'running', dispatchStartedAt: new Date() } });
+        const started = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'running', dispatchStartedAt: new Date(), errorMessage: null } });
         return started.count ? 'started' : 'unclaimed';
       });
       if (admission !== 'unclaimed') progressed = true;
       if (admission !== 'started') return;
-      const snapshot = item.definitionSnapshot && typeof item.definitionSnapshot === 'object' && !Array.isArray(item.definitionSnapshot) ? item.definitionSnapshot : null;
-      if (!snapshot || !context.activatedById) throw new ValidationError('Published workflow snapshot is unavailable.');
-      const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
-      const { fireWorkflowTrigger } = await import('./workflow.engine.js');
       await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'running', leaseUntil: { gt: new Date() } }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The triggering state changed before dispatch.' } });
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: { not: 'running' } }, data: { leaseId: null, leaseUntil: null } });
-    } catch {
-      await prisma.$transaction(async tx => {
+    } catch (error) {
+      const failure = preparationFailure(error);
+      let event: 'preparation_deferred' | 'preparation_failed' | undefined;
+      let retryAt: Date | undefined;
+      const changed = await prisma.$transaction(async tx => {
         // Read persisted state through conditional writes: the dispatch marker's
         // acknowledgement may have been lost even though the write committed.
-        const undispatched = await tx.workflowExecutionRun.updateMany({ where: {
+        const undispatched = {
           id: item.id, tenantId: item.tenantId, leaseId, status: 'queued', dispatchStartedAt: null,
-        }, data: { leaseId: null, leaseUntil: null } });
-        if (undispatched.count) return; // The next bounded tick may safely retry preparation.
-        await interruptWorkflowRun(tx, item, { leaseId, status: 'running', dispatchStartedAt: { not: null } });
+        };
+        const evidence = preparationContext(item.dispatchContext, attempts, failure.failureClass);
+        if (failure.retryable && attempts < WORKFLOW_PREPARATION_ATTEMPTS) {
+          retryAt = preparationRetryAt(attempts);
+          const deferred = await tx.workflowExecutionRun.updateMany({ where: undispatched, data: { leaseId: null, leaseUntil: retryAt,
+            errorMessage: 'Workflow preparation was deferred after a temporary infrastructure failure. No actions have started.', dispatchContext: evidence } });
+          if (deferred.count) {
+            event = 'preparation_deferred';
+            return true;
+          }
+        } else if (await failPreparation(tx, item, undispatched, attempts >= WORKFLOW_PREPARATION_ATTEMPTS
+          ? 'Workflow preparation failed after five attempts. No actions were started.'
+          : 'Workflow preparation failed before dispatch. No actions were started.', evidence)) {
+          event = 'preparation_failed';
+          return true;
+        }
+        return interruptWorkflowRun(tx, item, { leaseId, status: 'running', dispatchStartedAt: { not: null } });
       });
+      // A rolled-back/unacknowledged claim may leave no owned row to update.
+      // Surface that infrastructure failure instead of reporting a healthy sweep.
+      if (!changed && !claimed) throw error;
+      if (changed) progressed = true;
+      if (changed && event) console.info('[Workflow]', { event, executionId: item.id, attempts, retryAt: retryAt?.toISOString(), failureClass: failure.failureClass });
     }
   });
   // Preparation failures remain queued for recovery rather than spinning here.
@@ -158,6 +221,7 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
 }
 
 export function startWorkflowScheduler(dealStageWorkflowId?: string) {
+  workflowWorkerStarted(!!dealStageWorkflowId);
   let stopping = false;
   let requested = false;
   let pending: Promise<void> | undefined;
@@ -172,13 +236,17 @@ export function startWorkflowScheduler(dealStageWorkflowId?: string) {
       do {
         requested = false;
         more = await dispatchQueuedWorkflows(dealStageWorkflowId);
+        workflowWorkerSweep(true);
       } while (!stopping && (requested || more));
-    }).catch(error => console.error('[Workflow] Queue tick failed', { failureClass: error instanceof Error ? error.name : 'UnknownError' }))
+    }).catch(error => {
+      workflowWorkerSweep(false);
+      console.error('[Workflow] Queue tick failed', { failureClass: preparationFailure(error).failureClass });
+    })
       .finally(() => { pending = undefined; if (requested && !stopping) tick(); });
   });
   const unregister = registerWorkflowWake(tick);
   const timer = setInterval(tick, 30000);
   timer.unref();
   tick();
-  return async () => { stopping = true; unregister(); clearInterval(timer); await pending; resource.emitDestroy(); };
+  return async () => { stopping = true; workflowWorkerDraining(); unregister(); clearInterval(timer); await pending; workflowWorkerStopped(); resource.emitDestroy(); };
 }

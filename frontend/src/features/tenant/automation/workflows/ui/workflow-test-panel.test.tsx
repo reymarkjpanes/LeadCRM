@@ -5,6 +5,7 @@ import type { TriggerDefinition, WorkflowTestResult } from '@leadcrm/shared';
 import { WorkflowTestPanel } from './workflow-test-panel';
 import { dealsApi } from '@/shared/services/deals.api';
 import { workflowsApi } from '@/shared/services/workflows.api';
+import { invalidatePageCache } from '@/shared/cache/page-cache';
 
 const auth = vi.hoisted(() => ({ id: 'agent', tenantId: 'tenant', canExecute: true }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({
@@ -113,4 +114,28 @@ it('discards an in-flight check when Execute permission is revoked for the same 
   expect(screen.queryByText('Follow up')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Run check' })).toBeNull();
   expect(workflowsApi.test).toHaveBeenCalledOnce();
+});
+
+it('clears samples and previews after membership changes with unchanged Execute permission', async () => {
+  render(<WorkflowTestPanel workflowId="workflow" trigger={trigger} />);
+  await chooseDeal();
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }));
+  await screen.findByText('Follow up');
+  vi.mocked(dealsApi.list).mockResolvedValue({ data: [], meta: { hasMore: false } } as never);
+  act(() => invalidatePageCache('groups', 'tenant'));
+  expect(screen.queryByText('Follow up')).toBeNull();
+  expect(screen.queryByRole('option', { name: 'Example Deal' })).toBeNull();
+  await screen.findByText('No matching records are available.');
+  expect(screen.queryByLabelText('Recorded stage transition')).toBeNull();
+});
+
+it('discards a late preview after membership invalidation for the same user', async () => {
+  let finishCheck!: (value: { success: boolean; data: WorkflowTestResult }) => void;
+  vi.mocked(workflowsApi.test).mockReturnValue(new Promise(resolve => { finishCheck = resolve; }));
+  render(<WorkflowTestPanel workflowId="workflow" trigger={trigger} />);
+  await chooseDeal(); fireEvent.click(screen.getByRole('button', { name: 'Run check' }));
+  await waitFor(() => expect(workflowsApi.test).toHaveBeenCalledOnce());
+  act(() => invalidatePageCache('workflows', 'tenant', true, true));
+  await act(async () => { finishCheck({ success: true, data: result }); });
+  expect(screen.queryByText('Follow up')).toBeNull();
 });

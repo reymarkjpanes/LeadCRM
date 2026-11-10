@@ -26,7 +26,7 @@ import prisma from '../../../config/database.config';
 import { salesTransaction } from '../../crm/leads/lead-automation.service';
 import { isWorkflowAdmissionSkipped } from '../workflows/workflow-admission';
 import { isStaleWorkflowAction, skipStaleWorkflowAction, type DealStageEvidence, type WorkflowActionGuard } from '../workflows/workflow-freshness';
-import { lockWorkflowCrmRecord } from '../../crm/access/crm-record-access.service';
+import { assertCrmRecordRead, lockWorkflowCrmRecord } from '../../crm/access/crm-record-access.service';
 import { mailboxAddress } from '../../../integrations/gmail/mailbox-scope';
 
 export type ActionResult = { success: boolean; skipped?: true; output?: Record<string, unknown>; error?: string;
@@ -146,7 +146,13 @@ async function admitDelivery(guard: WorkflowActionGuard | undefined, tenantId: s
   await prisma.$transaction(async tx => {
     await fenceWorkflowLease(tx);
     await guard.admit(tx, { preparedInput: true });
-    if (!await lockWorkflowCrmRecord(tx, entity === 'lead' ? 'leads' : 'contacts', tenantId, id)) skipStaleWorkflowAction('The selected recipient is no longer available.');
+    const module = entity === 'lead' ? 'leads' : 'contacts';
+    if (!await lockWorkflowCrmRecord(tx, module, tenantId, id)) skipStaleWorkflowAction('The selected recipient is no longer available.');
+    try { await assertCrmRecordRead(tx, module, id); }
+    catch (error) {
+      if (error instanceof AppError && [403, 404].includes(error.statusCode)) skipStaleWorkflowAction('The selected recipient is no longer available.');
+      throw error;
+    }
     const where = { tenantId, id, isArchived: false, deletedAt: null };
     const record = entity === 'lead' ? await tx.lead.findFirst({ where: { ...where, convertedAt: null }, select: { email: true, phone: true } })
       : await tx.contact.findFirst({ where: { ...where, doNotContact: false }, select: { email: true, phone: true } });
@@ -183,6 +189,10 @@ async function deliverEmail(action: WorkflowAction, context: Record<string, unkn
     }
     if (error instanceof AppError && error.code === 'GMAIL_OUTCOME_UNKNOWN') {
       await repo.finishDelivery(log.id, tenantId, { status: 'uncertain', errorMessage: 'Delivery outcome requires review before any replay.' });
+      throw error;
+    }
+    if (error instanceof AppError && error.statusCode === 403) {
+      await repo.finishDelivery(log.id, tenantId, { status: 'failed', errorMessage: safeWorkflowError(error) });
       throw error;
     }
     await repo.finishDelivery(log.id, tenantId, { status: 'failed', errorMessage: 'Gmail delivery failed. Check the sender connection.' });

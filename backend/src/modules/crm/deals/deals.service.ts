@@ -182,15 +182,16 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
   });
 }
 
-export async function validateDealStageMove(id: string, tenantId: string, dto: MoveDealStageDto, policy: import('./deal-lifecycle').DealStageMovePolicy = {}) {
+export async function validateDealStageMove(id: string, tenantId: string, dto: MoveDealStageDto, policy: import('./deal-lifecycle').DealStageMovePolicy = {}, projectedDeal?: import('./deal-lifecycle').DealStageValidationState) {
   // SEC-1 fix: Resolve stage within the tenant boundary via pipeline
   const newStage = await (salesContext.getStore() ?? prisma).stage.findFirst({
     where: { id: dto.stageId, tenantId },
   });
   if (!newStage) throw new NotFoundError('Stage');
 
-  const deal = await (salesContext.getStore() ?? prisma).deal.findFirst({ where: { id, tenantId, isArchived: false, deletedAt: null }, include: { stage: true } });
+  const deal = projectedDeal ?? await (salesContext.getStore() ?? prisma).deal.findFirst({ where: { id, tenantId, isArchived: false, deletedAt: null }, include: { stage: true } });
   if (!deal) throw new NotFoundError('Deal');
+  if (deal.id !== id || deal.tenantId !== tenantId || deal.isArchived || deal.deletedAt) throw new NotFoundError('Deal');
   if (deal.pipelineId !== newStage.pipelineId) throw new ValidationError('Stage must belong to this Deal’s pipeline.');
   if (deal.stageId === newStage.id) return newStage;
   assertDealStageTransition(deal, newStage, await dealHasEverBeenWon(salesContext.getStore() ?? prisma, tenantId, deal));

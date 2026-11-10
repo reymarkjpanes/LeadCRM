@@ -4,9 +4,10 @@ import { clearPageCache, invalidatePageCache } from './page-cache';
 export function invalidateApiPageCache(path: string): void {
   const [area, resource] = path.split('?')[0].split('/').filter(Boolean);
   if (area === 'crm' && resource === 'merge' && path.split('?')[0].endsWith('/preview')) return;
+  if (area === 'automation' && /^\/automation\/workflows\/(?:validate|[^/]+\/test)$/.test(path.split('?')[0])) return;
   if (area === 'auth') {
     if (resource === 'activity') return;
-    clearPageCache();
+    clearPageCache(true);
     return;
   }
   const modules = new Set<string>();
@@ -17,7 +18,7 @@ export function invalidateApiPageCache(path: string): void {
   if (['crm', 'marketing', 'automation', 'administration'].includes(area)) modules.add('archived-crm');
   if (area === 'administration' && resource === 'archived-data') {
     const type = path.split('/')[3];
-    if (type === 'Role') { clearPageCache(); return; }
+    if (type === 'Role') { clearPageCache(true); return; }
     if (type === 'Pipeline') { modules.add('pipeline'); modules.add('pipelines'); }
     if (type === 'Task') { modules.add('tasks'); modules.add('activities'); modules.add('reports'); }
     if (type === 'Workflow') modules.add('workflows');
@@ -61,8 +62,8 @@ export function invalidateApiPageCache(path: string): void {
     ['users', 'groups', 'workflows'].forEach(module => modules.add(module));
   }
   if (area === 'administration' && (resource === 'roles' || resource === 'users')) {
-    clearPageCache();
+    clearPageCache(true);
     return;
   }
-  modules.forEach((module) => invalidatePageCache(module));
+  modules.forEach((module) => invalidatePageCache(module, undefined, true, area === 'administration' && resource === 'groups' && module === 'workflows'));
 }

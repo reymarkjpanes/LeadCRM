@@ -11,7 +11,18 @@
     "src/integrations/gmail/mailbox.integration.test.ts",
     "src/core/maintenance/*.test.ts",
     "src/modules/crm/imports/imports.integration.test.ts",
-    "src/modules/crm/companies/account-retirement*.test.ts"
+    "src/modules/crm/companies/account-retirement*.test.ts",
+    "src/server.test.ts",
+    "src/config/background-workers.test.ts",
+    "src/config/validate-env.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-action-permissions.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-action-policy.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-preparation.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-worker-status.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-worker.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-wakeup.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-authority.integration.test.ts",
+    "src/modules/automation/workflows/__tests__/workflow-preview.integration.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
