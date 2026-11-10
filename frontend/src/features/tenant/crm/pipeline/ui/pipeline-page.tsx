@@ -184,11 +184,15 @@ export default function PipelinePage({ navigate }: { navigate?: (path: string) =
     <ModuleTabs tabs={tabAccess.tabs} activeTab={activeTab} onTabChange={setSelectedTab} ariaLabel="Deals views" className="mb-3" />
     <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
       <ModuleSearchInput value={search} onChange={setSearch} placeholder="Search deals..." label="Search deals" />
-      <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:contents">
-        <div className="flex min-w-0 flex-wrap items-center gap-2"><FilterButton title="Deals" open={showFilters} onClick={() => setShowFilters(!showFilters)} /><ExportCsvButton module="deals" hasData={hasExportData}
-          disabled={!pipeline || query.isInitialLoad || query.isRefreshing || refreshing || !!query.error || !!pipelineError}
-          params={{ pipelineId: pipeline?.id, scope: activeTab, view: JSON.stringify(exportView) }} />
-          <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">Pipeline<Input type="text" readOnly aria-label="Pipeline" value={pipeline?.name ?? ''} size={pipeline?.name.length || 1} className="h-8 w-auto min-w-0 max-w-[min(18rem,calc(100vw-5rem))] rounded-lg border-border bg-card px-2 py-0 text-xs text-foreground dark:border-border dark:bg-card" /></label>
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:contents">
+        <div className="contents min-w-0 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          <div className="flex shrink-0 items-center gap-2 sm:contents">
+            <FilterButton title="Deals" open={showFilters} onClick={() => setShowFilters(!showFilters)} className="h-11 sm:h-8" />
+            <ExportCsvButton module="deals" hasData={hasExportData}
+              disabled={!pipeline || query.isInitialLoad || query.isRefreshing || refreshing || !!query.error || !!pipelineError}
+              params={{ pipelineId: pipeline?.id, scope: activeTab, view: JSON.stringify(exportView) }} />
+          </div>
+          <label className="order-last flex w-full min-w-0 items-center gap-2 text-xs text-muted-foreground sm:order-none sm:w-auto">Pipeline<Input type="text" readOnly aria-label="Pipeline" value={pipeline?.name ?? ''} size={pipeline?.name.length || 1} className="h-8 w-auto min-w-0 max-w-[min(18rem,calc(100vw-5rem))] rounded-lg border-border bg-card px-2 py-0 text-xs text-foreground dark:border-border dark:bg-card" /></label>
         </div>
         <div className="ml-auto shrink-0"><RefreshButton onClick={refresh} disabled={query.isRefreshing || query.isInitialLoad} refreshing={refreshing} /></div>
       </div>
