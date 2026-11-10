@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RecordEmailAttachmentContextSchema = exports.CRM_FILE_FORMAT_ERROR = exports.CRM_FILE_SIZE_ERROR = exports.CRM_FILE_ACCEPT = exports.CRM_FILE_EXTENSIONS = exports.RECORD_FILE_MAX_BYTES = exports.LeadStatusSchema = exports.LEAD_STATUSES = exports.CrmStatusSchema = exports.COMPANY_SIZE_OPTIONS = exports.LeadSourceSchema = exports.SELECTABLE_LEAD_SOURCES = exports.isDirectMailSource = exports.LEAD_SOURCES = exports.CRM_STATUSES = void 0;
 exports.isAssignableAgent = isAssignableAgent;
+exports.parseStoredCrmStatus = parseStoredCrmStatus;
 exports.normalizeCrmStatus = normalizeCrmStatus;
 exports.crmFileExtension = crmFileExtension;
 exports.crmFileValidationError = crmFileValidationError;
@@ -21,12 +22,18 @@ function isAssignableAgent(user) {
 exports.CrmStatusSchema = zod_1.z.enum(exports.CRM_STATUSES);
 exports.LEAD_STATUSES = exports.CRM_STATUSES;
 exports.LeadStatusSchema = exports.CrmStatusSchema;
+/** Recognize persisted labels and legacy enum values without guessing a status. */
+function parseStoredCrmStatus(status) {
+    if (typeof status !== 'string')
+        return undefined;
+    const value = status.trim().toLowerCase();
+    if (value === 'closed' || value === 'closed_deal')
+        return 'Closed Deal';
+    return exports.CRM_STATUSES.find(status => status.toLowerCase() === value);
+}
 /** Read legacy stored statuses into canonical UI state. API validation stays strict. */
 function normalizeCrmStatus(status) {
-    // Historical workflow snapshots and Contact enum values remain readable.
-    if (['closed', 'closed_deal', 'closed deal'].includes(status?.trim().toLowerCase() ?? ''))
-        return 'Closed Deal';
-    return exports.CRM_STATUSES.find(value => value.toLowerCase() === status?.toLowerCase()) ?? 'Warm';
+    return parseStoredCrmStatus(status) ?? 'Warm';
 }
 exports.RECORD_FILE_MAX_BYTES = 10 * 1024 * 1024;
 /** Manual CRM Files tabs only; custom-field and import policies remain independent. */

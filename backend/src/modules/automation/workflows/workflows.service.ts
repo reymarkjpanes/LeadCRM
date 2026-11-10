@@ -1,10 +1,11 @@
 import { creatorWhere } from '../../crm/access/record-visibility';
 import { assertPermissions } from '../../../core/permissions/permission.service';
-import { PERMISSION_ACTION_KEYS, workflowStateAction, type PermissionKey } from '@leadcrm/shared';
+import { hasModulePermission, PERMISSION_ACTION_KEYS, workflowStateAction, type PermissionKey } from '@leadcrm/shared';
 import { WorkflowRevisionWriteSchema, WorkflowRevisionTokenSchema, WorkflowAssignmentTargetSchema, workflowAssignmentTarget, Role } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { Prisma } from '@prisma/client';
 import { ConflictError } from '../../../shared/errors/http-error';
+import { AppError } from '../../../shared/errors/app-error';
 import { compatibleWorkflow, accountWorkflowRetirementReferences } from './workflow-fields';
 import { retiredContactReferences, retiredAccountWorkflowReferences, ACCOUNT_RETIREMENT_REASON } from '@leadcrm/shared';
 import { tenantContext } from '../../../core/tenant/tenant-context';
@@ -111,8 +112,17 @@ export async function createWorkflow(tenantId: string, userId: string, dto: unkn
 }
 export async function updateWorkflow(id: string, tenantId: string, userId: string, dto: Record<string, unknown>) {
   requireScope(tenantId);
-  const existing = await getWorkflowById(id, tenantId);
-  if (existing.isArchived) throw new ValidationError('Archived workflows cannot be edited or activated. Duplicate an available workflow instead.');
+  const stored = await repo.findVisibleWorkflowById(id, tenantId);
+  if (!stored) throw new NotFoundError('Workflow');
+  if (stored.isArchived) throw new ValidationError('Archived workflows cannot be edited or activated. Duplicate an available workflow instead.');
+  const pausing = Object.keys(dto).length === 1 && dto.isActive === false;
+  const alreadyActive = Object.keys(dto).length === 1 && dto.isActive === true && stored.isActive && stored.status === 'ACTIVE';
+  if (alreadyActive) {
+    const permissions = await findUserEffectivePermissions(userId, tenantId);
+    if (!hasModulePermission(permissions, 'workflows', 'canActivate') && !hasModulePermission(permissions, 'workflows', 'canPause')) throw new AppError('Access denied', 403);
+    return stored;
+  }
+  const existing = pausing ? stored : await compatibleWorkflow(stored, tenantId);
   const changingDefinition = Object.keys(dto).some(key => key !== 'isActive');
   const required: PermissionKey[] = changingDefinition || dto.isActive === undefined ? ['workflows.edit'] : [];
   if (dto.isActive !== undefined && (dto.isActive !== existing.isActive || !changingDefinition)) {
@@ -122,8 +132,8 @@ export async function updateWorkflow(id: string, tenantId: string, userId: strin
   if (changingDefinition && existing.isActive && dto.isActive !== false) required.push('workflows.activate');
   await assertPermissions({ userId, tenantId, role: '' }, required);
   // Pausing must remain possible when a referenced user, template or campaign is no longer valid.
-  if (Object.keys(dto).length === 1 && dto.isActive === false) {
-    const workflow = await repo.updateWorkflow(id, tenantId, { isActive: false, status: existing.isActive || existing.status === 'PAUSED' ? 'PAUSED' : 'DRAFT' });
+  if (pausing) {
+    const workflow = await repo.updateWorkflow(id, tenantId, { isActive: false, status: existing.isActive || existing.status === 'PAUSED' ? 'PAUSED' : 'DRAFT' }, stored);
     if (existing.isActive) await writeAuditLog({ tenantId, userId, action: 'workflow.paused', entityType: 'Workflow', entityId: id });
     return workflow;
   }
@@ -136,28 +146,30 @@ export async function updateWorkflow(id: string, tenantId: string, userId: strin
   const accountReferences = await accountWorkflowRetirementReferences(draft, tenantId);
   if ((draft.isActive && accountReferences.length) || accountReferences.some(field => !oldAccountReferences.has(field))) throw new ValidationError(ACCOUNT_RETIREMENT_REASON);
   if (retiredContactReferences([draft.conditions, draft.actions], findTrigger(draft.trigger)?.entity).some(field => !oldReferences.has(field))) throw new ValidationError('Retired Contact fields cannot be added to a Workflow. Repair the saved references.');
-  await assertAssignmentReferencePermissions(draft, tenantId, userId);
+  const resuming = stored.status === 'PAUSED' && !stored.isActive && draft.isActive && !changingDefinition;
+  if (!resuming) await assertAssignmentReferencePermissions(draft, tenantId, userId);
   if (!findTrigger(draft.trigger)) throw new ValidationError('Choose a supported trigger.');
   const validationDraft = !draft.isActive && accountReferences.length ? { ...draft, actions: [], conditions: draft.conditions && { ...draft.conditions,
     conditions: draft.conditions.conditions.filter(rule => !retiredAccountWorkflowReferences({ trigger: draft.trigger, conditions: { conditions: [rule] } }).length),
   } } : draft;
-  await validateConditionReferences(validationDraft, tenantId);
+  if (!draft.isActive) await validateConditionReferences(validationDraft, tenantId);
   if (!draft.isActive) for (const action of draft.actions) {
     if ((await accountWorkflowRetirementReferences({ trigger: draft.trigger, actions: [action] }, tenantId)).length) continue;
     await validateAction(action, findTrigger(draft.trigger)!.entity, tenantId, undefined, true);
   }
-  const resuming = existing.status === 'PAUSED' && !existing.isActive && draft.isActive && Object.keys(dto).every(key => key === 'isActive');
   if (draft.isActive) {
-    await validateWorkflow(draft, tenantId, existing.status !== 'DRAFT' ? existing.conditions : undefined);
-    await assertWorkflowPermissions(draft, tenantId, userId, resuming ? 'workflows.pause' : 'workflows.activate');
     // Resume retains the approved publisher. Workers still recheck that publisher's grants.
-    if (resuming) {
-      if (!existing.activatedById) throw new ValidationError('Publish this workflow before resuming it.');
-      await assertWorkflowPermissions(draft, tenantId, existing.activatedById);
-    }
+    if (resuming && !stored.activatedById) throw new ValidationError('Publish this workflow before resuming it.');
+    const publisherId = resuming ? stored.activatedById! : userId;
+    await crmActor.run({ tenantId, userId: publisherId, readRecords: true }, async () => {
+      await validateWorkflow(draft, tenantId, existing.status !== 'DRAFT' ? existing.conditions : undefined);
+      await assertWorkflowPermissions(draft, tenantId, publisherId);
+    });
   }
   const sanitized = sanitizeDraft(draft, existing.status !== 'DRAFT' ? existing.conditions : undefined);
-  const workflow = await repo.updateWorkflow(id, tenantId, { ...sanitized, status: draft.isActive ? 'ACTIVE' : existing.isActive || existing.status === 'PAUSED' ? 'PAUSED' : 'DRAFT', ...(draft.isActive && !resuming ? { activatedById: userId } : {}) }, workflowDefinitionChanged(existing, sanitized));
+  const workflow = draft.isActive && !changingDefinition
+    ? await repo.updateWorkflow(id, tenantId, { isActive: true, status: 'ACTIVE', ...(resuming ? {} : { activatedById: userId }) }, stored)
+    : await repo.updateWorkflow(id, tenantId, { ...sanitized, status: draft.isActive ? 'ACTIVE' : existing.isActive || existing.status === 'PAUSED' ? 'PAUSED' : 'DRAFT', ...(draft.isActive ? { activatedById: userId } : {}) }, stored, workflowDefinitionChanged(existing, sanitized));
   await writeAuditLog({ tenantId, userId, action: existing.isActive !== workflow.isActive ? workflow.isActive ? 'workflow.activated' : 'workflow.paused' : 'workflow.updated', entityType: 'Workflow', entityId: id });
   return workflow;
 }
@@ -168,8 +180,9 @@ export async function toggleWorkflow(id: string, tenantId: string, userId: strin
 
 export async function archiveWorkflow(id: string, tenantId: string, userId: string) {
   requireScope(tenantId);
-  await getWorkflowById(id, tenantId);
-  await repo.updateWorkflow(id, tenantId, { isArchived: true, isActive: false, status: 'PAUSED' });
+  const stored = await repo.findVisibleWorkflowById(id, tenantId);
+  if (!stored) throw new NotFoundError('Workflow');
+  await repo.updateWorkflow(id, tenantId, { isArchived: true, isActive: false, status: 'PAUSED' }, stored);
   await writeAuditLog({ tenantId, userId, action: 'workflow.archived', entityType: 'Workflow', entityId: id });
 }
 export async function getWorkflowExecutions(id: string, tenantId: string, page = 1) {

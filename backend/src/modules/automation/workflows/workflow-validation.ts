@@ -1,4 +1,4 @@
-import { workflowOperators, WorkflowConditionSchema, missingWorkflowConditionValues, retiredContactReferences, workflowActionPolicyIssues, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowField } from '@leadcrm/shared';
+import { workflowOperators, WorkflowConditionSchema, missingWorkflowConditionValues, retiredContactReferences, workflowActionPolicyIssues, WORKFLOW_MODULES, isWorkflowStatusField, parseStoredCrmStatus, type WorkflowDraft, type WorkflowField } from '@leadcrm/shared';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { AppError } from '../../../shared/errors/app-error';
 import { findTrigger } from '../triggers/trigger-catalog';
@@ -25,7 +25,9 @@ export function validateWorkflowConditions(draft: WorkflowDraft, fields?: Workfl
     const valueType = field.type === 'number' || field.type === 'boolean' ? field.type : 'string';
     if (typeof rule.value !== valueType) throw new ValidationError(`${field.label} requires a ${valueType} value.`);
     if (typeof rule.value === 'string' && (rule.value.length > (field.maxLength ?? 1000) || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(rule.value))) throw new ValidationError('Condition value contains unsupported characters or is too long.');
-    if (field.options && !field.options.includes(String(rule.value))) throw new ValidationError(`Choose a supported ${field.label}.`);
+    if (field.options && !field.options.includes(isWorkflowStatusField(rule.field) ? parseStoredCrmStatus(rule.value) ?? '' : String(rule.value))) {
+      throw new ValidationError(`Choose a supported ${field.label}.`);
+    }
     if (['user', 'stage', 'pipeline', 'products', 'account', 'contacts', 'leads'].includes(field.type) && !z.string().uuid().safeParse(rule.value).success) throw new ValidationError(`Choose a valid ${field.label}.`);
     if (field.type === 'date' && (typeof rule.value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(rule.value) || Number.isNaN(Date.parse(rule.value)) || new Date(rule.value).toISOString().slice(0, 10) !== rule.value)) throw new ValidationError('Choose a valid date.');
   }

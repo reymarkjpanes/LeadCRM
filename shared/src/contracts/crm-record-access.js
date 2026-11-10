@@ -15,6 +15,12 @@ function hasCrmRecordAssignmentAccess(policy, record, module, action = 'canEdit'
         return false;
     if (policy.clientAdmin)
         return true;
+    if (module && ['leads', 'contacts', 'deals'].includes(module) && policy.crmTeamUserIds) {
+        return !!policy.permissions && (0, permission_modules_1.hasModulePermission)(policy.permissions, module, action) &&
+            typeof record.assignedUserId === 'string' && policy.crmTeamUserIds.includes(record.assignedUserId) &&
+            permittedCrmScopes(policy.permissions, module).some(scope => scope === 'all' || scope === 'my' && record.assignedUserId === policy.userId ||
+                scope === 'active' && ['Inquiry', 'Hot', 'Warm', 'INQUIRY', 'HOT', 'WARM'].includes(String(record.status)) && record.assignedUserId === policy.userId);
+    }
     if (!policy.permissions || !module)
         return module === 'accounts' || !policy.assignmentRestricted || record.assignedUserId === policy.userId;
     return (0, permission_modules_1.hasModulePermission)(policy.permissions, module, action) &&
@@ -22,10 +28,14 @@ function hasCrmRecordAssignmentAccess(policy, record, module, action = 'canEdit'
             scope === 'active' && ['Inquiry', 'Hot', 'Warm', 'INQUIRY', 'HOT', 'WARM'].includes(String(record.status)) && record.assignedUserId === policy.userId) &&
         (module === 'accounts' || !policy.assignmentRestricted || record.assignedUserId === policy.userId);
 }
-/** Reassignment requires the employee's unrestricted role grants for this record. */
+/** Staff reassignment requires current edit access and a saved Group Head assignment. */
 function canReassignCrmRecord(policy, record, module) {
     if (!policy)
         return false;
+    if (policy.clientAdmin)
+        return hasCrmRecordAssignmentAccess(policy, record, module);
+    if (['leads', 'contacts', 'deals'].includes(module) && policy.crmTeamUserIds)
+        return policy.crmGroupHead === true && hasCrmRecordAssignmentAccess(policy, record, module);
     if (!policy.permissions)
         return !policy.assignmentRestricted && hasCrmRecordAssignmentAccess(policy, record, module);
     return hasCrmRecordAssignmentAccess({ ...policy,

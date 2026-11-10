@@ -52,7 +52,7 @@ import { usersService } from "@/features/tenant/administration/users/services/us
 import { rolesApi } from '@/shared/services/roles.api';
 import { rolesService, toSettingsRole, toSettingsPermissions, toPermissionRows } from '@/features/tenant/administration/roles/services/roles.service';
 import { USE_MOCK_DATA } from "@/lib/config";
-import { clearPageCache, invalidatePageCache, createPageCacheGuard, requestPageCache } from "@/shared/cache/page-cache";
+import { clearPageCache, invalidatePageCache, createPageCacheGuard, requestPageCache, subscribePageCacheInvalidation, getPageCacheGeneration } from "@/shared/cache/page-cache";
 import { leadsService as contactsService } from "@/features/tenant/crm/leads/services/leads.service";
 import { accountsService as organizationsService } from "@/features/tenant/crm/accounts/services/accounts.service";
 import { pipelineService } from "@/features/tenant/crm/pipeline/services/pipeline.service";
@@ -213,7 +213,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const crmScopeIdentity = ['leads', 'contacts', 'accounts', 'deals'].map(module =>
     ['canViewAll', 'canViewMy', 'canViewActive'].map(action => userCan(module, action as import('@leadcrm/shared').PermissionAction) ? '1' : '0').join('')).join(':');
-  const dataIdentity = `${user?.id ?? ''}:${tenant?.id ?? ''}:${workspaceReady}:${crmScopeIdentity}`;
+  const [authorizationRevision, setAuthorizationRevision] = useState(0);
+  const clearingRevokedAccess = useRef(false);
+  const dataIdentity = `${user?.id ?? ''}:${tenant?.id ?? ''}:${workspaceReady}:${crmScopeIdentity}:${authorizationRevision}`;
   const dataIdentityRef = useRef(dataIdentity);
   dataIdentityRef.current = dataIdentity;
 
@@ -252,6 +254,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [dataIdentity, canReadDeals, user?.role]);
   const dealsRefresh = useRef(refreshDeals);
   dealsRefresh.current = refreshDeals;
+  useEffect(() => {
+    if (USE_MOCK_DATA) return;
+    return subscribePageCacheInvalidation((module, changedTenant, evict) => {
+      if (module === '*') {
+        if (!clearingRevokedAccess.current) setAuthorizationRevision(value => value + 1);
+        return;
+      }
+      if (!(module === 'deals' && evict && (!changedTenant || changedTenant === tenant?.id))) return;
+      dealsRequest.current?.controller.abort();
+      setDeals([]);
+      void dealsRefresh.current();
+    });
+  }, [tenant?.id]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(!USE_MOCK_DATA);
@@ -407,7 +422,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const loadData = async () => {
     if (!USE_MOCK_DATA && !workspaceReady) return;
     const identity = dataIdentityRef.current;
-    const isCurrent = () => identity === dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
+    const isCurrent = () => identity === dataIdentityRef.current && generation === getPageCacheGeneration();
     // ── REAL-API MODE ──────────────────────────────────────────────────────────
     if (!USE_MOCK_DATA) {
       if (!user) return;
@@ -628,7 +644,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!USE_MOCK_DATA && !workspaceReady) return;
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, tenant?.id, workspaceReady, crmScopeIdentity]);
+  }, [dataIdentity]);
 
   const saveAndSet = (key: string, data: any[], setter: any) => {
     const allData = JSON.parse(localStorage.getItem(key) || "[]");
@@ -767,7 +783,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
     source.addEventListener('crm-access-changed', () => {
       clearTimeout(queued); dealsRequest.current?.controller.abort(); setDeals([]); setTasks([]);
-      clearPageCache(true); source.close();
+      setOrganizations([]); setContacts([]); setPipelines([]); setWorkflows([]); setActivities([]);
+      source.close();
+      // Its own access-loss broadcast must not restart the revoked stream.
+      clearingRevokedAccess.current = true;
+      try { clearPageCache(true); } finally { clearingRevokedAccess.current = false; }
     });
     window.addEventListener('online', reconcile); window.addEventListener('focus', reconcile); document.addEventListener('visibilitychange', reconcile);
     return () => { clearTimeout(queued); source.close(); window.removeEventListener('online', reconcile); window.removeEventListener('focus', reconcile); document.removeEventListener('visibilitychange', reconcile); };
@@ -892,6 +912,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const dealBatchPending = useRef(false);
   const addDeals = async (values: Record<string, unknown>): Promise<void> => {
     if (!tenant || !user) throw new Error('Sign in before creating Deals.');
+    const identity = dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
     if (dealBatchPending.current) return;
     dealBatchPending.current = true;
     const storageKey = `leadcrm_pending_deals:${tenant.id}:${user.id}`;
@@ -909,7 +931,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         const response = await pipelineService.createDeals(dto);
         if (!response.data) throw new Error('Unable to confirm Deal creation. Retry this submission.');
         created = response.data.deals.map(deal => toFrontendDeal(deal) as Deal);
-        setDeals(previous => [...created, ...previous.filter(deal => !created.some(row => row.id === deal.id))]);
+        if (identity === dataIdentityRef.current && generation === getPageCacheGeneration()) {
+          setDeals(previous => [...created, ...previous.filter(deal => !created.some(row => row.id === deal.id))]);
+        }
       } else {
         const receiptKey = `leadcrm_deal_batch:${tenant.id}:${user.id}:${idempotencyKey}`;
         const saved = sessionStorage.getItem(receiptKey);
@@ -954,12 +978,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addDeal = async (dealData: any): Promise<void> => {
     if (!tenant) return;
+    const identity = dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
 
     if (!USE_MOCK_DATA) {
       try {
         const dto = toBackendCreateDeal(dealData) as any;
         const res = await pipelineService.createDeal(dto);
         const deal = toFrontendDeal((res as any).data ?? res) as Deal;
+        if (identity !== dataIdentityRef.current || generation !== getPageCacheGeneration()) return;
         setDeals((prev) => [deal, ...prev]);
         addAuditLog(
           "Deal Created",
@@ -1029,11 +1056,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const updateDeal = async (id: string, updates: Partial<Deal>): Promise<Deal> => {
+    const identity = dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
     if (!USE_MOCK_DATA) {
       try {
         const dto = toBackendUpdateDeal(updates as Record<string, any>) as any;
         const res = await pipelineService.updateDeal(id, dto);
         const deal = toFrontendDeal((res as any).data ?? res) as Deal;
+        if (identity !== dataIdentityRef.current || generation !== getPageCacheGeneration()) return deal;
         setDeals(prev => prev.some(d => d.id === id) ? prev.map(d => d.id === id ? deal : d) : [...prev, deal]);
 
         if (updates.stageId) {
@@ -1167,6 +1197,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const moveDealStage = async (id: string, stageId: string, note?: string, lostReason?: string, handoff?: any): Promise<Deal> => {
+    const identity = dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
     const targetStage = pipelines.flatMap(pipeline => pipeline.stages).find(stage => stage.id === stageId);
     if (!USE_MOCK_DATA) {
       try {
@@ -1174,6 +1206,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         const responseData = (res as any).data ?? res;
         const rawDeal = responseData.deal ?? responseData;
         const deal = toFrontendDeal(rawDeal) as Deal;
+        if (identity !== dataIdentityRef.current || generation !== getPageCacheGeneration()) return deal;
         setDeals(prev => prev.some(d => d.id === id) ? prev.map(d => d.id === id ? deal : d) : [...prev, deal]);
 
         // The stage API commits activity and history in the same transaction.
@@ -1242,10 +1275,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const moveDealPipeline = async (id: string, input: import('@leadcrm/shared').MoveDealPipelineInput): Promise<Deal> => {
+    const identity = dataIdentityRef.current;
+    const generation = getPageCacheGeneration();
     const parsed = input;
     if (!USE_MOCK_DATA) {
       const response = await pipelineService.moveDealPipeline(id, parsed);
       const deal = toFrontendDeal(response.data!.deal) as Deal;
+      if (identity !== dataIdentityRef.current || generation !== getPageCacheGeneration()) return deal;
       setDeals(previous => previous.some(d => d.id === id) ? previous.map(d => d.id === id ? deal : d) : [...previous, deal]);
       for (const module of ['deals', 'activities', 'leads', 'contacts', 'accounts']) invalidatePageCache(module, tenant?.id || user?.tenantId || '');
       return deal;

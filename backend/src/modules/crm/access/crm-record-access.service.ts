@@ -48,11 +48,30 @@ export function isCrmTransactionConflict(error: unknown): boolean {
 
 /** Separate server authority, only entered after the saved Workflow's grants are validated. */
 const system = new AsyncLocalStorage<{ tenantId: string; provenance: string }>();
+const workflowTaskReadback = new AsyncLocalStorage<{ tenantId: string; id: string; createdById: string }>();
 export function runAuthorizedWorkflow<T>(tenantId: string, executionId: string, work: () => T, actorId?: string): T {
   const run = () => system.run({ tenantId, provenance: `workflow:${executionId}` }, work);
   return actorId ? crmActor.run({ tenantId, userId: actorId, readRecords: true }, run) : run();
 }
 export const authorizedWorkflowScope = (tenantId: string) => system.getStore()?.tenantId === tenantId ? system.getStore() : undefined;
+
+/** Allow an authorized Workflow to read back its own Task after handing it off. */
+export function readWorkflowCreatedTask<T>(tenantId: string, id: string, createdById: string, read: () => Promise<T>): Promise<T> {
+  const actor = crmActor.getStore();
+  if (!authorizedWorkflowScope(tenantId) || actor?.tenantId !== tenantId || actor.userId !== createdById) {
+    throw new AppError('Access denied', 403);
+  }
+  return workflowTaskReadback.run({ tenantId, id, createdById }, async () => await read());
+}
+
+/** Serialize a workflow's freshness check with CRM writes. The caller still checks record access. */
+export async function lockWorkflowCrmRecord(tx: Tx, module: CrmModule, tenantId: string, id: string): Promise<boolean> {
+  if (!authorizedWorkflowScope(tenantId) || crmActor.getStore()?.tenantId !== tenantId) throw new AppError('Access denied', 403);
+  const rows = await internal.run(true, async () => await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT "id" FROM ${Prisma.raw('"' + tables[module] + '"')}
+    WHERE "tenantId" = ${tenantId} AND "id" = ${id} AND "isArchived" = false AND "deletedAt" IS NULL FOR UPDATE`));
+  return rows.length === 1;
+}
 
 export function resolveCrmActor(db: Tx, actor: Actor): Promise<ReadPolicy> {
   // Authorization metadata must never depend on the data visibility it resolves.
@@ -71,27 +90,20 @@ async function resolveActorPolicy(db: Tx, actor: Actor): Promise<ReadPolicy> {
   // not promote an employee to Client Admin, including an extra admin-named role.
   const clientAdmin = user.role === 'Client Admin';
   const permissions = resolveEffectivePermissions(user);
-  const taskManager = !clientAdmin && hasModulePermission(permissions, 'tasks', 'canViewAll');
-  let taskTeamUserIds: string[] | undefined;
-  if (taskManager) {
-    const groupIds = (user.groupMemberships ?? []).map(member => member.groupId);
-    const members = groupIds.length ? await db.user.findMany({
-      where: { tenantId: user.tenantId, groupMemberships: { some: { tenantId: user.tenantId, groupId: { in: groupIds } } } },
-      select: { id: true },
-    }) : [];
-    // Inactive historical assignees remain manageable; new assignment separately checks eligibility.
-    taskTeamUserIds = [...new Set([user.id, ...members.map(member => member.id)])];
-  }
   const headedGroupIds = (user.groupMemberships ?? []).filter(member => member.isHead).map(member => member.groupId);
-  const activityMembers = !clientAdmin && headedGroupIds.length ? await db.user.findMany({
+  const supervisedMembers = !clientAdmin && headedGroupIds.length ? await db.user.findMany({
     where: { tenantId: user.tenantId, groupMemberships: { some: { tenantId: user.tenantId, groupId: { in: headedGroupIds } } } },
     select: { id: true },
   }) : [];
+  // Group membership alone confers no peer access. Only persisted Head assignments expand ownership.
+  const crmTeamUserIds = clientAdmin ? undefined : [...new Set([user.id, ...supervisedMembers.map(member => member.id)])].sort();
+  const taskManager = !clientAdmin && headedGroupIds.length > 0 && hasModulePermission(permissions, 'tasks', 'canViewAll');
   return { userId: user.id, tenantId: user.tenantId, clientAdmin, permissions,
+    crmTeamUserIds, crmGroupHead: headedGroupIds.length > 0,
     activityReadScope: clientAdmin ? 'tenant' : headedGroupIds.length ? 'managed-groups' : 'mailbox',
-    activityTeamUserIds: !clientAdmin && headedGroupIds.length ? [...new Set([user.id, ...activityMembers.map(member => member.id)])].sort() : undefined,
-    taskAssignmentRestricted: !clientAdmin, taskManager, taskTeamUserIds,
-    assignmentRestricted: !clientAdmin && (isSalesRoleName(user.role) || user.userRoles.some(link => link.role.crmAssignmentRestricted || isSalesRoleName(link.role.name))) };
+    activityTeamUserIds: !clientAdmin && headedGroupIds.length ? crmTeamUserIds : undefined,
+    taskAssignmentRestricted: !clientAdmin, taskManager, taskTeamUserIds: taskManager ? crmTeamUserIds : undefined,
+    assignmentRestricted: !clientAdmin && !headedGroupIds.length };
 }
 
 /** Shared by scoped Prisma reads and the fixed SQL archive query. */
@@ -115,11 +127,13 @@ export async function mayReadCrmModule(db: Tx, tenantId: string, module: CrmModu
 }
 
 function readWhere(policy: ReadPolicy, module: CrmModule, requested?: CrmReadScope, legacyWorkflow = true): Args {
-  if (legacyWorkflow && authorizedWorkflowScope(policy.tenantId) && hasModulePermission(policy.permissions, module, 'canView') && !permittedCrmScopes(policy.permissions, module).length) return { tenantId: policy.tenantId };
+  const assignment = module !== 'accounts' && !policy.clientAdmin ? { assignedUserId: { in: policy.crmTeamUserIds ?? [policy.userId] } } : {};
+  if (legacyWorkflow && authorizedWorkflowScope(policy.tenantId) && hasModulePermission(policy.permissions, module, 'canView') && !permittedCrmScopes(policy.permissions, module).length) return { tenantId: policy.tenantId, ...assignment };
   const scopes = permittedCrmScopes(policy.permissions, module);
   const scope = requested ?? scopes[0];
   if (!policy.clientAdmin && (!scope || !hasModulePermission(policy.permissions, module, CRM_SCOPE_ACTIONS[scope]))) return { id: { in: [] } };
   return { tenantId: policy.tenantId,
+    ...assignment,
     ...(scope === 'my' || scope === 'active' && !policy.clientAdmin && !scopes.includes('all') ? { assignedUserId: policy.userId } : {}),
     ...(scope === 'active' ? { isArchived: false, deletedAt: null, status: { in: module === 'leads' ? ['Inquiry', 'Hot', 'Warm', 'INQUIRY', 'HOT', 'WARM'] : ['INQUIRY', 'HOT', 'WARM'] } } : {}),
   };
@@ -150,7 +164,7 @@ export async function crmReadWhere(db: Tx, tenantId: string, module: CrmModule, 
   if (!actor) return { tenantId };
   if (actor.tenantId !== tenantId) throw new AppError('Access denied', 403);
   const policy = actor.readRecords ? await (actor.readPolicy ??= resolveCrmActor(db, actor)) : await resolveCrmActor(db, actor);
-  if (authorizedWorkflowScope(tenantId) && hasModulePermission(policy.permissions, module, 'canView') && !permittedCrmScopes(policy.permissions, module).length) return { tenantId };
+  if (authorizedWorkflowScope(tenantId) && hasModulePermission(policy.permissions, module, 'canView') && !permittedCrmScopes(policy.permissions, module).length) return readWhere(policy, module, requested);
   if (!policy.clientAdmin && !(requested ? permittedCrmScopes(policy.permissions, module).includes(requested) : permittedCrmScopes(policy.permissions, module).length)) {
     throw new AppError('You do not have permission to access this CRM view.', 403);
   }
@@ -179,6 +193,17 @@ function deny(module: CrmModule): never {
   throw new AppError(`You can only edit ${labels[module]} assigned to you.`, 403, 'CRM_ASSIGNMENT_REQUIRED');
 }
 
+async function assignmentTarget(tx: Tx, data: Args): Promise<string | null | undefined> {
+  if (data.assignedUser?.connect) {
+    const user = await tx.user.findUnique({ where: data.assignedUser.connect, select: { id: true } });
+    if (!user) throw new AppError('Record not found.', 404);
+    return user.id;
+  }
+  if (data.assignedUser?.disconnect) return null;
+  const assignment = data.assignedUserId;
+  return typeof assignment === 'object' && assignment !== null ? assignment.set : assignment;
+}
+
 /** Locks and rechecks the canonical row and current read/action grants in the mutation's transaction. */
 export async function assertCrmRecordMutation(tx: Tx, module: CrmModule, id: string,
   operation: 'edit' | 'archive' | 'restore' = 'edit', data: Args = {}): Promise<void> {
@@ -204,26 +229,36 @@ export async function assertCrmRecordMutation(tx: Tx, module: CrmModule, id: str
     throw new AppError('Access denied', 403);
   }
   if (operation === 'restore' && !hasCrmRecordAssignmentAccess(policy, record, module, 'canView')) throw new AppError('Access denied', 403);
+  const targetId = await assignmentTarget(tx, data);
   if (module !== 'accounts' && !canReassignCrmRecord(policy, record, module) && !initializing) {
-    const assignment = data.assignedUserId;
-    if ((assignment !== undefined && (typeof assignment === 'object' ? assignment?.set : assignment) !== record.assignedUserId) || data.assignedUser) {
-      throw new AppError('Sales users cannot reassign CRM records.', 403, 'CRM_REASSIGNMENT_DENIED');
+    if ((targetId !== undefined && targetId !== record.assignedUserId) || data.assignedUser) {
+      throw new AppError('Only Group Heads can reassign CRM records.', 403, 'CRM_REASSIGNMENT_DENIED');
     }
   }
-  if (module !== 'accounts' && data.assignedUserId !== undefined && data.assignedUserId !== record.assignedUserId && data.assignedUserId !== null && data.assignedUserId !== '') {
-    const targetId = typeof data.assignedUserId === 'object' ? data.assignedUserId.set : data.assignedUserId;
-    await assertEligibleAssignedAgent(tx, actor.tenantId, targetId, crmAssignmentRequirements(module));
+  if (module !== 'accounts' && targetId !== undefined && targetId !== record.assignedUserId) {
+    const allowedAssignees = hasModulePermission(policy.permissions, module, 'canViewAll') ? policy.crmTeamUserIds : [policy.userId];
+    if (!policy.clientAdmin && (targetId === null || !allowedAssignees?.includes(targetId))) {
+      throw new AppError('Choose an Assigned Agent within your authorized Groups.', 403, 'CRM_REASSIGNMENT_DENIED');
+    }
+    if (targetId) await assertEligibleAssignedAgent(tx, actor.tenantId, targetId, crmAssignmentRequirements(module));
   }
 }
 
 export async function assertCrmCreateAssignment(db: Tx, tenantId: string, assignedUserId?: unknown, module?: CrmModule): Promise<void> {
   const actor = crmActor.getStore();
-  if (!actor || system.getStore()) return;
+  if (!actor) return;
   if (actor.tenantId !== tenantId) throw new AppError('Record not found.', 404);
   const policy = await resolveCrmActor(db, actor);
   if (module) assertCrmCreationScope(policy, module);
+  if (module && module !== 'accounts' && !policy.clientAdmin && assignedUserId != null && assignedUserId !== '') {
+    const allowedAssignees = hasModulePermission(policy.permissions, module, 'canViewAll') ? policy.crmTeamUserIds : [policy.userId];
+    if (typeof assignedUserId !== 'string' || !allowedAssignees?.includes(assignedUserId)) {
+      throw new AppError('Choose an Assigned Agent within your authorized Groups.', 403, 'CRM_REASSIGNMENT_DENIED');
+    }
+  }
+  if (authorizedWorkflowScope(tenantId)) return;
   if (assignedUserId == null || assignedUserId === '') return;
-  if (policy.assignmentRestricted && assignedUserId !== actor.userId) throw new AppError('Sales users cannot assign records to another agent.', 403, 'CRM_REASSIGNMENT_DENIED');
+  if (policy.assignmentRestricted && assignedUserId !== actor.userId) throw new AppError('Only Group Heads can assign records to another agent.', 403, 'CRM_REASSIGNMENT_DENIED');
 }
 
 function assertCrmCreationScope(policy: ReadPolicy, module: CrmModule) {
@@ -249,7 +284,11 @@ function readParents(model: string) {
 }
 
 function modelReadWhere(model: string, policy: ReadPolicy): Args {
-  if (model === 'Task') return policy.taskAssignmentRestricted ? taskReadWhere(policy) : {};
+  if (model === 'Task') {
+    const readback = workflowTaskReadback.getStore();
+    if (readback?.tenantId === policy.tenantId && readback.createdById === policy.userId) return readback;
+    return policy.taskAssignmentRestricted ? taskReadWhere(policy) : {};
+  }
   if (modules[model]) return readWhere(policy, modules[model]);
   const clauses = readParents(model).filter(field => field.type !== 'Task' || policy.taskAssignmentRestricted).map(field => {
     const parent = { [field.name]: { is: modelReadWhere(field.type, policy) } };
@@ -317,9 +356,9 @@ function rejectNestedRecordWrites(model: string, data: Args): void {
     const value = data[field.name];
     if (field.kind !== 'object' || !value) continue;
     const parents = childParents[field.type];
-    const protectedRelation = modules[field.type] || parents && (!modules[model] || !parents.some(([, parent]) => parent === modules[model]));
+    const protectedRelation = field.type === 'User' || modules[field.type] || parents && (!modules[model] || !parents.some(([, parent]) => parent === modules[model]));
     if (protectedRelation && ['update', 'updateMany', 'delete', 'deleteMany', 'upsert', 'connectOrCreate', 'create', 'createMany'].some(key => key in value)) {
-      throw new AppError('Change CRM records through their CRM endpoints.', 403);
+      throw new AppError(field.type === 'User' ? 'Manage user records through Team Management.' : 'Change CRM records through their CRM endpoints.', 403);
     }
     // Connecting an existing protected child can move it from an unauthorized
     // parent. Same-parent nested creation/replacement remains supported.
@@ -390,14 +429,14 @@ export function installCrmRecordAccess(prisma: PrismaClient): void {
     const singular = ['update', 'delete', 'upsert'].includes(params.action);
     const rows = ['create', 'createMany'].includes(params.action) ? [] : singular
       ? [await delegate.findUnique({ where })].filter(Boolean) : await delegate.findMany({ where });
-    if (module && (['create', 'createMany'].includes(params.action) || params.action === 'upsert' && !rows.length) && !system.getStore()) {
-      const policy = await resolveCrmActor(tx, crmActor.getStore()!);
+    if (module && (['create', 'createMany'].includes(params.action) || params.action === 'upsert' && !rows.length)) {
+      const policy = await resolveCrmActor(tx, actor);
       const automatic = creationAssignment.getStore();
       for (const data of [params.action === 'upsert' ? args.create : args.data].filter(Boolean).flat()) {
         if (automatic?.tx !== tx || automatic.module !== module) assertCrmCreationScope(policy, module);
-        const assignee = data.assignedUserId ?? data.assignedUser?.connect?.id ?? null;
-        if (automatic?.tx !== tx || automatic.module !== module || automatic.assignedUserId !== assignee) {
-          await assertCrmCreateAssignment(tx, crmActor.getStore()!.tenantId, assignee, module);
+        const assignee = await assignmentTarget(tx, data) ?? null;
+        if (!authorizedWorkflowScope(actor.tenantId) && (automatic?.tx !== tx || automatic.module !== module || automatic.assignedUserId !== assignee)) {
+          await assertCrmCreateAssignment(tx, actor.tenantId, assignee, module);
         }
       }
     }

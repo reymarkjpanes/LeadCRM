@@ -146,10 +146,10 @@ it('limits management to headed Groups, preserves module grants and hides foreig
   for (const kind of ['lead', 'contact', 'deal'] as const) {
     const row = records[outsider.id][kind];
     expect((await list(admin, kind, row)).body.data.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining(row.emailIds));
-    expect((await list(head, kind, row)).body.data).toEqual([]);
+    expect((await list(head, kind, row)).status).toBe(404);
     expect((await call(head, `/crm/activities/${row.emailIds[0]}`)).status).toBe(404);
     const preview = await call(head, `/crm/${kind === 'lead' ? 'leads' : kind === 'contact' ? 'contacts' : 'deals'}/${row.id}/relationships`);
-    expect(preview.body.data.activities).toEqual([]);
+    expect(preview.status).toBe(404);
     for (const actor of [member, limited]) expect((await list(actor, kind, records[agent.id][kind])).status).toBe(404);
     expect((await list(denied, kind, records[agent.id][kind])).status).toBe(403);
   }
@@ -201,6 +201,39 @@ it('does not mix separate Deals sharing the same Contact', async () => {
     const result = await list(actor, 'deal', first, '&type=email');
     expect(result.body.data.map((item: { id: string }) => item.id).sort()).toEqual([...first.emailIds].sort());
   }
+});
+
+it('projects Task history references through current CRM scope after a linked Deal is reassigned', async () => {
+  const source = await db.deal.findUniqueOrThrow({ where: { id: records[agent.id].deal.id } });
+  const deal = await db.deal.create({ data: { tenantId, pipelineId: source.pipelineId, stageId: source.stageId,
+    title: 'Task history scoped Deal', assignedUserId: agent.id } });
+  const task = await db.task.create({ data: { tenantId, title: 'Own Task with historical context', assignedUserId: agent.id,
+    dueDate: new Date(), dealLinks: { create: { dealId: deal.id } } } });
+  const state = { dealIds: [deal.id], leadIds: [records[agent.id].lead.id, records[outsider.id].lead.id],
+    contactIds: [records[agent.id].contact.id, records[outsider.id].contact.id], accountIds: [] };
+  const metadata = { taskEvent: { version: 1, id: randomUUID(), event: 'updated', taskId: task.id,
+    actorId: agent.id, taskTitle: task.title, before: state, after: state, context: state } };
+  const activity = await db.activity.create({ data: { tenantId, taskId: task.id, type: 'task', title: 'Task Updated',
+    createdById: agent.id, metadata } });
+  const before = await call(agent, `/crm/activities/${activity.id}`);
+  expect(before.status).toBe(200);
+  expect(before.body.data.metadata.taskEvent.context.dealIds).toEqual([deal.id]);
+  await db.deal.update({ where: { id: deal.id }, data: { assignedUserId: outsider.id } });
+  for (const reader of [agent, head]) {
+    const page = await call(reader, `/crm/activities?taskId=${task.id}&limit=100`);
+    expect(page.status).toBe(200);
+    const projected = page.body.data.find((row: { id: string }) => row.id === activity.id).metadata.taskEvent;
+    for (const key of ['before', 'after', 'context']) expect(projected[key]).toEqual({
+      dealIds: [], leadIds: [records[agent.id].lead.id], contactIds: [records[agent.id].contact.id], accountIds: [],
+    });
+    const detail = await call(reader, `/crm/activities/${activity.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.metadata.taskEvent.context.dealIds).toEqual([]);
+    expect(JSON.stringify(detail.body)).not.toContain(deal.id);
+    expect(JSON.stringify(detail.body)).not.toContain(records[outsider.id].lead.id);
+  }
+  expect((await call(admin, `/crm/activities/${activity.id}`)).body.data.metadata).toEqual(metadata);
+  expect((await db.activity.findUniqueOrThrow({ where: { id: activity.id } })).metadata).toEqual(metadata);
 });
 
 if (process.env.LEADCRM_ACTIVITY_BROWSER === 'true') it('verifies authenticated Deal, Lead and Contact panels in Chromium', async () => {

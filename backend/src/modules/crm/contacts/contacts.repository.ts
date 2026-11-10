@@ -16,7 +16,7 @@ import { readRecordValues, saveRecordValues } from '../closing-requirements/cust
 import { productRelationData } from '../leads/product-relations';
 import { parseLeadCreatedFilter } from '../leads/lead-created-filter';
 import { convertClosedLead } from '../leads/lead-conversion.service';
-import { assertClosedStatus, cancelOpenDeals, recordCustomerStatusChange } from '../engagement.service';
+import { assertClosedStatus, cancelOpenDeals, hasClosedStatusEvidence, recordCustomerStatusChange } from '../engagement.service';
 import { applyManagedCustomerStatus, assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
 import { ConflictError, NotFoundError, ValidationError } from '../../../shared/errors/http-error';
 import { assertCustomerEmail } from '../../administration/users/user-email';
@@ -228,8 +228,8 @@ export async function updateContact(
       }
       const previousCustom = dto.customFieldValues === undefined ? undefined : await readRecordValues(tx, tenantId, 'leads', id);
       await saveRecordValues(tx, tenantId, 'leads', id, dto.customFieldValues, updatedById);
-      const finish = async <T extends LeadRecord>(saved: T): Promise<T> => {
-        const previous = managed ? { ...current, status: saved.status } : current;
+      const finish = async <T extends LeadRecord>(saved: T, converted = false): Promise<T> => {
+        const previous = managed && !converted ? { ...current, status: saved.status } : current;
         const changes = recordChanges(previous, saved);
         if (previousCustom) {
           const after = await readRecordValues(tx, tenantId, 'leads', id);
@@ -282,12 +282,14 @@ export async function updateContact(
       }
       if (updated.status !== 'Closed Deal' && (dto.assignedUserId || dto.productInterest)) await createProductDeals(tx, tenantId, id, updatedById);
       if (updatedById && data.manualCancellation === true) await cancelOpenDeals(tx, tenantId, updatedById, { leadId: id }, 'Staff explicitly cancelled the opportunity.');
-      if (!managed && updated.status === 'Closed Deal' && updatedById) {
+      // An explicit Closed Deal save can finish a legacy conversion with existing sale evidence.
+      if (updatedById && updated.status === 'Closed Deal' && (!managed ||
+        dto.status === 'Closed Deal' && await hasClosedStatusEvidence(tx, tenantId, { leadId: id }))) {
         await convertClosedLead(tx, tenantId, id, updatedById, { previousLead: current, emitLeadEvents: !onCommitted });
         return finish(await tx.lead.findFirstOrThrow({ where: { id, tenantId }, include: {
           assignedUser: { select: { id: true, firstName: true, lastName: true } }, account: { select: { id: true, name: true, industry: true, size: true, website: true, address: true } },
           createdBy: { select: { id: true, firstName: true, lastName: true } }, updatedBy: { select: { id: true, firstName: true, lastName: true } },
-        } }));
+        } }), true);
       }
       if (updatedById) await classifyCustomerRecord(tx, tenantId, { leadId: id }, updatedById);
       return finish({ ...updated, ...await tx.lead.findFirstOrThrow({ where: { tenantId, id } }) });

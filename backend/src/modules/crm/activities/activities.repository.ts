@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { crmActor, resolveCrmActor } from '../access/crm-record-access.service';
+import { crmActor, crmPolicyReadWhere, resolveCrmActor } from '../access/crm-record-access.service';
 import { hasModulePermission } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { presentAssignmentActivities } from '../../notifications/assignment-presentation';
@@ -143,7 +143,49 @@ export async function findAllActivities(
 }
 
 export async function presentActivities<T extends Parameters<typeof withEmailContent>[1][number]>(tenantId: string, activities: T[]): Promise<T[]> {
-  return presentAssignmentActivities(tenantId, await withEmailContent(tenantId, activities));
+  const rows = await withEmailContent(tenantId, activities);
+  return presentAssignmentActivities(tenantId, await presentTaskHistoryContext(tenantId, rows));
+}
+
+const jsonObject = (value: Prisma.JsonValue | undefined): Prisma.JsonObject | undefined =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Prisma.JsonObject : undefined;
+
+/** Keep immutable Task evidence stored, while exposing only currently authorized CRM references. */
+async function presentTaskHistoryContext<T extends { type: string; metadata?: Prisma.JsonValue }>(tenantId: string, rows: T[]): Promise<T[]> {
+  const actor = crmActor.getStore();
+  const events = rows.map(row => row.type === 'task' ? jsonObject(jsonObject(row.metadata)?.taskEvent) : undefined);
+  if (!actor || !events.some(Boolean)) return rows;
+  const policy = await resolveCrmActor(prisma, actor);
+  if (policy.clientAdmin) return rows;
+  const paths = ['before', 'after', 'context'];
+  const modules = { leadIds: 'leads', contactIds: 'contacts', accountIds: 'accounts', dealIds: 'deals' } as const;
+  const delegates = { leads: prisma.lead, contacts: prisma.contact, accounts: prisma.account, deals: prisma.deal };
+  const visible = new Map(await Promise.all(Object.entries(modules).map(async ([field, module]) => {
+    const ids = [...new Set(events.flatMap(event => paths.flatMap(path => {
+      const values = jsonObject(event?.[path])?.[field];
+      return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string') : [];
+    })))];
+    const records = ids.length ? await (delegates[module] as typeof prisma.lead).findMany({
+      where: { tenantId, id: { in: ids }, AND: [crmPolicyReadWhere(policy, module)] }, select: { id: true },
+    }) : [];
+    return [field, new Set(records.map(record => record.id))] as const;
+  })));
+  return rows.map((row, index) => {
+    const event = events[index];
+    if (!event) return row;
+    const projected = { ...event };
+    for (const path of paths) {
+      const state = jsonObject(event[path]);
+      if (!state) continue;
+      const snapshot = { ...state };
+      for (const [field, ids] of visible) {
+        const values = state[field];
+        if (Array.isArray(values)) snapshot[field] = values.filter((value): value is string => typeof value === 'string' && ids.has(value));
+      }
+      projected[path] = snapshot;
+    }
+    return { ...row, metadata: { ...jsonObject(row.metadata), taskEvent: projected } };
+  });
 }
 
 /** Resolve provider content on read, including older email activities, without copying bodies into history. */

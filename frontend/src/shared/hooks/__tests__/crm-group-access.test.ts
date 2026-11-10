@@ -40,3 +40,62 @@ describe('customer access uses employee roles and Assigned Agent', () => {
     expect(hasCrmRecordAssignmentAccess(admin, { ...record(), tenantId: 'other' }, 'contacts')).toBe(false);
   });
 });
+
+describe('current server scope controls CRM ownership and Group Head supervision', () => {
+  const scoped: CrmRecordAccessPolicy = {
+    ...policy,
+    crmTeamUserIds: ['staff'],
+    crmGroupHead: false,
+    permissions: { leads: flags, contacts: flags, deals: flags, accounts: flags },
+  };
+  const head: CrmRecordAccessPolicy = {
+    ...scoped,
+    assignmentRestricted: false,
+    crmGroupHead: true,
+    crmTeamUserIds: ['staff', 'associate-a', 'associate-c'],
+  };
+
+  it.each(['leads', 'contacts', 'deals'])('keeps an Associate within their own %s despite the All tab grant', module => {
+    expect(hasCrmRecordAssignmentAccess(scoped, record(), module)).toBe(true);
+    expect(hasCrmRecordAssignmentAccess(scoped, record('associate-a'), module)).toBe(false);
+    expect(hasCrmRecordAssignmentAccess(scoped, record(null), module)).toBe(false);
+    expect(canReassignCrmRecord(scoped, record(), module)).toBe(false);
+  });
+
+  it.each(['leads', 'contacts', 'deals'])('allows a Head to supervise only the resolved members of their %s scope', module => {
+    expect(hasCrmRecordAssignmentAccess(head, record('associate-a'), module)).toBe(true);
+    expect(hasCrmRecordAssignmentAccess(head, record('associate-c'), module)).toBe(true);
+    expect(hasCrmRecordAssignmentAccess(head, record('associate-b'), module)).toBe(false);
+    expect(canReassignCrmRecord(head, record('associate-a'), module)).toBe(true);
+    expect(canReassignCrmRecord(head, record('associate-b'), module)).toBe(false);
+    expect(hasCrmRecordAssignmentAccess(head, { ...record('associate-a'), tenantId: 'other' }, module)).toBe(false);
+  });
+
+  it('requires action grants and the selected view scope even for a Group Head', () => {
+    expect(hasCrmRecordAssignmentAccess({ ...head, permissions: { deals: { ...flags, canEdit: false } } }, record('associate-a'), 'deals')).toBe(false);
+    expect(canReassignCrmRecord({ ...head, permissions: { deals: { ...flags, canEdit: false } } }, record('associate-a'), 'deals')).toBe(false);
+    const ownOnly = { ...head, permissions: { deals: { ...flags, canViewAll: false, canViewMy: true } } };
+    expect(hasCrmRecordAssignmentAccess(ownOnly, record('associate-a'), 'deals')).toBe(false);
+    expect(hasCrmRecordAssignmentAccess(ownOnly, record(), 'deals')).toBe(true);
+  });
+
+  it('uses current supervision after a Head is removed or transferred', () => {
+    const transferred = { ...head, crmTeamUserIds: ['staff', 'associate-b'] };
+    expect(hasCrmRecordAssignmentAccess(transferred, record('associate-a'), 'deals')).toBe(false);
+    expect(hasCrmRecordAssignmentAccess(transferred, record('associate-b'), 'deals')).toBe(true);
+    expect(hasCrmRecordAssignmentAccess(scoped, record('associate-a'), 'deals')).toBe(false);
+  });
+
+  it('preserves Account grants and Client Admin tenant authority', () => {
+    expect(hasCrmRecordAssignmentAccess(head, record(null), 'accounts')).toBe(true);
+    expect(hasCrmRecordAssignmentAccess({ ...scoped, clientAdmin: true, crmTeamUserIds: undefined }, record('associate-b'), 'deals')).toBe(true);
+    expect(hasCrmRecordAssignmentAccess({ ...scoped, clientAdmin: true, crmTeamUserIds: undefined }, { ...record(), tenantId: 'other' }, 'deals')).toBe(false);
+  });
+
+  it('retains Client Admin authority when the administrator is also a designated Group Head', () => {
+    const adminHead = { ...head, clientAdmin: true };
+    expect(hasCrmRecordAssignmentAccess(adminHead, record('associate-b'), 'deals')).toBe(true);
+    expect(canReassignCrmRecord(adminHead, record('associate-b'), 'deals')).toBe(true);
+    expect(hasCrmRecordAssignmentAccess(adminHead, { ...record('associate-a'), tenantId: 'other' }, 'deals')).toBe(false);
+  });
+});

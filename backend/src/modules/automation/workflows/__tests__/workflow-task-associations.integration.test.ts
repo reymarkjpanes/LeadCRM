@@ -9,8 +9,8 @@ import { flushWorkflowQueue } from './workflow-queue-test-helper';
 import { entityContext } from '../workflows.repository';
 import { dispatchAction } from '../../actions/action-dispatcher';
 import * as taskPreparation from '../../actions/action-task-input';
-import { createTask, getTasks } from '../../../operations/tasks/tasks.service';
-import { runAuthorizedWorkflow } from '../../../crm/access/crm-record-access.service';
+import { createTask, getTaskById, getTasks } from '../../../operations/tasks/tasks.service';
+import { crmActor, runAuthorizedWorkflow } from '../../../crm/access/crm-record-access.service';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_workflow_test_\d+$/.test(url.pathname);
@@ -118,7 +118,7 @@ describe.skipIf(!disposable)('Workflow task matching and atomic associations on 
     });
     try { await fire('deal', deal.id); } finally { prepare.mockRestore(); }
     expect(await prisma.task.count({ where: { tenantId, title: String(workflow.actions[0].config.title) } })).toBe(0);
-    expect((await runs(workflow.id))[0]).toMatchObject({ status: 'failed', steps: [{ status: 'failed', error: expect.stringMatching(/No related deals|context changed/) }] });
+    expect((await runs(workflow.id))[0]).toMatchObject({ status: 'skipped', steps: [{ status: 'skipped', output: { reason: expect.stringContaining('no longer available') } }] });
   });
 
   it('uses the persisted Task receipt and assignee without rotating or regenerating input on repeated dispatch', async () => {
@@ -132,13 +132,41 @@ describe.skipIf(!disposable)('Workflow task matching and atomic associations on 
     const context = await scope(() => entityContext('deal', deal.id, tenantId));
     const prepare = vi.spyOn(taskPreparation, 'prepareWorkflowTaskInput');
     let replay: Awaited<ReturnType<typeof dispatchAction>>;
-    try { replay = await scope(() => runAuthorizedWorkflow(tenantId, run.id, () => dispatchAction(action, context!, tenantId, actorId, { workflowId: workflow.id, actionIndex: 0, stepId: step.id }))); }
+    try { replay = await scope(() => runAuthorizedWorkflow(tenantId, run.id, () => dispatchAction(action, context!, tenantId, actorId, { workflowId: workflow.id, actionIndex: 0, stepId: step.id }), actorId)); }
     finally { expect(prepare).not.toHaveBeenCalled(); prepare.mockRestore(); }
     expect(replay!).toMatchObject({ success: true, output: { taskId: step.output?.taskId, resolvedUserId: taskUserId, assignmentTargetType: 'role', assignmentTargetId: taskRoleId } });
     expect(await prisma.task.count({ where: { tenantId, title: String(action.config.title) } })).toBe(1);
     expect(await prisma.tenantPreference.findMany({ where: { tenantId, module: 'workflow-assignment' } })).toEqual(cursorBefore);
     expect((await prisma.workflowExecutionStep.findUniqueOrThrow({ where: { id: step.id } })).resolvedInput).toEqual(storedBefore.resolvedInput);
     expect(await prisma.auditLog.count({ where: { tenantId, entityId: String(step.output?.taskId), action: 'task.created' } })).toBe(1);
+  });
+
+  it('reads back a Task handoff for execution and receipt without broadening manual Task access', async () => {
+    const role = await prisma.roleDefinition.create({ data: { tenantId, name: `Task automation ${randomUUID()}`, permissions: { create: [
+      { module: 'workflows', canView: true, canActivate: true }, { module: 'deals', canView: true, canViewAll: true },
+      { module: 'tasks', canView: true, canCreate: true, canAssign: true }, { module: 'users', canView: true },
+    ] } } });
+    const runner = await prisma.user.create({ data: { tenantId, role: role.name, firstName: 'Task', lastName: 'Author',
+      email: `${randomUUID()}@camxian.com`, userRoles: { create: { roleId: role.id } } } });
+    const deal = await newDeal();
+    const action = taskAction();
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, runner.id, { name: randomUUID(), trigger: 'deal.updated', actions: [action], isActive: true }));
+    await fire('deal', deal.id);
+    const [run] = await runs(workflow.id);
+    expect(run.status).toBe('completed');
+    const [step] = run.steps;
+    expect(step).toMatchObject({ status: 'success', output: { dealIds: [deal.id], resolvedUserId: taskUserId } });
+    const taskId = String(step.output?.taskId);
+    const persistedStep = await prisma.workflowExecutionStep.findUniqueOrThrow({ where: { id: step.id } });
+    const receipt = await scope(() => runAuthorizedWorkflow(tenantId, run.id,
+      () => createTask(tenantId, runner.id, persistedStep.resolvedInput), runner.id));
+    expect(receipt).toMatchObject({ id: taskId, createdById: runner.id, assignedUserId: taskUserId, dealLinks: [{ dealId: deal.id }] });
+    expect(await prisma.auditLog.count({ where: { tenantId, action: 'task.created', entityId: taskId } })).toBe(1);
+    const actor = { userId: runner.id, tenantId, readRecords: true };
+    await expect(scope(() => crmActor.run(actor, () => getTaskById(taskId, tenantId)))).rejects.toMatchObject({ statusCode: 404 });
+    await expect(scope(() => crmActor.run(actor, () => createTask(tenantId, runner.id, persistedStep.resolvedInput)))).rejects.toMatchObject({ statusCode: 409 });
+    const foreign = await prisma.tenant.create({ data: { name: 'Other Task workspace', slug: randomUUID(), status: 'ACTIVE' } });
+    await expect(tenantContext.run({ tenantId: foreign.id }, () => getTaskById(taskId, foreign.id))).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('rechecks assignee eligibility after payload preparation and rejects unavailable filters on save', async () => {

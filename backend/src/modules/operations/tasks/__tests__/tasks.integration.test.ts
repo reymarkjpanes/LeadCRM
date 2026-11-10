@@ -31,6 +31,7 @@ describe.skipIf(!disposable)(
     let token: string,
       readerToken: string,
       contactsToken: string,
+      contactsReaderId: string,
       base: string,
       server: Server;
     const scope = <T>(
@@ -115,7 +116,7 @@ describe.skipIf(!disposable)(
         });
         const session = (await issueAuthSession(reader)).token;
         if (module === "tasks") readerToken = session;
-        else contactsToken = session;
+        else { contactsToken = session; contactsReaderId = reader.id; }
       }
       await scope(async () => {
         product = await prisma.productInterest.create({ data: { tenantId, name: 'CCTV', dealValue: 5000 } });
@@ -132,6 +133,7 @@ describe.skipIf(!disposable)(
             tenantId,
             firstName: "Client",
             lastName: "Task",
+            assignedUserId: contactsReaderId,
             productInterests: [],
           },
         });
@@ -667,7 +669,8 @@ describe.skipIf(!disposable)(
       const own = await newDeal('Own Sales Deal', { assignedUserId: sales.id });
       const other = await newDeal('Other Sales Deal', { assignedUserId: owner.id, ownerId: sales.id });
       expect((await call('/operations/tasks', 'POST', { ...draft('Allowed Sales Task'), assignedUserId: sales.id, dealIds: [own.id] }, auth)).status).toBe(201);
-      expect((await call('/operations/tasks', 'POST', { ...draft('Denied Sales Task'), assignedUserId: sales.id, dealIds: [other.id] }, auth)).status).toBe(403);
+      expect((await call('/operations/tasks', 'POST', { ...draft('Denied Sales Task'), assignedUserId: sales.id, dealIds: [other.id] }, auth)).status).toBe(404);
+      expect(await prisma.task.count({ where: { tenantId, title: 'Denied Sales Task' } })).toBe(0);
       const task = await create('Admin task on Other Deal', { dealIds: [other.id] });
       expect((await call(`/operations/tasks/${task.id}`, 'PUT', { dealIds: [own.id] }, auth)).status).toBe(404);
       expect((await call(`/operations/tasks/${task.id}`, 'PUT', { description: 'Task rights only' }, auth)).status).toBe(404);

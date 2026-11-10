@@ -206,22 +206,25 @@ export async function createTask(
   if (dto.reminderAt)
     throw new ValidationError("Task reminder delivery is not available.");
   const task = await repo.withTaskTransaction(async (client) => {
+    const workflow = authorizedWorkflowScope(tenantId);
+    const readCreatedTask = (id: string) => workflow ? repo.findWorkflowCreatedTask(id, tenantId, userId, client)
+      : repo.findTaskById(id, tenantId, client);
     if (requestId) {
       const receipt = await client.auditLog.findFirst({ where: { tenantId, userId, action: 'task.created',
         metadata: { path: ['taskRequestId'], equals: requestId } } });
       if (receipt) {
         if ((receipt.metadata as { requestFingerprint?: string })?.requestFingerprint !== fingerprint) throw new AppError('This Task request was already used with different values.', 409);
-        const previous = receipt.entityId ? await repo.findTaskById(receipt.entityId, tenantId, client) : null;
+        const previous = receipt.entityId ? await readCreatedTask(receipt.entityId) : null;
         if (!previous) throw new AppError('The original Task is unavailable.', 409);
         await authorizeTask(client, tenantId, userId, 'canCreate', {});
         return previous;
       }
     }
+    await authorizeTask(client, tenantId, userId, "canCreate", dto);
     if (workflowDeals) {
       const ids = await workflowDeals(client);
       if (JSON.stringify(ids) !== JSON.stringify(taskAssociationIds(dto, 'deal'))) throw new ValidationError('Workflow Deal context changed. Retry this execution.');
     }
-    await authorizeTask(client, tenantId, userId, "canCreate", dto);
     await validateReferences(tenantId, userId, dto, client);
     const { data, links } = splitLinks(dto);
     const created = await repo.createTask(
@@ -234,8 +237,9 @@ export async function createTask(
       client,
     );
     await repo.replaceTaskLinks(created, links, client);
-    const task = (await repo.findTaskById(created.id, tenantId, client))!;
-    await recordTaskHistory(client, userId, task, undefined, { ...authorizedWorkflowScope(tenantId),
+    const task = await readCreatedTask(created.id);
+    if (!task) throw new NotFoundError('Created Task');
+    await recordTaskHistory(client, userId, task, undefined, { ...workflow,
       ...(requestId ? { taskRequestId: requestId, requestFingerprint: fingerprint } : {}) });
     return task;
   });

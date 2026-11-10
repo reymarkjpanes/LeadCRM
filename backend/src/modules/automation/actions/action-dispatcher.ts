@@ -10,7 +10,7 @@ import { createTask } from '../../operations/tasks/tasks.service';
 import { resolveTaskDealIds, workflowTaskAssociationSummary } from './action-task-deals';
 import { prepareWorkflowTaskInput, restoredWorkflowTaskInput } from './action-task-input';
 import { assertCurrentStageEntry, isSupersededStageEntry } from '../workflows/workflow-stage-entry';
-import { sendSms, SmsSubmissionError } from '../../../shared/services/sms.service';
+import { normalizeSmsPhone, sendSms, SmsSubmissionError } from '../../../shared/services/sms.service';
 import { fenceWorkflowLease, isWorkflowLeaseLost, workflowLeaseWrite } from '../workflows/workflow-lease';
 import { prepareWorkflowSmsInput } from './action-sms';
 import { fieldUpdatePatch } from './action-fields';
@@ -23,20 +23,29 @@ import { updateContact as updateClientProfile } from '../../crm/contacts-v2/cont
 
 import { prepareWorkflowEmailInput } from './action-email';
 import prisma from '../../../config/database.config';
+import { salesTransaction } from '../../crm/leads/lead-automation.service';
+import { isWorkflowAdmissionSkipped } from '../workflows/workflow-admission';
+import { isStaleWorkflowAction, skipStaleWorkflowAction, type DealStageEvidence, type WorkflowActionGuard } from '../workflows/workflow-freshness';
+import { lockWorkflowCrmRecord } from '../../crm/access/crm-record-access.service';
+import { mailboxAddress } from '../../../integrations/gmail/mailbox-scope';
 
-export type ActionResult = { success: boolean; skipped?: true; output?: Record<string, unknown>; error?: string };
+export type ActionResult = { success: boolean; skipped?: true; output?: Record<string, unknown>; error?: string;
+  sourceChanges?: Record<string, unknown>; movedStages?: DealStageEvidence[] };
+const actionSkipped = (error: unknown): error is AppError => isSupersededStageEntry(error) || isWorkflowAdmissionSkipped(error) || isStaleWorkflowAction(error);
 export function safeWorkflowError(error: unknown): string {
   return error instanceof AppError ? error.message : 'The action could not complete. Check the record and integration, then try again.';
 }
-export async function dispatchAction(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, actorId: string, execution?: { workflowId: string; actionIndex: number; stepId?: string; stageHistoryId?: string }): Promise<ActionResult> {
+export async function dispatchAction(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, actorId: string, execution?: { workflowId: string; actionIndex: number; stepId?: string; stageHistoryId?: string; guard?: WorkflowActionGuard }): Promise<ActionResult> {
   let assignment: Awaited<ReturnType<typeof resolveWorkflowAssignee>> | undefined;
   let restoredAssignment: Record<string, unknown> = {};
   let knownResult: ActionResult | undefined;
   let smsAttempted = false;
+  const guard = execution?.guard;
   try {
     const entity = actionEntity(context);
     if (execution?.stageHistoryId) await assertCurrentStageEntry(tenantId, String(context['deal.id']), execution.stageHistoryId);
-    await validateAction(action, entity, tenantId, context);
+    // Stage moves validate the current target after its freshness guard, in the same CRM transaction.
+    await validateAction(action, entity, tenantId, action.type === 'move_deal_stage' && guard ? undefined : context);
     const config = action.config;
     const entityId = String(context[`${entity}.id`]);
     const savedTaskStep = action.type === 'create_task' && execution?.stepId ? await prisma.workflowExecutionStep.findFirst({
@@ -61,6 +70,7 @@ export async function dispatchAction(action: WorkflowAction, context: Record<str
       } }));
       const task = await createTask(tenantId, actorId, taskInput,
         async client => {
+          await guard?.admit(client, { preparedInput: true });
           if (execution?.stageHistoryId) await assertCurrentStageEntry(tenantId, String(context['deal.id']), execution.stageHistoryId, client);
           return resolveTaskDealIds(action, entity, tenantId, context, client);
         });
@@ -75,48 +85,81 @@ export async function dispatchAction(action: WorkflowAction, context: Record<str
       if (execution?.stepId) await workflowLeaseWrite(tx => tx.workflowExecutionStep.update({ where: { id: execution.stepId, tenantId }, data: { resolvedInput: { version: 1, phone, message, recipientId } } }));
       await fenceWorkflowLease();
       smsAttempted = true;
-      const receipt = await sendSms(phone, message, { beforeProviderWrite: () => fenceWorkflowLease() });
+      const recipientEntity = entity === 'lead' || config.recipient === 'primary_lead' ? 'lead' : 'contact';
+      const receipt = await sendSms(phone, message, { beforeProviderWrite: () => admitDelivery(guard, tenantId, recipientEntity, recipientId, { phone }) });
       return { success: true, output: { ...receipt, recipientId, status: 'submitted' } };
     }
-    if (action.type === 'send_email') return { success: true, output: await deliverEmail(action, context, tenantId, execution?.stepId) };
+    if (action.type === 'send_email') return { success: true, output: await deliverEmail(action, context, tenantId, execution?.stepId, guard) };
     if (action.type === 'move_deal_stage') {
       const ids = await resolveDealTargets(action, entity, tenantId, context);
-      const guard = ids.length ? await relatedDealMoveGuard(action, entity, tenantId, context) : undefined;
+      const relatedGuard = ids.length ? await relatedDealMoveGuard(action, entity, tenantId, context) : undefined;
       const movedDealIds: string[] = [];
+      const movedStages: DealStageEvidence[] = [];
+      const sourceChanges: Record<string, unknown> = {};
       for (const id of ids) {
         try {
-          const result = await moveDealStage(id, tenantId, actorId, { stageId: String(config.stageId), lostReason: workflowLossReason(config) }, guard, { optionalLossReason: true });
-          if (result.stageHistory) movedDealIds.push(id);
+          const { result, changes } = await salesTransaction(async tx => {
+            const before = await guard?.admit(tx, { dealId: id, ownChanges: sourceChanges });
+            const result = await moveDealStage(id, tenantId, actorId, { stageId: String(config.stageId), lostReason: workflowLossReason(config) }, relatedGuard, { optionalLossReason: true });
+            return { result, changes: before && await guard?.changes(tx, before) };
+          });
+          Object.assign(sourceChanges, changes);
+          if (result.stageHistory) {
+            movedDealIds.push(id);
+            const { pipelineId, stageId, currentStageHistoryId } = result.deal;
+            movedStages.push({ id, pipelineId, stageId, currentStageHistoryId });
+          }
         } catch (error) {
+          if (isWorkflowLeaseLost(error)) throw error;
+          if (actionSkipped(error)) return { success: false, skipped: true, output: { reason: error.message, movedDealIds, failedDealId: id, matchedDealIds: ids } };
           return { success: false, error: safeWorkflowError(error), output: { movedDealIds, failedDealId: id, matchedDealIds: ids } };
         }
       }
-      return { success: true, output: { matchedDealIds: ids, movedDealIds, stageId: config.stageId, unchanged: !movedDealIds.length, ...(ids.length ? {} : { reason: 'No related Deals matched.' }) } };
+      if (!ids.length && guard) await workflowLeaseWrite(tx => guard.admit(tx));
+      return { success: true, sourceChanges, movedStages, output: { matchedDealIds: ids, movedDealIds, stageId: config.stageId, unchanged: !movedDealIds.length, ...(ids.length ? {} : { reason: 'No related Deals matched.' }) } };
     }
     if (!['assign_owner', 'update_field'].includes(action.type)) throw new ValidationError('This action is no longer available.');
     const update = action.type === 'assign_owner' ? { assignedUserId: assignment!.resolvedUserId } : await fieldUpdatePatch(action, entity, tenantId);
-    if (entity === 'deal') {
-      await updateDeal(entityId, tenantId, actorId, update);
-    } else if (entity === 'lead') {
-      await updateLead(entityId, tenantId, actorId, update);
-    } else if (entity === 'contact') {
-      await updateClientProfile(entityId, tenantId, update, actorId);
-    } else {
-      await updateCompany(entityId, tenantId, actorId, update);
-    }
-    await createActivity(tenantId, actorId, { type: 'workflow', title: action.type === 'assign_owner' ? 'Workflow assigned agent' : 'Workflow updated record fields',
-      ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : entity === 'account' ? { accountId: entityId } : { dealId: entityId }) });
-    knownResult = { success: true, output: { entityId, updatedFields: Object.keys(update), ...(assignment ? assignmentOutput(assignment) : {}) } };
+    const sourceChanges = await salesTransaction(async tx => {
+      const before = await guard?.admit(tx, { preparedInput: action.type === 'assign_owner' && parseAssignment(action).type === 'record_owner' });
+      if (entity === 'deal') await updateDeal(entityId, tenantId, actorId, update);
+      else if (entity === 'lead') await updateLead(entityId, tenantId, actorId, update);
+      else if (entity === 'contact') await updateClientProfile(entityId, tenantId, update, actorId);
+      else await updateCompany(entityId, tenantId, actorId, update);
+      await createActivity(tenantId, actorId, { type: 'workflow', title: action.type === 'assign_owner' ? 'Workflow assigned agent' : 'Workflow updated record fields',
+        ...(entity === 'lead' ? { leadId: entityId } : entity === 'contact' ? { contactId: entityId } : entity === 'account' ? { accountId: entityId } : { dealId: entityId }) });
+      return before && await guard?.changes(tx, before);
+    });
+    knownResult = { success: true, sourceChanges, output: { entityId, updatedFields: Object.keys(update), ...(assignment ? assignmentOutput(assignment) : {}) } };
     return knownResult;
   } catch (error) { if (isWorkflowLeaseLost(error)) throw error;
-    if (isSupersededStageEntry(error)) return { success: false, skipped: true, output: { reason: error.message } };
+    if (actionSkipped(error)) return { success: false, skipped: true, output: { reason: error.message } };
     return { success: false, error: safeWorkflowError(error), ...(error instanceof AppError && error.code === 'GMAIL_OUTCOME_UNKNOWN' || error instanceof SmsSubmissionError && error.outcome === 'unconfirmed' || smsAttempted && (!(error instanceof AppError) || error.statusCode >= 500) ? { output: { outcomeUnknown: true } } : assignment ? { output: { ...assignmentOutput(assignment), ...restoredAssignment } } : {}) }; }
   finally { if (assignment) try { await completeWorkflowAssignment(tenantId, assignment); }
     catch { if (knownResult) knownResult.output = { ...knownResult.output, assignmentCleanupPending: true,
       cleanupWarning: 'The action was saved. Assignment capacity cleanup is pending; its temporary reservation will expire.' }; }
   }
 }
-async function deliverEmail(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, stepId?: string): Promise<Record<string, unknown>> {
+async function admitDelivery(guard: WorkflowActionGuard | undefined, tenantId: string, entity: 'lead' | 'contact', id: string,
+  address: { email: string } | { phone: string }): Promise<void> {
+  if (!guard) return fenceWorkflowLease();
+  await prisma.$transaction(async tx => {
+    await fenceWorkflowLease(tx);
+    await guard.admit(tx, { preparedInput: true });
+    if (!await lockWorkflowCrmRecord(tx, entity === 'lead' ? 'leads' : 'contacts', tenantId, id)) skipStaleWorkflowAction('The selected recipient is no longer available.');
+    const where = { tenantId, id, isArchived: false, deletedAt: null };
+    const record = entity === 'lead' ? await tx.lead.findFirst({ where: { ...where, convertedAt: null }, select: { email: true, phone: true } })
+      : await tx.contact.findFirst({ where: { ...where, doNotContact: false }, select: { email: true, phone: true } });
+    if (!record || ('email' in address ? mailboxAddress(record.email ?? '') !== address.email : !matchesPhone(record.phone, address.phone))) {
+      skipStaleWorkflowAction('The selected recipient changed before submission.');
+    }
+  }, { timeout: 20000 });
+}
+function matchesPhone(current: string | null, expected: string) {
+  try { return normalizeSmsPhone(current) === expected; } catch { return false; }
+}
+
+async function deliverEmail(action: WorkflowAction, context: Record<string, unknown>, tenantId: string, stepId?: string, guard?: WorkflowActionGuard): Promise<Record<string, unknown>> {
   const entity = actionEntity(context);
   const { senderId, senderEmail, recipient, recipientEntity, recipientId, subject, body, warnings } = await prepareWorkflowEmailInput(action, entity, tenantId, context);
   const messageId = stepId ? `<workflow-${stepId}@leadcrm.local>` : undefined;
@@ -130,9 +173,14 @@ async function deliverEmail(action: WorkflowAction, context: Record<string, unkn
   let sent: Awaited<ReturnType<typeof sendEmail>>;
   try {
     await fenceWorkflowLease();
-    sent = await sendEmail(tenantId, senderId, recipient, subject, body, undefined, undefined, undefined, { messageId, beforeProviderWrite: () => fenceWorkflowLease() });
+    sent = await sendEmail(tenantId, senderId, recipient, subject, body, undefined, undefined, undefined, { messageId,
+      beforeProviderWrite: () => admitDelivery(guard, tenantId, recipientEntity, recipientId, { email: recipient }) });
   } catch (error) {
     if (isWorkflowLeaseLost(error)) throw error;
+    if (actionSkipped(error)) {
+      await repo.finishDelivery(log.id, tenantId, { status: 'failed', errorMessage: error.message });
+      throw error;
+    }
     if (error instanceof AppError && error.code === 'GMAIL_OUTCOME_UNKNOWN') {
       await repo.finishDelivery(log.id, tenantId, { status: 'uncertain', errorMessage: 'Delivery outcome requires review before any replay.' });
       throw error;

@@ -16,6 +16,9 @@ export interface CrmRecordAccessPolicy {
   assignmentRestricted: boolean;
   clientAdmin: boolean;
   activityReadScope?: 'tenant' | 'managed-groups' | 'mailbox';
+  /** Current server-resolved assignees in Groups this employee heads, including self. */
+  crmTeamUserIds?: string[];
+  crmGroupHead?: boolean;
   permissions?: ResolvedPermissions;
 }
 
@@ -27,6 +30,12 @@ export function hasCrmRecordAssignmentAccess(
 ): boolean {
   if (!policy || !record || record.tenantId !== policy.tenantId) return false;
   if (policy.clientAdmin) return true;
+  if (module && ['leads', 'contacts', 'deals'].includes(module) && policy.crmTeamUserIds) {
+    return !!policy.permissions && hasModulePermission(policy.permissions, module, action) &&
+      typeof record.assignedUserId === 'string' && policy.crmTeamUserIds.includes(record.assignedUserId) &&
+      permittedCrmScopes(policy.permissions, module).some(scope => scope === 'all' || scope === 'my' && record.assignedUserId === policy.userId ||
+        scope === 'active' && ['Inquiry', 'Hot', 'Warm', 'INQUIRY', 'HOT', 'WARM'].includes(String(record.status)) && record.assignedUserId === policy.userId);
+  }
   if (!policy.permissions || !module) return module === 'accounts' || !policy.assignmentRestricted || record.assignedUserId === policy.userId;
   return hasModulePermission(policy.permissions, module, action) &&
       permittedCrmScopes(policy.permissions, module).some(scope => scope === 'all' || scope === 'my' && record.assignedUserId === policy.userId ||
@@ -34,10 +43,12 @@ export function hasCrmRecordAssignmentAccess(
       (module === 'accounts' || !policy.assignmentRestricted || record.assignedUserId === policy.userId);
 }
 
-/** Reassignment requires the employee's unrestricted role grants for this record. */
+/** Staff reassignment requires current edit access and a saved Group Head assignment. */
 export function canReassignCrmRecord(policy: CrmRecordAccessPolicy | undefined,
   record: Parameters<typeof hasCrmRecordAssignmentAccess>[1], module: string): boolean {
   if (!policy) return false;
+  if (policy.clientAdmin) return hasCrmRecordAssignmentAccess(policy, record, module);
+  if (['leads', 'contacts', 'deals'].includes(module) && policy.crmTeamUserIds) return policy.crmGroupHead === true && hasCrmRecordAssignmentAccess(policy, record, module);
   if (!policy.permissions) return !policy.assignmentRestricted && hasCrmRecordAssignmentAccess(policy, record, module);
   return hasCrmRecordAssignmentAccess({ ...policy,
     permissions: policy.assignmentRestricted ? {} : policy.permissions,

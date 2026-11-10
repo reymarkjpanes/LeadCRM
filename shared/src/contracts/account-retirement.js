@@ -45,7 +45,7 @@ function retiredAccountWorkflowReferences(draft) {
                 if (typeof field === 'string' && isRetiredAccountField(field, entity))
                     found.add(field);
             }
-        if (entity === 'account' && ['assign_owner', 'assign_record'].includes(String(object.type)))
+        if (entity === 'account' && (object.type === 'assign_owner' || object.type === 'assign_record'))
             found.add('assignedUserId');
         if (entity === 'account' && object.type === 'create_task') {
             const config = object.config;

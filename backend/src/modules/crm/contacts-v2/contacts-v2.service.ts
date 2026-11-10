@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { salesContext } from '../leads/sales-context';
 import { withCustomerStatusPolicy } from '../customer-classification.service';
 import { CreateClientContactSchema, UpdateClientContactSchema } from './contacts-v2.dto';
@@ -48,13 +49,14 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
   const contact = await repo.updateContact(id, tenantId, dto, actorId);
   if (!contact) throw new NotFoundError('Contact');
   const presented = await presentContact(tenantId, contact);
+  const eventId = randomUUID();
   if (actorId) {
     await writeAuditLog({ tenantId, userId: actorId, action: 'contact.updated', entityType: 'Contact', entityId: id });
-    if (contact.status !== before.status && !presented.statusManagedByDeals) await fireContactStatusChanged({ tenantId, actorId, contact, prevStatus: before.status });
+    if (contact.status !== before.status && !presented.statusManagedByDeals) await fireContactStatusChanged({ tenantId, actorId, eventId, contact, prevStatus: before.status });
   }
   const previous = presented.statusManagedByDeals ? { ...before, status: contact.status } : before;
   const changes = await withCustomChanges(recordChanges(previous, contact));
-  if (changes.changedFields.length) await fireContactUpdated({ tenantId, actorId, record: contact, changedFields: changes.changedFields, changes });
+  if (changes.changedFields.length) await fireContactUpdated({ tenantId, actorId, eventId, record: contact, changedFields: changes.changedFields, changes });
   return presented;
   });
 }

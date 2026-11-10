@@ -1,5 +1,5 @@
 import type { ActionDefinition, WorkflowDraft, WorkflowEntity, WorkflowField, WorkflowTriggerDefinition } from './workflow.contracts';
-import { CRM_STATUSES, LEAD_SOURCES, COMPANY_SIZE_OPTIONS } from './record-experience';
+import { CRM_STATUSES, LEAD_SOURCES, COMPANY_SIZE_OPTIONS, parseStoredCrmStatus } from './record-experience';
 import { COMPANY_INDUSTRIES } from '../constants/company-industries';
 import { isClosedWonField, type ClosingField, type CustomFieldModule } from './closing-requirements';
 import { getCrmFieldCatalog, type FieldLayout } from './field-catalog';
@@ -106,6 +106,9 @@ export const WORKFLOW_TRIGGERS: WorkflowTriggerDefinition[] = [
   ['deal.closed_won', 'Deal Closed Deal', 'deal'], ['deal.closed_lost', 'Deal Cancelled', 'deal'], ['account.updated', 'Account Updated', 'account'],
 ].map(([type, label, entity]) => ({ type, label, entity: entity as WorkflowEntity, fields: getWorkflowConditionFields(entity as WorkflowEntity, type) }));
 export const findTrigger = (type: string) => WORKFLOW_TRIGGERS.find(trigger => trigger.type === type);
+export const isWorkflowStatusField = (field: string) =>
+  ['lead.status', 'contact.status', 'deal.engagementStatus', 'event.previousStatus', 'event.newStatus'].includes(field);
+
 /** Legacy names map only on exact, unique catalog matches. Unresolved selections remain repairable. */
 export function normalizeWorkflowReferences<T extends { trigger: string; conditions?: unknown; actions?: unknown }>(draft: T, products: Array<{ id: string; name: string }>): T {
   const entity = findTrigger(draft.trigger)?.entity;
@@ -122,22 +125,23 @@ export function normalizeWorkflowReferences<T extends { trigger: string; conditi
     conditions: conditions && Array.isArray(conditions.conditions) ? { ...conditions, conditions: conditions.conditions.map(rule => {
       if (!rule || typeof rule.field !== 'string') return rule;
       const field = rule.field.startsWith(entity + '.') ? rule.field.slice(entity.length + 1) : '';
-      if (aliases[field] && !isRetiredContactField(field, entity)) {
+      if (Object.prototype.hasOwnProperty.call(aliases, field) && !isRetiredContactField(field, entity)) {
         const value = resolveProduct(rule.value);
         if (value || ['is_empty', 'is_not_empty'].includes(rule.operator)) return { ...rule, field: entity + '.' + aliases[field], value: value ?? rule.value };
       }
-      if ([entity + '.status', 'event.previousStatus', 'event.newStatus'].includes(rule.field)) {
-        const value = CRM_STATUSES.find(s => s.toLowerCase() === String(rule.value).toLowerCase());
+      if (isWorkflowStatusField(rule.field)) {
+        const value = parseStoredCrmStatus(rule.value);
         if (value) return { ...rule, value };
       }
       return rule;
     }) } : draft.conditions,
     actions: Array.isArray(draft.actions) ? draft.actions.map(action => {
-      if (action?.type === 'update_field' && action.config?.field === 'status') {
-        const value = CRM_STATUSES.find(status => status.toLowerCase() === String(action.config.value).toLowerCase());
+      if (action?.type !== 'update_field' || typeof action.config?.field !== 'string') return action;
+      if (action.config.field === 'status') {
+        const value = parseStoredCrmStatus(action.config.value);
         if (value) return { ...action, config: { ...action.config, value } };
       }
-      if (action?.type !== 'update_field' || !action.config || !aliases[action.config.field] || isRetiredContactField(action.config.field, entity)) return action;
+      if (!Object.prototype.hasOwnProperty.call(aliases, action.config.field) || isRetiredContactField(action.config.field, entity)) return action;
       const values = Array.isArray(action.config.value) ? action.config.value.map(resolveProduct) : [];
       if (action.config.clear || (Array.isArray(action.config.value) && values.every(Boolean))) return { ...action, config: { ...action.config, field: aliases[action.config.field], value: values } };
       return action;

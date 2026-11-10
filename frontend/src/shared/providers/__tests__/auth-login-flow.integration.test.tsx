@@ -452,6 +452,44 @@ describe('first-login permission initialization with the real AuthProvider and m
     expect(screen.queryByText('Active Leads')).toBeNull(); expect(screen.getByRole('alert')).toBeTruthy();
     expect(loginApiMock).not.toHaveBeenCalled(); expect(logoutApiMock).not.toHaveBeenCalled();
   });
+
+  it.each(['membership', 'head'])('evicts the previous Deal scope immediately on a %s revision with identical role grants', async change => {
+    class AccessEvents {
+      static current: AccessEvents;
+      listeners = new Map<string, (event: MessageEvent) => void>();
+      constructor() { AccessEvents.current = this; }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, listener); }
+      close() {}
+      emit(revision: string) { this.listeners.get('authorization-change')?.(new MessageEvent('authorization-change', { data: revision })); }
+    }
+    vi.stubGlobal('EventSource', AccessEvents);
+    meApiMock.mockResolvedValue(authResponse({ ...VERIFIED_ONBOARDED_USER, role: 'Sales Admin', groups: [{ id: 'a', name: 'Group A' }] }));
+    permissionsApiMock.mockResolvedValue({ data: { dashboard: { canView: true }, deals: { canView: true, canViewAll: true } } });
+    const { auth } = await loadRealApiModules();
+    const { useCachedPage } = await import('@/shared/hooks/use-cached-page');
+    const cache = await import('@/shared/cache/page-cache');
+    let release!: (rows: string[]) => void;
+    const fetchRows = vi.fn().mockResolvedValueOnce(['Group A Deal']).mockImplementation(() => new Promise<string[]>(resolve => { release = resolve; }));
+    function Deals() {
+      const query = useCachedPage<string[]>({ module: 'deals', params: {}, disabled: false, fetchFn: fetchRows });
+      return <output>{query.data?.join(',')}</output>;
+    }
+    render(<auth.AuthProvider><Deals /></auth.AuthProvider>);
+    await screen.findByText('Group A Deal');
+    const oldScope = cache.createPageCacheGuard('deals');
+    meApiMock.mockImplementation(() => new Promise(() => {}));
+    permissionsApiMock.mockImplementation(() => new Promise(() => {}));
+    act(() => AccessEvents.current.emit(change));
+    expect(screen.queryByText('Group A Deal')).toBeNull();
+    expect(oldScope()).toBe(false);
+    await waitFor(() => expect(fetchRows).toHaveBeenCalledTimes(2));
+    await act(async () => release(['Group B Deal']));
+    expect(screen.getByText('Group B Deal')).toBeTruthy();
+    act(() => AccessEvents.current.emit(change));
+    expect(fetchRows).toHaveBeenCalledTimes(2);
+    expect(loginApiMock).not.toHaveBeenCalled();
+    expect(logoutApiMock).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────

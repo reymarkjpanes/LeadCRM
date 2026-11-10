@@ -7,6 +7,9 @@ import prisma from '../../../../config/database.config';
 import { issueAuthSession } from '../../../../core/auth/auth-session';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { fireWorkflowTrigger } from '../workflow.engine';
+import { runAuthorizedWorkflow } from '../../../crm/access/crm-record-access.service';
+import { convertClosedLead } from '../../../crm/leads/lead-conversion.service';
+import { salesTransaction } from '../../../crm/leads/lead-automation.service';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_workflow_test_\d+$/.test(url.pathname);
@@ -49,7 +52,31 @@ describe.skipIf(!disposable)('Workflow capability separation with authenticated 
   });
   afterAll(async () => { server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); await prisma.$disconnect(); });
 
+  it.each(['contacts', 'accounts'])('enforces %s create permission on nested Workflow sale conversion', async module => {
+    await prisma.rolePermission.createMany({ data: ['contacts', 'accounts', 'deals'].map(key => ({
+      tenantId, roleId: manager.roleId, ...row(key, { canView: true, canViewAll: true, canEdit: true, canCreate: key !== module }),
+    })) });
+    const companyName = `Conversion ${randomUUID()}`;
+    const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Conversion', lastName: 'QA', companyName, assignedUserId: manager.id } });
+    const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Conversion pipeline' } });
+    const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Won', order: 0, isWon: true } });
+    const deal = await prisma.deal.create({ data: { tenantId, pipelineId: pipeline.id, stageId: stage.id, title: 'Confirmed sale', wonConfirmedAt: new Date(),
+      assignedUserId: manager.id, leadDeals: { create: { leadId: lead.id } } } });
+    const convert = () => tenantContext.run({ tenantId }, () => runAuthorizedWorkflow(tenantId, randomUUID(),
+      () => salesTransaction(tx => convertClosedLead(tx, tenantId, lead.id, manager.id)), manager.id));
+    await expect(convert()).rejects.toMatchObject({ statusCode: 403 });
+    expect(await prisma.lead.findUnique({ where: { id: lead.id } })).toMatchObject({ convertedAt: null, accountId: null, contactId: null });
+    expect(await prisma.deal.findUnique({ where: { id: deal.id } })).toMatchObject({ accountId: null });
+    expect(await prisma.account.count({ where: { tenantId, name: companyName } })).toBe(0);
+    expect(await prisma.contact.count({ where: { tenantId, companyName } })).toBe(0);
+    await prisma.rolePermission.update({ where: { roleId_module: { roleId: manager.roleId, module } }, data: { canCreate: true } });
+    await expect(convert()).resolves.toMatchObject({ lead: { id: lead.id, status: 'Closed Deal' }, contact: { tenantId, status: 'CLOSED_DEAL' } });
+  });
+
   it('lets Sales Admin configure and activate, and Sales Associate view, check and read actual execution history', async () => {
+    await prisma.tenantGroup.create({ data: { tenantId, name: 'Workflow supervision', members: { create: [
+      { userId: manager.id, isHead: true }, { userId: associate.id },
+    ] } } });
     const workflow = await create(false);
     const edited = await call(`/automation/workflows/${workflow.id}`, manager, 'PUT', { description: 'Configured by Sales Admin' });
     expect(edited.status, JSON.stringify(edited.body)).toBe(200);
@@ -101,6 +128,7 @@ describe.skipIf(!disposable)('Workflow capability separation with authenticated 
     expect((await call(`/administration/users/${associate.id}/permissions`)).body.data.workflows.canPause).toBe(true);
     expect((await call(`/automation/workflows/${workflow.id}/toggle`, associate, 'PATCH', { isActive: false })).status).toBe(200);
     expect((await call(`/automation/workflows/${workflow.id}/toggle`, associate, 'PATCH', { isActive: true })).status).toBe(200);
+    expect((await call(`/automation/workflows/${workflow.id}/toggle`, associate, 'PATCH', { isActive: true })).status).toBe(200);
     expect((await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).activatedById).toBe(manager.id);
     expect((await call(`/automation/workflows/${inactive.id}/toggle`, associate, 'PATCH', { isActive: true })).status).toBe(403);
     expect((await call(`/automation/workflows/${workflow.id}`, associate, 'PUT', { name: 'Forbidden', isActive: false })).status).toBe(403);
@@ -137,5 +165,85 @@ describe.skipIf(!disposable)('Workflow capability separation with authenticated 
     expect((await call(`/automation/workflows/${foreign.id}/executions`)).status).toBe(404);
     expect((await call(`/automation/workflows/${foreign.id}/toggle`, manager, 'PATCH', { isActive: true })).status).toBe(404);
     expect((await call(`/automation/workflows/${foreign.id}/test`, associate, 'POST', { entityId: sample.id })).status).toBe(404);
+  });
+
+  it('accepts permitted manual status and stage changes and rejects the same direct requests without grants', async () => {
+    await prisma.rolePermission.create({ data: { tenantId, roleId: manager.roleId, ...row('deals', { canView: true, canViewAll: true, canEdit: true }) } });
+    await prisma.rolePermission.update({ where: { roleId_module: { roleId: associate.roleId, module: 'leads' } }, data: { canEdit: false } });
+    expect((await call('/automation/workflows', manager, 'POST', { ...draft(), isActive: true, trigger: 'lead.status_changed',
+      conditions: { operator: 'AND', conditions: [{ field: 'lead.status', operator: 'equals', value: 'Hot' }] } })).status).toBe(201);
+    const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Manual', lastName: 'QA', status: 'Hot', assignedUserId: manager.id } });
+    const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Manual pipeline' } });
+    const initial = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Lead', order: 0 } });
+    const next = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Contacted', order: 1 } });
+    const deal = await prisma.deal.create({ data: { tenantId, pipelineId: pipeline.id, stageId: initial.id, title: 'Manual Deal', assignedUserId: manager.id } });
+    const leadPath = `/crm/leads/${lead.id}`, stagePath = `/crm/deals/${deal.id}/stage`;
+    expect((await call(leadPath, associate, 'PUT', { status: 'Cold' })).status).toBe(403);
+    expect((await call(stagePath, associate, 'PATCH', { stageId: next.id })).status).toBe(403);
+    expect((await call(leadPath, manager, 'PUT', { status: 'Warm' })).status).toBe(200);
+    expect((await call(stagePath, manager, 'PATCH', { stageId: next.id })).status).toBe(200);
+    expect(await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).toMatchObject({ status: 'Warm' });
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ stageId: next.id });
+  });
+
+  it('scopes execution history, counts and action Deal metadata to current authorized Groups', async () => {
+    const outside = await actor('Other sales team', ROLE_TEMPLATES.find(template => template.key === 'sales-associate')!.permissions.workflows);
+    for (const user of [manager, associate, outside]) await prisma.rolePermission.create({ data: {
+      tenantId, roleId: user.roleId, ...row('deals', { canView: true, canViewAll: true }),
+    } });
+    const groupA = await prisma.tenantGroup.create({ data: { tenantId, name: 'History Group A', members: { create: [
+      { userId: manager.id, isHead: true }, { userId: associate.id },
+    ] } } });
+    await prisma.tenantGroup.create({ data: { tenantId, name: 'History Group B', members: { create: { userId: outside.id } } } });
+    const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'History pipeline' } });
+    const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Lead', order: 0 } });
+    const deals = await Promise.all([associate, manager, outside].map(user => prisma.deal.create({ data: {
+      tenantId, pipelineId: pipeline.id, stageId: stage.id, title: `History Deal ${user.id}`, assignedUserId: user.id,
+    } })));
+    const workflow = await prisma.workflow.create({ data: { tenantId, createdById: manager.id,
+      name: 'Group scoped history', trigger: 'deal.updated', actions: [] } });
+    const ownOutput = { taskId: randomUUID(), dealIds: [deals[0].id], deals: [{ id: deals[0].id, title: deals[0].title }],
+      dealCount: 1, associationSummary: '1 associated Deal' };
+    const mixedOutput = { ...ownOutput, dealIds: [deals[0].id, deals[2].id],
+      deals: [{ id: deals[0].id, title: deals[0].title }, { id: deals[2].id, title: deals[2].title }], dealCount: 2 };
+    const runs = await Promise.all(deals.map(async (deal, index) => {
+      const trigger = await prisma.workflowTriggerRecord.create({ data: { tenantId, workflowId: workflow.id, triggerType: 'deal.updated',
+        entityType: 'deal', entityId: deal.id, eventId: randomUUID(), payload: { recordName: deal.title } } });
+      return prisma.workflowExecutionRun.create({ data: { tenantId, workflowId: workflow.id, triggerId: trigger.id,
+        entityType: 'deal', entityId: deal.id, status: 'completed', steps: { create: index ? [] : [
+          { stepIndex: 0, actionType: 'create_task', status: 'success', output: mixedOutput },
+          { stepIndex: 1, actionType: 'move_deal_stage', status: 'success', output: { matchedDealIds: [deals[0].id, deals[2].id], movedDealIds: [deals[2].id], failedDealId: deals[2].id } },
+          { stepIndex: 2, actionType: 'create_task', status: 'success', output: ownOutput },
+          { stepIndex: 3, actionType: 'create_task', status: 'success', output: { taskId: ownOutput.taskId,
+            dealNames: [deals[2].title], dealCount: 1, associationSummary: '1 associated Deal' } },
+        ] } } });
+    }));
+    const page = await call(`/automation/workflows/${workflow.id}/executions`);
+    expect(page.status).toBe(200);
+    expect(page.body.meta.total).toBe(1);
+    expect(page.body.data.map((run: { id: string }) => run.id)).toEqual([runs[0].id]);
+    const list = await call('/automation/workflows');
+    expect(list.body.data.find((row: { id: string }) => row.id === workflow.id).totalRuns).toBe(1);
+    expect((await call(`/automation/workflows/${workflow.id}/executions`, manager)).body.meta.total).toBe(2);
+    expect((await call(`/automation/workflows/${workflow.id}/executions/${runs[1].id}`)).status).toBe(404);
+    expect((await call(`/automation/workflows/${workflow.id}/executions/${runs[2].id}`, manager)).status).toBe(404);
+    expect((await call(`/automation/workflows/${workflow.id}/executions/${runs[2].id}`)).status).toBe(404);
+    const detail = await call(`/automation/workflows/${workflow.id}/executions/${runs[0].id}`);
+    expect(detail.status).toBe(200);
+    expect(JSON.stringify(detail.body)).not.toContain(deals[2].id);
+    expect(JSON.stringify(detail.body)).not.toContain(deals[2].title);
+    expect(detail.body.data.steps[0].output).toEqual({ taskId: ownOutput.taskId });
+    expect(detail.body.data.steps[1].output).toEqual({});
+    expect(detail.body.data.steps[2].output).toEqual(ownOutput);
+    expect(detail.body.data.steps[3].output).toEqual({ taskId: ownOutput.taskId });
+    const clientAdmin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', firstName: 'History', lastName: 'Admin',
+      email: `${randomUUID()}@camxian.com`, mustChangePassword: false, onboardingCompletedAt: new Date() } });
+    await prisma.tenantGroup.create({ data: { tenantId, name: 'Administrative history Group', members: { create: { userId: clientAdmin.id, isHead: true } } } });
+    const admin = { id: clientAdmin.id, roleId: '', token: (await issueAuthSession(clientAdmin)).token };
+    expect((await call(`/automation/workflows/${workflow.id}/executions`, admin)).body.meta.total).toBe(3);
+    expect((await call(`/automation/workflows/${workflow.id}/executions/${runs[0].id}`, admin)).body.data.steps[0].output).toEqual(mixedOutput);
+    await prisma.tenantGroupMember.update({ where: { groupId_userId: { groupId: groupA.id, userId: manager.id } }, data: { isHead: false } });
+    expect((await call(`/automation/workflows/${workflow.id}/executions`, manager)).body.meta.total).toBe(1);
+    expect((await call(`/automation/workflows/${workflow.id}/executions/${runs[0].id}`, manager)).status).toBe(404);
   });
 });

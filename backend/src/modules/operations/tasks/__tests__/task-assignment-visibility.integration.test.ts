@@ -16,6 +16,7 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
   let a: Actor, b: Actor, representative: Actor, manager: Actor, head: Actor, solo: Actor, outsider: Actor, top: Actor, admin: Actor, viewer: Actor, denied: Actor;
   let foreignId: string;
   const rows: Row[] = [];
+  const dealsByUser = new Map<string, string>();
   const scope = <T>(work: () => T) => tenantContext.run({ tenantId }, work);
   async function call(actor: Actor, path: string, method = 'GET', body?: unknown) {
     const response = await fetch(base + path, { method, headers: { Authorization: `Bearer ${actor.token}`, 'Content-Type': 'application/json' },
@@ -43,24 +44,30 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
     }
     a = await user('agent-a', 'Sales Associate'); b = await user('agent-b', 'Sales Associate');
     representative = await user('representative', 'Sales Representative'); manager = await user('manager', 'Sales Admin');
-    head = await user('head', 'Group Coordinator'); solo = await user('solo', 'Solo Coordinator'); outsider = await user('outside', 'Sales Agent');
+    head = await user('head', 'Group Coordinator'); solo = await user('solo', 'Sales Admin'); outsider = await user('outside', 'Sales Agent');
     top = await user('top', 'Top Management'); admin = await user('admin', 'Client Admin');
     viewer = await user('viewer', 'Task Viewer'); denied = await user('denied', 'Sales Agent', false);
     await scope(async () => {
-      for (const [name, members] of [['First team', [manager, a]], ['Second team', [manager, head, b, representative]]] as const) {
+      for (const [name, groupHead, members] of [
+        ['First team', manager, [manager, a]],
+        ['Second team', manager, [manager, head, b, representative]],
+        ['Supervised team', head, [head, b, representative]],
+      ] as const) {
         const group = await prisma.tenantGroup.create({ data: { tenantId, name } });
-        await prisma.tenantGroupMember.createMany({ data: members.map(member => ({ tenantId, groupId: group.id, userId: member.id })) });
+        await prisma.tenantGroupMember.createMany({ data: members.map(member => ({ tenantId, groupId: group.id, userId: member.id, isHead: member.id === groupHead.id })) });
       }
       const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Visibility pipeline' } });
       const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Lead', order: 0, requiredFields: [] } });
-      dealId = (await prisma.deal.create({ data: { tenantId, pipelineId: pipeline.id, stageId: stage.id, title: 'Visibility deal', assignedUserId: a.id,
-        tags: [], productInterests: [] } })).id;
       const today = Date.parse(taskDateRange('today').dueFrom), week = Date.parse(taskDateRange('week').dueFrom);
       for (const actor of [a, b, representative]) {
+        const assignedDeal = await prisma.deal.create({ data: { tenantId, pipelineId: pipeline.id, stageId: stage.id, title: 'Visibility deal', assignedUserId: actor.id,
+          tags: [], productInterests: [] } });
+        dealsByUser.set(actor.id, assignedDeal.id);
+        if (actor.id === a.id) dealId = assignedDeal.id;
         for (const [index, status] of ['pending', 'in_progress', 'blocked', 'completed', 'cancelled', 'completed', 'pending'].entries()) {
           const dueDate = new Date(index === 0 ? Date.now() - 8 * 86400000 : index === 1 ? today + 12 * 3600000 : week + index * 86400000 + 3600000);
           const row = await prisma.task.create({ data: { tenantId, title: `Visibility ${actor.id} ${index}`, assignedUserId: actor.id, createdById: manager.id,
-            dueDate, status, priority: 'High', isArchived: index === 6, dealLinks: { create: { tenantId, dealId, position: 0 } } } });
+            dueDate, status, priority: 'High', isArchived: index === 6, dealLinks: { create: { tenantId, dealId: assignedDeal.id, position: 0 } } } });
           rows.push(row);
           if (row.isArchived) await prisma.auditLog.create({ data: { tenantId, userId: actor.id,
             action: 'task.archived', entityType: 'Task', entityId: row.id } });
@@ -131,7 +138,7 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
 
   it('scopes related tasks, histories, archived counts and both archive sort paths', async () => {
     for (const actor of [a, representative]) {
-      const related = await call(actor, `/crm/deals/${dealId}/relationships`);
+      const related = await call(actor, `/crm/deals/${dealsByUser.get(actor.id)}/relationships`);
       expect(related.status, JSON.stringify(related.body)).toBe(200);
       expect(related.body.data.tasks.map((row: Row) => row.id).sort()).toEqual(ownRows(actor).map(row => row.id).sort());
       const history = await call(actor, '/crm/activities?type=task&search=Visibility&limit=100');
@@ -183,7 +190,7 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
     expect((await call(b, `/operations/tasks/${id}`, 'PUT', { title: 'Assigned agent can edit', status: 'in_progress' })).status).toBe(200);
   });
 
-  it('uses shared Groups for managers, supports multiple Groups and gives a manager without Groups personal scope', async () => {
+  it('uses designated Heads across multiple Groups and keeps a Sales Admin without Head membership in personal scope', async () => {
     const outsideTask = await scope(() => prisma.task.create({ data: { tenantId, title: 'Outside team', assignedUserId: outsider.id, createdById: manager.id, dueDate: new Date() } }));
     const soloTask = await scope(() => prisma.task.create({ data: { tenantId, title: 'Solo task', assignedUserId: solo.id, createdById: admin.id, dueDate: new Date() } }));
     for (const actor of [manager, head, solo]) {
@@ -191,6 +198,7 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
       expect((await call(actor, `/operations/tasks/${outsideTask.id}`, 'PUT', { status: 'completed' })).status).toBe(404);
     }
     expect((await list(solo)).body.data).toEqual([]);
+    expect((await call(solo, `/operations/tasks/${ownRows(a)[0].id}`)).status).toBe(404);
     expect((await call(solo, `/operations/tasks/${soloTask.id}`, 'PUT', { status: 'in_progress' })).status).toBe(200);
     expect((await list(head)).body.data.map((row: Row) => row.id).sort()).toEqual(rows.filter(row => !row.isArchived && [b.id, representative.id].includes(row.assignedUserId)).map(row => row.id).sort());
     expect((await call(head, `/operations/tasks/${ownRows(a)[0].id}`)).status).toBe(404);
@@ -249,7 +257,7 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
     }
   });
 
-  it('keeps scope across role renames, aggregates active roles and ignores Group Head designation', async () => {
+  it('keeps scope across role renames and requires both Head designation and the Group Tasks grant', async () => {
     const personal = await scope(() => prisma.roleDefinition.findFirstOrThrow({ where: { tenantId, name: 'Sales Associate' } }));
     const group = await scope(() => prisma.roleDefinition.findFirstOrThrow({ where: { tenantId, name: 'Sales Admin' } }));
     const permissions = (await scope(() => prisma.rolePermission.findMany({ where: { tenantId, roleId: group.id } })))
@@ -261,7 +269,11 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
     const task = await scope(() => prisma.task.create({ data: { tenantId, title: 'Dynamic scope target', assignedUserId: manager.id, createdById: a.id, dueDate: new Date() } }));
     const target = `/operations/tasks/${task.id}`;
     expect((await call(a, target)).status).toBe(404);
-    await scope(() => prisma.tenantGroupMember.updateMany({ where: { tenantId, userId: a.id }, data: { isHead: true } }));
+    const membership = await scope(() => prisma.tenantGroupMember.findFirstOrThrow({ where: { tenantId, userId: a.id } }));
+    await scope(() => prisma.$transaction(async tx => {
+      await tx.tenantGroupMember.updateMany({ where: { tenantId, groupId: membership.groupId }, data: { isHead: false } });
+      await tx.tenantGroupMember.update({ where: { id: membership.id }, data: { isHead: true } });
+    }));
     expect((await call(a, target)).status).toBe(404);
     for (const [role, name] of [[personal, 'Renamed personal role'], [group, 'Renamed group role']] as const) {
       const renamed = await call(admin, `/administration/roles/${role.id}`, 'PUT', { name });
@@ -279,6 +291,10 @@ describe.skipIf(!disposable)('Task assignment visibility through authenticated H
       expect((await call(manager, `/operations/tasks/${ownRows(b)[0].id}`)).status).toBe(404);
     } finally {
       await scope(() => prisma.userRole.deleteMany({ where: { tenantId, userId: a.id, roleId: group.id } }));
+      await scope(() => prisma.$transaction(async tx => {
+        await tx.tenantGroupMember.updateMany({ where: { tenantId, groupId: membership.groupId }, data: { isHead: false } });
+        await tx.tenantGroupMember.updateMany({ where: { tenantId, groupId: membership.groupId, userId: manager.id }, data: { isHead: true } });
+      }));
       await setGroupAccess(true);
       await call(admin, `/administration/roles/${personal.id}`, 'PUT', { name: 'Sales Associate' });
       await call(admin, `/administration/roles/${group.id}`, 'PUT', { name: 'Sales Admin' });

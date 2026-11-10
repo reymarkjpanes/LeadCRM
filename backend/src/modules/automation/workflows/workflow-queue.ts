@@ -15,6 +15,8 @@ import { workflowStageEvent } from './workflow-stage-entry';
 import { evaluateCondition } from './workflow-conditions';
 import { interruptWorkflowRun } from './workflow-interruption';
 import { markWorkflowQueued, registerWorkflowWake } from '../../crm/leads/sales-context';
+import { assertWorkflowActionAdmission, isWorkflowAdmissionSkipped } from './workflow-admission';
+import { captureWorkflowFreshness, type WorkflowFreshnessEvidence } from './workflow-freshness';
 
 const metadata = ['event.previousStageId', 'event.newStageId', 'event.stageHistoryId', 'event.previousStatus', 'event.newStatus', 'event.changedFields', 'event.originDealId', 'event.continuationSourceId', 'event.continuationUpdateId'];
 
@@ -37,7 +39,8 @@ export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, param
     `${eventContext[`${trigger.entity}.firstName`] ?? ''} ${eventContext[`${trigger.entity}.lastName`] ?? ''}`).trim().slice(0, 255);
   for (const workflow of workflows) {
     if ((await accountWorkflowRetirementReferences(workflow, params.tenantId, tx)).length) {
-      await tx.workflow.update({ where: { id: workflow.id, tenantId: params.tenantId }, data: { isActive: false, status: 'PAUSED', version: { increment: 1 } } });
+      await tx.workflow.updateMany({ where: { id: workflow.id, tenantId: params.tenantId, version: workflow.version, isActive: true, isArchived: false },
+        data: { isActive: false, status: 'PAUSED', version: { increment: 1 } } });
       continue;
     }
     if (ancestry.includes(workflow.id)) continue;
@@ -45,10 +48,11 @@ export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, param
     // PostgreSQL uniqueness errors abort transactions: use ON CONFLICT, never catch-and-continue.
     const inserted = await tx.workflowTriggerRecord.createMany({ data: [{ id: triggerId, tenantId: params.tenantId, workflowId: workflow.id, triggerType: params.triggerType, entityType: params.entityType, entityId: params.entityId, eventId, payload: { queueVersion: 1, recordName } }], skipDuplicates: true });
     if (!inserted.count) continue;
+    const freshness = await captureWorkflowFreshness(tx, params, workflow, eventContext);
     await tx.workflowExecutionRun.create({ data: { tenantId: params.tenantId, workflowId: workflow.id, triggerId, entityType: params.entityType, entityId: params.entityId,
       status: 'queued', workflowVersion: workflow.version,
       definitionSnapshot: { name: workflow.name, description: workflow.description, trigger: workflow.trigger, conditions: workflow.conditions, actions: workflow.actions, isActive: workflow.isActive },
-      dispatchContext: { version: 1, actorId: params.actorId ?? null, activatedById: workflow.activatedById, ancestry, context, eventContext } as Prisma.InputJsonValue,
+      dispatchContext: { version: 1, actorId: params.actorId ?? null, activatedById: workflow.activatedById, ancestry, context, eventContext, freshness } as Prisma.InputJsonValue,
     } });
     markWorkflowQueued(tx);
   }
@@ -67,7 +71,7 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
     if (!execution || !workflow.isActive || workflow.status !== 'ACTIVE' || workflow.isArchived || workflow.version !== execution.workflowVersion || !['queued', 'running', 'skipped'].includes(execution.status)) continue;
     if (execution.steps.some(step => step.status !== 'skipped')) continue;
     if (source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) && source.payload.stageActionRunId) continue;
-    const draft = await compatibleWorkflow({ trigger: workflow.trigger, conditions: workflow.conditions, actions: workflow.actions }, params.tenantId);
+    const draft = await compatibleWorkflow({ trigger: workflow.trigger, conditions: workflow.conditions, actions: workflow.actions }, params.tenantId, tx);
     const conditions = WorkflowConditionSchema.safeParse(draft.conditions);
     if (!conditions.success || !conditions.data.conditions.some(rule => rule.field.startsWith('deal.') && (params.context['event.changedFields'] as unknown[]).includes(rule.field.slice(5)))) continue;
     const dispatch = execution.dispatchContext as { eventContext?: Record<string, unknown> } | null;
@@ -101,7 +105,7 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
     const leaseId = randomUUID();
     const claim = await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, tenantId: item.tenantId, status: 'queued', dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] }, data: { leaseId, leaseUntil: new Date(Date.now() + 300000) } });
     if (!claim.count) return;
-    const context = item.dispatchContext as { version?: number; actorId?: string; activatedById?: string; ancestry?: string[]; context?: Record<string, unknown>; eventContext?: Record<string, unknown> };
+    const context = item.dispatchContext as { version?: number; actorId?: string; activatedById?: string; ancestry?: string[]; context?: Record<string, unknown>; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
     try {
       const workflow = await prisma.workflow.findFirst({ where: { id: item.workflowId, tenantId: item.tenantId } });
       if (workflow && (await accountWorkflowRetirementReferences(workflow, item.tenantId)).length) {
@@ -115,13 +119,26 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
         progressed = true;
         return;
       }
-      if (!(await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } }, data: { status: 'running', dispatchStartedAt: new Date() } })).count) return;
-      progressed = true;
+      const admission = await prisma.$transaction(async tx => {
+        const where = { id: item.id, tenantId: item.tenantId, leaseId, status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } };
+        try {
+          await assertWorkflowActionAdmission(tx, { id: workflow.id, tenantId: item.tenantId,
+            version: context.context?.['event.continuationSourceId'] ? item.workflowVersion ?? workflow.version : undefined });
+        } catch (error) {
+          if (!isWorkflowAdmissionSkipped(error)) throw error;
+          const skipped = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'skipped', completedAt: new Date(), errorMessage: error.message, leaseId: null, leaseUntil: null } });
+          return skipped.count ? 'skipped' : 'unclaimed';
+        }
+        const started = await tx.workflowExecutionRun.updateMany({ where, data: { status: 'running', dispatchStartedAt: new Date() } });
+        return started.count ? 'started' : 'unclaimed';
+      });
+      if (admission !== 'unclaimed') progressed = true;
+      if (admission !== 'started') return;
       const snapshot = item.definitionSnapshot && typeof item.definitionSnapshot === 'object' && !Array.isArray(item.definitionSnapshot) ? item.definitionSnapshot : null;
       if (!snapshot || !context.activatedById) throw new ValidationError('Published workflow snapshot is unavailable.');
       const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
       const { fireWorkflowTrigger } = await import('./workflow.engine.js');
-      await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, run: item, leaseId, eventContext: context.eventContext }));
+      await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'running', leaseUntil: { gt: new Date() } }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The triggering state changed before dispatch.' } });
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: { not: 'running' } }, data: { leaseId: null, leaseUntil: null } });
     } catch {

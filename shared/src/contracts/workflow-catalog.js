@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RETIRED_WORKFLOW_ACTIONS = exports.findTrigger = exports.WORKFLOW_TRIGGERS = exports.WORKFLOW_MESSAGE_VARIABLES = exports.WORKFLOW_MODULES = void 0;
+exports.RETIRED_WORKFLOW_ACTIONS = exports.isWorkflowStatusField = exports.findTrigger = exports.WORKFLOW_TRIGGERS = exports.WORKFLOW_MESSAGE_VARIABLES = exports.WORKFLOW_MODULES = void 0;
 exports.workflowMessageEntity = workflowMessageEntity;
 exports.getWorkflowMessageVariables = getWorkflowMessageVariables;
 exports.getWorkflowEmailVariableChoices = getWorkflowEmailVariableChoices;
@@ -117,6 +117,8 @@ exports.WORKFLOW_TRIGGERS = [
 ].map(([type, label, entity]) => ({ type, label, entity: entity, fields: getWorkflowConditionFields(entity, type) }));
 const findTrigger = (type) => exports.WORKFLOW_TRIGGERS.find(trigger => trigger.type === type);
 exports.findTrigger = findTrigger;
+const isWorkflowStatusField = (field) => ['lead.status', 'contact.status', 'deal.engagementStatus', 'event.previousStatus', 'event.newStatus'].includes(field);
+exports.isWorkflowStatusField = isWorkflowStatusField;
 /** Legacy names map only on exact, unique catalog matches. Unresolved selections remain repairable. */
 function normalizeWorkflowReferences(draft, products) {
     const entity = (0, exports.findTrigger)(draft.trigger)?.entity;
@@ -137,25 +139,27 @@ function normalizeWorkflowReferences(draft, products) {
                 if (!rule || typeof rule.field !== 'string')
                     return rule;
                 const field = rule.field.startsWith(entity + '.') ? rule.field.slice(entity.length + 1) : '';
-                if (aliases[field] && !(0, contact_retirement_1.isRetiredContactField)(field, entity)) {
+                if (Object.prototype.hasOwnProperty.call(aliases, field) && !(0, contact_retirement_1.isRetiredContactField)(field, entity)) {
                     const value = resolveProduct(rule.value);
                     if (value || ['is_empty', 'is_not_empty'].includes(rule.operator))
                         return { ...rule, field: entity + '.' + aliases[field], value: value ?? rule.value };
                 }
-                if ([entity + '.status', 'event.previousStatus', 'event.newStatus'].includes(rule.field)) {
-                    const value = record_experience_1.CRM_STATUSES.find(s => s.toLowerCase() === String(rule.value).toLowerCase());
+                if ((0, exports.isWorkflowStatusField)(rule.field)) {
+                    const value = (0, record_experience_1.parseStoredCrmStatus)(rule.value);
                     if (value)
                         return { ...rule, value };
                 }
                 return rule;
             }) } : draft.conditions,
         actions: Array.isArray(draft.actions) ? draft.actions.map(action => {
-            if (action?.type === 'update_field' && action.config?.field === 'status') {
-                const value = record_experience_1.CRM_STATUSES.find(status => status.toLowerCase() === String(action.config.value).toLowerCase());
+            if (action?.type !== 'update_field' || typeof action.config?.field !== 'string')
+                return action;
+            if (action.config.field === 'status') {
+                const value = (0, record_experience_1.parseStoredCrmStatus)(action.config.value);
                 if (value)
                     return { ...action, config: { ...action.config, value } };
             }
-            if (action?.type !== 'update_field' || !action.config || !aliases[action.config.field] || (0, contact_retirement_1.isRetiredContactField)(action.config.field, entity))
+            if (!Object.prototype.hasOwnProperty.call(aliases, action.config.field) || (0, contact_retirement_1.isRetiredContactField)(action.config.field, entity))
                 return action;
             const values = Array.isArray(action.config.value) ? action.config.value.map(resolveProduct) : [];
             if (action.config.clear || (Array.isArray(action.config.value) && values.every(Boolean)))

@@ -49,11 +49,14 @@ const sharedReads = () => fetcher.mock.calls.filter(([path]) => { const url = ne
 const source = () => [...Events.sources].reverse().find(source => source.url.endsWith('/record-events') && !source.closed)!;
 
 function View({ board = false }: { board?: boolean }) {
-  const { deals, refreshDeals } = useData();
+  const { deals, refreshDeals, updateDeal, moveDealStage, moveDealPipeline } = useData();
   const query = useCachedPage<Deal[]>({ module: 'deals', params: { pipelineId: pipeline.id }, disabled: !board,
     revalidateOnInvalidation: true, fetchFn: async signal => (await apiClient.get<{ data: object[] }>('/crm/deals', { params: { pipelineId: pipeline.id }, signal })).data.map(toFrontendDeal) });
   return <><output data-testid="shared">{deals.map(deal => `${deal.id}:${deal.stageId}`).join(',')}</output>
     <button onClick={() => { void refreshDeals(); void refreshDeals(); }}>Refresh shared</button>
+    <button onClick={() => { void updateDeal('deal', { title: 'Updated Deal' }); }}>Update shared</button>
+    <button onClick={() => { void moveDealStage('deal', 'qualified'); }}>Move shared stage</button>
+    <button onClick={() => { void moveDealPipeline('deal', { pipelineId: pipeline.id, stageId: 'qualified' }); }}>Move shared pipeline</button>
     {board && <>
       <PipelineKanbanBoard pipeline={pipeline} deals={query.data ?? []} users={[]} canEdit={false} canDelete={false}
         onDealClick={vi.fn()} onDealDragEnd={vi.fn()} onAddDeal={vi.fn()} onLoadMore={vi.fn()} loadingStages={new Set()} hasMoreByStage={{}} /></>}</>;
@@ -241,6 +244,47 @@ it('rejects pre-mutation responses, retains data on transport errors, and clears
   act(() => source().emit('crm-access-changed'));
   expect(screen.getByTestId('shared').textContent).toBe('');
   expect(source()).toBeUndefined();
+});
+
+it('discards shared Deal rows on an authorization eviction and ignores the previous scope response', async () => {
+  render(<DataProvider><View /></DataProvider>);
+  await waitFor(() => expect(screen.getByTestId('shared').textContent).toBe('deal:lead'));
+  let previous!: (response: Response) => void;
+  let current!: (response: Response) => void;
+  let requests = 0;
+  intercept = url => {
+    if (!url.pathname.endsWith('/crm/deals')) return undefined;
+    requests++;
+    return new Promise(resolve => { if (requests === 1) previous = resolve; else current = resolve; });
+  };
+  fireEvent.click(screen.getByText('Refresh shared'));
+  await waitFor(() => expect(previous).toBeTypeOf('function'));
+  act(() => clearPageCache(true));
+  expect(screen.getByTestId('shared').textContent).toBe('');
+  await waitFor(() => expect(current).toBeTypeOf('function'));
+  await act(async () => previous(response([row('lost')])));
+  expect(screen.getByTestId('shared').textContent).toBe('');
+  await act(async () => current(response([row('qualified')])));
+  await waitFor(() => expect(screen.getByTestId('shared').textContent).toBe('deal:qualified'));
+});
+
+it.each([
+  { button: 'Update shared', path: '/crm/deals/deal', nested: false },
+  { button: 'Move shared stage', path: '/crm/deals/deal/stage', nested: true },
+  { button: 'Move shared pipeline', path: '/crm/deals/deal/pipeline', nested: true },
+])('ignores a delayed $button result after the authorized scope changed', async ({ button, path, nested }) => {
+  render(<DataProvider><View /></DataProvider>);
+  await waitFor(() => expect(screen.getByTestId('shared').textContent).toBe('deal:lead'));
+  let release!: (response: Response) => void;
+  intercept = (url, init) => url.pathname.endsWith(path) && init?.method !== 'GET'
+    ? new Promise(resolve => { release = resolve; }) : undefined;
+  fireEvent.click(screen.getByText(button));
+  await waitFor(() => expect(release).toBeTypeOf('function'));
+  rows = [];
+  act(() => clearPageCache(true));
+  await waitFor(() => expect(screen.getByTestId('shared').textContent).toBe(''));
+  await act(async () => release(response(nested ? { deal: row('lost') } : row('lost'))));
+  expect(screen.getByTestId('shared').textContent).toBe('');
 });
 
 it('discards responses from a previous identity and catches up after reconnect or focus', async () => {

@@ -39,10 +39,11 @@ export async function conditionFields(draft: WorkflowDraft, tenantId: string) {
   });
 }
 /** Read adapter only. The next explicit save persists deterministic mappings; history is untouched. */
-export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'> & { conditions?: unknown; actions?: unknown; isActive?: boolean; status?: string }>(draft: T, tenantId: string): Promise<T> {
-  if ((await accountWorkflowRetirementReferences(draft, tenantId)).length) return { ...draft, isActive: false, status: draft.status === 'DRAFT' && !draft.isActive ? 'DRAFT' : 'PAUSED', repairReason: ACCOUNT_RETIREMENT_REASON };
-  const products = /productInterest|activeProduct/.test(JSON.stringify([draft.conditions, draft.actions]))
-    ? await prisma.productInterest.findMany({ where: { tenantId }, select: { id: true, name: true } }) : [];
+export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'> & { conditions?: unknown; actions?: unknown; isActive?: boolean; status?: string }>(draft: T, tenantId: string, db: import('@prisma/client').Prisma.TransactionClient = prisma): Promise<T> {
+  if ((await accountWorkflowRetirementReferences(draft, tenantId, db)).length) return { ...draft, isActive: false, status: draft.status === 'DRAFT' && !draft.isActive ? 'DRAFT' : 'PAUSED', repairReason: ACCOUNT_RETIREMENT_REASON };
+  const serialized = JSON.stringify([draft.conditions, draft.actions]);
+  const products = /productInterest|activeProduct/.test(serialized)
+    ? await db.productInterest.findMany({ where: { tenantId }, select: { id: true, name: true } }) : [];
   const references = normalizeWorkflowReferences(draft, products);
   const normalized = { ...references, actions: Array.isArray(references.actions) ? references.actions.map(action => {
     const parsed = WorkflowActionSchema.safeParse(action);
@@ -55,8 +56,8 @@ export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'
     return parsed.success ? [parsed.data] : [];
   }) : [], conditions: conditions.success ? conditions.data : undefined });
   if (policyIssues.length) Object.assign(normalized, { repairReason: policyIssues[0] });
-  if (!entity || !JSON.stringify([draft.conditions, draft.actions]).includes('customFieldValues.')) return normalized;
-  const definitions = await workflowCustomFields(tenantId);
+  if (!entity || !serialized.includes('customFieldValues.')) return normalized;
+  const definitions = await workflowCustomFields(tenantId, db);
   const canonical = (key: string) => {
     const field = resolveCustomFieldReference(WORKFLOW_MODULES[entity], key, definitions);
     return field ? `customFieldValues.${field.id}` : key;
@@ -64,7 +65,7 @@ export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'
   const savedConditions = normalized.conditions as WorkflowDraft['conditions'];
   return { ...normalized,
     conditions: savedConditions && Array.isArray(savedConditions.conditions) ? { ...savedConditions, conditions: savedConditions.conditions.map(rule =>
-      rule?.field?.startsWith(`${entity}.customFieldValues.`) ? { ...rule, field: `${entity}.${canonical(rule.field.slice(entity.length + 1))}` } : rule,
+      typeof rule?.field === 'string' && rule.field.startsWith(`${entity}.customFieldValues.`) ? { ...rule, field: `${entity}.${canonical(rule.field.slice(entity.length + 1))}` } : rule,
     ) } : normalized.conditions,
     actions: Array.isArray(normalized.actions) ? normalized.actions.map(action => action?.type === 'update_field' && typeof action.config?.field === 'string' && action.config.field.startsWith('customFieldValues.')
       ? { ...action, config: { ...action.config, field: canonical(action.config.field) } } : action) : normalized.actions,

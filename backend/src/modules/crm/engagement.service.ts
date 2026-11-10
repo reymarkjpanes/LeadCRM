@@ -100,8 +100,14 @@ export async function cancelOpenDeals(tx: Tx, tenantId: string, actorId: string,
   }
 }
 
+export async function hasClosedStatusEvidence(tx: Tx, tenantId: string, link: CustomerLink): Promise<boolean> {
+  return !!await readCrmStatusEvidence(() => tx.deal.findFirst({
+    where: { ...customerDealWhere(tenantId, link), stage: { isWon: true }, wonConfirmedAt: { not: null } }, select: { id: true },
+  }));
+}
+
 export async function assertClosedStatus(tx: Tx, tenantId: string, link: CustomerLink) {
-  if (!await readCrmStatusEvidence(() => tx.deal.findFirst({ where: { ...customerDealWhere(tenantId, link), stage: { isWon: true }, wonConfirmedAt: { not: null } } }))) {
+  if (!await hasClosedStatusEvidence(tx, tenantId, link)) {
     throw new ValidationError('Confirm a related Deal as Closed Deal before setting this record to Closed Deal.');
   }
 }

@@ -476,7 +476,7 @@ it('refreshes Roles and Organization access for an unchanged Sales identity afte
   expect(getPageCacheSize()).toBe(0); expect(mocks.logout).not.toHaveBeenCalled();
 });
 
-it('keeps loaded data and drafts through authorization reconnects and membership-only revisions, evicting on grant changes', async () => {
+it('keeps drafts through reconnects and evicts cached records when membership or grants change', async () => {
   class AccessEvents {
     static current: AccessEvents;
     listeners = new Map<string, ((event: MessageEvent) => void)[]>();
@@ -494,16 +494,30 @@ it('keeps loaded data and drafts through authorization reconnects and membership
   fireEvent.change(editor, { target: { value: 'Reconnect draft' } });
   setPageCache('leads', 'tenant', { recordId: 'lead' }, { private: 'Loaded record' });
   const generation = getPageCacheGeneration();
-  await act(async () => { AccessEvents.current.emit('open'); AccessEvents.current.emit('authorization-change', '1'); });
+  await act(async () => { AccessEvents.current.emit('open'); });
   expect(getPageCacheGeneration()).toBe(generation); expect(getPageCacheSize()).toBe(1);
   expect(screen.getByDisplayValue('Reconnect draft')).toBe(editor);
+
+  mocks.me.mockResolvedValue({ data: { user: { ...user, groups: [{ id: 'first', name: 'First Group' }] } } });
+  await act(async () => { AccessEvents.current.emit('authorization-change', '1'); });
+  expect(getPageCacheGeneration()).toBeGreaterThan(generation); expect(getPageCacheSize()).toBe(0);
+  expect(screen.getByDisplayValue('Reconnect draft')).toBe(editor);
+  const membershipGeneration = getPageCacheGeneration();
+  setPageCache('leads', 'tenant', { recordId: 'lead' }, { private: 'Refreshed authorized record' });
   mocks.permissions.mockResolvedValue({ data: { workflows: { canEdit: false, canView: true }, tasks: { canView: false } } });
-  await act(async () => { AccessEvents.current.emit('open'); AccessEvents.current.emit('authorization-change', '2'); });
-  expect(getPageCacheGeneration()).toBe(generation); expect(getPageCacheSize()).toBe(1);
+  await act(async () => { AccessEvents.current.emit('open'); AccessEvents.current.emit('authorization-change', '1'); });
+  expect(getPageCacheGeneration()).toBe(membershipGeneration); expect(getPageCacheSize()).toBe(1);
   expect(screen.getByDisplayValue('Reconnect draft')).toBe(editor);
+
+  mocks.me.mockResolvedValue({ data: { user: { ...user, groups: [{ id: 'second', name: 'Second Group' }] } } });
+  await act(async () => { AccessEvents.current.emit('authorization-change', '2'); });
+  expect(getPageCacheGeneration()).toBeGreaterThan(membershipGeneration); expect(getPageCacheSize()).toBe(0);
+  expect(screen.getByDisplayValue('Reconnect draft')).toBe(editor);
+  const refreshedGeneration = getPageCacheGeneration();
+  setPageCache('leads', 'tenant', { recordId: 'lead' }, { private: 'Current authorized record' });
   mocks.permissions.mockResolvedValue({ data: {} });
   await act(async () => { AccessEvents.current.emit('authorization-change', '3'); });
-  expect(getPageCacheGeneration()).toBeGreaterThan(generation); expect(getPageCacheSize()).toBe(0);
+  expect(getPageCacheGeneration()).toBeGreaterThan(refreshedGeneration); expect(getPageCacheSize()).toBe(0);
   expect(screen.queryByLabelText('Workflow draft')).toBeNull();
 });
 
