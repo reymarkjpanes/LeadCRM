@@ -151,6 +151,45 @@ describe.skipIf(!disposable)('custom-role Settings access with persisted assignm
     const adminGrants = (await call(`/administration/users/${adminId}/permissions`)).body.data;
     for (const module of PERMISSION_MODULES) for (const action of module.actions) expect(adminGrants[module.key][action]).toBe(true);
   });
+  it('rejects self-assignment through role, user and bulk endpoints without partially changing other users', async () => {
+    const definition = await role('Delegated role assigner', [row('roles', { canView: true, canCreate: true, canAssign: true }), row('users', { canView: true, canEdit: true })]);
+    const manager = await actor(definition.name, [definition.id]);
+    const target = await actor('Sales', [salesRoleId]);
+    const privileged = await call('/administration/roles', manager.token, 'POST', {
+      name: 'Delegated privileged definition', permissions: [row('settings', { canView: true, canEdit: true })],
+    });
+    expect(privileged.status, JSON.stringify(privileged.body)).toBe(201);
+    const before = await snapshot();
+    for (const [path, method, body] of [
+      ['/administration/roles/assign', 'POST', { userId: manager.user.id, roleId: privileged.body.data.id }],
+      [`/administration/users/${manager.user.id}`, 'PUT', { role: privileged.body.data.name }],
+      ['/administration/users/bulk-update', 'POST', { ids: [target.user.id, manager.user.id], role: privileged.body.data.name }],
+    ] as const) {
+      const result = await call(path, manager.token, method, body);
+      expect(result.status, JSON.stringify(result.body)).toBe(403);
+      expect(await snapshot()).toEqual(before);
+    }
+    expect((await call('/administration/roles/assign', manager.token, 'POST', { userId: target.user.id, roleId: privileged.body.data.id })).status).toBe(200);
+    expect((await call('/administration/roles/assign', adminToken, 'POST', { userId: manager.user.id, roleId: privileged.body.data.id })).status).toBe(200);
+    expect((await call('/administration/organization-settings', manager.token)).status).toBe(200);
+  });
+  it('protects permissions on primary and secondary assigned roles while allowing metadata and other-role edits', async () => {
+    const definition = await role('Delegated role editor', [row('roles', { canView: true, canEdit: true })]);
+    const secondary = await role('Delegated editor secondary', [row('leads', { canView: true, canViewMy: true })]);
+    const manager = await actor(definition.name, [definition.id, secondary.id]);
+    const incoming = [row('roles', { canView: true, canEdit: true, canAssign: true })];
+    for (const assigned of [definition, secondary]) {
+      const before = await snapshot();
+      const response = await call(`/administration/roles/${assigned.id}`, manager.token, 'PUT', { name: `${assigned.name} changed`, permissions: incoming });
+      expect(response.status, JSON.stringify(response.body)).toBe(403);
+      expect(await snapshot()).toEqual(before);
+    }
+    expect((await call(`/administration/roles/${definition.id}`, manager.token, 'PUT', { description: 'Updated by delegated editor' })).status).toBe(200);
+    const other = await role('Delegated editor other role');
+    expect((await call(`/administration/roles/${other.id}`, manager.token, 'PUT', { permissions: incoming })).status).toBe(200);
+    expect((await call(`/administration/roles/${secondary.id}`, adminToken, 'PUT', { permissions: incoming })).status).toBe(200);
+    expect((await call(`/administration/users/${manager.user.id}/permissions`, manager.token)).body.data.roles.canAssign).toBe(true);
+  });
   it('isolates role grants, permission responses and organization reads/writes by tenant', async () => {
     const foreignRole = await role('Foreign settings editor', [row('roles', { canView: true, canEdit: true }), row('settings', { canView: true, canEdit: true })], otherTenantId);
     const foreign = await actor(foreignRole.name, [foreignRole.id], otherTenantId);

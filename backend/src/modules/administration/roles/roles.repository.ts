@@ -100,11 +100,18 @@ export async function updateRoleAndPermissions(
   data: { name?: string; description?: string },
   permissions?: Array<PermissionFlags & { module: string }>,
   audit?: RoleAudit,
+  actorId?: string,
 ) {
   return roleNameTransaction(async tx => {
     const existing = await tx.roleDefinition.findFirst({ where: { id, tenantId, isArchived: false } });
     if (!existing) throw new NotFoundError('Role');
     if (existing.isSystemRole) throw new ForbiddenError('System roles cannot be modified');
+    if (permissions !== undefined && actorId) {
+      const actor = await tx.user.findFirst({ where: { id: actorId, tenantId, status: 'ACTIVE' }, select: { role: true } });
+      if (!actor || actor.role !== 'Client Admin' && await tx.userRole.findFirst({ where: { tenantId, userId: actorId, roleId: id } })) {
+        throw new ForbiddenError('Ask another authorized administrator to change permissions for a role assigned to you.');
+      }
+    }
     if (data.name && await tx.roleDefinition.findFirst({ where: { tenantId, id: { not: id }, name: { equals: data.name, mode: 'insensitive' } } })) {
       throw new ConflictError('A role with this name already exists.');
     }
@@ -165,11 +172,11 @@ export async function archiveRole(id: string, tenantId: string, audit?: RoleAudi
 
 // ── User–Role junction ────────────────────────────────────────────────────
 
-export async function assignRoleToUser(userId: string, roleId: string, tenantId: string, audit?: AssignmentAudit) {
+export async function assignRoleToUser(userId: string, roleId: string, tenantId: string, audit?: AssignmentAudit, actorId?: string) {
   return prisma.$transaction(async tx => {
     const role = await tx.roleDefinition.findFirst({ where: { id: roleId, tenantId, isArchived: false } });
     if (!role) throw new NotFoundError('Role');
-    await replaceUserRole(tx, userId, tenantId, role.name);
+    await replaceUserRole(tx, userId, tenantId, role.name, actorId);
     await audit?.(tx);
     return tx.userRole.findUniqueOrThrow({ where: { userId_roleId_tenantId: { userId, roleId, tenantId } } });
   });
@@ -251,7 +258,7 @@ export type { Prisma };
 
 /** User management selects a primary role; update both RBAC representations in its transaction. */
 export async function replaceUserRole(
-  tx: Prisma.TransactionClient, userId: string, tenantId: string, roleName: string,
+  tx: Prisma.TransactionClient, userId: string, tenantId: string, roleName: string, actorId?: string,
 ): Promise<void> {
   // Shared with deletion's exclusive lock; recheck active state after any wait.
   await tenantContext.exit(async () => await tx.$queryRaw`SELECT "id" FROM "RoleDefinition" WHERE "tenantId" = ${tenantId} AND "name" = ${roleName} FOR SHARE`);
@@ -260,6 +267,9 @@ export async function replaceUserRole(
     tx.roleDefinition.findFirst({ where: { tenantId, name: roleName, isArchived: false } }),
   ]);
   if (!user || !role) throw new NotFoundError('User or role');
+  if (actorId === userId && user.role !== 'Client Admin' && user.role !== role.name) {
+    throw new ForbiddenError('Ask another authorized administrator to change your role.');
+  }
   if (['Client Admin'].includes(user.role) || role.isSystemRole ||
       ['guest', 'clientadmin'].includes(role.name.toLowerCase().replace(/[\s_-]/g, ''))) {
     throw new ForbiddenError('Select an active custom role for a non-administrator user');

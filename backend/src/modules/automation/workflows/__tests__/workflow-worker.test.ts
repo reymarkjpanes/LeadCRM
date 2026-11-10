@@ -4,7 +4,7 @@ import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { salesContext, markWorkflowQueued, workflowTransactionCommitted } from '../../../crm/leads/sales-context';
 import { workflowLease } from '../workflow-dispatch-context';
 
-const mocks = vi.hoisted(() => ({ findMany: vi.fn(), updateMany: vi.fn(), workflow: vi.fn(), transaction: vi.fn(), engine: vi.fn() }));
+const mocks = vi.hoisted(() => ({ findMany: vi.fn(), updateMany: vi.fn(), workflow: vi.fn(), admission: vi.fn(), transaction: vi.fn(), engine: vi.fn() }));
 vi.mock('../../../../config/database.config', () => ({ default: {
   workflowExecutionRun: { findMany: mocks.findMany, updateMany: mocks.updateMany },
   workflow: { findFirst: mocks.workflow }, $transaction: mocks.transaction,
@@ -33,7 +33,8 @@ beforeEach(() => {
     if (!row) return { count: 0 };
     Object.assign(row, data); return { count: 1 };
   });
-  mocks.transaction.mockImplementation(work => work({ workflowExecutionRun: { updateMany: mocks.updateMany } }));
+  mocks.transaction.mockImplementation(work => work({ workflowExecutionRun: { updateMany: mocks.updateMany }, $queryRaw: mocks.admission }));
+  mocks.admission.mockResolvedValue([{ id: 'workflow' }]);
   mocks.workflow.mockResolvedValue({ id: 'workflow', version: 1, isActive: true, status: 'ACTIVE' });
   mocks.engine.mockImplementation(async (_params, { run }) => { rows.find(row => row.id === run.id).status = 'completed'; });
 });
@@ -75,6 +76,15 @@ it('leaves repeated preparation failures for the scheduled recovery tick', async
   mocks.workflow.mockResolvedValue({ id: 'workflow', version: 1, isActive: true, status: 'ACTIVE' });
   await vi.advanceTimersByTimeAsync(30000);
   await vi.waitFor(() => expect(mocks.engine).toHaveBeenCalledTimes(10));
+});
+
+it('skips the queued run when pause wins the dispatch admission race', async () => {
+  rows.push(run(1));
+  // Discovery saw Active, but the transaction's locking read sees Paused.
+  mocks.admission.mockResolvedValue([]);
+  stop = startWorkflowScheduler();
+  await vi.waitFor(() => expect(rows[0]).toMatchObject({ status: 'skipped', leaseId: null, dispatchStartedAt: null }));
+  expect(mocks.engine).not.toHaveBeenCalled();
 });
 
 it('waits for active dispatch on shutdown and ignores later committed wakes', async () => {

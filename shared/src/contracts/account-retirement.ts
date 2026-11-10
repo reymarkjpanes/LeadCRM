@@ -32,7 +32,7 @@ export function retiredAccountWorkflowReferences(draft: { trigger: string; condi
     if (Array.isArray(object.changedFields)) for (const field of object.changedFields) {
       if (typeof field === 'string' && isRetiredAccountField(field, entity)) found.add(field);
     }
-    if (entity === 'account' && ['assign_owner', 'assign_record'].includes(String(object.type))) found.add('assignedUserId');
+    if (entity === 'account' && (object.type === 'assign_owner' || object.type === 'assign_record')) found.add('assignedUserId');
     if (entity === 'account' && object.type === 'create_task') {
       const config = object.config as Record<string, unknown> | undefined;
       const target = config?.assignmentTarget as { type?: string } | undefined;

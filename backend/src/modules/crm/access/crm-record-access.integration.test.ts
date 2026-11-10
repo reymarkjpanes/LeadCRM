@@ -80,16 +80,18 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
   afterAll(async () => { if (server) await new Promise<void>(done => server.close(() => done())); await prisma.$disconnect(); });
 
 
-  it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s lists, searches, details and custom fields include every eligible assignment', async module => {
+  it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s lists, searches, details and custom fields enforce current assignment', async module => {
     const list = await call(`/${module}?limit=100`); expect(list.status).toBe(200);
     const ids = list.body.data.map((row: any) => row.id);
-    for (const kind of ['own', 'other', 'unassigned', 'inactive']) {
-      expect(ids).toContain(records[module][kind].id);
-      expect((await call(`/${module}/${records[module][kind].id}`)).status).toBe(200);
-      expect((await call(`/${module}/${records[module][kind].id}/custom-fields`)).status).toBe(200);
+    expect(ids).toEqual([records[module].own.id]);
+    expect((await call(`/${module}/${records[module].own.id}`)).status).toBe(200);
+    expect((await call(`/${module}/${records[module].own.id}/custom-fields`)).status).toBe(200);
+    for (const kind of ['other', 'unassigned', 'inactive']) {
+      expect((await call(`/${module}/${records[module][kind].id}`)).status).toBe(404);
+      expect((await call(`/${module}/${records[module][kind].id}/custom-fields`)).status).toBe(404);
     }
     expect(ids).not.toContain(records[module].foreign.id);
-    expect((await call(`/${module}?search=RBAC&limit=100`)).body.data.length).toBe(4);
+    expect((await call(`/${module}?search=RBAC&limit=100`)).body.data.map((row: any) => row.id)).toEqual([records[module].own.id]);
   });
   it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s denies other/unassigned updates, custom fields, archive and direct claiming without side effects', async module => {
     const before = await snapshot();
@@ -98,9 +100,9 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       for (const payload of [{ ...(module === 'accounts' ? { name: 'Forbidden' } : module === 'deals' ? { title: 'Forbidden' } : { firstName: 'Forbidden' }) },
         { customFieldValues: {} }, { assignedUserId: a.id }, { assignedUserId: null }, ...(module === 'deals' ? [] : [{ status: 'Cancelled' }])]) {
         const result = await call(`/${module}/${id}`, a, 'PUT', payload);
-        expect(result.status, JSON.stringify(result.body)).toBe(403);
+        expect(result.status, JSON.stringify(result.body)).toBe(404);
       }
-      expect((await call(`/${module}/${id}/archive`, a, 'PATCH')).status).toBe(403);
+      expect((await call(`/${module}/${id}/archive`, a, 'PATCH')).status).toBe(404);
     }
     expect(await snapshot()).toEqual(before);
   });
@@ -110,37 +112,39 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect(mine.status).toBe(200);
     expect(mine.body.data.map((row: any) => row.id)).toEqual([records[module].own.id]);
     const all = await call(`/${module}?limit=2&page=1`), second = await call(`/${module}?limit=2&page=2`);
-    expect(new Set([...all.body.data, ...second.body.data].map((row: any) => row.id)).size).toBe(4);
+    expect(all.body.data.map((row: any) => row.id)).toEqual([records[module].own.id]);
+    expect(second.body.data).toEqual([]);
+    expect(all.body.meta.total).toBe(1);
   });
   it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s creation rejects another-agent assignment and missing Create permission', async module => {
     const payload = { ...(module === 'contacts' ? { requestId: randomUUID() } : {}), assignedUserId: b.id, ...(module === 'accounts' ? { name: 'Spoofed' } : module === 'deals'
       ? { title: 'Spoofed', pipelineId: pipeline.id, stageId: stage.id, productInterestIds: [product.id], leadIds: [records.leads.other.id] }
       : { firstName: 'Spoofed', lastName: 'QA', email: `${module}-spoof@example.test` }) };
     const before = await snapshot();
-    expect((await call(`/${module}`, a, 'POST', payload)).status).toBe(403);
+    expect((await call(`/${module}`, a, 'POST', payload)).status).toBe(module === 'deals' ? 404 : 403);
     expect((await call(`/${module}`, viewer, 'POST', payload)).status).toBe(403);
     expect(await snapshot()).toEqual(before);
   });
-  it('primary Sales is restrictive while unrelated ordinary roles retain existing access', async () => {
+  it('custom roles retain Account module access while CRM assignments remain restricted', async () => {
     expect((await call(`/accounts/${records.accounts.other.id}`, ordinary, 'PUT', { name: 'Ordinary allowed' })).status).toBe(200);
     const c = await person('AgentC', true, 'Sales');
     expect((await call('/record-access', c)).body.data).toMatchObject({ assignmentRestricted: true, clientAdmin: false });
-    expect((await call(`/leads/${records.leads.other.id}`, c, 'PUT', { firstName: 'Denied' })).status).toBe(403);
+    expect((await call(`/leads/${records.leads.other.id}`, c, 'PUT', { firstName: 'Denied' })).status).toBe(404);
   });
   it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s file upload denies ownership before any storage or metadata side effect', async module => {
     const before = await snapshot();
     await expect(scoped(a, () => uploadFile(module as keyof typeof delegates, records[module].other.id, tenantId, a.id,
-      { name: 'denied.txt', type: 'text/plain' }, Buffer.from('Denied')))).rejects.toMatchObject({ statusCode: 403 });
+      { name: 'denied.txt', type: 'text/plain' }, Buffer.from('Denied')))).rejects.toMatchObject({ statusCode: 404 });
     expect(await snapshot()).toEqual(before);
   });
   it('empty participant replacements and direct child writes still require the canonical parent assignment', async () => {
     const before = await snapshot();
     for (const sync of [syncContactAssociations, syncLeadAssociations]) {
       await expect(scoped(a, () => prisma.$transaction(tx => sync(records.deals.other.id, tenantId, [], a.id, tx))))
-        .rejects.toMatchObject({ statusCode: 403 });
+        .rejects.toMatchObject({ statusCode: 404 });
     }
     await expect(scoped(a, () => prisma.leadProductInterest.create({ data: { tenantId, leadId: records.leads.other.id, productInterestId: product.id } })))
-      .rejects.toMatchObject({ statusCode: 403 });
+      .rejects.toMatchObject({ statusCode: 404 });
     expect(await snapshot()).toEqual(before);
   });
   it('current module View revocation denies reads without relying on session role claims', async () => {
@@ -158,15 +162,18 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     if (module === 'leads') await prisma.leadDeal.create({ data: { tenantId, leadId: parent.id, dealId: deal.id } });
     else await prisma.contactDeal.create({ data: { tenantId, contactId: parent.id, dealId: deal.id } });
     const before = await snapshot();
-    expect((await call(`/${module}/${parent.id}`, a, 'PUT', { status: 'Cancelled' })).status).toBe(403);
+    expect((await call(`/${module}/${parent.id}`, a, 'PUT', { status: 'Cancelled' })).status).toBe(404);
     expect(await snapshot()).toEqual(before);
   });
-  it('an owned Deal can reference another-agent Contact without gaining permission to edit that Contact', async () => {
+  it('rejects hidden Contact selection and preserves legitimate links without granting Contact access', async () => {
     const deal = records.deals.own.id, contact = records.contacts.other.id;
-    const before = await prisma.contact.findUniqueOrThrow({ where: { id: contact } });
-    expect((await call(`/deals/${deal}`, a, 'PUT', { contactIds: [contact] })).status).toBe(200);
-    expect(await prisma.contact.findUniqueOrThrow({ where: { id: contact } })).toEqual(before);
-    expect((await call(`/contacts/${contact}`, a, 'PUT', { firstName: 'Relationship bypass' })).status).toBe(403);
+    const before = await snapshot();
+    expect((await call(`/deals/${deal}`, a, 'PUT', { contactIds: [contact] })).status).toBe(404);
+    expect(await snapshot()).toEqual(before);
+    expect((await call(`/deals/${deal}`, admin, 'PUT', { contactIds: [contact] })).status).toBe(200);
+    const linked = await prisma.contact.findUniqueOrThrow({ where: { id: contact } });
+    expect((await call(`/contacts/${contact}`, a, 'PUT', { firstName: 'Relationship bypass' })).status).toBe(404);
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: contact } })).toEqual(linked);
     expect((await call(`/deals/${deal}`, a, 'PUT', { contactIds: [] })).status).toBe(200);
   });
   it('array transactions and tenant-scoped raw SQL cannot bypass assignment checks', async () => {
@@ -209,7 +216,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       data: { definition: { ...(field.definition as Record<string, any>), required: false } } });
     try {
       const before = await snapshot();
-      expect((await call(`/deals/${deal.id}/stage`, a, 'PATCH', { stageId: won.id })).status).toBe(403);
+      expect((await call(`/deals/${deal.id}/stage`, a, 'PATCH', { stageId: won.id })).status).toBe(404);
       expect(await snapshot()).toEqual(before);
     } finally {
       for (const field of definitions) await prisma.closingFieldDefinition.update({ where: { tenantId_id: { tenantId, id: field.id } }, data: { definition: field.definition! } });
@@ -224,7 +231,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toEqual({
       ...contact, status: 'CANCELLED', lastStatusChangedAt: expect.any(Date), updatedAt: expect.any(Date),
     });
-    expect((await call(`/contacts/${contact.id}`, a, 'PUT', { firstName: 'Unauthorized' })).status).toBe(403);
+    expect((await call(`/contacts/${contact.id}`, a, 'PUT', { firstName: 'Unauthorized' })).status).toBe(404);
   });
   it('nested Lead junction writes cannot change another-agent Deal', async () => {
     const before = await snapshot();
@@ -276,13 +283,13 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       expect(generated).toHaveLength(1);
       expect(generated[0].assignedUserId).toBe(b.id);
     }
-    expect((await call(`/${module}/${response.body.data.id}`, a, 'PUT', module === 'accounts' ? { name: 'Denied' } : { firstName: 'Denied' })).status).toBe(403);
+    expect((await call(`/${module}/${response.body.data.id}`, a, 'PUT', module === 'accounts' ? { name: 'Denied' } : { firstName: 'Denied' })).status).toBe(404);
   });
   it('merging two assigned Leads rolls back if transferring a junction would edit another-agent Deal', async () => {
     const secondary = await prisma.lead.create({ data: { tenantId, firstName: 'Merge', lastName: 'QA', email: 'merge-cascade@example.test', assignedUserId: a.id } });
     await prisma.leadDeal.create({ data: { tenantId, leadId: secondary.id, dealId: records.deals.other.id } });
     const before = await snapshot();
-    expect((await call('/merge', a, 'POST', { entityType: 'lead', primaryId: records.leads.own.id, secondaryId: secondary.id, fieldResolutions: {} })).status).toBe(403);
+    expect((await call('/merge', a, 'POST', { entityType: 'lead', primaryId: records.leads.own.id, secondaryId: secondary.id, fieldResolutions: {} })).status).toBe(404);
     expect(await snapshot()).toEqual(before);
   });
   it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s permits own edit, denies missing Edit and own reassignment, isolates foreign IDs', async module => {
@@ -294,9 +301,10 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect((await call(`/${module}/${records[module].foreign.id}`)).status).toBe(404);
     expect((await call(`/${module}/${records[module].foreign.id}`, a, 'PUT', patch)).status).toBe(404);
   });
-  it('Kanban includes other agents; stage, pipeline, closing, conversion, reorder and mixed bulk writes are denied', async () => {
+  it('Kanban hides other agents and rejects stage, pipeline, closing, conversion, reorder and mixed bulk writes', async () => {
     const grouped = await call(`/deals?groupByStage=true&pipelineId=${pipeline.id}`);
-    expect(grouped.status).toBe(200); expect(JSON.stringify(grouped.body)).toContain(records.deals.other.id);
+    expect(grouped.status).toBe(200); expect(JSON.stringify(grouped.body)).toContain(records.deals.own.id);
+    expect(JSON.stringify(grouped.body)).not.toContain(records.deals.other.id);
     const before = await snapshot();
     const id = records.deals.other.id;
     for (const [path, method, body] of [
@@ -307,7 +315,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       ['/deals/bulk/stage', 'POST', { dealIds: [records.deals.own.id, id], stageId: qualified.id }],
       ['/deals/bulk/archive', 'POST', { dealIds: [records.deals.own.id, id] }],
       ['/deals/bulk/reassign', 'POST', { dealIds: [records.deals.own.id], assignedUserId: b.id }],
-    ] as const) expect((await call(path, a, method, body)).status, path).toBe(403);
+    ] as const) expect((await call(path, a, method, body)).status, path).toBe(path === '/deals/bulk/reassign' ? 403 : 404);
     expect(await snapshot()).toEqual(before);
   });
   it('a Sales membership remains restrictive under multiple ordinary roles; an admin-named grant does not promote the user', async () => {
@@ -316,7 +324,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     await prisma.userRole.create({ data: { tenantId, userId: ordinary.id, roleId: admin.roleId } });
     const policy = (await call('/record-access', ordinary)).body.data;
     expect(policy).toMatchObject({ assignmentRestricted: true, clientAdmin: false });
-    expect((await call(`/leads/${records.leads.other.id}`, ordinary, 'PUT', { firstName: 'Denied' })).status).toBe(403);
+    expect((await call(`/leads/${records.leads.other.id}`, ordinary, 'PUT', { firstName: 'Denied' })).status).toBe(404);
   });
   it('Sales role renames retain the server-managed assignment restriction', async () => {
     await updateRoleAndPermissions(viewer.roleId, tenantId, { name: 'Regional Representative' });
@@ -326,7 +334,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
   it.each(['leads', 'contacts'])('%s merge authorizes both records and rolls back denied combinations', async module => {
     const before = await snapshot();
     expect((await call('/merge', a, 'POST', { entityType: module.slice(0, -1), primaryId: records[module].own.id,
-      secondaryId: records[module].other.id, fieldResolutions: {} })).status).toBe(403);
+      secondaryId: records[module].other.id, fieldResolutions: {} })).status).toBe(404);
     expect(await snapshot()).toEqual(before);
   });
   it.each(['leads', 'contacts'] as const)('%s merge accepts only current owner grants for that module without requiring unrelated modules', async module => {
@@ -358,12 +366,12 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
       options: [], order: 100, version: 1, description: '' } } });
     const other = records[module].other.id, own = records[module].own.id;
     const denied = await call(`/${module}/${other}`, a, 'PUT', { customFieldValues: { [fieldId]: 'Forbidden' } });
-    expect(denied.status).toBe(403);
+    expect(denied.status).toBe(404);
     expect(await prisma.customFieldValue.count({ where: { tenantId, fieldId } })).toBe(0);
     expect((await call(`/${module}/${own}`, a, 'PUT', { customFieldValues: { [fieldId]: 'Allowed' } })).status).toBe(200);
     const link = { [`${module === 'accounts' ? 'account' : module.slice(0, -1)}Id`]: other };
     const before = await prisma.activity.count({ where: { tenantId } });
-    expect((await call('/activities', a, 'POST', { type: 'note', title: 'Denied note', ...link })).status).toBe(403);
+    expect((await call('/activities', a, 'POST', { type: 'note', title: 'Denied note', ...link })).status).toBe(404);
     expect(await prisma.activity.count({ where: { tenantId } })).toBe(before);
   });
   it.each(Object.keys(delegates).filter(module => module !== 'accounts'))('%s archive and restore retain ownership and operation permission checks', async module => {
@@ -377,8 +385,8 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     const id = records[module].own.id;
     expect((await call(`/${module}/${id}`, admin, 'PUT', { assignedUserId: b.id })).status).toBe(200);
     const patch = module === 'accounts' ? { name: 'New agent' } : module === 'deals' ? { title: 'New agent' } : { firstName: 'New agent' };
-    expect((await call(`/${module}/${id}`, a, 'PUT', patch)).status).toBe(403);
-    expect((await call(`/${module}/${id}`)).status).toBe(200);
+    expect((await call(`/${module}/${id}`, a, 'PUT', patch)).status).toBe(404);
+    expect((await call(`/${module}/${id}`)).status).toBe(404);
     expect((await call(`/${module}/${id}`, b, 'PUT', patch)).status).toBe(200);
   });
   it('locks assignment through commit and denies the stale agent after a concurrent admin reassignment', async () => {
@@ -393,7 +401,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     const stale = call(`/leads/${lead.id}`, a, 'PUT', { firstName: 'Stale update' });
     // A different native connection waits behind the administration transaction.
     await new Promise(done => setTimeout(done, 100)); release(); await assigning;
-    expect((await stale).status).toBe(403);
+    expect((await stale).status).toBe(404);
     expect(await prisma.lead.findUnique({ where: { id: lead.id } })).toMatchObject({ firstName: 'Concurrent', assignedUserId: b.id });
   });
   it('Accounts use module grants for create/edit/archive while rejecting retired fields and foreign records', async () => {
@@ -417,7 +425,7 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect((await resolveCrmActor(prisma, { tenantId, userId: a.id })).assignmentRestricted).toBe(true);
   });
 
-  it.each(['leads', 'contacts'] as const)('%s manual status writes use role grants and persist canonical values without moving Deals', async module => {
+  it.each(['leads', 'contacts'] as const)('%s manual status writes use role grants and persist canonical values without moving Deals', { timeout: 60000 }, async module => {
     const model = db[delegates[module]];
     const histories = await prisma.dealStageHistory.count({ where: { tenantId } });
     for (const actor of [admin, b, ordinary]) {
@@ -461,6 +469,8 @@ describe.skipIf(!disposable)('CRM assignment authorization with real HTTP sessio
     expect(policy).not.toHaveProperty('groupGrants');
     expect((await eligibleAgents(prisma, tenantId, ['contacts'])).some(user => user.id === staff.id)).toBe(false);
     await prisma.rolePermission.updateMany({ where: { roleId: staff.roleId, module: 'contacts' }, data: { canView: true, canViewAll: true, canEdit: true } });
+    expect((await call('/contacts/' + customer.id, staff)).status).toBe(404);
+    await prisma.tenantGroupMember.create({ data: { tenantId, groupId: group.id, userId: b.id } });
     const detail = await call('/contacts/' + customer.id, staff);
     expect(detail.status).toBe(200); expect(detail.body.data).not.toHaveProperty('ownerGroupId');
     const saved = await call('/contacts/' + customer.id, staff, 'PUT', { status: 'Hot', expectedUpdatedAt: customer.updatedAt.toISOString() });

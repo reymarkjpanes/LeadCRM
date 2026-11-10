@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as repo from './contacts.repository';
 import { mayReadContactAccount, presentContactAccount } from '../contacts-v2/contact-account-access';
 import prisma from '../../../config/database.config';
@@ -44,8 +45,9 @@ export async function updateContact(
 ) {
   dto = UpdateContactSchema.parse(dto);
   const updated = await repo.updateContact(id, tenantId, dto, userId, undefined, async (before, contact, changes) => {
-    if (changes.changedFields.length) await fireLeadUpdated({ tenantId, actorId: userId, record: contact, changedFields: changes.changedFields, changes });
-    if (contact.status !== before.status) await fireLeadStatusChanged({ tenantId, actorId: userId, lead: contact, prevStatus: before.status });
+    const eventId = randomUUID();
+    if (changes.changedFields.length) await fireLeadUpdated({ tenantId, actorId: userId, eventId, record: contact, changedFields: changes.changedFields, changes });
+    if (contact.status !== before.status) await fireLeadStatusChanged({ tenantId, actorId: userId, eventId, lead: contact, prevStatus: before.status });
   });
   return presentLead(tenantId, updated);
 }

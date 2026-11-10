@@ -71,7 +71,7 @@ describe.skipIf(!disposable)('CRM tab grants with real authenticated HTTP reques
         const result = await call(`/crm/${module}?filter[scope]=equals:${scope}&limit=100`);
         expect(result.status, `${module}/${mask}/${scope}`).toBe(enabled ? 200 : 403);
         if (!enabled) continue;
-        const expected = scope === 'all' ? ['own', 'cold', 'other', 'unassigned'] : scope === 'my' ? ['own', 'cold'] : all ? ['own', 'other', 'unassigned'] : ['own'];
+        const expected = scope === 'active' ? ['own'] : ['own', 'cold'];
         expect(ids(result).sort()).toEqual(expected.map(key => rows[module][key].id).sort());
         expect(result.body.meta.total).toBe(expected.length);
       }
@@ -140,7 +140,7 @@ describe.skipIf(!disposable)('CRM tab grants with real authenticated HTTP reques
     await grants('leads', false, false, true);
     expect((await call('/crm/leads?scope=all')).status).toBe(403);
     expect(ids(await call('/crm/leads'))).toEqual([rows.leads.own.id]);
-    expect(ids(await call('/crm/leads', other))).toContain(rows.leads.own.id);
+    expect(ids(await call('/crm/leads', other))).toEqual([rows.leads.other.id]);
     expect(ids(await call('/crm/leads', admin))).toContain(rows.leads.unassigned.id);
   });
 

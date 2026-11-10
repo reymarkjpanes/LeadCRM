@@ -11,7 +11,7 @@ import {
 import { NotFoundError } from "../../../shared/errors/http-error";
 import prisma from "../../../config/database.config";
 import { ConflictError } from "../../../shared/errors/http-error";
-import { isCrmTransactionConflict, crmActor, resolveCrmActor, taskReadWhere, taskAssigneeInScope, authorizedWorkflowScope, crmReadWhere, mayReadCrmModule } from '../../crm/access/crm-record-access.service';
+import { isCrmTransactionConflict, crmActor, resolveCrmActor, taskReadWhere, taskAssigneeInScope, authorizedWorkflowScope, crmReadWhere, mayReadCrmModule, readWorkflowCreatedTask } from '../../crm/access/crm-record-access.service';
 import { eligibleAssignedAgents, TASK_ASSIGNEE_REQUIREMENTS } from '../../crm/access/assigned-agent-eligibility';
 import { buildSearchClauses } from '../../../shared/helpers/search';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
@@ -182,6 +182,12 @@ export async function findTaskById(
     where: { id, tenantId, AND: [scope] },
     include: taskInclude,
   });
+}
+
+export function findWorkflowCreatedTask(id: string, tenantId: string, createdById: string, client: TaskClient) {
+  return readWorkflowCreatedTask(tenantId, id, createdById, () => client.task.findFirst({
+    where: { id, tenantId, createdById }, include: taskInclude,
+  }));
 }
 export function findTaskActor(
   id: string,

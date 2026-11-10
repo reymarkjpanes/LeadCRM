@@ -1,19 +1,18 @@
 import { creatorWhere } from '../../crm/access/record-visibility';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Workflow } from '@prisma/client';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
 import { workflowStatusLabel } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { getPaginationParams } from '../../../shared/helpers/pagination';
-import { getCrmFieldCatalog, getWorkflowConditionFields, customFieldTechnicalKey, normalizeCrmStatus, FieldLayoutSchema, CUSTOM_FIELD_MODULES, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowEntity, type FieldLayout } from '@leadcrm/shared';
+import { getCrmFieldCatalog, getWorkflowConditionFields, customFieldTechnicalKey, parseStoredCrmStatus, FieldLayoutSchema, CUSTOM_FIELD_MODULES, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowEntity, type FieldLayout } from '@leadcrm/shared';
 import { workflowCustomFields } from './workflow-fields';
 import { readRecordValues } from '../../crm/closing-requirements/custom-field-values.repository';
-import { ValidationError } from '../../../shared/errors/http-error';
+import { ConflictError, ValidationError } from '../../../shared/errors/http-error';
 import { cleanWorkflowName, workflowNameKey, WORKFLOW_NAME_CONFLICT } from './workflow-names';
 import { assignmentOptions } from '../assignment/workflow-assignment.repository';
 import { isSmsConfigured } from '../../../shared/services/sms.service';
 import { buildSearchClauses } from '../../../shared/helpers/search';
 import { crmActor, resolveCrmActor, crmPolicyReadWhere } from '../../crm/access/crm-record-access.service';
-import { hasModulePermission } from '@leadcrm/shared';
 import { workflowLeaseWrite } from './workflow-lease';
 
 async function executionVisibility(tenantId: string): Promise<Prisma.WorkflowExecutionRunWhereInput> {
@@ -24,9 +23,10 @@ async function executionVisibility(tenantId: string): Promise<Prisma.WorkflowExe
   const modules = { lead: 'leads', contact: 'contacts', account: 'accounts', deal: 'deals' } as const;
   const delegates = { lead: prisma.lead, contact: prisma.contact, account: prisma.account, deal: prisma.deal };
   const scopes = await Promise.all(Object.entries(modules).map(async ([entity, module]) => {
-    if (hasModulePermission(policy.permissions, module, 'canViewAll')) return { entityType: entity };
+    const where = crmPolicyReadWhere(policy, module);
+    if (Object.keys(where).every(key => key === 'tenantId')) return { entityType: entity };
     const ids = await (delegates[entity as keyof typeof delegates] as typeof prisma.lead).findMany({
-      where: crmPolicyReadWhere(policy, module), select: { id: true },
+      where, select: { id: true },
     });
     return { entityType: entity, entityId: { in: ids.map(row => row.id) } };
   }));
@@ -34,19 +34,40 @@ async function executionVisibility(tenantId: string): Promise<Prisma.WorkflowExe
 }
 
 /** Dispatch snapshots and provider recovery evidence are server-only. */
-async function executionDealsVisible(tenantId: string) {
-  const actor = crmActor.getStore();
-  if (!actor) return true;
-  const policy = await resolveCrmActor(prisma, actor);
-  return policy.clientAdmin || hasModulePermission(policy.permissions, 'deals', 'canViewAll');
+function executionDealIds(output: unknown): string[] {
+  if (!output || typeof output !== 'object') return [];
+  const value = output as Record<string, unknown>;
+  const ids = ['dealIds', 'matchedDealIds', 'movedDealIds'].flatMap(key =>
+    Array.isArray(value[key]) ? value[key].filter((id): id is string => typeof id === 'string') : []);
+  if (typeof value.failedDealId === 'string') ids.push(value.failedDealId);
+  if (Array.isArray(value.deals)) for (const deal of value.deals) {
+    if (deal && typeof deal === 'object' && 'id' in deal && typeof deal.id === 'string') ids.push(deal.id);
+  }
+  return ids;
 }
-function presentExecution<T extends { dispatchContext: unknown; leaseId: unknown; leaseUntil: unknown; dispatchStartedAt: unknown; steps: Array<{ resolvedInput: unknown; actionType: string; output: unknown }> }>(run: T, dealsVisible: boolean) {
+async function visibleExecutionDeals(tenantId: string, runs: Array<{ steps: Array<{ output: unknown }> }>): Promise<Set<string> | null> {
+  const actor = crmActor.getStore();
+  if (!actor) return null;
+  const policy = await resolveCrmActor(prisma, actor);
+  if (policy.clientAdmin) return null;
+  const ids = [...new Set(runs.flatMap(run => run.steps.flatMap(step => executionDealIds(step.output))))];
+  if (!ids.length) return new Set<string>();
+  const deals = await prisma.deal.findMany({ where: { tenantId, id: { in: ids }, AND: [crmPolicyReadWhere(policy, 'deals')] }, select: { id: true } });
+  return new Set(deals.map(deal => deal.id));
+}
+function presentExecution<T extends { dispatchContext: unknown; leaseId: unknown; leaseUntil: unknown; dispatchStartedAt: unknown; steps: Array<{ resolvedInput: unknown; actionType: string; output: unknown }> }>(run: T, visibleDeals: Set<string> | null) {
   const { dispatchContext: _context, leaseId: _lease, leaseUntil: _until, dispatchStartedAt: _started, ...visible } = run;
   return { ...visible, steps: visible.steps.map(({ resolvedInput: _input, ...step }) => {
-    if (step.actionType === 'create_task' && !dealsVisible && step.output && typeof step.output === 'object') {
+    if (visibleDeals && step.output && typeof step.output === 'object') {
       const output = { ...step.output } as Record<string, unknown>;
-      for (const key of ['dealIds', 'deals', 'dealNames', 'dealCount', 'associationSummary']) delete output[key];
-      return { ...step, output };
+      const ids = executionDealIds(output);
+      // Historical association summaries without target IDs cannot establish current visibility.
+      const legacyAssociations = !ids.length && !Array.isArray(output.dealIds) &&
+        ['dealNames', 'dealCount', 'associationSummary'].some(key => key in output);
+      if (legacyAssociations || ids.some(id => !visibleDeals.has(id))) {
+        for (const key of ['dealIds', 'deals', 'dealNames', 'dealCount', 'associationSummary', 'matchedDealIds', 'movedDealIds', 'failedDealId']) delete output[key];
+        return { ...step, output };
+      }
     }
     if (!['send_email', 'send_sms'].includes(step.actionType)) return step;
     const warnings = step.actionType === 'send_email' && step.output && typeof step.output === 'object' && 'warnings' in step.output && Array.isArray(step.output.warnings)
@@ -142,21 +163,29 @@ export async function createWorkflow(tenantId: string, draft: WorkflowDraft, act
     });
   } catch (error) { rethrowNameConflict(error); }
 }
-export async function updateWorkflow(id: string, tenantId: string, draft: Partial<WorkflowDraft> & { isArchived?: boolean; status?: string; activatedById?: string }, definitionChanged = false) {
+export async function updateWorkflow(id: string, tenantId: string, draft: Partial<WorkflowDraft> & { isArchived?: boolean; status?: string; activatedById?: string },
+  expected?: Pick<Workflow, 'version' | 'draftRevision' | 'updatedAt' | 'isActive' | 'status' | 'isArchived' | 'activatedById' | 'name' | 'description'>,
+  definitionChanged = false) {
   if (draft.name !== undefined) {
     draft = { ...draft, name: cleanWorkflowName(draft.name) };
     await assertNameAvailable(tenantId, draft.name!, id);
   }
   try {
     return await prisma.$transaction(async tx => {
-      const updated = await tx.workflow.update({ where: { id, ...await creatorWhere(tenantId, tx, 'Workflow') }, data: { ...workflowData(draft), ...(definitionChanged ? { version: { increment: 1 } } : {}) } });
+      const match = expected && { version: expected.version, draftRevision: expected.draftRevision, updatedAt: expected.updatedAt,
+        isActive: expected.isActive, status: expected.status, isArchived: expected.isArchived, activatedById: expected.activatedById,
+        name: expected.name, description: expected.description };
+      const updated = await tx.workflow.update({ where: { id, ...await creatorWhere(tenantId, tx, 'Workflow'), ...match }, data: { ...workflowData(draft), ...(definitionChanged ? { version: { increment: 1 } } : {}) } });
       if (updated.isActive) {
         const definition = { name: updated.name, description: updated.description, trigger: updated.trigger, conditions: updated.conditions, actions: updated.actions, isActive: true };
         await tx.workflowPublication.upsert({ where: { workflowId_tenantId_version: { workflowId: id, tenantId, version: updated.version } }, create: { tenantId, workflowId: id, version: updated.version, activatedById: updated.activatedById, definition }, update: {} });
       }
       return updated;
     });
-  } catch (error) { rethrowNameConflict(error); }
+  } catch (error) {
+    if (expected && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new ConflictError('This workflow changed while you were editing. Reload and try again.');
+    rethrowNameConflict(error);
+  }
 }
 export function activeWorkflows(tenantId: string, trigger: string) {
   return prisma.workflow.findMany({ where: { tenantId, trigger, isActive: true, status: 'ACTIVE', isArchived: false } });
@@ -185,11 +214,11 @@ export async function listExecutions(workflowId: string, tenantId: string, page 
   const rows = await prisma.workflowExecutionRun.findMany({ where: { workflowId, tenantId, ...await executionVisibility(tenantId) }, orderBy: [{ startedAt: 'desc' }, { id: 'asc' }],
     skip: (page - 1) * limit, take: limit,
     include: { steps: { orderBy: { stepIndex: 'asc' } }, trigger: { select: { triggerType: true, entityType: true, triggeredAt: true, payload: true } } } });
-  const dealsVisible = await executionDealsVisible(tenantId);
+  const dealsVisible = await visibleExecutionDeals(tenantId, rows);
   return rows.map(row => presentExecution(row, dealsVisible));
 }
 export async function entityContext(entity: WorkflowEntity, id: string, tenantId: string, db: Prisma.TransactionClient = prisma): Promise<Record<string, unknown> | null> {
-  const where = { id, tenantId, isArchived: false };
+  const where = { id, tenantId, isArchived: false, deletedAt: null };
   const record = entity === 'lead' ? await db.lead.findFirst({ where, include: { productLinks: true } })
     : entity === 'contact' ? await db.contact.findFirst({ where, include: { productLinks: true } })
     : entity === 'account' ? await db.account.findFirst({ where })
@@ -209,12 +238,17 @@ export async function entityContext(entity: WorkflowEntity, id: string, tenantId
     const key = field.field.slice(entity.length + 1), value = source[key];
     context[field.field] = value instanceof Date ? value.toISOString().slice(0, 10) : value;
   }
-  if ('status' in record) context[entity + '.status'] = normalizeCrmStatus(record.status);
+  if ('status' in record) {
+    context[entity + '.status'] = parseStoredCrmStatus(record.status) ?? null;
+    context['internal.statusChangedAt'] = record.lastStatusChangedAt?.toISOString() ?? null;
+  }
   if ('doNotContact' in record) context['contact.doNotContact'] = record.doNotContact;
   if ('productLinks' in record) {
     context[entity + '.productInterestIds'] = record.productLinks.filter(link => !('interested' in link) || link.interested).map(link => link.productInterestId).sort();
   }
   if ('stage' in record) {
+    context['deal.engagementStatus'] = parseStoredCrmStatus(record.engagementStatus) ?? null;
+    context['internal.stageHistoryId'] = record.currentStageHistoryId ?? null;
     context['deal.productInterestIds'] = record.productInterestId ? [record.productInterestId] : [];
     context['deal.leadIds'] = record.leadDeals.map(link => link.leadId);
     context['deal.contactIds'] = record.contactDeals.map(link => link.contactId);
@@ -247,5 +281,5 @@ export function finishExecutionStep(id: string, tenantId: string, data: { status
 }
 export async function findExecution(id: string, workflowId: string, tenantId: string) {
   const run = await prisma.workflowExecutionRun.findFirst({ where: { id, workflowId, tenantId, ...await executionVisibility(tenantId) }, include: { steps: { orderBy: { stepIndex: 'asc' } }, trigger: true } });
-  return run ? presentExecution(run, await executionDealsVisible(tenantId)) : null;
+  return run ? presentExecution(run, await visibleExecutionDeals(tenantId, [run])) : null;
 }

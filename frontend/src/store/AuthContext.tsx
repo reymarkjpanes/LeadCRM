@@ -342,6 +342,7 @@ export function AuthProvider({ children, initialHasSessionCookie }: {
     if (USE_MOCK_AUTH || !user?.id) return;
     const changed = (event: Event) => {
       if (event instanceof CustomEvent && event.detail?.source === 'authorization') return;
+      clearPageCache(true);
       void accessRefresh.current.refreshUser().catch(() => {});
     };
     window.addEventListener('leadcrm:groups-changed', changed);
@@ -383,9 +384,10 @@ export function AuthProvider({ children, initialHasSessionCookie }: {
     source.addEventListener('authorization-change', event => {
       const revision = (event as MessageEvent<string>).data;
       if (revision === previous) return;
-      // Commit refreshed grants when the server responds. Membership-only
-      // revisions keep permitted editors mounted; failed reads clear grants.
+      // Membership and Head changes can revoke record access while role flags
+      // stay identical. Discard the previous scope before refreshed reads settle.
       previous = revision;
+      clearPageCache(true);
       refresh();
       window.dispatchEvent(new CustomEvent('leadcrm:groups-changed', { detail: { source: 'authorization' } }));
     });

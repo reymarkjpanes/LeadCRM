@@ -1,34 +1,50 @@
-import { WorkflowConditionSchema, type WorkflowCondition, type WorkflowConditionRule } from '@leadcrm/shared';
+import { isWorkflowStatusField, parseStoredCrmStatus, validConditionScalar, WorkflowConditionSchema, type WorkflowCondition, type WorkflowConditionRule } from '@leadcrm/shared';
+
+function conditionDate(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const date = value.slice(0, 10);
+  if (!validConditionScalar('date', date)) return undefined;
+  return value === date || value[10] === 'T' && Number.isFinite(Date.parse(value)) ? date : undefined;
+}
 
 /** Context is deliberately flat: dots are literal key characters, never traversal. */
 export function evaluateRule(rule: WorkflowConditionRule, context: Record<string, unknown>): boolean {
-  const actual = Object.prototype.hasOwnProperty.call(context, rule.field) ? context[rule.field] : undefined;
+  const stored = Object.prototype.hasOwnProperty.call(context, rule.field) ? context[rule.field] : undefined;
+  const status = isWorkflowStatusField(rule.field);
+  const date = rule.field === 'deal.expectedCloseDate' || rule.operator === 'before' || rule.operator === 'after';
+  const actual = status ? parseStoredCrmStatus(stored) : date ? conditionDate(stored) : stored;
+  const expected = status ? parseStoredCrmStatus(rule.value) : date ? conditionDate(rule.value) : rule.value;
   const empty = actual === null || actual === undefined || (typeof actual === 'string' && !actual.trim()) || (Array.isArray(actual) && actual.length === 0);
   if (rule.operator === 'is_empty') return empty;
   if (rule.operator === 'is_not_empty') return !empty;
-  if (actual === undefined) return false;
-  // Contact stores uppercase enums; public CRM editors use canonical title case.
-  if (['lead.status', 'contact.status', 'event.newStatus', 'event.previousStatus'].includes(rule.field) && typeof actual === 'string' && typeof rule.value === 'string') {
-    const canonical = (value: string) => ['closed', 'closed_deal', 'closed deal'].includes(value.trim().toLowerCase()) ? 'closed deal' : value.trim().toLowerCase();
-    const equal = canonical(actual) === canonical(rule.value);
-    if (rule.operator === 'equals') return equal;
-    if (rule.operator === 'not_equals') return !equal;
-  }
+  if (actual == null || expected == null || rule.incompleteValue) return false;
+  // Blank values match only explicit, historically supported blank comparisons.
+  if (typeof actual === 'string' && !actual.trim() && !(typeof expected === 'string' && !expected.trim())) return false;
+  // An unverified history cannot prove a negative. Other OR branches can still match.
+  if (rule.field === 'deal.hasEverBeenWon' && actual === false && context['deal.wonHistoryVerified'] !== true) return false;
   switch (rule.operator) {
-    case 'equals': return rule.field.endsWith('Date') && typeof actual === 'string' && typeof rule.value === 'string' ? actual.slice(0, 10) === rule.value : actual === rule.value;
-    case 'before': return typeof actual === 'string' && typeof rule.value === 'string' && actual.slice(0, 10) < rule.value;
-    case 'after': return typeof actual === 'string' && typeof rule.value === 'string' && actual.slice(0, 10) > rule.value;
-    case 'not_equals': return actual !== rule.value;
-    case 'contains': return Array.isArray(actual) ? actual.includes(rule.value) : typeof actual === 'string' && actual.toLowerCase().includes(String(rule.value).toLowerCase());
-    case 'not_contains': return Array.isArray(actual) ? !actual.includes(rule.value) : typeof actual === 'string' && !actual.toLowerCase().includes(String(rule.value).toLowerCase());
-    case 'starts_with': return typeof actual === 'string' && actual.startsWith(String(rule.value));
-    case 'ends_with': return typeof actual === 'string' && actual.endsWith(String(rule.value));
+    case 'equals':
+    case 'not_equals': {
+      if (typeof actual !== typeof expected || !['string', 'number', 'boolean'].includes(typeof actual) ||
+          typeof actual === 'number' && !Number.isFinite(actual)) return false;
+      return rule.operator === 'equals' ? actual === expected : actual !== expected;
+    }
+    case 'before': return typeof actual === 'string' && typeof expected === 'string' && actual < expected;
+    case 'after': return typeof actual === 'string' && typeof expected === 'string' && actual > expected;
+    case 'contains':
+    case 'not_contains': {
+      if (typeof expected !== 'string') return false;
+      const contains = Array.isArray(actual) ? actual.includes(expected) : typeof actual === 'string' ? actual.toLowerCase().includes(expected.toLowerCase()) : undefined;
+      return contains !== undefined && (rule.operator === 'contains' ? contains : !contains);
+    }
+    case 'starts_with': return typeof actual === 'string' && typeof expected === 'string' && actual.startsWith(expected);
+    case 'ends_with': return typeof actual === 'string' && typeof expected === 'string' && actual.endsWith(expected);
     default: {
-      if (empty || typeof actual !== 'number' || typeof rule.value !== 'number' || !Number.isFinite(actual)) return false;
-      if (rule.operator === 'greater_than') return actual > rule.value;
-      if (rule.operator === 'less_than') return actual < rule.value;
-      if (rule.operator === 'greater_than_or_equal') return actual >= rule.value;
-      return rule.operator === 'less_than_or_equal' && actual <= rule.value;
+      if (typeof actual !== 'number' || typeof expected !== 'number' || !Number.isFinite(actual)) return false;
+      if (rule.operator === 'greater_than') return actual > expected;
+      if (rule.operator === 'less_than') return actual < expected;
+      if (rule.operator === 'greater_than_or_equal') return actual >= expected;
+      return rule.operator === 'less_than_or_equal' && actual <= expected;
     }
   }
 }

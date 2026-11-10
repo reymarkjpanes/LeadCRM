@@ -135,7 +135,7 @@ export async function update(id: string, tenantId: string, actorId: string, dto:
         const activeAdmins = await tx.user.count({ where: { tenantId, role: 'Client Admin', status: 'ACTIVE' } });
         if (activeAdmins <= 1) throw new ConflictError('At least one active Client Admin must remain.');
       }
-      if (dto.role) await replaceUserRole(tx, id, tenantId, dto.role);
+      if (dto.role) await replaceUserRole(tx, id, tenantId, dto.role, actorId);
       const updated = await tx.user.update({ where: { id, tenantId }, data: updateData, select: SAFE_USER_SELECT });
       if (groupIds !== undefined) {
         if (dto.status === 'INACTIVE') throw new ValidationError('Reassign groups separately before deactivating a user.');
@@ -191,7 +191,7 @@ export async function bulkUpdate(ids: string[], tenantId: string, actorId: strin
     const where = { id: { in: ids }, tenantId };
     if (dto.role) {
       const targets = await tx.user.findMany({ where, select: { id: true } });
-      for (const target of targets) await replaceUserRole(tx, target.id, tenantId, dto.role);
+      for (const target of targets) await replaceUserRole(tx, target.id, tenantId, dto.role, actorId);
     }
     await tx.user.updateMany({ where, data: dto });
   });

@@ -1,5 +1,5 @@
 import { salesContext } from '../leads/sales-context';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as repo from './companies.repository';
 import { writeAuditLog, buildChangeset } from '../../../core/audit/audit.service';
 import { ConflictError, NotFoundError } from '../../../shared/errors/http-error';
@@ -77,7 +77,7 @@ export async function updateCompany(
     before: cb, after: ca,
   });
   const changes = await withCustomChanges(recordChanges(before, company));
-  if (changes.changedFields.length) await fireAccountUpdated({ tenantId, actorId: userId, record: company, changedFields: changes.changedFields, changes });
+  if (changes.changedFields.length) await fireAccountUpdated({ tenantId, actorId: userId, eventId: randomUUID(), record: company, changedFields: changes.changedFields, changes });
   return company;
   });
 }

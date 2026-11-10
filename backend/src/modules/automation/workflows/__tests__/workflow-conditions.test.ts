@@ -19,8 +19,8 @@ describe('canonical flat workflow context', () => {
     ['less_than', null, 1, false], ['equals', 1, '1', false],
   ];
   it.each(cases)('%s evaluates literal dotted keys (%s)', (operator, actual, value, expected) => {
-    expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'contact.status', operator, value }] },
-      { 'contact.status': actual })).toBe(expected);
+    expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'fixture.value', operator, value }] },
+      { 'fixture.value': actual })).toBe(expected);
   });
   it('evaluates AND and OR', () => {
     const conditions = [
@@ -48,5 +48,22 @@ describe('canonical flat workflow context', () => {
   it('does not accidentally accept nested contexts', () => {
     expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'contact.status', operator: 'equals', value: 'HOT' }] },
       { contact: { status: 'HOT' } })).toBe(false);
+  });
+
+  it.each([null, '', '   ', 'unknown', 0, undefined])('never matches an unknown stored status (%j) by comparison', value => {
+    for (const operator of ['equals', 'not_equals'] as const) {
+      expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'deal.engagementStatus', operator, value: 'Warm' }] },
+        { 'deal.engagementStatus': value, 'deal.stageId': 'Warm' })).toBe(false);
+    }
+  });
+
+  it('honors other OR rules when history cannot establish that a Deal never won', () => {
+    const conditions = [
+      { field: 'deal.hasEverBeenWon', operator: 'equals' as const, value: false },
+      { field: 'deal.priority', operator: 'equals' as const, value: 'HIGH' },
+    ];
+    const context = { 'deal.hasEverBeenWon': false, 'deal.wonHistoryVerified': false, 'deal.priority': 'HIGH' };
+    expect(evaluateCondition({ operator: 'OR', conditions }, context)).toBe(true);
+    expect(evaluateCondition({ operator: 'AND', conditions }, context)).toBe(false);
   });
 });

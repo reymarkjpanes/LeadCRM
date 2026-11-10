@@ -74,7 +74,7 @@ export async function updateRole(id: string, tenantId: string, userId: string, d
     tenantId, userId,
     action: 'role.updated', entityType: 'RoleDefinition', entityId: id,
     after: dto as Record<string, unknown>,
-  }, tx));
+  }, tx), userId);
 
   return getRoleById(id, tenantId);
 }
@@ -102,7 +102,7 @@ export async function assignRoleToUser(
     action: 'role.assigned', entityType: 'User', entityId: targetUserId,
     after: { roleId },
     severity: 'WARNING',
-  }, tx));
+  }, tx), actorId);
   return assignment;
 }
 

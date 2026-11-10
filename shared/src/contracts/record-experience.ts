@@ -17,11 +17,17 @@ export type CrmStatus = z.infer<typeof CrmStatusSchema>;
 export const LEAD_STATUSES = CRM_STATUSES;
 export const LeadStatusSchema = CrmStatusSchema;
 
+/** Recognize persisted labels and legacy enum values without guessing a status. */
+export function parseStoredCrmStatus(status: unknown): CrmStatus | undefined {
+  if (typeof status !== 'string') return undefined;
+  const value = status.trim().toLowerCase();
+  if (value === 'closed' || value === 'closed_deal') return 'Closed Deal';
+  return CRM_STATUSES.find(status => status.toLowerCase() === value);
+}
+
 /** Read legacy stored statuses into canonical UI state. API validation stays strict. */
 export function normalizeCrmStatus(status?: string): CrmStatus {
-  // Historical workflow snapshots and Contact enum values remain readable.
-  if (['closed', 'closed_deal', 'closed deal'].includes(status?.trim().toLowerCase() ?? '')) return 'Closed Deal';
-  return CRM_STATUSES.find(value => value.toLowerCase() === status?.toLowerCase()) ?? 'Warm';
+  return parseStoredCrmStatus(status) ?? 'Warm';
 }
 export const RECORD_FILE_MAX_BYTES = 10 * 1024 * 1024;
 /** Manual CRM Files tabs only; custom-field and import policies remain independent. */

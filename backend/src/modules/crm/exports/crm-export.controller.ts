@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
+import { isDeepStrictEqual } from 'node:util';
 import { csvDocument, DealViewFiltersSchema, matchesDealView, type DealViewFilters } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { salesContext } from '../leads/sales-context';
@@ -11,7 +12,7 @@ import { DealsQuerySchema } from '../deals/deals.dto';
 import { presentDealResponse } from '../deals/deal-presentation';
 import { AppError } from '../../../shared/errors/app-error';
 import { parseFilterParams } from '../../../shared/helpers/filter-parser';
-import { requestedCrmScope } from '../access/crm-record-access.service';
+import { requestedCrmScope, resolveCrmActor } from '../access/crm-record-access.service';
 
 type Module = 'leads' | 'contacts' | 'accounts' | 'deals';
 type Row = Record<string, any>;
@@ -27,6 +28,7 @@ const columns: Record<Module, Array<[string, (row: Row) => unknown]>> = {
 export function exportCrm(module: Module) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const access = await resolveCrmActor(prisma, req.user!);
       // Internal batching parameters replace, rather than trust, browser pagination.
       const { page: _page, limit: _limit, pageSize: _size, view: rawView, groupByStage: _group, ...query } = req.query;
       let view: DealViewFilters | undefined;
@@ -55,6 +57,9 @@ export function exportCrm(module: Module) {
         }
         return rows;
       }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 30000 });
+      if (!isDeepStrictEqual(access, await resolveCrmActor(prisma, req.user!))) {
+        throw new AppError('Export access changed. Please retry.', 403);
+      }
       if (!data.length) throw new AppError('No data available to export.', 404);
       const fields = columns[module];
       const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
