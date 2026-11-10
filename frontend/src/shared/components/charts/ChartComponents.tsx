@@ -252,7 +252,6 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
         ...getAxisDefaults(dark),
         ...(wrapCategoryLabels && horizontal ? {
           grid: { display: false }, border: { display: false },
-          afterFit: scale => { scale.width = Math.min(164, Math.max(66, scale.chart.width * 0.38 + 14)); },
         } : {}),
         ...(horizontal ? {} : { beginAtZero: true }),
         ticks: { ...getAxisDefaults(dark).ticks, ...(horizontal ? {} : { precision: 0 }),
@@ -260,7 +259,7 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
           callback: horizontal ? function(value) {
             const label = yTickFormatter ? yTickFormatter(labels[Number(value)]) : labels[Number(value)] ?? '';
             if (!wrapCategoryLabels) return label;
-            const maxWidth = Math.max(52, Math.min(150, this.chart.width * 0.38));
+            const maxWidth = Math.max(1, Math.min(150, this.chart.width * 0.38, this.maxWidth - 14));
             const context = this.chart.ctx;
             context.save(); context.font = `12px ${ChartJS.defaults.font.family}`;
             const lines: string[] = []; let line = '';
@@ -272,8 +271,13 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
               }
             }
             if (line) lines.push(line.trim());
+            if (lines.length > 3) {
+              let lastLine = lines[2].slice(0, -1);
+              while (lastLine && context.measureText(`${lastLine}…`).width > maxWidth) lastLine = lastLine.slice(0, -1);
+              lines.splice(2, lines.length - 2, `${lastLine}…`);
+            }
             context.restore();
-            return lines.length > 3 ? [...lines.slice(0, 2), lines[2].slice(0, -1) + '…'] : lines;
+            return lines;
           } : yTickFormatter || ((v: any) => v) },
       },
     },

@@ -135,7 +135,7 @@ export function OrganizationSettingsForm() {
     <div>
       <div className="flex items-center justify-between gap-3">
         <h3 id="organization-details-title" className="text-sm font-semibold">Organization Details</h3>
-        {canEdit && !editing && <button type="button" onClick={() => { setDraft(saved); setFieldErrors({}); setEditing(true); }} className="shrink-0 flex items-center gap-1 border rounded-lg px-3 py-2 text-sm"><Pencil size={13} />Edit</button>}
+        {canEdit && !editing && <Button type="button" onClick={() => { setDraft(saved); setFieldErrors({}); setEditing(true); }} className="shrink-0 h-auto gap-1 border border-transparent px-3 py-2 text-sm [&_svg]:size-[13px]"><Pencil size={13} />Edit</Button>}
       </div>
       <p className="text-xs text-slate-500 mt-1">Your organization's profile and contact details</p>
     </div>
