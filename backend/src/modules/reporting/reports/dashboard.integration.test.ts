@@ -380,6 +380,51 @@ describe('authoritative dashboard', () => {
     expect(dashboardFunnelPeriod({ range: 'today' }, new Date('2020-01-31T16:30:00Z'))).toMatchObject({ start: '2020-02-01', end: '2020-02-01' });
     expect(() => dashboardFunnelPeriod({ range: 'today', funnelRange: 'custom', funnelStart: '2020-01-01', funnelEnd: '2020-01-16' }, now)).toThrow('historical');
   });
+  it.each([
+    ['2026-11-08T15:59:59.999Z', '2026-11-02', '2026-11-08'],
+    ['2026-11-08T16:00:00.000Z', '2026-11-09', '2026-11-09'],
+    ['2026-11-11T04:00:00.000Z', '2026-11-09', '2026-11-11'],
+    ['2026-01-01T04:00:00.000Z', '2025-12-29', '2026-01-01'],
+    ['2026-03-01T04:00:00.000Z', '2026-02-23', '2026-03-01'],
+  ])('resolves the current Manila week at %s as %s through %s', (instant, start, end) => {
+    const parsed = DashboardQuerySchema.parse({ range: 'thisWeek', leadSourceRange: 'thisWeek' });
+    const period = dashboardPeriod(parsed, new Date(instant));
+    expect(period).toEqual(dashboardPeriod({ range: 'custom', start, end }, new Date(instant)));
+    expect(period).toMatchObject({ start, end, timezone: 'Asia/Manila' });
+    expect(period.from.toISOString()).toBe(new Date(`${start}T00:00:00+08:00`).toISOString());
+    expect(+period.until).toBe(+new Date(`${end}T00:00:00+08:00`) + 86400000);
+  });
+  it('keeps month and year presets calendar-based at Manila midnight', () => {
+    const before = new Date('2026-12-31T15:59:59.999Z'), after = new Date('2026-12-31T16:00:00Z');
+    expect(DashboardQuerySchema.parse({}).range).toBe('thisMonth');
+    expect(dashboardPeriod({ range: 'thisMonth' }, before)).toMatchObject({ start: '2026-12-01', end: '2026-12-31' });
+    expect(dashboardPeriod({ range: 'thisYear' }, before)).toMatchObject({ start: '2026-01-01', end: '2026-12-31' });
+    for (const range of ['thisMonth', 'thisYear'] as const) {
+      expect(dashboardPeriod({ range }, after)).toMatchObject({ start: '2027-01-01', end: '2027-01-01' });
+    }
+    for (const range of ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'last3', 'last6', 'thisYear'] as const) {
+      expect(DashboardQuerySchema.safeParse({ range }).success).toBe(true);
+    }
+  });
+  it('accepts the additive week range through the service and API with equivalent custom results', async () => {
+    const week = dashboardPeriod({ range: 'thisWeek' }, now);
+    const weekly = await scoped(() => dashboard(admin, { range: 'thisWeek', leadSourceRange: 'thisWeek' }, now));
+    const custom = await scoped(() => dashboard(admin, { range: 'custom', start: week.start, end: week.end,
+      leadSourceRange: 'custom', leadSourceStart: week.start, leadSourceEnd: week.end }, now));
+    for (const field of ['period', 'metrics', 'trend', 'distribution', 'leadSourcePerformance', 'leaderboard', 'access'] as const) {
+      expect(weekly[field]).toEqual(custom[field]);
+    }
+    const monthly = await scoped(() => dashboard(admin, { range: 'thisMonth' }, now));
+    for (const metric of ['forecastedRevenue', 'activeDeals', 'totalLeads'] as const) expect(weekly.metrics[metric]).toBe(monthly.metrics[metric]);
+    const response = await http('/reporting/dashboard?range=thisWeek&leadSourceRange=thisWeek');
+    expect(response.status).toBe(200);
+    const api = (await response.json()).data;
+    const current = dashboardPeriod({ range: 'thisWeek' });
+    expect(api.period).toMatchObject({ start: current.start, end: current.end, timezone: 'Asia/Manila' });
+    expect(api.leadSourcePerformance.period).toMatchObject({ start: current.start, end: current.end, timezone: 'Asia/Manila' });
+    const restricted = await scoped(() => dashboard(agent, { range: 'thisWeek' }, now));
+    expect(restricted.access).toEqual((await scoped(() => dashboard(agent, { range: 'thisMonth' }, now))).access);
+  });
   it('renders an actually empty workspace without fabricated rates or velocity', async () => {
     const result = await report();
     expect(result.metrics).toMatchObject({ totalRevenue: 0, activeDeals: 0, totalLeads: 0, forecastedRevenue: 0, winRate: 0, currentWon: 0, totalDeals: 0, averageDealDays: null });

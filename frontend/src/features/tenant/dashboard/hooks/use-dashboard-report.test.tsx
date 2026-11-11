@@ -148,6 +148,20 @@ it('preserves independent chart filters in requests and exports without creating
   expect(mocks.get.mock.calls.at(-1)?.[0]).toContain('funnelEnd=2020-01-10');
 });
 
+it('refreshes the complete report for thisWeek and rejects the previous period response', async () => {
+  let resolveOld!: (value: unknown) => void;
+  mocks.get.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+  const hook = renderHook(({ range }: { range: 'thisMonth' | 'thisWeek' }) =>
+    useDashboard({ range, leadSourceRange: range, revenueInterval: 'week' }), { initialProps: { range: 'thisMonth' } });
+  hook.rerender({ range: 'thisWeek' });
+  await waitFor(() => expect(hook.result.current.report?.metrics.totalRevenue).toBe(1));
+  expect(mocks.get.mock.calls.at(-1)?.[0]).toContain('range=thisWeek&revenueInterval=week&leadSourceRange=thisWeek');
+  act(() => resolveOld({ success: true, data: { metrics: { totalRevenue: 999999 } } }));
+  await act(async () => {});
+  expect(hook.result.current.report?.metrics.totalRevenue).toBe(1);
+  expect(Feed.instances).toHaveLength(1);
+});
+
 const sourceSnapshot = (won: number, revenue = 45000) => ({
   access: { deals: true, leads: true, tasks: true, leaderboard: true }, metrics: { totalRevenue: revenue },
   distribution: [{ id: 'lead', count: 17 }],

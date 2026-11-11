@@ -2,7 +2,7 @@ import { csvDocument } from './crm-export';
 import { z } from 'zod';
 
 export const DASHBOARD_TIMEZONE = 'Asia/Manila';
-export const DASHBOARD_RANGES = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'last3', 'last6', 'thisYear', 'custom'] as const;
+export const DASHBOARD_RANGES = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'last3', 'last6', 'thisYear', 'custom', 'thisWeek'] as const;
 export type DashboardRange = typeof DASHBOARD_RANGES[number];
 export const REVENUE_INTERVALS = ['week', 'month', 'year'] as const;
 export type RevenueInterval = typeof REVENUE_INTERVALS[number];
@@ -58,6 +58,10 @@ export function dashboardPeriod(query: DashboardQuery, now = new Date()) {
   const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
   let start = today, end = today;
   if (query.range === 'last7' || query.range === 'last30') start = new Date(Date.parse(today) - (query.range === 'last7' ? 6 : 29) * 86400000).toISOString().slice(0, 10);
+  if (query.range === 'thisWeek') {
+    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+    start = new Date(Date.parse(today) - ((weekday + 6) % 7) * 86400000).toISOString().slice(0, 10);
+  }
   if (query.range === 'thisMonth') start = iso(year, month - 1, 1);
   if (query.range === 'lastMonth') { start = iso(year, month - 2, 1); end = iso(year, month - 1, 0); }
   if (query.range === 'last3' || query.range === 'last6') start = iso(year, month - (query.range === 'last3' ? 3 : 6), 1);

@@ -12,7 +12,15 @@ Eligible Leads are unconverted, unarchived and not deleted, separate from the De
 
 ## Dates
 
-The Dashboard and Reports toolbars both default to **This Month**. The Dashboard toolbar controls the period for Revenue, Win Rate, Revenue Trend, Lead Source Performance, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
+The Dashboard toolbar offers **Weekly**, **Monthly** (default), and **Yearly**. It controls the period for Revenue, Win Rate, Revenue Trend, Lead Source Performance, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
+
+| Dashboard option | Inclusive calendar interval |
+| --- | --- |
+| Weekly (`thisWeek`) | Monday of the current week through today |
+| Monthly (`thisMonth`, default) | First day of this month through today |
+| Yearly (`thisYear`) | January 1 through today |
+
+Reports retains its **This Month** default and all existing date options below. Historical API ranges remain supported; `thisWeek` is additive.
 
 | Option | Inclusive calendar interval |
 | --- | --- |
@@ -29,6 +37,8 @@ Dashboard Revenue Trend groups ranges of up to 31 days by calendar week (Monday 
 ## KPIs and charts
 
 Pipeline Overview displays the current deal count for each open stage, with the saved stage color and bar widths relative to the largest stage. It does not display stage monetary totals; missing Deal amounts do not hide valid stage counts.
+
+Dashboard Revenue and Win Rate display the same compact date range beneath their values, formatted from the backend report's period in Manila. Their explanation tooltips describe eligible won revenue and `Won Deals ÷ (Won Deals + Cancelled Deals) × 100`. Win Rate also shows the actual backend won/cancelled counts, their closed-deal total, and the displayed rate. Missing counts remain unavailable; no closed deals gives 0%. Revenue keeps compact currency formatting and its exact-amount tooltip. Forecast, Open Deals, Leads, Pipeline Overview, and Action Center retain their existing current-state time bases.
 
 | Metric | Formula and time basis |
 | --- | --- |
@@ -52,7 +62,7 @@ Currencies are never converted or mixed. Money uses tenant currency (PHP when un
 
 Dashboard shows distinct currently Won Deals grouped by trimmed saved `Deal.leadSource`, using the existing authorized Sales Pipeline population and valid `closedAt` boundaries. Missing or blank sources are “Not specified”; related Lead/Contact sources are not inferred. Counts include eligible Deals regardless of their currency or monetary-data validity.
 
-The chart uses the Dashboard toolbar dates, including applied custom dates. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays the configured zero-count categories with “No won deals for this period.” Request errors appear in the Dashboard report status.
+The chart uses the Dashboard toolbar's selected Weekly, Monthly, or Yearly period. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays the configured zero-count categories with “No won deals for this period.” Request errors appear in the Dashboard report status.
 
 The API returns every source group, ordered by won count descending and source name. “Others” counts only saved Others sources; missing sources remain “Not specified”. The Dashboard renders vertical bars for all nine `LEAD_SOURCES` in configured order, filling missing categories with zero and appending additional returned sources. Each configured source has a fixed name-keyed color; additional sources use slate. Counts appear above nonzero bars and in tooltips. Horizontal X-axis labels wrap onto two lines where needed, and narrow cards scroll internally. Revenue, current Pipeline Overview, and other metrics retain their existing definitions.
 

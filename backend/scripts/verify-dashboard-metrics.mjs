@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { LEAD_SOURCES } from '../../shared/src/contracts/record-experience.js';
+import { dashboardPeriod } from '../../shared/src/contracts/dashboard.contract.js';
 
 // Uses only the parent harness's disposable SQL, real API, sessions and proxy.
 export async function verifyDashboardMetrics({ page, staffPage, base, output, http, prisma, tenant, agent, replacement, pipeline, stages, record, until, wait, expectValue, sourceOnly = false }) {
@@ -62,6 +63,16 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   ]);
   await expectValue('Total Revenue', money(6500));
   await expectValue('Win Rate', '75%');
+  await page.getByRole('button', { name: 'How Revenue is calculated', exact: true }).hover();
+  await page.getByRole('tooltip').filter({ hasText: 'Total value of eligible won deals closed during the selected reporting period.' }).waitFor();
+  await page.mouse.move(0, 0);
+  await page.getByRole('button', { name: 'How Win Rate is calculated', exact: true }).focus();
+  const rateTooltip = page.getByRole('tooltip');
+  for (const text of ['Win Rate = Won Deals ÷ (Won Deals + Cancelled Deals) × 100', 'Won Deals: 3', 'Cancelled Deals: 1', 'Total Closed Deals: 4', 'Win Rate: 75%']) {
+    await rateTooltip.getByText(text, { exact: true }).waitFor();
+  }
+  await toolbar.focus();
+  record('Revenue explanation opens on hover and Win Rate formula reconciles actual counts on keyboard focus');
   await page.getByRole('region', { name: 'Sales Leaderboard' }).getByText('2 deals', { exact: true }).waitFor();
   assert.ok(await page.getByText(/1 won deals.*5,000.00 without verified eligible sales credit/).isVisible());
   await page.getByText(/Reporting warnings/).click();
@@ -102,10 +113,15 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   for (const theme of ['light','dark']) {
     await page.evaluate(theme => { localStorage.setItem('app_theme', theme === 'dark' ? 'Dark' : 'Light'); window.dispatchEvent(new CustomEvent('themechange', { detail: { theme, mode: theme === 'dark' ? 'Dark' : 'Light' } })); }, theme);
     await until(() => page.locator('.crm-shell[data-theme-container]').evaluate((element,dark) => element.classList.contains('dark') === dark, theme === 'dark'), 'Theme applied');
-    for (const [label, range, interval] of [['Today', 'today', 'Week'], ['Last 3 Months', 'last3', 'Month']]) {
+    for (const [label, range] of [['Weekly', 'thisWeek'], ['Monthly', 'thisMonth'], ['Yearly', 'thisYear']]) {
+      const period = dashboardPeriod({ range });
+      const interval = +period.until - +period.from <= 31 * 86400000 ? 'Week' : 'Month';
       await selectRange(label);
       await page.getByRole('img', { name: new RegExp(`^Revenue Trend by ${interval}:`) }).waitFor();
-      const report = await fetchReport(`range=${range}&revenueInterval=${interval.toLowerCase()}`); reconcile(report);
+      const report = await fetchReport(`range=${range}&leadSourceRange=${range}&revenueInterval=${interval.toLowerCase()}`); reconcile(report);
+      const periodLabel = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' })
+        .formatRange(new Date(`${report.period.start}T12:00:00+08:00`), new Date(`${report.period.end}T12:00:00+08:00`));
+      for (const title of ['Revenue', 'Win Rate']) await page.getByRole('group', { name: title, exact: true }).getByText(periodLabel, { exact: true }).waitFor();
       for (const width of [320,375,390,430,768,1024,1440]) {
         await page.setViewportSize({ width, height: 1000 }); await wait(350);
         const dimensions = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
@@ -118,6 +134,9 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
           assert.ok(!canvas.labels.some(label => /^\d{4}-\d{2}-\d{2}$/.test(label)), 'Human-readable dates');
         }
         assert.ok(dimensions.charts[0].labels.some(label => label.startsWith('₱')), 'Compact currency scale');
+        const kpis = page.getByLabel('Dashboard KPIs', { exact: true });
+        assert.ok(await kpis.evaluate(region => [...region.querySelectorAll('[role="group"]')].every(card => card.scrollWidth <= card.clientWidth)), 'KPI text fits each card');
+        if ([320,375,1024,1440].includes(width)) await kpis.screenshot({ path: resolve(output, `${theme}-${range}-kpis-${width}.png`) });
         record(`${theme} ${interval} charts, labels and legends fit ${width}px`, dimensions);
       }
     }
@@ -128,7 +147,7 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     await page.screenshot({ path: resolve(output, `${theme}-metrics-320.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await selectRange('Today');
+  await selectRange('Weekly');
   await page.getByRole('img', { name: /^Revenue Trend by Week:/ }).waitFor();
   await revenue().scrollIntoViewIfNeeded(); await wait(1100);
   const canvas = revenue().locator('canvas');
@@ -139,7 +158,7 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   await until(() => canvas.evaluate(canvas => canvas.__labels.some(label => label.includes('Revenue (PHP):') && label.includes('6,500.00'))), 'Exact revenue tooltip');
   await page.mouse.move(0,0);
   record('Single revenue bucket is centered, visible and exposes the exact recorded revenue tooltip');
-  await selectRange('This Month');
+  await selectRange('Monthly');
   await expectValue('Total Revenue', money(6500), false);
 
   await prisma.deal.update({ where: { id: winner.id }, data: { assignedUserId: replacement.id } });
@@ -167,15 +186,10 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   await page.goto(base + '/dashboard');
   await expectSources(initial);
   assert.equal(await page.getByRole('button', { name: /Filter Revenue Trend|Lead Source date range/ }).count(), 0);
-  for (const [label, range] of [['Last Month','lastMonth'],['Today','today'],['Custom Date Range','custom']]) {
+  for (const [label, range] of [['Weekly','thisWeek'],['Yearly','thisYear'],['Monthly','thisMonth']]) {
     const before = await page.getByRole('region', { name: 'Pipeline Overview' }).innerHTML();
     const response = page.waitForResponse(response => response.url().includes('/reporting/dashboard?') && new URL(response.url()).searchParams.get('range') === range);
     await selectRange(label);
-    if (range === 'custom') {
-      await page.getByLabel('Start date', { exact: true }).fill(today);
-      await page.getByLabel('End date', { exact: true }).fill(today);
-      await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
-    }
     const filtered = await response; const report = (await filtered.json()).data;
     const params = new URL(filtered.url()).searchParams;
     assert.equal(params.get('leadSourceRange'), range);
@@ -186,10 +200,11 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     else await sources.getByText('No won deals for this period.', { exact: true }).waitFor();
     assert.equal(await page.getByRole('region', { name: 'Pipeline Overview' }).innerHTML(), before);
     await expectValue('Total Revenue', money(report.metrics.totalRevenue), false);
-    await expectValue('Win Rate', range === 'lastMonth' ? '0%' : '75%', false);
+    const { won, lost } = report.metrics;
+    await expectValue('Win Rate', `${won === 0 ? 0 : Math.round(won / (won + lost) * 1000) / 10}%`, false);
     record(`Toolbar ${label} filters sales metrics while preserving the current Pipeline Overview`);
   }
-  await selectRange('This Month');
+  await selectRange('Monthly');
   await expectSources(initial);
   const invalid = await create('Metrics missing money', 100, 0);
   await prisma.deal.update({ where: { id: invalid.id }, data: { value: null } });
@@ -325,19 +340,19 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
     let release;
     const pending = new Promise(resolve => { release = resolve; });
     const delayed = async route => {
-      if (new URL(route.request().url()).searchParams.get('range') === 'lastMonth') {
+      if (new URL(route.request().url()).searchParams.get('range') === 'thisWeek') {
         await pending; await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Selected range unavailable' } }) });
       } else await route.continue();
     };
     await page.route('**/api/proxy/reporting/dashboard?*', delayed);
-    await selectRange('Last Month');
+    await selectRange('Weekly');
     await page.getByLabel('Loading Dashboard').waitFor();
     assert.equal(await sources.count(), 0);
     release();
     await page.getByRole('alert').filter({ hasText: 'Selected range unavailable' }).waitFor();
     await page.unroute('**/api/proxy/reporting/dashboard?*', delayed);
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
-    await sources.getByText('No won deals for this period.', { exact: true }).waitFor();
+    await expectSources(await fetchReport('range=thisWeek&leadSourceRange=thisWeek'));
     assert.equal(await overview.innerHTML(), pipelineBefore);
     record('Range loading and failure hide stale charts; Retry restores the live Pipeline Overview');
   }
