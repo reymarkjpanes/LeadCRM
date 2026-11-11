@@ -277,7 +277,7 @@ try {
     const historicalRevenue = savedWins.reduce((sum, row) => sum + row.value, 0);
     await expectValue('Win Rate', '0%');
     await expectValue('Total Revenue', money(0));
-    assert.equal(await dateRange.getAttribute('title'), 'This Month');
+    assert.equal(await dateRange.getAttribute('title'), 'Monthly');
     assert.equal(await page.getByRole('button', { name: /Filter Revenue Trend|Lead Source date range/ }).count(), 0);
     await page.getByText('No won revenue in the selected period.', { exact: true }).waitFor();
     await page.getByText('No won deals for this period.', { exact: true }).waitFor();
@@ -292,37 +292,45 @@ try {
       return (await (await pending).json()).data;
     }
     async function verifyHistoricalReport(report) {
-      assert.equal(report.metrics.totalRevenue, historicalRevenue);
-      assert.equal(report.trend.reduce((sum, row) => sum + row.revenue, 0), historicalRevenue);
-      assert.deepEqual([report.metrics.won, report.metrics.lost, report.metrics.winRate], [2, 1, 66.7]);
+      const from = new Date(`${report.period.start}T00:00:00+08:00`), until = new Date(+new Date(`${report.period.end}T00:00:00+08:00`) + 86400000);
+      const rows = historicalRows.filter(row => row.closedAt >= from && row.closedAt < until);
+      const wins = rows.filter(row => row.stageId === stages[3].id);
+      const revenue = wins.reduce((sum, row) => sum + row.value, 0);
+      const rate = wins.length === 0 ? 0 : Math.round(wins.length / rows.length * 1000) / 10;
+      assert.equal(report.metrics.totalRevenue, revenue);
+      assert.equal(report.trend.reduce((sum, row) => sum + row.revenue, 0), revenue);
+      assert.deepEqual([report.metrics.won, report.metrics.lost], [wins.length, rows.length - wins.length]);
       assert.equal(report.leadSourcePerformance.period.start, report.period.start);
       assert.equal(report.leadSourcePerformance.period.end, report.period.end);
-      await expectValue('Total Revenue', money(historicalRevenue), false);
-      await expectValue('Win Rate', '66.7%', false);
-      await page.getByRole('img', { name: /^Revenue Trend by Week:/ }).waitFor();
-      await page.getByText('Referral: 2 won deals', { exact: true }).waitFor({ state: 'attached' });
-      await page.getByRole('region', { name: 'Sales Leaderboard' }).getByText('2 deals', { exact: true }).waitFor();
+      await expectValue('Total Revenue', money(revenue), false);
+      await expectValue('Win Rate', `${rate}%`, false);
+      if (wins.length) {
+        await page.getByRole('img', { name: /^Revenue Trend by/ }).waitFor();
+        await page.getByText(`Referral: ${wins.length} won deals`, { exact: true }).waitFor({ state: 'attached' });
+        await page.getByRole('region', { name: 'Sales Leaderboard' }).getByText(`${wins.length} deals`, { exact: true }).waitFor();
+      } else await page.getByText('No won revenue in the selected period.', { exact: true }).waitFor();
     }
-    await verifyHistoricalReport(await selectRange('Last Month', 'lastMonth'));
-    assert.equal(await dateRange.getAttribute('title'), 'Last Month');
-    record('Desktop period selection reconciles two stored wins, API, trend and rendered Revenue');
+    await dateRange.click();
+    assert.deepEqual(await page.getByRole('menuitemradio').allTextContents(), ['Weekly', 'Monthly', 'Yearly']);
+    await page.keyboard.press('Escape');
+    await verifyHistoricalReport(await selectRange('Yearly', 'thisYear'));
+    assert.equal(await dateRange.getAttribute('title'), 'Yearly');
+    record('Desktop Yearly selection reconciles stored wins, API, trend and rendered Revenue');
 
     await page.setViewportSize({ width: 390, height: 850 });
     assert.equal((await dateRange.boundingBox()).width, 44);
     await dateRange.click();
-    assert.equal(await page.getByRole('menuitemradio', { name: 'Last Month', exact: true }).getAttribute('aria-checked'), 'true');
-    await page.getByRole('menuitemradio', { name: 'Custom Date Range', exact: true }).click();
-    await page.getByLabel('Start date', { exact: true }).fill(lastMonth.end);
-    await page.getByLabel('End date', { exact: true }).fill(lastMonth.end);
-    const customResponse = reportResponse('custom');
-    await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
-    const customReport = (await (await customResponse).json()).data;
+    assert.equal(await page.getByRole('menuitemradio', { name: 'Yearly', exact: true }).getAttribute('aria-checked'), 'true');
+    await page.keyboard.press('Escape');
+    await verifyHistoricalReport(await selectRange('Weekly', 'thisWeek'));
+    const customReport = await http(`/reporting/dashboard?range=custom&start=${lastMonth.end}&end=${lastMonth.end}`);
     assert.deepEqual([customReport.period.start, customReport.period.end], [lastMonth.end, lastMonth.end]);
-    await verifyHistoricalReport(customReport);
+    assert.equal(customReport.metrics.totalRevenue, historicalRevenue);
+    assert.deepEqual([customReport.metrics.won, customReport.metrics.lost], [2, 1]);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    record('Mobile custom range includes wins at the last millisecond of the Manila month');
+    record('Mobile Weekly selection works; historical custom API includes wins at the last millisecond of the Manila month');
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await selectRange('This Month', 'thisMonth');
+    await selectRange('Monthly', 'thisMonth');
     await expectValue('Total Revenue', money(0));
 
     const current = await mutation('A newly created Deal updates both open Dashboards', () => http('/crm/deals', 'POST', {
@@ -384,8 +392,9 @@ try {
     assert.deepEqual(await Promise.all(dashboards.map(tab => tab.evaluate(() => performance.timeOrigin))), navigationStarts);
     const overview = page.getByRole('region', { name: 'Pipeline Overview', exact: true });
     const currentPipeline = await overview.innerText();
-    await selectRange('Last Month', 'lastMonth');
-    await expectValue('Win Rate', '66.7%', false);
+    const yearly = await selectRange('Yearly', 'thisYear');
+    const { won, lost } = yearly.metrics;
+    await expectValue('Win Rate', `${won === 0 ? 0 : Math.round(won / (won + lost) * 1000) / 10}%`, false);
     assert.equal(await overview.innerText(), currentPipeline);
     await expectValue('Forecasted Revenue', money(cancelled.value));
     record('Changing the toolbar period keeps current Pipeline Overview and Forecast');

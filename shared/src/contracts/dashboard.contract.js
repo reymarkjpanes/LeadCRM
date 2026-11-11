@@ -8,7 +8,7 @@ exports.dashboardCsv = dashboardCsv;
 const crm_export_1 = require("./crm-export");
 const zod_1 = require("zod");
 exports.DASHBOARD_TIMEZONE = 'Asia/Manila';
-exports.DASHBOARD_RANGES = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'last3', 'last6', 'thisYear', 'custom'];
+exports.DASHBOARD_RANGES = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'last3', 'last6', 'thisYear', 'custom', 'thisWeek'];
 exports.REVENUE_INTERVALS = ['week', 'month', 'year'];
 exports.FUNNEL_RANGES = ['week', 'month', 'year', 'custom'];
 function dashboardToday(now = new Date()) {
@@ -64,6 +64,10 @@ function dashboardPeriod(query, now = new Date()) {
     let start = today, end = today;
     if (query.range === 'last7' || query.range === 'last30')
         start = new Date(Date.parse(today) - (query.range === 'last7' ? 6 : 29) * 86400000).toISOString().slice(0, 10);
+    if (query.range === 'thisWeek') {
+        const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+        start = new Date(Date.parse(today) - ((weekday + 6) % 7) * 86400000).toISOString().slice(0, 10);
+    }
     if (query.range === 'thisMonth')
         start = iso(year, month - 1, 1);
     if (query.range === 'lastMonth') {
