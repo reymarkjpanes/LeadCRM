@@ -7,7 +7,7 @@ import { changeDealAssociation, readDealAssociation, resolveManualDealAssociatio
 import { salesContext } from '../leads/sales-context';
 import { resolveProducts, salesTransaction } from '../leads/lead-automation.service';
 import { validateSalesOwner } from '../leads/lead-automation.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Deal, type DealStageHistory, type Stage } from '@prisma/client';
 import { MoveDealPipelineSchema, normalizeCrmStatus } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import * as repo from './deals.repository';
@@ -18,7 +18,7 @@ import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams, Manua
 import { paginate } from '../../../shared/helpers/pagination';
 import { fireDealCreated, fireDealStageChanged, fireDealUpdated } from '../../automation/triggers/triggers.service';
 import { recordChanges, customFieldChangeTracker } from '../record-updates';
-import { assertDealStageTransition, dealHasEverBeenWon, isQualifiedStage } from './deal-lifecycle';
+import { assertDealStageTransition, dealHasEverBeenWon, isQualifiedStage, type DealStageMovePolicy, type RelatedDealMoveGuard } from './deal-lifecycle';
 import { isWorkflowQualified } from './workflow-qualification';
 import { manualStatusCheckpoint } from '../status-checkpoint';
 import { assertCrmRecordMutation, authorizedWorkflowScope } from '../access/crm-record-access.service';
@@ -126,6 +126,7 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
   }
   if (!deal) throw new NotFoundError('Deal');
 
+  let stageHistory: DealStageHistory | null = null;
   if (engagementStatus !== undefined) {
     const tx = salesContext.getStore()!;
     await assertCrmRecordMutation(tx, 'deals', id);
@@ -140,7 +141,8 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
       const stages = await tx.stage.findMany({ where: { tenantId, pipelineId: current.pipelineId,
         ...(engagementStatus === 'Cancelled' ? { isLost: true, isWon: false } : engagementStatus === 'Closed Deal' ? { isWon: true, isLost: false } : { name: { equals: stageName, mode: 'insensitive' }, isWon: false, isLost: false }) }, take: 2 });
       if (stages.length !== 1) throw new ValidationError('Configure one matching status stage in this Deal’s pipeline.');
-      await moveDealStage(id, tenantId, userId, { stageId: stages[0].id, lostReason }, undefined, { deferCustomerStatus: true });
+      ({ stageHistory } = await applyDealStageMove(id, tenantId, userId, { stageId: stages[0].id, lostReason }, undefined,
+        { deferCustomerStatus: true, deferWorkflowEvents: true }));
     }
     const changedAt = new Date();
     await tx.deal.update({ where: { tenantId, id }, data: { engagementStatus, manualStatusContext: manualStatusCheckpoint(engagementStatus), engagementEvaluatedAt: changedAt } });
@@ -165,7 +167,7 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     deal  as unknown as Record<string, unknown>,
   );
 
-  const updateEventId = randomUUID();
+  const updateEventId = stageHistory?.id ?? randomUUID();
   const changes = await withCustomChanges(recordChanges(before, deal));
   await writeAuditLog({
     tenantId, userId,
@@ -174,6 +176,7 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
     metadata: { eventId: updateEventId, stalenessReset: !authorizedWorkflowScope(tenantId) && changes.changedFields.length > 0 },
     before: changedBefore, after: changedAfter,
   });
+  if (stageHistory) await publishDealStageTransition(tenantId, userId, deal, deal.stage, stageHistory);
   if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, eventId: updateEventId, record: deal, changedFields: changes.changedFields, changes });
 
   // Assignment events commit with the Deal through the notification outbox.
@@ -219,8 +222,19 @@ export async function validateDealStageMove(id: string, tenantId: string, dto: M
   return newStage;
 }
 
-export async function moveDealStage(id: string, tenantId: string, userId: string, dto: MoveDealStageDto, guard?: import('./deal-lifecycle').RelatedDealMoveGuard, policy: import('./deal-lifecycle').DealStageMovePolicy = {}) {
-  return salesTransaction(async () => {
+export async function moveDealStage(id: string, tenantId: string, userId: string, dto: MoveDealStageDto, guard?: RelatedDealMoveGuard, policy: DealStageMovePolicy = {}) {
+  return salesTransaction(() => applyDealStageMove(id, tenantId, userId, dto, guard, policy));
+}
+
+function publishDealStageTransition(tenantId: string, actorId: string, deal: Pick<Deal, 'id' | 'title'>,
+  stage: Pick<Stage, 'name' | 'isWon' | 'isLost'>, history: DealStageHistory) {
+  return fireDealStageChanged({ tenantId, actorId, deal, eventId: history.id,
+    newStageId: history.newStageId, newStageName: stage.name, isWon: stage.isWon, isLost: stage.isLost,
+    prevStageId: history.previousStageId ?? undefined });
+}
+
+async function applyDealStageMove(id: string, tenantId: string, userId: string, dto: MoveDealStageDto, guard: RelatedDealMoveGuard | undefined,
+  policy: DealStageMovePolicy & { deferWorkflowEvents?: boolean }) {
   const newStage = await validateDealStageMove(id, tenantId, dto, policy);
   let result;
   try {
@@ -237,24 +251,15 @@ export async function moveDealStage(id: string, tenantId: string, userId: string
     after: { newStageId: dto.stageId, isWon: newStage.isWon, isLost: newStage.isLost, note: dto.note, lostReason: dto.lostReason },
   });
 
-  // Capture dependent automation before committing the stage transition.
-  await fireDealStageChanged({
-    tenantId,
-    eventId: result.stageHistory.id,
-    actorId: userId,
-    deal: result.deal,
-    newStageId:   newStage.id,
-    newStageName: newStage.name,
-    isWon:        newStage.isWon,
-    isLost:       newStage.isLost,
-    prevStageId:  result.stageHistory.previousStageId ?? undefined,
-  });
-  const changes = recordChanges(result.previousDeal, result.deal);
-  if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, eventId: result.stageHistory.id,
-    record: result.deal, changedFields: changes.changedFields, changes });
+  // A status save publishes both events once, after the enclosing mutation finishes.
+  if (!policy.deferWorkflowEvents) {
+    await publishDealStageTransition(tenantId, userId, result.deal, newStage, result.stageHistory);
+    const changes = recordChanges(result.previousDeal, result.deal);
+    if (changes.changedFields.length) await fireDealUpdated({ tenantId, actorId: userId, eventId: result.stageHistory.id,
+      record: result.deal, changedFields: changes.changedFields, changes });
+  }
 
   return { deal: result.deal, stageHistory: result.stageHistory };
-  });
 }
 
 export async function moveDealPipeline(id: string, tenantId: string, actorId: string, input: unknown) {

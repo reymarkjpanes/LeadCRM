@@ -41,9 +41,9 @@ try {
   await prisma.userRole.create({ data: { tenantId, userId: denied.id, roleId: deniedRole.id } });
   const adminToken = (await issueAuthSession(admin)).token, staffToken = (await issueAuthSession(agent)).token, deniedToken = (await issueAuthSession(denied)).token;
   let browserToken = adminToken, slowPermissions = false;
-  const account = await prisma.account.create({ data: { tenantId, name: 'Integrity Account',  } });
-  const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Integrity', lastName: 'Lead', assignedUserId: agent.id, status: 'Warm' } });
-  const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Integrity', lastName: 'Contact', assignedUserId: agent.id } });
+  const account = await prisma.account.create({ data: { tenantId, name: 'Integrity Account' } });
+  const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Integrity', lastName: 'Lead', accountId: account.id, assignedUserId: agent.id, status: 'Warm' } });
+  const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Integrity', lastName: 'Contact', accountId: account.id, assignedUserId: agent.id } });
   const product = await prisma.productInterest.create({ data: { tenantId, name: 'Integrity Product', dealValue: 15000 } });
   const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Integrity Pipeline' } });
   const stages = {};
@@ -55,7 +55,8 @@ try {
     assert.equal(response.status, expected, `${method} ${path}: ${await response.clone().text()}`);
     return response.json();
   }
-  const deal = (await call('/crm/deals', 'POST', { title: 'Integrity Deal', pipelineId: pipeline.id, stageId: stages.Lead.id, productInterestId: product.id, assignedUserId: agent.id, accountId: account.id, leadIds: [lead.id], contactIds: [contact.id] }, 201)).data;
+  const deal = (await call('/crm/deals', 'POST', { title: 'Integrity Deal', pipelineId: pipeline.id, stageId: stages.Lead.id, productInterestId: product.id, assignedUserId: agent.id, accountId: account.id, leadIds: [lead.id] }, 201)).data;
+  await call(`/crm/deals/${deal.id}`, 'PUT', { contactIds: [contact.id] });
   const log = createWriteStream(resolve(output, 'frontend.log'));
   frontend = spawn(process.execPath, [resolve(root, 'node_modules/next/dist/bin/next'), 'start', '-p', new URL(base).port, '-H', '127.0.0.1'], { cwd: resolve(root, 'frontend'), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_ENV: 'production', API_URL: 'https://leadcrm-build.example/api/v1', NEXT_PUBLIC_USE_MOCK_AUTH: 'false', NEXT_PUBLIC_USE_MOCK_DATA: 'false' } });
   frontend.stdout.pipe(log); frontend.stderr.pipe(log);
@@ -87,7 +88,8 @@ try {
   await page.getByRole('region', { name: 'Template setup requirements' }).waitFor();
   await page.getByRole('button', { name: 'Use this template', exact: true }).click();
   await page.getByRole('button', { name: /^Configure condition:/ }).click();
-  await page.getByLabel('Template pipeline', { exact: true }).selectOption(pipeline.id);
+  await page.getByLabel('Condition 1 value', { exact: true }).selectOption(pipeline.id);
+  await page.getByRole('group', { name: 'Template stage setup' }).getByText(pipeline.name, { exact: true }).waitFor();
   await page.getByLabel('Template entry stage', { exact: true }).selectOption(stages.Contacted.id);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Workflow details', exact: true }).click();
@@ -104,7 +106,7 @@ try {
   const entered = await move('Contacted');
   const historyId = entered.data.stageHistory.id;
   await page.goto(base + `/automation/workflows/${workflow.id}/edit`);
-  await page.getByRole('button', { name: 'Test', exact: true }).click();
+  await page.getByRole('button', { name: 'Test draft', exact: true }).click();
   await page.getByLabel('Sample record').selectOption(deal.id);
   await page.getByLabel('Recorded stage transition').selectOption(historyId);
   await page.getByRole('button', { name: 'Run check', exact: true }).click();
@@ -114,8 +116,9 @@ try {
   assert.ok(await page.getByText('Deals:', { exact: true }).count());
   passed('Historical stage preview resolves Task fields without Task, run or assignment writes');
   await page.goto(base + '/automation/workflows');
-  const activated = page.waitForResponse(response => response.request().method() === 'PATCH' && response.url().endsWith(`/workflows/${workflow.id}/toggle`));
   await page.getByRole('button', { name: 'Activate workflow', exact: true }).click();
+  const activated = page.waitForResponse(response => response.request().method() === 'PATCH' && response.url().endsWith(`/workflows/${workflow.id}/toggle`));
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Activate workflow', exact: true }).click();
   assert.equal((await activated).status(), 200);
   await move('Lead'); await move('Contacted'); await flush();
   const tasks = await prisma.task.findMany({ where: { tenantId }, include: { dealLinks: true } });
@@ -123,6 +126,7 @@ try {
   const task = tasks[0];
   assert.equal(task.createdById, admin.id); assert.equal(task.assignedUserId, agent.id); assert.equal(task.status, 'pending'); assert.equal(task.priority, 'Medium');
   assert.deepEqual(task.dealLinks.map(link => link.dealId), [deal.id]);
+  assert.equal(await prisma.workflowExecutionRun.count({ where: { tenantId, workflowId: workflow.id, entityId: deal.id, status: 'completed' } }), 1);
   assert.ok(await prisma.auditLog.count({ where: { tenantId, entityType: 'Task', entityId: task.id } }));
   assert.ok(await prisma.activity.count({ where: { tenantId, taskId: task.id } }));
   passed('Existing activation → source stage API → real worker persists Task, creator, assignee, associations and history');
@@ -135,19 +139,21 @@ try {
   await page.goto(base + '/automation/workflows');
   await page.getByText('Integrity stage follow-up', { exact: true }).first().click();
   const completedRun = page.getByRole('dialog').locator('details').filter({ has: page.locator('a[href^="/operations/taskboard?taskId="]') }).first();
+  await completedRun.locator('summary').getByText(/^completed$/i).waitFor();
   await completedRun.locator('summary').first().click();
   await page.getByRole('link', { name: 'Open Task' }).first().waitFor();
   const taskHref = await page.getByRole('link', { name: 'Open Task' }).first().getAttribute('href');
   assert.ok(taskHref.startsWith('/operations/taskboard?taskId='));
   assert.equal(await page.getByRole('link', { name: 'Open deal', exact: true }).first().getAttribute('href'), `/crm/deals/${deal.id}`);
   await page.goto(base + `/operations/taskboard?taskId=${task.id}`);
-  let details = page.getByRole('dialog', { name: 'Task details', exact: true });
-  await details.getByRole('link', { name: 'Integrity Deal', exact: true }).waitFor();
-  assert.equal(await details.getByRole('link', { name: 'Integrity Deal', exact: true }).getAttribute('href'), `/crm/deals/${deal.id}`);
+  const associatedDeals = page.getByRole('region', { name: 'Associated Deal records', exact: true });
+  let details = page.getByRole('dialog').filter({ has: associatedDeals });
+  const dealLink = associatedDeals.getByRole('link', { name: 'Integrity Deal', exact: true });
+  await dealLink.waitFor();
+  assert.equal(await dealLink.getAttribute('href'), `/crm/deals/${deal.id}`);
   passed('Workflow result Task/source links open persisted IDs; Task details link back to the Deal');
   await call(`/operations/tasks/${task.id}`, 'PUT', { title: 'Clean server refresh', expectedUpdatedAt: task.updatedAt.toISOString() });
-  await details.getByRole('textbox', { name: /^Title/ }).waitFor();
-  await page.waitForFunction(() => [...document.querySelectorAll('input')].some(input => input.value === 'Clean server refresh'));
+  await details.getByRole('heading', { name: 'Clean server refresh', exact: true }).waitFor();
   passed('A clean read-only Task destination refreshes after a real committed update');
   await details.getByRole('button', { name: 'Close record', exact: true }).click();
   await page.goto(base + `/crm/deals/${deal.id}`);

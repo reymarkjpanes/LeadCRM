@@ -603,7 +603,10 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     expect(await prisma.task.count({ where: { ...taskContextWhere('contact', contact.id!, tenantId) } })).toBe(beforeTasks);
   });
   it('dispatches a field-triggered stage change after commit without waiting for the recovery interval', async () => {
-    const workflow = await create([{ type: 'move_deal_stage', config: { stageId: contacted.id } }], { trigger: 'deal.updated' });
+    const workflow = await create([{ type: 'move_deal_stage', config: { stageId: contacted.id } }], {
+      trigger: 'deal.updated',
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: deal.stageId }] },
+    });
     const stop = startWorkflowScheduler();
     try {
       // Bypass the fixture helper that explicitly flushes queued work.

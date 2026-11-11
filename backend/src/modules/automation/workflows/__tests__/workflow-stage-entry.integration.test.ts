@@ -12,6 +12,7 @@ import { dispatchQueuedWorkflows } from '../workflow-queue';
 import { flushWorkflowQueue } from './workflow-queue-test-helper';
 import * as workflows from '../workflows.service';
 import * as workflowRepo from '../workflows.repository';
+import * as workflowFields from '../workflow-fields';
 import * as taskPreparation from '../../actions/action-task-input';
 import * as assignments from '../../assignment/workflow-assignment.service';
 import * as activities from '../../../crm/activities/activities.repository';
@@ -52,6 +53,159 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
   }, 60000);
   beforeEach(async () => { vi.restoreAllMocks(); await prisma.workflow.updateMany({ where: { tenantId }, data: { isActive: false } }); });
   afterAll(async () => { vi.useRealTimers(); vi.restoreAllMocks(); await prisma.$disconnect(); });
+
+  it('publishes one update and one stage entry for a Deal status save that moves the stage', async () => {
+    const deal = await newDeal();
+    const definitions = [
+      { trigger: 'deal.updated', field: 'event.changedFields', operator: 'contains', value: 'stageId' },
+      { trigger: 'deal.stage_changed', field: 'event.newStageId', operator: 'equals', value: contactedId },
+    ];
+    const published = await Promise.all(definitions.map(({ trigger, ...condition }) => scope(() => workflows.createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger, isActive: true,
+      conditions: { operator: 'AND', conditions: [condition, { field: 'deal.engagementStatus', operator: 'equals', value: 'Warm' }] },
+      actions: [{ type: 'create_task', config: { title: trigger, assignedUserId: ownerId } }],
+    }))));
+
+    const saved = await scope(() => updateDeal(deal.id, tenantId, actorId, { engagementStatus: 'Warm' }));
+    expect(saved).toMatchObject({ stageId: contactedId, engagementStatus: 'Warm' });
+    await flushWorkflowQueue(tenantId);
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { engagementStatus: 'Warm' }));
+    await flushWorkflowQueue(tenantId);
+
+    const executions = await prisma.workflowExecutionRun.findMany({ where: { tenantId, entityId: deal.id }, include: { trigger: true } });
+    expect(executions).toHaveLength(2);
+    for (const workflow of published) {
+      const execution = executions.find(row => row.workflowId === workflow.id);
+      expect(execution).toMatchObject({ status: 'completed', dispatchContext: {
+        eventContext: { 'deal.stageId': contactedId, 'deal.engagementStatus': 'Warm' },
+        context: workflow.trigger === 'deal.updated'
+          ? { 'event.changedFields': expect.arrayContaining(['engagementStatus', 'stageId']) }
+          : { 'event.previousStageId': initialId, 'event.newStageId': contactedId, 'event.stageHistoryId': saved.currentStageHistoryId },
+      } });
+    }
+    const tasks = await prisma.task.findMany({ where: { tenantId, dealLinks: { some: { dealId: deal.id } } }, select: { title: true } });
+    expect(tasks.map(task => task.title).sort()).toEqual(['deal.stage_changed', 'deal.updated']);
+  });
+
+  it('continues a stage entry only after a later save satisfies its conditions', async () => {
+    const deal = await newDeal();
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger: 'deal.stage_changed', isActive: true,
+      conditions: { operator: 'AND', conditions: [
+        { field: 'event.newStageId', operator: 'equals', value: contactedId },
+        { field: 'deal.engagementStatus', operator: 'equals', value: 'Cold' },
+        { field: 'deal.title', operator: 'equals', value: 'Ready for later follow-up' },
+      ] },
+      actions: [{ type: 'create_task', config: { title: 'Later follow-up', assignedUserId: ownerId } }],
+    }));
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { engagementStatus: 'Warm' }));
+    await flushWorkflowQueue(tenantId);
+    expect(await runs(workflow.id)).toMatchObject([{ status: 'skipped' }]);
+
+    const saved = await scope(() => updateDeal(deal.id, tenantId, actorId, { engagementStatus: 'Cold' }));
+    expect(saved).toMatchObject({ stageId: contactedId, engagementStatus: 'Cold' });
+    await flushWorkflowQueue(tenantId);
+    expect(await runs(workflow.id)).toMatchObject([{ status: 'skipped' }]);
+
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Ready for later follow-up' }));
+    await flushWorkflowQueue(tenantId);
+    const history = await runs(workflow.id);
+    expect(history.map(run => run.status).sort()).toEqual(['completed', 'skipped']);
+    expect(await prisma.task.count({ where: { tenantId, dealLinks: { some: { dealId: deal.id } } } })).toBe(1);
+  });
+
+  it.each(['deal.updated', 'deal.stage_changed'])('moves a Deal from Contacted to Qualified once using %s', async trigger => {
+    const deal = await newDeal();
+    if (trigger === 'deal.updated') await move(deal.id, contactedId);
+    else await move(deal.id, qualifiedId);
+    const conditions = { operator: 'AND', conditions: [
+      { field: trigger === 'deal.updated' ? 'deal.stageId' : 'event.newStageId', operator: 'equals', value: contactedId },
+    ] };
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger, isActive: true, conditions,
+      actions: [{ type: 'move_deal_stage', config: { stageId: qualifiedId } }],
+    }));
+    if (trigger === 'deal.updated') {
+      const otherDeal = await newDeal();
+      await scope(() => updateDeal(otherDeal.id, tenantId, actorId, { title: 'Still in Lead' }));
+      await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Ready to qualify' }));
+    } else {
+      // An open Deal can move backward. The new entry can qualify for automation again.
+      await move(deal.id, contactedId);
+    }
+    await flushWorkflowQueue(tenantId);
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ stageId: qualifiedId });
+    const history = await runs(workflow.id);
+    expect(history.filter(run => run.entityId === deal.id)).toMatchObject([{ status: 'completed', steps: [{ status: 'success' }] }]);
+    if (trigger === 'deal.updated') expect(history.filter(run => run.entityId !== deal.id)).toMatchObject([
+      { status: 'skipped', errorMessage: 'Workflow conditions did not match the triggering event.' },
+    ]);
+  });
+
+  const legacyStageMove = () => scope(() => prisma.workflow.create({ data: {
+    tenantId, name: randomUUID(), trigger: 'deal.updated', isActive: true, status: 'ACTIVE', activatedById: actorId,
+    conditions: { operator: 'AND', conditions: [{ field: 'deal.title', operator: 'equals', value: 'Only a different Deal' }] },
+    actions: [{ type: 'move_deal_stage', config: { stageId: qualifiedId } }],
+  } }));
+
+  it('pauses a legacy stage move before dispatch even when its conditions do not match', async () => {
+    const deal = await newDeal();
+    const workflow = await legacyStageMove();
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Another title' }));
+    await flushWorkflowQueue(tenantId);
+
+    expect(await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).toMatchObject({
+      status: 'PAUSED', isActive: false, version: workflow.version, conditions: workflow.conditions, actions: workflow.actions,
+    });
+    expect(await scope(() => workflows.getWorkflowById(workflow.id, tenantId))).toMatchObject({
+      repairReason: expect.stringContaining('explicit Deal Stage Equals condition'),
+    });
+    expect(await prisma.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } })).toMatchObject({
+      status: 'failed', dispatchStartedAt: null, errorMessage: expect.stringContaining('explicit Deal Stage Equals condition'),
+      steps: [{ actionType: 'validation', status: 'failed' }],
+    });
+    await expect(scope(() => workflows.toggleWorkflow(workflow.id, tenantId, actorId, true))).rejects.toThrow('explicit Deal Stage Equals condition');
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Still editable' }));
+    await flushWorkflowQueue(tenantId);
+    expect(await runs(workflow.id)).toHaveLength(1);
+  });
+
+  it('does not pause a repaired first publication while rejecting the old queued snapshot', async () => {
+    const deal = await newDeal();
+    const workflow = await legacyStageMove();
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Queued before repair' }));
+
+    let validationStarted!: () => void;
+    let resumeValidation!: () => void;
+    const beforeValidation = new Promise<void>(resolve => { validationStarted = resolve; });
+    const continueValidation = new Promise<void>(resolve => { resumeValidation = resolve; });
+    const compatibleWorkflow = workflowFields.compatibleWorkflow;
+    vi.spyOn(workflowFields, 'compatibleWorkflow').mockImplementationOnce(async (...args) => {
+      const snapshot = await compatibleWorkflow(...args);
+      validationStarted();
+      await continueValidation;
+      return snapshot;
+    });
+    const dispatch = dispatchQueuedWorkflows();
+    await Promise.race([beforeValidation, dispatch.then(() => { throw new Error('Worker did not validate the snapshot'); })]);
+    try {
+      const repaired = await scope(() => workflows.publishWorkflowDraft(workflow.id, tenantId, actorId, {
+        expectedVersion: workflow.version, expectedDraftRevision: workflow.draftRevision,
+        draft: { name: workflow.name, trigger: 'deal.updated', isActive: true,
+          conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: initialId }] },
+          actions: workflow.actions },
+      }));
+      expect(repaired.version).toBe(workflow.version);
+    } finally {
+      resumeValidation();
+      await dispatch;
+    }
+    expect(await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).toMatchObject({ isActive: true, status: 'ACTIVE' });
+    expect(await runs(workflow.id)).toMatchObject([{ status: 'failed', errorMessage: expect.stringContaining('explicit Deal Stage Equals condition') }]);
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Queued after repair' }));
+    await flushWorkflowQueue(tenantId);
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ stageId: qualifiedId });
+  });
 
   it.each(['created', 'contacted', 'qualified', 'custom', 'won', 'lost', 'assign', 'reopen'] as const)('persists the configured %s template through canonical source events', async scenario => {
     const options = await scope(() => workflows.getOptions(tenantId, actorId));

@@ -6,7 +6,7 @@ import prisma from '../../../config/database.config';
 import { workflowChain as chain, workflowLease } from './workflow-dispatch-context';
 import { fenceWorkflowLease, isWorkflowLeaseLost, workflowLeaseWrite } from './workflow-lease';
 import { interruptWorkflowEvidence } from './workflow-interruption';
-import { WorkflowDraftSchema, WorkflowActionSchema, normalizeSavedWorkflowAssignment, parseStoredCrmStatus, WORKFLOW_MODULES, ACCOUNT_RETIREMENT_REASON, workflowActionPolicyIssues, type WorkflowDraft } from '@leadcrm/shared';
+import { WorkflowDraftSchema, WorkflowActionSchema, normalizeSavedWorkflowAssignment, parseStoredCrmStatus, WORKFLOW_MODULES, ACCOUNT_RETIREMENT_REASON, workflowDefinitionIssues, type WorkflowDraft } from '@leadcrm/shared';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { ValidationError, NotFoundError } from '../../../shared/errors/http-error';
 import { AppError } from '../../../shared/errors/app-error';
@@ -25,7 +25,7 @@ export interface WorkflowFireParams {
   triggerType: string; entityType: string; entityId: string; tenantId: string;
   actorId?: string; eventId?: string; context: Record<string, unknown>;
 }
-type PreparedWorkflow = { workflow: Workflow; run: WorkflowExecutionRun; leaseId: string; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
+type PreparedWorkflow = { workflow: Workflow; draft: WorkflowDraft; run: WorkflowExecutionRun; leaseId: string; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
 export function fireWorkflowTrigger(params: WorkflowFireParams, prepared?: PreparedWorkflow): Promise<void> {
   return prepared ? workflowLease.run({ tenantId: params.tenantId, executionId: prepared.run.id, leaseId: prepared.leaseId }, () => executeWorkflowTrigger(params, prepared))
     : executeWorkflowTrigger(params);
@@ -87,15 +87,19 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
       const stageHistoryId = isStageEvent(params.triggerType)
         ? String(context['event.stageHistoryId'] ?? (eventId.startsWith(`${params.triggerType}:`) ? eventId.slice(params.triggerType.length + 1) : '')) : undefined;
       try {
-        // The read adapter may attach repair metadata; it is not a definition field.
-        const parsed = WorkflowDraftSchema.strip().safeParse(await compatibleWorkflow({ name: workflow.name, description: workflow.description, trigger: workflow.trigger,
-          conditions: workflow.conditions, actions: workflow.actions, isActive: workflow.isActive }, params.tenantId));
-        if (!parsed.success) throw new ValidationError('This workflow uses an invalid configuration. Edit and save it before activating.');
-        const draft: WorkflowDraft = parsed.data;
-        const policyIssues = workflowActionPolicyIssues(draft);
-        if (policyIssues.length) {
-          await prisma.workflow.updateMany({ where: { id: workflow.id, tenantId: params.tenantId, version: workflow.version, isActive: true }, data: { isActive: false, status: 'PAUSED' } });
-          throw new ValidationError(`${policyIssues[0]} This workflow was paused for repair; no actions were performed.`);
+        let draft = prepared?.draft;
+        if (!draft) {
+          // The read adapter may attach repair metadata; it is not a definition field.
+          const parsed = WorkflowDraftSchema.strip().safeParse(await compatibleWorkflow(workflow, params.tenantId));
+          if (!parsed.success) throw new ValidationError('This workflow uses an invalid configuration. Edit and save it before activating.');
+          draft = parsed.data;
+          const [issue] = workflowDefinitionIssues(draft);
+          if (issue) {
+            const paused = await prisma.workflow.updateMany({ where: { id: workflow.id, tenantId: params.tenantId, version: workflow.version,
+              draftRevision: workflow.draftRevision, updatedAt: workflow.updatedAt, activatedById: workflow.activatedById,
+              status: 'ACTIVE', isActive: true, isArchived: false }, data: { isActive: false, status: 'PAUSED' } });
+            throw new ValidationError(paused.count ? `${issue} This workflow was paused for repair; no actions were performed.` : issue);
+          }
         }
         if (stageHistoryId !== undefined) {
           const recorded = await workflowStageEvent(params.tenantId, params.entityId, params.triggerType, stageHistoryId);

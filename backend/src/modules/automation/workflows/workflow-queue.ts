@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { AsyncResource } from 'node:async_hooks';
-import { accountWorkflowRetirementReferences } from './workflow-fields';
-import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema } from '@leadcrm/shared';
-import { Prisma } from '@prisma/client';
+import { isDeepStrictEqual } from 'node:util';
+import { accountWorkflowRetirementReferences, compatibleWorkflow } from './workflow-fields';
+import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema, WorkflowDraftSchema, workflowDefinitionIssues } from '@leadcrm/shared';
+import { Prisma, type Workflow } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { workflowChain } from './workflow-dispatch-context';
@@ -10,7 +11,6 @@ import type { WorkflowFireParams } from './workflow.engine';
 import { findTrigger } from '../triggers/trigger-catalog';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { entityContext } from './workflows.repository';
-import { compatibleWorkflow } from './workflow-fields';
 import { workflowStageEvent } from './workflow-stage-entry';
 import { evaluateCondition } from './workflow-conditions';
 import { interruptWorkflowRun } from './workflow-interruption';
@@ -21,6 +21,11 @@ import { preparationAttempts, preparationContext, preparationFailure, preparatio
 import { workflowWorkerStarted, workflowWorkerDraining, workflowWorkerStopped, workflowWorkerSweep } from './workflow-worker-status';
 
 const metadata = ['event.previousStageId', 'event.newStageId', 'event.stageHistoryId', 'event.previousStatus', 'event.newStatus', 'event.changedFields', 'event.originDealId', 'event.continuationSourceId', 'event.continuationUpdateId'];
+
+function workflowSnapshot(workflow: Workflow) {
+  const { name, description, trigger, conditions, actions, isActive } = workflow;
+  return { name, description, trigger, conditions, actions, isActive };
+}
 
 async function failPreparation(tx: Prisma.TransactionClient, run: { id: string; tenantId: string }, where: Prisma.WorkflowExecutionRunWhereInput,
   errorMessage: string, dispatchContext: Prisma.InputJsonObject) {
@@ -62,7 +67,7 @@ export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, param
     const freshness = await captureWorkflowFreshness(tx, params, workflow, eventContext);
     await tx.workflowExecutionRun.create({ data: { tenantId: params.tenantId, workflowId: workflow.id, triggerId, entityType: params.entityType, entityId: params.entityId,
       status: 'queued', workflowVersion: workflow.version,
-      definitionSnapshot: { name: workflow.name, description: workflow.description, trigger: workflow.trigger, conditions: workflow.conditions, actions: workflow.actions, isActive: workflow.isActive },
+      definitionSnapshot: workflowSnapshot(workflow),
       dispatchContext: { version: 1, actorId: params.actorId ?? null, activatedById: workflow.activatedById, ancestry, context, eventContext, freshness } as Prisma.InputJsonValue,
     } });
     markWorkflowQueued(tx);
@@ -74,9 +79,12 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
   if (params.triggerType !== 'deal.updated' || !Array.isArray(params.context['event.changedFields'])) return;
   const deal = await tx.deal.findFirst({ where: { tenantId: params.tenantId, id: params.entityId, isArchived: false, deletedAt: null }, select: { currentStageHistoryId: true } });
   if (!deal?.currentStageHistoryId) return;
+  // The update emitted with this stage entry already contributed to its snapshot.
+  if (params.eventId === `deal.updated:${deal.currentStageHistoryId}`) return;
   const sources = await tx.workflowTriggerRecord.findMany({ where: { tenantId: params.tenantId, entityId: params.entityId, triggerType: 'deal.stage_changed', eventId: `deal.stage_changed:${deal.currentStageHistoryId}` }, include: { workflow: true, runs: { include: { steps: true } } } });
   if (!sources.length) return;
   const recorded = await workflowStageEvent(params.tenantId, params.entityId, 'deal.stage_changed', deal.currentStageHistoryId, tx);
+  let currentContext: Record<string, unknown> | undefined;
   for (const source of sources) {
     const { workflow } = source, execution = source.runs[0];
     if (!execution || !workflow.isActive || workflow.status !== 'ACTIVE' || workflow.isArchived || workflow.version !== execution.workflowVersion || !['queued', 'running', 'skipped'].includes(execution.status)) continue;
@@ -87,6 +95,12 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
     if (!conditions.success || !conditions.data.conditions.some(rule => rule.field.startsWith('deal.') && (params.context['event.changedFields'] as unknown[]).includes(rule.field.slice(5)))) continue;
     const dispatch = execution.dispatchContext as { eventContext?: Record<string, unknown> } | null;
     if (!dispatch?.eventContext || evaluateCondition(conditions.data, dispatch.eventContext)) continue;
+    if (!currentContext) {
+      const savedContext = await entityContext('deal', params.entityId, params.tenantId, tx);
+      if (!savedContext || savedContext['internal.stageHistoryId'] !== deal.currentStageHistoryId) return;
+      currentContext = { ...savedContext, ...recorded.context };
+    }
+    if (!evaluateCondition(conditions.data, currentContext)) continue;
     await enqueueWorkflowTrigger(tx, { ...params, triggerType: 'deal.stage_changed', eventId: `${recorded.eventId}:updated:${params.eventId}`,
       context: { ...recorded.context, 'event.continuationSourceId': source.id, 'event.continuationUpdateId': params.eventId } }, workflow.id);
   }
@@ -163,6 +177,26 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
       const snapshot = item.definitionSnapshot && typeof item.definitionSnapshot === 'object' && !Array.isArray(item.definitionSnapshot) ? item.definitionSnapshot : null;
       if (!snapshot || !context.activatedById) throw new ValidationError('Published workflow snapshot is unavailable.');
       const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
+      const normalized = await compatibleWorkflow(captured, item.tenantId);
+      const parsed = WorkflowDraftSchema.strip().safeParse(normalized);
+      const issue = parsed.success ? workflowDefinitionIssues(parsed.data)[0] : 'This workflow uses an invalid configuration. Edit and publish it to repair it.';
+      if (!parsed.success || issue) {
+        const samePublication = item.workflowVersion === workflow.version && context.activatedById === workflow.activatedById &&
+          isDeepStrictEqual(snapshot, workflowSnapshot(workflow));
+        const failed = await prisma.$transaction(async tx => {
+          const count = await failPreparation(tx, item, { id: item.id, tenantId: item.tenantId, leaseId,
+            status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } }, `${issue} No actions were started.`, claimedContext);
+          if (count && samePublication) {
+            await tx.workflow.updateMany({ where: { id: workflow.id, tenantId: item.tenantId,
+              version: workflow.version, draftRevision: workflow.draftRevision, updatedAt: workflow.updatedAt, activatedById: workflow.activatedById,
+              status: 'ACTIVE', isActive: true, isArchived: false },
+            data: { isActive: false, status: 'PAUSED' } });
+          }
+          return count;
+        });
+        if (failed) progressed = true;
+        return;
+      }
       const { fireWorkflowTrigger } = await import('./workflow.engine.js');
       const admission = await prisma.$transaction(async tx => {
         const where = { id: item.id, tenantId: item.tenantId, leaseId, status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } };
@@ -179,7 +213,7 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
       });
       if (admission !== 'unclaimed') progressed = true;
       if (admission !== 'started') return;
-      await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
+      await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, draft: parsed.data, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'running', leaseUntil: { gt: new Date() } }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The triggering state changed before dispatch.' } });
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: { not: 'running' } }, data: { leaseId: null, leaseUntil: null } });
     } catch (error) {

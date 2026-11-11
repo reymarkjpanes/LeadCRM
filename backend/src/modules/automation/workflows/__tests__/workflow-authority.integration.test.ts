@@ -6,7 +6,9 @@ import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { crmActor, runAuthorizedWorkflow, assertCrmRecordRead } from '../../../crm/access/crm-record-access.service';
 import { assignmentCandidates, assignmentWorkloads } from '../../assignment/workflow-assignment.repository';
 import { updateContact as updateLead } from '../../../crm/contacts/contacts.service';
+import { updateDeal } from '../../../crm/deals/deals.service';
 import { fireWorkflowTrigger } from '../workflow.engine';
+import { flushWorkflowQueue } from './workflow-queue-test-helper';
 import * as workflows from '../workflows.service';
 import * as dealTargets from '../../actions/action-deal-targets';
 
@@ -81,6 +83,21 @@ describe.skipIf(!disposable)('Workflow final authority, owner scope and assignme
   });
   afterEach(() => { vi.unstubAllEnvs(); });
   afterAll(async () => { await prisma.$disconnect(); });
+
+  it.each(['out of publisher scope', 'archived before dispatch'])('does not act on a Deal %s', async scenario => {
+    const owner = scenario === 'out of publisher scope' ? ben : ana;
+    const record = await prisma.deal.create({ data: { tenantId, pipelineId, stageId, title: 'Authority check', assignedUserId: owner.id } });
+    const workflow = await create(ana, 'deal.updated', [{ type: 'create_task', config: { title: 'Protected follow-up', assignedUserId: ana.id } }]);
+    await scope(owner, () => updateDeal(record.id, tenantId, owner.id, { title: 'Event already saved' }));
+    if (owner === ana) await prisma.deal.update({ where: { id: record.id }, data: { isArchived: true } });
+
+    await flushWorkflowQueue(tenantId);
+    expect(await history(workflow.id)).toMatchObject(scenario === 'out of publisher scope'
+      ? { status: 'failed', errorMessage: 'Record not found.' }
+      : { status: 'skipped', errorMessage: 'The triggering record is no longer available.' });
+    expect(await prisma.task.count({ where: { tenantId, dealLinks: { some: { dealId: record.id } } } })).toBe(0);
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: record.id } })).toMatchObject({ title: 'Event already saved' });
+  });
 
   it('permits a Lead SMS publisher without unrelated Contact grants', async () => {
     const record = await lead(ana);

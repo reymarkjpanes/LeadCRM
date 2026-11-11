@@ -110,16 +110,10 @@ try {
     if (width < 1280) await page.getByRole('button', { name: 'Add steps', exact: true }).click();
     await page.getByRole('button', { name: 'Add Move Deal Stage', exact: true }).click();
     await page.getByRole('button', { name: 'Insert at position 1', exact: true }).click();
-    const includeReason = page.getByRole('checkbox', { name: 'Include a loss reason', exact: true });
-    assert.equal(await includeReason.isChecked(), false);
+    assert.equal(await page.getByRole('checkbox', { name: 'Include a loss reason', exact: true }).count(), 0);
     assert.equal(await page.getByLabel('Loss reason', { exact: true }).count(), 0);
-    await includeReason.check();
-    await page.getByLabel('Loss reason', { exact: true }).fill('Budget changed');
-    assert.equal(await page.getByLabel('Loss reason', { exact: true }).inputValue(), 'Budget changed');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
-    await page.screenshot({ path: resolve(output, `loss-reason-${theme}-${width}.png`) });
-    await includeReason.uncheck();
-    assert.equal(await page.getByLabel('Loss reason', { exact: true }).count(), 0);
+    await page.screenshot({ path: resolve(output, `stage-move-${theme}-${width}.png`) });
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await page.getByRole('button', { name: 'Back to workflows' }).click();
     const dialog = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' }); await dialog.waitFor();
@@ -131,7 +125,7 @@ try {
     assert.equal(geometry.buttons.length, 2); assert.ok(Math.abs(geometry.buttons[0].y - geometry.buttons[1].y) < 1);
     assert.ok(geometry.buttons.every(button => button.x >= 0 && button.right <= width));
     await page.screenshot({ path: resolve(output, `confirmation-${theme}-${width}.png`) });
-    checks.push(`${theme} ${width}px: tap/drag policy, SMS variables, optional loss reason, action controls and centered confirmation`);
+    checks.push(`${theme} ${width}px: tap/drag policy, SMS variables, stage move form, action controls and centered confirmation`);
     await dialog.getByRole('button', { name: 'Keep editing', exact: true }).click();
     await page.close();
   }
@@ -152,7 +146,7 @@ try {
     await page.getByRole('button', { name: 'Create Workflow', exact: true }).click();
     const chooser = page.getByRole('dialog', { name: 'Create workflow', exact: true });
     await chooser.locator('[data-template-id="new-deal-created"]').waitFor();
-    assert.equal(await chooser.locator('[data-template-id]').count(), 16);
+    assert.equal(await chooser.locator('[data-template-id]').count(), 14);
     assert.equal(await chooser.locator('[data-template-id^="stage:"]').count(), 0);
     await chooser.getByLabel('Search templates', { exact: true }).fill('Deal Assignment');
     await chooser.getByRole('button', { name: 'Preview Deal Assigned', exact: true }).click();
@@ -162,7 +156,7 @@ try {
     assert.ok(use && use.x >= 0 && use.x + use.width <= width + 1 && use.y + use.height <= 960);
     await page.screenshot({ path: resolve(output, `template-${theme}-${width}.png`) });
     await chooser.getByRole('button', { name: 'Close create workflow', exact: true }).click();
-    checks.push(`${theme} ${width}px: 23 starters, assignment preview and visible template action`);
+    checks.push(`${theme} ${width}px: 14 starters, assignment preview and visible template action`);
   }
   const { applyTextBeeEvidence } = require('../dist/backend/src/modules/marketing/campaigns/textbee-webhook.js');
   for (const status of ['sent', 'delivered', 'failed']) {

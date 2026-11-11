@@ -71,6 +71,8 @@ Use the pinned package manager for reproducible installs: `npx --yes npm@11.19.1
 
 ## Operational limits
 
-Actions execute immediately within the backend request. The engine has no durable queue, delayed steps, automatic retry or crash recovery. A process failure can interrupt a run after a side effect has occurred; inspect the saved steps and provider receipts before any manual replay. The recursion guard is scoped to one execution chain, not a distributed idempotency guarantee for repeated incoming requests. For workloads requiring guaranteed delivery or high throughput, a durable job/outbox design is a separate release requirement.
+CRM changes enqueue matching Workflow trigger events in the same PostgreSQL transaction. The worker claims the saved definitions after commit, using a lease and a stable event ID per workflow. An immediate wakeup starts eligible processing, and a recovery sweep finds remaining work. The worker can run in all, scoped, or disabled mode. See [Workflow processing and finished history](workflow-reliability-rollout.md) for the environment settings.
+
+Known transient preparation failures can retry before dispatch. An expired or uncertain dispatch is recorded as Interrupted and requires review of the saved steps and provider receipts. Normal history shows Completed, Failed, and Skipped results, with Interrupted presented as Failed and marked for review. Queued and running states remain available to authorized callers through the existing API.
 
 Live provider delivery, target deployment settings, existing remote migration history and hosted smoke tests remain external release gates. Local passing tests do not certify those gates. The browser checks above cover the stated flows; they do not claim exhaustive manual coverage of every workflow control, role or theme.
