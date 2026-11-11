@@ -79,12 +79,20 @@ and signed webhooks against the verified HTTPS API domain.
 Both campaign provider webhook routers require Express to recognize HTTPS.
 After an ingress/network change, verify the backend's actual socket peer against
 `TRUSTED_PROXIES`; a public HTTPS URL alone does not establish proxy trust.
-Append only the verified ingress address/CIDR while preserving existing entries.
+Use a stable, verified proxy identity. For a fixed Docker address, persist the
+proxy service's `networks.coolify.ipv4_address` in Coolify's saved proxy Compose
+configuration, validate the existing network subnet/address ownership, and trust
+that exact `/32`. Replace a stale proxy-only entry while preserving unrelated
+entries. Do not trust the entire shared network to accommodate address drift.
 With configured webhook credentials, an unsigned empty POST through HTTPS should
 reach authentication (401), rather than fail with `HTTPS is required.` (400).
 Keep the HTTPS guards and reject forwarded headers from untrusted peers. See the
 [November 5 campaign repair](../verification/campaign-production-repair-2026-11-05.md)
-for the confirmed incident and coordinated-release checks.
+for the confirmed incident and coordinated-release checks. Run the existing
+manual [deployment verification](deployment.md) after proxy recreation as well as
+application deployment. An unsigned 401 is not an authenticated event test.
+See the [November 11 investigation](../verification/campaign-proxy-trust-2026-11-11.md)
+for the recurring address drift, prepared repair and acceptance evidence.
 
 Do not run local schedulers against an unverified remote database. Existing local
 database credentials must remain unchanged unless a development database migration

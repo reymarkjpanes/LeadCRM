@@ -55,6 +55,7 @@ function hasChanges(current: Record<string, unknown>, update: Record<string, unk
 }
 
 export async function processBrevoEvent(input: unknown, source: 'webhook' | 'history' = 'webhook') {
+  const started = performance.now();
   const event = BrevoEventSchema.parse(input);
   let tags: unknown = event.tags;
   if (!tags && event.tag) {
@@ -86,7 +87,7 @@ export async function processBrevoEvent(input: unknown, source: 'webhook' | 'his
     if (timedDelivery && event.ts_event == null && event.ts == null && event.ts_epoch == null) {
       throw new AppError('Delivery events require a provider timestamp.', 400);
     }
-    await prisma.$transaction(async tx => {
+    const persisted = await prisma.$transaction(async tx => {
       // Serialize events for this campaign so aggregate counters cannot overwrite newer values.
       await tx.campaign.update({ where: { id: log.campaignId!, ...scope }, data: { engagement: { increment: 0 } } });
       const at = brevoEventTime(event);
@@ -160,20 +161,41 @@ export async function processBrevoEvent(input: unknown, source: 'webhook' | 'his
         failureReason,
         ...(type === 'unsubscribe' ? { unsubscribed: true } : {}),
       };
-      if (recipient && hasChanges(recipient, recipientUpdate)) {
+      const recipientChanged = hasChanges(recipient, recipientUpdate);
+      if (recipientChanged) {
         await tx.campaignContact.update({ where: { id: recipient.id, ...scope, campaignId: log.campaignId! }, data: recipientUpdate });
       }
       const suppression = type === 'unsubscribe' || current.status === 'unsubscribed' ? 'unsubscribed'
         : type === 'spam' || current.status === 'spam' ? 'spam' : undefined;
       const logUpdate = { ...sharedUpdate, ...(suppression ? { status: suppression } : {}) };
-      if (hasChanges(current, logUpdate)) await tx.emailDeliveryLog.update({ where: { id: log.id, ...scope }, data: logUpdate });
+      const logChanged = hasChanges(current, logUpdate);
+      if (logChanged) await tx.emailDeliveryLog.update({ where: { id: log.id, ...scope }, data: logUpdate });
       await recalculateCampaignDelivery(tx, log.campaignId!, log.tenantId, true);
+      return inserted || recipientChanged || logChanged ? {
+        providerEventAt: at, recipientId: recipient.id,
+        status: recipientUpdate.status ?? recipient.status,
+        newDelivery: !recipient.deliveredAt && latest?.eventType === 'delivered',
+      } : undefined;
     }).catch(error => {
       console.warn('[Campaigns]', { event: 'brevo_event_processing_failed', campaignId: log.campaignId,
         deliveryLogId: log.id, eventType: type, source,
         category: error instanceof AppError ? 'event_validation_or_matching' : 'persistence' });
       throw error;
     });
+    // The receipt timestamp is provider time. Log receipt confirmation only once
+    // the transaction has committed, so it can be compared with report polling.
+    if (persisted) {
+      const confirmedAt = new Date();
+      const timing = { tenantId: log.tenantId, campaignId: log.campaignId, deliveryLogId: log.id,
+        recipientId: persisted.recipientId, eventType: type, source, status: persisted.status,
+        providerEventAt: persisted.providerEventAt.toISOString(), persistenceConfirmedAt: confirmedAt.toISOString(),
+        providerToPersistenceMs: Math.max(0, +confirmedAt - +persisted.providerEventAt),
+        durationMs: Math.round(performance.now() - started) };
+      console.info('[Campaigns]', { event: 'brevo_event_persisted', ...timing });
+      if (source === 'history' && persisted.newDelivery && timing.providerToPersistenceMs > 180000) {
+        console.warn('[Campaigns]', { event: 'brevo_delivery_sync_delayed', ...timing });
+      }
+    }
   });
 }
 export const brevoWebhookRouter = Router();
@@ -188,6 +210,8 @@ brevoWebhookRouter.post(['/', '/email'], rateLimit({ windowMs: 60000, limit: 100
     res.json({ success: true });
   } catch (error) {
     console.warn('[Campaigns]', { event: 'brevo_webhook_failed', category: error instanceof z.ZodError ? 'payload_validation' : category,
+      ...(category === 'https' ? { socketPeer: req.socket.remoteAddress, secure: req.secure,
+        forwardedProtocol: ['http', 'https'].includes(req.get('x-forwarded-proto') ?? '') ? req.get('x-forwarded-proto') : req.get('x-forwarded-proto') ? 'other' : 'missing' } : {}),
       httpStatus: error instanceof AppError ? error.statusCode : error instanceof z.ZodError ? 400 : 500 });
     next(error);
   }

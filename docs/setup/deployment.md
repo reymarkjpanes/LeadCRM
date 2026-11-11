@@ -6,10 +6,10 @@ the only server-side backend authority; `NEXT_PUBLIC_API_URL` is not consumed.
 
 Deploy the backend and frontend from the same reviewed revision. A successful Vercel frontend deployment does not deploy Render. The Vercel server-only `API_URL` must target that backend's `/api/v1`; keep production mock flags disabled. Use the root workspace lockfile, `render.yaml` build/start commands, and confirm required migrations are applied before accepting traffic. Do not reset or drop historical data.
 
-Before accepting a release, run this read-only check with the intended full Git SHA:
+Before accepting a release, run this read-only check with the intended full Git SHA and direct HTTPS API origin. It requires 401 from empty unsigned Brevo/TextBee requests; an ingress failure blocks verification. Separately verify authenticated callbacks, committed events and automatic report updates:
 
 ```powershell
-node scripts/verify-deployment.cjs https://lead-crm-frontend-pi.vercel.app <expected-full-git-sha>
+node scripts/verify-deployment.cjs https://lead-crm.tech <expected-full-git-sha> https://api.lead-crm.tech
 ```
 
 The check reads `/api/proxy/health`, so it verifies the backend actually selected by Vercel. A 404 HTML response from `PATCH /api/proxy/auth/environment` with a matched proxy route indicates a missing upstream route; check backend revision and `API_URL` before changing authentication or dataset logic. Current backend unauthenticated environment requests are rejected by authentication, not by a missing route.

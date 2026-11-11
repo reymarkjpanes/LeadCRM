@@ -126,7 +126,12 @@ export const textbeeWebhookRouter = Router();
 textbeeWebhookRouter.post('/', rateLimit({ windowMs: 60000, limit: 1000, standardHeaders: true, legacyHeaders: false,
   handler: (_req, res) => { res.status(503).json({ success: false, error: 'SMS webhook temporarily busy. Retry later.' }); } }), async (req, res, next) => {
   try {
-    if (process.env.NODE_ENV === 'production' && !req.secure) throw new AppError('HTTPS is required.', 400);
+    if (process.env.NODE_ENV === 'production' && !req.secure) {
+      console.warn('[Campaigns]', { event: 'textbee_webhook_failed', category: 'https', httpStatus: 400,
+        socketPeer: req.socket.remoteAddress, secure: req.secure,
+        forwardedProtocol: ['http', 'https'].includes(req.get('x-forwarded-proto') ?? '') ? req.get('x-forwarded-proto') : req.get('x-forwarded-proto') ? 'other' : 'missing' });
+      throw new AppError('HTTPS is required.', 400);
+    }
     if (!Buffer.isBuffer(req.body)) throw new AppError('Raw SMS webhook body is required.', 400);
     verifyTextBeeSignature(req.body, req.get('X-Signature'), req.get('X-TextBee-Signature'));
     let input: unknown;

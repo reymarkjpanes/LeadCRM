@@ -49,6 +49,7 @@ function deliveryReceipts(input: unknown, messageId: string, recipient: string, 
 /** Recover delivery and engagement for recent existing messages. This never submits email. */
 export async function reconcileBrevoStatuses(afterId?: string, now = new Date()): Promise<string | undefined> {
   if (!isBrevoConfigured()) return undefined;
+  const started = performance.now();
   const rows = await prisma.campaignContact.findMany({
     where: {
       ...(afterId ? { id: { gt: afterId } } : {}),
@@ -62,9 +63,17 @@ export async function reconcileBrevoStatuses(afterId?: string, now = new Date())
     select: { id: true, tenantId: true, campaignId: true, email: true, messageId: true, submittedAt: true },
   });
   let cursor = afterId;
+  let checked = 0, verifiedEvents = 0, failures = 0;
+  const finish = (nextCursor: string | undefined, deferred = false) => {
+    console.info('[Campaigns]', { event: 'brevo_reconciliation_sweep', selected: rows.length,
+      checked, verifiedEvents, failures, hasMore: nextCursor !== undefined, deferred,
+      durationMs: Math.round(performance.now() - started) });
+    return nextCursor;
+  };
   for (const { id, tenantId, campaignId, email, messageId, submittedAt } of rows) {
     if (!email || !messageId || !submittedAt) continue;
     try {
+      checked++;
       const query = new URLSearchParams({ messageId, days: String(historyDays), limit: '5000' });
       const response = await fetch('https://api.brevo.com/v3/smtp/statistics/events?' + query, {
         method: 'GET', headers: { 'api-key': process.env.BREVO_API_KEY!, accept: 'application/json' },
@@ -81,21 +90,27 @@ export async function reconcileBrevoStatuses(afterId?: string, now = new Date())
             select: { id: true },
           });
           if (!log) {
+            failures++;
             console.warn('[Campaigns]', { event: 'brevo_history_unmatched', campaignId, recipientId: id });
             return;
           }
-          for (const receipt of receipts) await processBrevoEvent(receipt, 'history');
+          for (const receipt of receipts) {
+            await processBrevoEvent(receipt, 'history');
+            verifiedEvents++;
+          }
         });
       } else {
+        failures++;
         console.warn('[Campaigns]', { event: 'brevo_status_lookup_failed', httpStatus: response.status });
-        if ([401, 403, 429].includes(response.status) || response.status >= 500) return cursor;
+        if ([401, 403, 429].includes(response.status) || response.status >= 500) return finish(cursor, true);
       }
     } catch (error) {
+      failures++;
       console.warn('[Campaigns]', { event: 'brevo_status_lookup_failed', campaignId, recipientId: id,
         category: error instanceof z.ZodError || error instanceof SyntaxError ? 'response_validation' : 'transport_or_persistence' });
     }
     cursor = id;
   }
   // Rotate past messages that are still pending, then revisit them on the next pass.
-  return rows.length === batchSize ? cursor : undefined;
+  return finish(rows.length === batchSize ? cursor : undefined);
 }

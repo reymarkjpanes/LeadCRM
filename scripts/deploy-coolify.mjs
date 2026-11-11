@@ -53,6 +53,25 @@ export async function http(url, { token, method = 'GET', body, json = true } = {
   try { return await response.json(); } catch { fail('INVALID_API_RESPONSE'); }
 }
 
+// These probes contain no credentials or events. A 401 proves only that public
+// HTTPS reaches provider authentication, not that an authenticated event works.
+export async function verifyWebhookIngress(api) {
+  const statuses = {};
+  for (const provider of ['brevo', 'textbee']) {
+    let response;
+    try {
+      response = await fetch(`${api}/api/v1/webhooks/${provider}`, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000), cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      await response.arrayBuffer();
+    } catch { fail(`${provider.toUpperCase()}_WEBHOOK_INGRESS_UNAVAILABLE`); }
+    if (response.status !== 401) fail(`${provider.toUpperCase()}_WEBHOOK_INGRESS_HTTP_${response.status}_EXPECTED_401`);
+    statuses[provider] = response.status;
+  }
+  return statuses;
+}
+
 export function productionIO(config) {
   const request = (path, options = {}) => http(`${config.coolify}/api/v1${path}`, { token: config.configToken, ...options });
   const app = id => { if (![config.backend, config.frontend].includes(id)) fail('APPLICATION_NOT_ALLOWED'); return id; };
@@ -84,6 +103,7 @@ export function productionIO(config) {
     health: role => http(role === 'backend' ? `${config.api}/api/v1/health` : `${config.site}/api/release`),
     login: () => http(`${config.site}/login`, { json: false }),
     proxy: () => http(`${config.site}/api/proxy/health`),
+    webhookIngress: () => verifyWebhookIngress(config.api),
   };
 }
 
@@ -199,6 +219,8 @@ export async function coordinateRelease(config, event, io, report = {}) {
     // Once backend dispatch begins, finish this pinned pair even if main moves.
     report.phase = 'backend';
     await deployApplication(io, 'backend', config.backend, commit, report);
+    report.phase = 'webhook-ingress';
+    report.webhookIngress = await io.webhookIngress();
     report.phase = 'frontend';
     await deployApplication(io, 'frontend', config.frontend, commit, report);
     report.phase = 'public-verification';

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { coordinateRelease, trustedCandidate, configuration, productionIO, http } from './deploy-coolify.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { coordinateRelease, trustedCandidate, configuration, productionIO, http, verifyWebhookIngress } from './deploy-coolify.mjs';
 
 const commit = 'a'.repeat(40), old = 'b'.repeat(40);
 const config = { repository: 'reymarkjpanes/LeadCRM', backend: 'backend000', frontend: 'frontend00', database: 'database00', backup: 'backup0000', backupTimeout: 30000 };
@@ -39,6 +41,7 @@ function fixture(options = {}) {
     health: async kind => ({ status: 'ok', commit: options.mismatch === kind ? old : serving[kind], env: 'production' }),
     login: async () => { calls.push(['login']); return true; },
     proxy: async () => ({ status: 'ok', commit: options.proxyMismatch ? old : commit, env: 'production' }),
+    webhookIngress: async () => { calls.push(['webhook-ingress']); return { brevo: 401, textbee: 401 }; },
   };
   return { io, calls, pins, histories, serving };
 }
@@ -74,9 +77,57 @@ test('superseded commits skip without pinning, backups or webhook calls', async 
 test('both applications are pinned and backend health passes before frontend dispatch', async () => {
   const f = fixture(); const result = await coordinateRelease(config, event(), f.io);
   assert.equal(result.status, 'success');
-  assert.deepEqual(f.calls.map(call => call.slice(0, 2)), [['pin', config.backend], ['pin', config.frontend], ['deploy', config.backend], ['deploy', config.frontend], ['login']]);
+  assert.deepEqual(f.calls.map(call => call.slice(0, 2)), [['pin', config.backend], ['pin', config.frontend], ['deploy', config.backend], ['webhook-ingress'], ['deploy', config.frontend], ['login']]);
   assert.equal(result.backend.commit, commit); assert.equal(result.frontend.commit, commit);
 });
+
+test('broken webhook ingress blocks frontend dispatch and reports an actionable failure', async () => {
+  const f = fixture();
+  f.io.webhookIngress = async () => { throw Object.assign(Error(), { code: 'BREVO_WEBHOOK_INGRESS_HTTP_400_EXPECTED_401' }); };
+  const report = await rejected(f, 'BREVO_WEBHOOK_INGRESS_HTTP_400_EXPECTED_401');
+  assert.equal(report.phase, 'webhook-ingress');
+  assert.equal(f.calls.some(call => call[0] === 'deploy' && call[1] === config.frontend), false);
+});
+
+test('public ingress probes are bounded, unsigned, nonredirecting and require 401 for both providers', async () => {
+  const saved = globalThis.fetch, requests = [];
+  try {
+    globalThis.fetch = async (url, options) => {
+      requests.push({ url, options });
+      return new Response('Unauthorized', { status: 401 });
+    };
+    assert.deepEqual(await verifyWebhookIngress('https://api.example'), { brevo: 401, textbee: 401 });
+    assert.deepEqual(requests.map(r => r.url), ['https://api.example/api/v1/webhooks/brevo', 'https://api.example/api/v1/webhooks/textbee']);
+    for (const { options } of requests) {
+      assert.equal(options.method, 'POST'); assert.equal(options.body, '{}');
+      assert.equal(options.headers.Authorization, undefined);
+      assert.equal(options.redirect, 'error'); assert.equal(options.cache, 'no-store'); assert.ok(options.signal);
+    }
+    for (const provider of ['brevo', 'textbee']) for (const status of [200, 400, 429, 503]) {
+      globalThis.fetch = async url => new Response('private details', { status: url.endsWith(provider) ? status : 401 });
+      await assert.rejects(verifyWebhookIngress('https://api.example'), error => error.code === `${provider.toUpperCase()}_WEBHOOK_INGRESS_HTTP_${status}_EXPECTED_401`);
+    }
+    globalThis.fetch = async () => { throw Error('private transport details'); };
+    await assert.rejects(verifyWebhookIngress('https://api.example'), error => error.code === 'BREVO_WEBHOOK_INGRESS_UNAVAILABLE');
+  } finally { globalThis.fetch = saved; }
+});
+test('the manual release command checks direct ingress and cannot pass the reproduced proxy failure', () => {
+  const script = fileURLToPath(new URL('./verify-deployment.cjs', import.meta.url));
+  for (const status of [401, 400]) {
+    const result = spawnSync(process.execPath, ['-e', `
+      process.argv = ['node', ${JSON.stringify(script)}, 'https://site.example', '${commit}', 'https://api.example'];
+      globalThis.fetch = async url => String(url).endsWith('/health')
+        ? Response.json({ status: 'ok', commit: '${commit}' })
+        : new Response('private response body', { status: String(url).includes('/webhooks/') ? ${status} : 401 });
+      require(${JSON.stringify(script)});
+    `], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    assert.equal(result.status, status === 401 ? 0 : 1, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /private response body/);
+    if (status === 400) assert.match(result.stderr, /BREVO_WEBHOOK_INGRESS_HTTP_400_EXPECTED_401/);
+    else assert.match(result.stdout, /separately verify authenticated provider callbacks/);
+  }
+});
+
 test('migration releases require a fresh successful existing-schedule backup before pinning', async () => {
   const f = fixture({ migration: true }); const result = await coordinateRelease(config, event(), f.io);
   assert.equal(result.backup, 'newbackup0'); assert.equal(f.calls[0][0], 'backup');

@@ -1,10 +1,14 @@
 // Read-only release check: verify the backend reached by the browser's actual proxy.
-const [origin, expectedCommit] = process.argv.slice(2);
-if (!origin || !/^[a-f0-9]{40}$/i.test(expectedCommit ?? '')) {
-  console.error('Usage: node scripts/verify-deployment.cjs <frontend-origin> <expected-full-git-sha>');
+const [origin, expectedCommit, apiOrigin] = process.argv.slice(2);
+if (!origin || !apiOrigin || !/^[a-f0-9]{40}$/i.test(expectedCommit ?? '')) {
+  console.error('Usage: node scripts/verify-deployment.cjs <frontend-origin> <expected-full-git-sha> <https-backend-origin>');
   process.exit(1);
 }
 (async () => {
+  const api = new URL(apiOrigin);
+  if (api.protocol !== 'https:' || api.username || api.password || api.pathname !== '/' || api.search || api.hash) {
+    throw new Error('Backend origin must be an HTTPS origin without credentials, path or query.');
+  }
   const response = await fetch(new URL('/api/proxy/health', origin), {
     cache: 'no-store', signal: AbortSignal.timeout(60000),
   });
@@ -14,6 +18,10 @@ if (!origin || !/^[a-f0-9]{40}$/i.test(expectedCommit ?? '')) {
     throw new Error(`Backend deployment mismatch: expected ${expectedCommit}, received ${health.commit ?? 'unknown'}. Check API_URL and deploy the matching backend before releasing the frontend.`);
   }
   console.log(`PASS: frontend proxy reaches backend commit ${health.commit}`);
+  const { verifyWebhookIngress } = await import('./deploy-coolify.mjs');
+  await verifyWebhookIngress(api.origin);
+  console.log('PASS: direct Brevo and TextBee HTTPS ingress reaches authentication (401)');
+  console.log('REQUIRED: separately verify authenticated provider callbacks, committed evidence and automatic report updates.');
   const session = await fetch(new URL('/api/proxy/auth/me', origin), {
     cache: 'no-store', signal: AbortSignal.timeout(30000),
   });
