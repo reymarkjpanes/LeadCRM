@@ -204,12 +204,14 @@ describe.skipIf(!disposable)('durable successful-sales conversion event parity',
     expect(await prisma.contactDeal.findMany({ where: { tenantId, contactId: converted.contactId! }, select: { dealId: true } })).toEqual([{ dealId: deal.id }]);
     expect(await prisma.leadDeal.findMany({ where: { tenantId, leadId: lead.id }, select: { dealId: true } })).toEqual([{ dealId: deal.id }]);
     expect(await prisma.workflowTriggerRecord.count({ where: { tenantId, triggerType: 'deal.created' } })).toBe(0);
-    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ value: 125.5, productInterestId: productId, stageId: wonId, assignedUserId: ownerId });
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ value: 125.5, productInterestId: productId, stageId: wonId,
+      assignedUserId: replacement.id, ownerId: deal.ownerId, revenueOwnerId: deal.revenueOwnerId, closingSnapshot: deal.closingSnapshot });
     const ordinary = await inquiry();
     await scope(() => updateContact(ordinary.lead.id, tenantId, actorId, { assignedUserId: replacement.id, productInterest: [productId, added.id] }));
     expect(await prisma.deal.count({ where: { tenantId, leadDeals: { some: { leadId: ordinary.lead.id } } } })).toBe(2);
     const addedDeal = await prisma.deal.findFirstOrThrow({ where: { tenantId, productInterestId: added.id, leadDeals: { some: { leadId: ordinary.lead.id } } } });
     expect(addedDeal).toMatchObject({ value: 950, assignedUserId: replacement.id });
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: ordinary.deal.id } })).toMatchObject({ assignedUserId: replacement.id, ownerId: ordinary.deal.ownerId });
     expect(await events(addedDeal.id, 'deal.created')).toHaveLength(1);
   });
 

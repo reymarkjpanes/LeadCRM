@@ -22,6 +22,8 @@ it.each([
   ['/crm/accounts/123', ['accounts', 'leads', 'contacts', 'deals']],
   ['/crm/leads/123/convert', ['contacts', 'leads', 'accounts']],
   ['/crm/contacts', ['contacts', 'accounts', 'deals', 'counts-deals', 'reports', 'activities']],
+  ['/crm/leads/123', ['leads', 'contacts', 'deals', 'counts-deals', 'pipeline', 'activities']],
+  ['/crm/contacts/123', ['contacts', 'leads', 'deals', 'counts-deals', 'pipeline', 'activities']],
   ['/marketing/templates/123', ['campaigns']],
   ['/notifications/123/read', ['notifications']],
   ['/administration/archived-data/Pipeline/123/restore', ['archived-crm', 'pipeline', 'pipelines']],

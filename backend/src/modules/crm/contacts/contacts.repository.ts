@@ -1,4 +1,5 @@
 import { salesContext } from '../leads/sales-context';
+import { synchronizeAssociatedDealAssignment } from '../deals/deal-association';
 import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
 import { salesActivityDates } from '../sales-activity';
 import { assertContactAccountSelection, mayReadContactAccount, presentContactAccount } from '../contacts-v2/contact-account-access';
@@ -204,6 +205,7 @@ export async function updateContact(
       await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone : current.phone);
       if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Lead changed. Reload its current status before saving.');
       if (current.convertedAt) throw new ValidationError('This Lead has been converted. Update the linked Contact instead.');
+      await synchronizeAssociatedDealAssignment(tx, tenantId, { type: 'lead', id, assignedUserId: current.assignedUserId }, dto.assignedUserId, updatedById);
       const managed = await applyManagedCustomerStatus(tx, tenantId, { leadId: id }, updatedById, current.status, dto.status);
       if (managed) {
         delete data.status;
