@@ -190,7 +190,7 @@ export function getAvailableActions(): ActionDefinition[] {
   ];
 }
 
-/** One policy for builder placement, activation and execution. */
+/** Action compatibility shared by builder placement, activation and runtime dispatch. */
 export function workflowActionAllowed(triggerType: string, actionType: string): boolean {
   const trigger = findTrigger(triggerType);
   if (!trigger || !getAvailableActions().find(action => action.type === actionType)?.entities.includes(trigger.entity)) return false;
@@ -216,4 +216,24 @@ export function workflowActionPolicyIssues(draft: Pick<WorkflowDraft, 'trigger' 
     const guarded = rules.length > 0 && (draft.conditions?.operator === 'OR' ? routes.every(Boolean) : routes.some(Boolean));
     return guarded ? [] : [prefix + 'Agent handoffs require an explicit target status or stage Equals condition that every matching record must satisfy.'];
   });
+}
+
+/** Definition-time guardrails. Runtime keeps honoring immutable published snapshots. */
+export function workflowDefinitionIssues(draft: Pick<WorkflowDraft, 'trigger' | 'conditions' | 'actions'>): string[] {
+  const policyIssues = workflowActionPolicyIssues(draft);
+  if (policyIssues.length) return policyIssues;
+
+  if (draft.trigger !== 'deal.updated') return [];
+  const rules = draft.conditions?.conditions ?? [];
+  const stageEqualsRules = rules.filter(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' &&
+    typeof rule.value === 'string' && !!rule.value.trim());
+  const sourceStageIsRequired = draft.conditions?.operator === 'AND'
+    ? stageEqualsRules.length > 0
+    : draft.conditions?.operator === 'OR' && rules.length > 0 && rules.every(rule =>
+      rule.field === 'deal.stageId' && rule.operator === 'equals' && typeof rule.value === 'string' && !!rule.value.trim());
+
+  if (sourceStageIsRequired) return [];
+  return draft.actions.flatMap((action, index) => action.enabled !== false && action.type === 'move_deal_stage'
+    ? [`Action ${index + 1}: A Deal Updated stage move needs an explicit Deal Stage Equals condition in an AND group. For OR conditions, every option must be a Deal Stage Equals condition. This prevents moving Deals from unintended stages.`]
+    : []);
 }
