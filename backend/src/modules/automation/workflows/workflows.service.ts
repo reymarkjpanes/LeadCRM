@@ -16,7 +16,7 @@ import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError } from '../../../shared/errors/http-error';
 import { paginate } from '../../../shared/helpers/pagination';
 import * as repo from './workflows.repository';
-import { validateWorkflow, validateConditionReferences } from './workflow-validation';
+import { validateWorkflow, validateConditionReferences, validateDealStageMovePipelineReferences } from './workflow-validation';
 import { findTrigger } from '../triggers/trigger-catalog';
 import { validateAction } from '../actions/action-validation';
 import { resolveDealTargets, type WorkflowDealProjection } from '../actions/action-deal-targets';
@@ -36,7 +36,7 @@ import { prepareWorkflowTaskInput } from '../actions/action-task-input';
 import { resolveTaskDeals, workflowTaskAssociationSummary } from '../actions/action-task-deals';
 import { prepareWorkflowEmailInput } from '../actions/action-email';
 import { prepareWorkflowSmsInput } from '../actions/action-sms';
-import { workflowActionPolicyIssues } from '@leadcrm/shared';
+import { workflowActionPolicyIssues, workflowDefinitionIssues } from '@leadcrm/shared';
 import { WORKFLOW_MODULES } from '@leadcrm/shared';
 import { crmActor, assertCrmRecordRead } from '../../crm/access/crm-record-access.service';
 
@@ -230,8 +230,13 @@ export async function testWorkflow(id: string, tenantId: string, entityId: strin
   const conditionsMatch = !draft.conditions || evaluateCondition(draft.conditions, conditionContext);
   const actions: WorkflowTestResult['actions'] = [];
   const previewLoads = new Map<string, number>();
-  const policyIssues = workflowActionPolicyIssues(draft);
-  let stoppedReason = policyIssues[0] ?? triggerReason ?? (!conditionsMatch ? 'Workflow conditions did not match. Actions would be skipped.' : undefined);
+  const definitionIssues = workflowDefinitionIssues(draft);
+  let transitionIssue: string | undefined;
+  if (!definitionIssues.length && !triggerReason && conditionsMatch) {
+    try { await validateDealStageMovePipelineReferences(draft, tenantId); }
+    catch (error) { transitionIssue = safeWorkflowError(error); }
+  }
+  let stoppedReason = definitionIssues[0] ?? transitionIssue ?? triggerReason ?? (!conditionsMatch ? 'Workflow conditions did not match. Actions would be skipped.' : undefined);
   const projection: WorkflowDealProjection = new Map();
   if (!stoppedReason && trigger.entity === 'deal' && draft.actions.some(action => action.enabled !== false && action.type === 'move_deal_stage')) {
     await loadWorkflowDealProjection(tenantId, entityId, projection);
@@ -282,7 +287,7 @@ export async function testWorkflow(id: string, tenantId: string, entityId: strin
   return { trigger: { type: draft.trigger, matched: !triggerReason, requiresEvent: !draft.trigger.endsWith('.created'),
     ...(stageHistoryId ? { stageHistoryId, eventId } : {}), ...(triggerReason ? { reason: triggerReason } : {}) }, conditions: { total: rules.length,
     passed: rules.filter(rule => evaluateRule(rule, conditionContext)).length, matched: conditionsMatch },
-    actions, valid: !policyIssues.length && !triggerReason && draft.actions.some(action => action.enabled !== false) && actions.every(action => action.valid) };
+    actions, valid: !definitionIssues.length && !transitionIssue && !triggerReason && draft.actions.some(action => action.enabled !== false) && actions.every(action => action.valid) };
 }
 
 export async function validateDraft(tenantId: string, userId: string, input: unknown) {

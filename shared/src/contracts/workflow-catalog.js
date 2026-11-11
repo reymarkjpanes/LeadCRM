@@ -13,6 +13,7 @@ exports.normalizeWorkflowReferences = normalizeWorkflowReferences;
 exports.getAvailableActions = getAvailableActions;
 exports.workflowActionAllowed = workflowActionAllowed;
 exports.workflowActionPolicyIssues = workflowActionPolicyIssues;
+exports.workflowDefinitionIssues = workflowDefinitionIssues;
 const record_experience_1 = require("./record-experience");
 const company_industries_1 = require("../constants/company-industries");
 const closing_requirements_1 = require("./closing-requirements");
@@ -209,7 +210,7 @@ function getAvailableActions() {
             } },
     ];
 }
-/** One policy for builder placement, activation and execution. */
+/** Action compatibility shared by builder placement, activation and runtime dispatch. */
 function workflowActionAllowed(triggerType, actionType) {
     const trigger = (0, exports.findTrigger)(triggerType);
     if (!trigger || !getAvailableActions().find(action => action.type === actionType)?.entities.includes(trigger.entity))
@@ -241,4 +242,23 @@ function workflowActionPolicyIssues(draft) {
         const guarded = rules.length > 0 && (draft.conditions?.operator === 'OR' ? routes.every(Boolean) : routes.some(Boolean));
         return guarded ? [] : [prefix + 'Agent handoffs require an explicit target status or stage Equals condition that every matching record must satisfy.'];
     });
+}
+/** Definition-time guardrails. Runtime keeps honoring immutable published snapshots. */
+function workflowDefinitionIssues(draft) {
+    const policyIssues = workflowActionPolicyIssues(draft);
+    if (policyIssues.length)
+        return policyIssues;
+    if (draft.trigger !== 'deal.updated')
+        return [];
+    const rules = draft.conditions?.conditions ?? [];
+    const stageEqualsRules = rules.filter(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' &&
+        typeof rule.value === 'string' && !!rule.value.trim());
+    const sourceStageIsRequired = draft.conditions?.operator === 'AND'
+        ? stageEqualsRules.length > 0
+        : draft.conditions?.operator === 'OR' && rules.length > 0 && rules.every(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' && typeof rule.value === 'string' && !!rule.value.trim());
+    if (sourceStageIsRequired)
+        return [];
+    return draft.actions.flatMap((action, index) => action.enabled !== false && action.type === 'move_deal_stage'
+        ? [`Action ${index + 1}: A Deal Updated stage move needs an explicit Deal Stage Equals condition in an AND group. For OR conditions, every option must be a Deal Stage Equals condition. This prevents moving Deals from unintended stages.`]
+        : []);
 }

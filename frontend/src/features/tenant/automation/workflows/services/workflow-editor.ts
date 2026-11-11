@@ -9,7 +9,7 @@ import {
   getWorkflowUpdateFields,
   getAvailableActions,
   workflowActionAllowed,
-  workflowActionPolicyIssues,
+  workflowDefinitionIssues,
   workflowLossReasonIssue,
   normalizeSavedWorkflowAssignment,
   WorkflowTaskAssociationSchema,
@@ -416,7 +416,7 @@ export function editorIssues(
   const { draft, actionIds } = document;
   const trigger = triggers.find((entry) => entry.type === draft.trigger);
   return [
-    ...(!incomplete ? workflowActionPolicyIssues(draft).map(message => ({ step: `action:${actionIds[Number(message.match(/^Action (\d+)/)?.[1] ?? 1) - 1]}` as StepSelection, message })) : []),
+    ...(!incomplete ? workflowDefinitionIssues(draft).map(message => ({ step: `action:${actionIds[Number(message.match(/^Action (\d+)/)?.[1] ?? 1) - 1]}` as StepSelection, message })) : []),
     ...(!draft.name.trim()
       ? [{ step: 'details' as const, message: 'Workflow name is required.' }]
       : []),
