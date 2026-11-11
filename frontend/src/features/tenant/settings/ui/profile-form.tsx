@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Pencil, Shield } from 'lucide-react';
 import { toast } from '@/shared/utils/toast';
-import { AVATAR_MAX_BYTES, AVATAR_MIME_TYPES, isPhMobileInput, PH_MOBILE_ERROR, PROFILE_FIELD_LIMIT_ERRORS, PROFILE_FIELD_LIMITS, ProfilePhoneInputSchema, SelfProfileFieldSchemas, UpdateSelfProfileSchema } from '@leadcrm/shared';
+import { AVATAR_MAX_BYTES, AVATAR_MIME_TYPES, isPhMobileInput, PH_MOBILE_ERROR, ProfilePhoneInputSchema, SelfProfileFieldSchemas, UpdateSelfProfileSchema } from '@leadcrm/shared';
 import { useAuth } from '@/store/AuthContext';
 import { authApi } from '@/shared/services/auth.api';
 import { UserAvatar } from '@/shared/components/user-avatar';
@@ -43,9 +43,8 @@ export function ProfileForm() {
   const errors = { ...fieldErrors };
   if (editing) {
     for (const key of ['firstName', 'lastName'] as const) {
-      const digitError = getNameDigitError(key, draft[key]);
-      if (digitError) errors[key] = digitError;
-      else if (draft[key].length > PROFILE_FIELD_LIMITS[key]) errors[key] = PROFILE_FIELD_LIMIT_ERRORS[key];
+      const nameError = getNameDigitError(key, draft[key], true);
+      if (nameError) errors[key] = nameError;
     }
   }
   useEffect(() => { if (!editing) { setDraft(saved()); setFieldErrors({}); } }, [user, editing]);
@@ -122,14 +121,6 @@ export function ProfileForm() {
                 const value = event.target.value;
                 if (key === 'phone' && !isPhMobileInput(value)) {
                   setFieldErrors(current => ({ ...current, phone: PH_MOBILE_ERROR }));
-                  return;
-                }
-                if (key !== 'phone' && value.length > PROFILE_FIELD_LIMITS[key]) {
-                  // Keep a name with digits editable even when the same paste exceeds the length limit.
-                  if (getNameDigitError(key, value) || value.length <= draft[key].length) {
-                    setDraft(current => ({ ...current, [key]: value }));
-                  }
-                  setFieldErrors(current => ({ ...current, [key]: PROFILE_FIELD_LIMIT_ERRORS[key] }));
                   return;
                 }
                 setDraft(current => ({ ...current, [key]: value }));

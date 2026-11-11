@@ -2,8 +2,8 @@
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import { useProductInterests } from '@/shared/hooks/use-product-interests';
-import { ChevronDown, Search, Plus } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { ChevronDown, Search, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TaskOption, TaskOptionKind } from "@leadcrm/shared";
 import { taskTeamUserIds } from '../task-relations';
 import { useData } from "@/store/DataContext";
@@ -73,6 +73,8 @@ export function TaskSelector(props: TaskSelectorProps) {
   }, []);
   const [above, setAbove] = useState(false);
   const [search, setSearch] = useState("");
+  const [selectedSearch, setSelectedSearch] = useState("");
+  const [selectedOpen, setSelectedOpen] = useState(false);
   const filters = { search, ...(accountId ? { accountId } : {}), ...(category ? { category } : {}), ...(productInterestId ? { productInterestId } : {}), ...(leadIds.length ? { leadIds: leadIds.join(',') } : {}) };
 
   useEffect(() => () => { selectionAbort.current?.abort(); }, [open, search, accountId, category, productInterestId, leadKey]);
@@ -81,6 +83,8 @@ export function TaskSelector(props: TaskSelectorProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const requestPending = useRef(false);
+  const availableList = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null),
     input = useRef<HTMLInputElement>(null);
@@ -92,6 +96,31 @@ export function TaskSelector(props: TaskSelectorProps) {
         : kind === "user"
           ? "owner"
           : kind;
+  useEffect(() => {
+    if (kind !== 'deal') return;
+    requestPending.current = true;
+    setPage(1);
+    setOptions([]);
+    setTotal(0);
+    setHasMore(false);
+    setError("");
+    if (availableList.current) availableList.current.scrollTop = 0;
+  }, [open, kind, search, accountId, category, productInterestId, leadKey,
+    tenant?.id, user?.id, user?.role, groupAccess, assignGrant, selfAssignmentOnly]);
+  useEffect(() => {
+    setSelectedOpen(false);
+    setSelectedSearch("");
+  }, [open]);
+  const loadNextPage = useCallback(() => {
+    if (kind !== 'deal' || !open || !hasMore || loading || requestPending.current || selectingAll || error) return;
+    requestPending.current = true;
+    setPage(previous => previous + 1);
+  }, [kind, open, hasMore, loading, selectingAll, error]);
+  useEffect(() => {
+    const list = availableList.current;
+    // A short page must not leave the next page unreachable without a scrollbar.
+    if (list && list.clientHeight > 0 && list.scrollHeight <= list.clientHeight) loadNextPage();
+  }, [options, loadNextPage]);
   useEffect(() => {
     if (!open) return;
     const bounds = trigger.current?.getBoundingClientRect();
@@ -107,8 +136,9 @@ export function TaskSelector(props: TaskSelectorProps) {
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController();
+    requestPending.current = true;
     setLoading(true);
-    setOptions([]);
+    if (kind !== 'deal' || page === 1) setOptions([]);
     setError("");
     const timer = setTimeout(async () => {
       try {
@@ -170,17 +200,26 @@ export function TaskSelector(props: TaskSelectorProps) {
               ? tasksApi.options(kind, search, abort.signal, leadIds)
               : tasksApi.options(kind, search, abort.signal))
           ).data;
-        if (!abort.signal.aborted) setOptions(kind === 'user' && selfAssignmentOnly ? rows.filter(row => row.id === user?.id) : rows);
+        if (!abort.signal.aborted) {
+          if (kind === 'deal') {
+            setOptions(previous => [...new Map([...(page > 1 ? previous : []), ...rows].map(row => [row.id, row])).values()]);
+            setSelected(previous => ({ ...previous, ...Object.fromEntries(rows.map(row => [row.id, row.label])) }));
+          } else setOptions(kind === 'user' && selfAssignmentOnly ? rows.filter(row => row.id === user?.id) : rows);
+        }
       } catch (e) {
         if (!abort.signal.aborted)
           setError(e instanceof Error ? e.message : "Unable to load options.");
       } finally {
-        if (!abort.signal.aborted) setLoading(false);
+        if (!abort.signal.aborted) {
+          requestPending.current = false;
+          setLoading(false);
+        }
       }
     }, 200);
     return () => {
       clearTimeout(timer);
       abort.abort();
+      requestPending.current = false;
     };
   }, [
     open,
@@ -218,6 +257,13 @@ export function TaskSelector(props: TaskSelectorProps) {
     : options;
   const filteredByLeads =
     kind !== "lead" && kind !== "user" && leadIds.length > 0;
+  const removeDeal = (dealId: string) => {
+    if (props.multiple) props.onChange(selectedIds.filter(id => id !== dealId));
+  };
+  const errorNotice = error && <div role="alert" className="p-2 text-xs text-destructive">
+    {error}
+    <button type="button" className="ml-2 underline" onClick={() => setRetry(value => value + 1)}>Retry</button>
+  </div>;
   return (
     <div
       ref={wrapper}
@@ -311,27 +357,46 @@ export function TaskSelector(props: TaskSelectorProps) {
               finally { setSelectingAll(false); }
             }}>Select all matching deals</Button>}
             {total > 50 && <p className="text-xs text-muted-foreground">Narrow your filters to 50 or fewer deals to select all.</p>}
-            {selectedIds.length > 0 && <details><summary className="cursor-pointer text-xs">Selected deals ({selectedIds.length})</summary><ul className="max-h-24 overflow-auto text-xs">{selectedIds.map(value => <li key={value} className="flex items-center justify-between gap-2"><span>{labelFor(value)}</span>{props.multiple && <button type="button" disabled={selectingAll} className="shrink-0 underline" aria-label={`Remove ${labelFor(value)}`} onClick={() => props.onChange(selectedIds.filter(id => id !== value))}>Remove</button>}</li>)}</ul></details>}
+            {selectedIds.length > 0 && props.multiple && <section className="min-w-0 overflow-hidden rounded-lg border border-border" aria-label="Selected deals">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 bg-blue-50 px-2 py-1 dark:bg-blue-500/10">
+                <button type="button" className="flex min-h-11 min-w-0 items-center gap-2 rounded-md text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-expanded={selectedOpen} aria-controls={`${id}-selected`} onClick={() => setSelectedOpen(previous => !previous)}>
+                  <ChevronDown size={16} aria-hidden="true" className={cn('shrink-0', !selectedOpen && '-rotate-90')} />
+                  <span>Selected deals ({selectedIds.length})</span>
+                </button>
+                <Button type="button" size="sm" variant="outline" disabled={selectingAll} className="ml-auto bg-card" onClick={() => { props.onChange([]); setSelectedSearch(''); }}>
+                  <Trash2 aria-hidden="true" />Clear selection
+                </Button>
+              </div>
+              <div id={`${id}-selected`} hidden={!selectedOpen} className="space-y-2 p-2">
+                <div className="relative">
+                  <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input aria-label="Search selected deals" placeholder="Search selected deals..." className={inputClass + ' pl-9'} value={selectedSearch} onChange={event => setSelectedSearch(event.target.value)} />
+                </div>
+                <ul className="max-h-60 space-y-2 overflow-y-auto overscroll-contain" aria-label="Selected deal rows">
+                  {selectedIds.filter(dealId => matchesSearch(selectedSearch, labelFor(dealId))).map(dealId => <li key={dealId} className="flex min-w-0 items-center gap-1 rounded-lg border border-border bg-card px-2">
+                    <label className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 text-sm">
+                      <input type="checkbox" checked disabled={selectingAll} className="h-4 w-4 shrink-0 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={() => removeDeal(dealId)} />
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{labelFor(dealId)}</span>
+                    </label>
+                    <Button type="button" size="icon" variant="ghost" disabled={selectingAll} aria-label={`Remove ${labelFor(dealId)}`} className="h-11 w-11 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 [&_svg]:size-5" onClick={() => removeDeal(dealId)}><Trash2 aria-hidden="true" /></Button>
+                  </li>)}
+                </ul>
+                {!selectedIds.some(dealId => matchesSearch(selectedSearch, labelFor(dealId))) && <p role="status" className="px-2 py-3 text-xs text-muted-foreground">No selected deals match your search.</p>}
+              </div>
+            </section>}
           </div>}
-          <div className="max-h-48 overflow-y-auto p-2" aria-busy={loading}>
-            {loading ? (
+          <div ref={availableList} className="max-h-48 overflow-y-auto overscroll-contain p-2" aria-busy={loading}
+            role={kind === 'deal' ? 'region' : undefined} aria-label={kind === 'deal' ? 'Available deals' : undefined} tabIndex={kind === 'deal' ? 0 : undefined}
+            onScroll={kind === 'deal' ? event => { const list = event.currentTarget; if (list.scrollHeight - list.scrollTop - list.clientHeight <= 32) loadNextPage(); } : undefined}>
+            {loading && (kind !== 'deal' || !visible.length) ? (
               <p
                 role="status"
                 className="px-2 py-3 text-xs text-muted-foreground"
               >
                 Loading…
               </p>
-            ) : error ? (
-              <div role="alert" className="p-2 text-xs text-destructive">
-                {error}
-                <button
-                  type="button"
-                  className="ml-2 underline"
-                  onClick={() => setRetry((v) => v + 1)}
-                >
-                  Retry
-                </button>
-              </div>
+            ) : error && (kind !== 'deal' || !visible.length) ? (
+              errorNotice
             ) : (
               <>
                 {kind === "user" && !search.trim() && selectedIds.filter(id => !options.some(option => option.id === id)).map(id => (
@@ -372,17 +437,18 @@ export function TaskSelector(props: TaskSelectorProps) {
                     <span className="min-w-0 break-words">{option.label}</span>
                   </label>
                 ))}
-                {!visible.length && (
+                {!visible.length && !loading && !error && (
                   <p className="p-3 text-sm text-muted-foreground">
                     {kind === "user" && !search.trim() ? "No eligible agents available." : filteredByLeads
                       ? `No related ${kind === "contact" ? "contacts" : kind === "deal" ? "deals" : "accounts"} for the selected leads.`
                       : "No matching records."}
                   </p>
                 )}
+                {kind === 'deal' && loading && <p role="status" className="px-2 py-3 text-xs text-muted-foreground">Loading…</p>}
+                {kind === 'deal' && errorNotice}
               </>
             )}
           </div>
-          {kind === 'deal' && <div className="flex items-center justify-between border-t border-border px-3 py-2"><Button type="button" size="sm" variant="ghost" disabled={page <= 1 || loading || selectingAll} onClick={() => setPage(value => value - 1)}>Previous</Button><span className="text-xs">Page {page}</span><Button type="button" size="sm" variant="ghost" disabled={!hasMore || loading || selectingAll} onClick={() => setPage(value => value + 1)}>Next</Button></div>}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border p-3">
             {onCreate ? (
               <Button
@@ -404,7 +470,7 @@ export function TaskSelector(props: TaskSelectorProps) {
                   : `Select one ${singular}`}
               </span>
             )}
-            {props.multiple && selectedIds.length > 0 && (
+            {kind !== 'deal' && props.multiple && selectedIds.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"

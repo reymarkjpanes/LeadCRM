@@ -6,7 +6,7 @@ vi.mock('../../../config/database.config', () => ({ default: db }));
 // The runtime uses private mounted storage; keep this boundary fixture aligned.
 vi.mock('../../../shared/services/private-object-storage', () => ({ privateObjectStorage: () => storage }));
 import { updateSelfProfile, uploadSelfAvatar, readSelfAvatar } from '../profile.service';
-import { AVATAR_MAX_BYTES } from '@leadcrm/shared';
+import { AVATAR_MAX_BYTES, SelfProfileFieldSchemas, UpdateSelfProfileSchema } from '@leadcrm/shared';
 
 beforeEach(() => {
   resetDb();
@@ -23,6 +23,44 @@ it('updates only the authenticated tenant user, audits and returns canonical pro
   expect(result).not.toHaveProperty('passwordHash');
   expect(db.auditLog.create).toHaveBeenCalledOnce();
 });
+
+it.each(['John', 'Mary Jane', 'Anne-Marie', "O'Connor", 'María', 'Mari\u0301a', '李', 'अर्जुन', 'O‘Connor', 'O’Connor', 'Anne‐Marie', 'Anne‑Marie', 'A'.repeat(50), ' Ada '])('persists the valid profile name %s', async value => {
+  const result = await updateSelfProfile(user.id, user.tenantId, { firstName: value, lastName: value });
+  expect(db.user.update).toHaveBeenCalledExactlyOnceWith({
+    where: { id: user.id, tenantId: user.tenantId },
+    data: { firstName: value.trim(), lastName: value.trim() },
+  });
+  expect(result).toMatchObject({ firstName: value.trim(), lastName: value.trim() });
+});
+
+it.each(([
+  ['firstName', 'First name'], ['lastName', 'Last name'],
+] as const).flatMap(([field, label]) => [
+  ...['@', '#', '$', '%', '&', '*', '+', '=', '!', '_', '.', '/', '\\', '(', ')', '"', '😀', '—', '\t', '\n', '\0'].map(symbol => ({
+    field, value: `John${symbol}`, message: `${label} must not contain special characters.`,
+  })),
+  ...['John123', 'John1@', 'A'.repeat(51) + '@1'].map(value => ({ field, value, message: `${label} must not contain numbers.` })),
+  { field, value: 'A'.repeat(51) + '@', message: `${label} must not contain special characters.` },
+  { field, value: '', message: `${label} is required` },
+  { field, value: '   ', message: `${label} is required` },
+  { field, value: 'A'.repeat(51), message: `${label} must not exceed 50 characters.` },
+]))('rejects invalid $field "$value" before database or audit writes', async ({ field, value, message }) => {
+  const parsed = SelfProfileFieldSchemas[field].safeParse(value);
+  expect(parsed.success).toBe(false);
+  if (!parsed.success) expect(parsed.error.issues[0].message).toBe(message);
+  await expect(updateSelfProfile(user.id, user.tenantId, { [field]: value })).rejects.toThrow(message);
+  expect(db.$transaction).not.toHaveBeenCalled();
+  expect(db.user.update).not.toHaveBeenCalled();
+  expect(db.auditLog.create).not.toHaveBeenCalled();
+});
+
+it('keeps omitted profile names optional for partial updates', async () => {
+  expect(UpdateSelfProfileSchema.parse({ phone: null })).toEqual({ phone: null });
+  const result = await updateSelfProfile(user.id, user.tenantId, { phone: null });
+  expect(db.user.update).toHaveBeenCalledExactlyOnceWith({ where: { id: user.id, tenantId: user.tenantId }, data: { phone: null } });
+  expect(result).toMatchObject({ firstName: user.firstName, lastName: user.lastName });
+});
+
 it.each([
   ['phone', '8123456789'], ['phone', '09123456789'], ['phone', '912345678'], ['phone', '91234567890'], ['phone', '91234abc90'],
   ['firstName', 'F'.repeat(51)], ['lastName', 'L'.repeat(51)], ['jobTitle', 'J'.repeat(101)], ['department', 'D'.repeat(101)],
