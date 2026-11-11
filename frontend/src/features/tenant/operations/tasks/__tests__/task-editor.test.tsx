@@ -500,3 +500,54 @@ it('retains the originating Deal and sends no direct associations during creatio
   await waitFor(() => expect(mocks.addTask).toHaveBeenCalledWith(expect.objectContaining({ dealIds: ['originating-deal'], title: 'Deal follow up' })));
   for (const kind of ['lead','contact','account']) expect(mocks.addTask.mock.calls[0][0]).not.toHaveProperty(kind + 'Ids');
 });
+
+it('cancels a clean Create Task form without saving', () => {
+  const close = vi.fn();
+  render(<TaskEditor onClose={close} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(close).toHaveBeenCalledOnce();
+  expect(mocks.addTask).not.toHaveBeenCalled();
+});
+
+it('guards Cancel with the existing unsaved-changes confirmation', async () => {
+  const close = vi.fn();
+  render(<TaskEditor onClose={close} />);
+  fireEvent.change(screen.getByLabelText('Title *'), { target: { value: 'Keep my task draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  const confirmation = await screen.findByRole('alertdialog');
+  expect(confirmation.textContent).toContain('Discard unsaved changes?');
+  expect(close).not.toHaveBeenCalled();
+  expect(mocks.addTask).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Keep editing' }));
+  expect(screen.getByLabelText('Title *')).toHaveProperty('value', 'Keep my task draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+  expect(close).toHaveBeenCalledOnce();
+  expect(mocks.addTask).not.toHaveBeenCalled();
+});
+
+it('keeps task fields through selected search and clear, then saves the chosen Deal IDs', async () => {
+  mocks.options.mockImplementation(async kind => ({ data: kind === 'deal' ? [
+    { id: 'first', label: 'First deal' }, { id: 'second', label: 'Second deal' }, { id: 'third', label: 'Third deal' },
+  ] : [{ id: 'owner', label: 'Test Owner' }] }));
+  render(<TaskEditor onClose={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Title *'), { target: { value: 'Follow up on selected deals' } });
+  fireEvent.change(screen.getByRole('textbox', { name: /Notes/ }), { target: { value: 'Preserve these notes' } });
+  await selectAgent();
+  fireEvent.click(screen.getByRole('button', { name: 'Associate task to deal *' }));
+  const options = await screen.findByRole('region', { name: 'Available deals' });
+  fireEvent.click(await within(options).findByRole('checkbox', { name: 'First deal' }));
+  fireEvent.click(within(options).getByRole('checkbox', { name: 'Second deal' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Selected deals (2)' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search selected deals' }), { target: { value: 'First' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+  expect(screen.getByLabelText('Title *')).toHaveProperty('value', 'Follow up on selected deals');
+  expect(screen.getByRole('textbox', { name: /Notes/ })).toHaveProperty('value', 'Preserve these notes');
+  fireEvent.click(within(options).getByRole('checkbox', { name: 'Third deal' }));
+  fireEvent.click(within(options).getByRole('checkbox', { name: 'Second deal' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+  await waitFor(() => expect(mocks.addTask).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Follow up on selected deals', description: 'Preserve these notes', assignedUserId: 'owner', dealIds: ['third', 'second'],
+  })));
+});

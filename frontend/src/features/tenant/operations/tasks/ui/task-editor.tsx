@@ -152,7 +152,7 @@ function TaskCreateForm({ links = {}, readOnly = false, preserveContextLinks = f
                     Select the Deal associated with this task. Related Leads, Contacts, and Accounts will be linked automatically.
                   </p>
                   <div className="mt-4 space-y-4">
-                    <TaskSelector appearance="panel" multiple kind="deal"
+                    <TaskSelector appearance="panel" dropdownPlacement="inline" multiple kind="deal"
                       label="Associate task to deal" required
                       value={dealIds}
                       selectedLabels={createdLabels}
@@ -161,7 +161,7 @@ function TaskCreateForm({ links = {}, readOnly = false, preserveContextLinks = f
                   </div>
               </>, dealIds.length)}
         </div>
-        <footer className={panelFooterClass + ' justify-between'}><span /><div className="ml-auto flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" className={panelSecondaryButtonClass} disabled={busy} onClick={closeGuard.requestClose}>Close</Button>{editable && <Button type="submit" className={panelPrimaryButtonClass} disabled={busy}>{busy ? 'Saving…' : 'Create task'}</Button>}</div></footer>
+        <footer className={panelFooterClass + ' justify-between'}><span /><div className="ml-auto flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" className={panelSecondaryButtonClass} disabled={busy} onClick={closeGuard.requestClose}>Cancel</Button>{editable && <Button type="submit" className={panelPrimaryButtonClass} disabled={busy}>{busy ? 'Saving…' : 'Create task'}</Button>}</div></footer>
       </form>}
     </SheetContent>{closeGuard.confirmation}
   </Sheet>;

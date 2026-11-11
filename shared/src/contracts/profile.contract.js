@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AVATAR_MAX_BYTES = exports.AVATAR_MIME_TYPES = exports.ConfirmProfileEmailChangeSchema = exports.RequestProfileEmailChangeSchema = exports.UpdateSelfProfileSchema = exports.SelfProfileFieldSchemas = exports.ProfilePhoneInputSchema = exports.PROFILE_FIELD_LIMIT_ERRORS = exports.PROFILE_FIELD_LIMITS = void 0;
+exports.getNameDigitError = getNameDigitError;
 const zod_1 = require("zod");
 const ph_phone_1 = require("../validation/ph-phone");
 const security_schema_1 = require("../validation/security.schema");
@@ -10,6 +11,18 @@ exports.PROFILE_FIELD_LIMIT_ERRORS = {
     lastName: `Last name must not exceed ${exports.PROFILE_FIELD_LIMITS.lastName} characters.`,
     jobTitle: `Job title must not exceed ${exports.PROFILE_FIELD_LIMITS.jobTitle} characters.`,
 };
+function getNameDigitError(field, value, validateSpecialCharacters = false) {
+    if (typeof value !== 'string')
+        return;
+    const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : undefined;
+    if (!label)
+        return;
+    if (/[0-9]/.test(value))
+        return `${label} must not contain numbers.`;
+    if (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value)) {
+        return `${label} must not contain special characters.`;
+    }
+}
 const profilePhone = zod_1.z.string().nullable().optional().transform((value, context) => {
     if (value == null)
         return value;
@@ -25,8 +38,16 @@ const profilePhone = zod_1.z.string().nullable().optional().transform((value, co
 exports.ProfilePhoneInputSchema = zod_1.z.string().refine(value => value === '' || (0, ph_phone_1.isValidPhMobile)(value), ph_phone_1.PH_MOBILE_ERROR)
     .transform(value => value === '' ? null : (0, ph_phone_1.toE164)(value));
 exports.SelfProfileFieldSchemas = {
-    firstName: zod_1.z.string().trim().min(1, 'First name is required').max(exports.PROFILE_FIELD_LIMITS.firstName, exports.PROFILE_FIELD_LIMIT_ERRORS.firstName).optional(),
-    lastName: zod_1.z.string().trim().min(1, 'Last name is required').max(exports.PROFILE_FIELD_LIMITS.lastName, exports.PROFILE_FIELD_LIMIT_ERRORS.lastName).optional(),
+    firstName: zod_1.z.string().superRefine((value, context) => {
+        const error = getNameDigitError('firstName', value, true);
+        if (error)
+            context.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(zod_1.z.string().trim().min(1, 'First name is required').max(exports.PROFILE_FIELD_LIMITS.firstName, exports.PROFILE_FIELD_LIMIT_ERRORS.firstName)).optional(),
+    lastName: zod_1.z.string().superRefine((value, context) => {
+        const error = getNameDigitError('lastName', value, true);
+        if (error)
+            context.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(zod_1.z.string().trim().min(1, 'Last name is required').max(exports.PROFILE_FIELD_LIMITS.lastName, exports.PROFILE_FIELD_LIMIT_ERRORS.lastName)).optional(),
     phone: exports.ProfilePhoneInputSchema,
 };
 exports.UpdateSelfProfileSchema = zod_1.z.object({ ...exports.SelfProfileFieldSchemas, phone: profilePhone }).strict()

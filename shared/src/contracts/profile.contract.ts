@@ -9,6 +9,16 @@ export const PROFILE_FIELD_LIMIT_ERRORS = {
   jobTitle: `Job title must not exceed ${PROFILE_FIELD_LIMITS.jobTitle} characters.`,
 } as const;
 
+export function getNameDigitError(field: string | undefined, value: unknown, validateSpecialCharacters = false): string | undefined {
+  if (typeof value !== 'string') return;
+  const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : undefined;
+  if (!label) return;
+  if (/[0-9]/.test(value)) return `${label} must not contain numbers.`;
+  if (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value)) {
+    return `${label} must not contain special characters.`;
+  }
+}
+
 const profilePhone = z.string().nullable().optional().transform((value, context) => {
   if (value == null) return value;
   if (value === '') return null;
@@ -23,8 +33,14 @@ export const ProfilePhoneInputSchema = z.string().refine(value => value === '' |
   .transform(value => value === '' ? null : toE164(value));
 
 export const SelfProfileFieldSchemas = {
-  firstName: z.string().trim().min(1, 'First name is required').max(PROFILE_FIELD_LIMITS.firstName, PROFILE_FIELD_LIMIT_ERRORS.firstName).optional(),
-  lastName: z.string().trim().min(1, 'Last name is required').max(PROFILE_FIELD_LIMITS.lastName, PROFILE_FIELD_LIMIT_ERRORS.lastName).optional(),
+  firstName: z.string().superRefine((value, context) => {
+    const error = getNameDigitError('firstName', value, true);
+    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(z.string().trim().min(1, 'First name is required').max(PROFILE_FIELD_LIMITS.firstName, PROFILE_FIELD_LIMIT_ERRORS.firstName)).optional(),
+  lastName: z.string().superRefine((value, context) => {
+    const error = getNameDigitError('lastName', value, true);
+    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(z.string().trim().min(1, 'Last name is required').max(PROFILE_FIELD_LIMITS.lastName, PROFILE_FIELD_LIMIT_ERRORS.lastName)).optional(),
   phone: ProfilePhoneInputSchema,
 };
 
