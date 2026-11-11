@@ -59,6 +59,23 @@ describe('Forms UI', () => {
     expect(screen.queryByText('Unsaved changes')).toBeNull();
     fireEvent.input(first, { target: { value: 'María' } });
     expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
+    fireEvent.input(first, { target: { value: 'María@' } });
+    expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+    fireEvent.input(first, { target: { value: 'María' } });
+    expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
+  });
+
+  it('validates mapped Full Name samples without changing the saved definition', () => {
+    const legacy = { ...form, fields: [{ id: 'person', label: 'Your name', type: 'contact-name' as const, mapToField: 'fullName' as const }] };
+    render(<FormBuilderPage form={legacy} onBack={() => {}} onFormUpdate={() => {}} />);
+    const input = screen.getByRole('textbox', { name: 'Your name' });
+    fireEvent.input(input, { target: { value: 'John1@ Smith' } });
+    expect(screen.getByText('Full name must not contain numbers.').id).toBe(input.getAttribute('aria-describedby'));
+    fireEvent.input(input, { target: { value: 'John@ Smith' } });
+    expect(screen.getByText('Full name must not contain special characters.')).toBeTruthy();
+    fireEvent.input(input, { target: { value: 'Anne-Marie O’Connor' } });
+    expect(screen.queryByText('Full name must not contain special characters.')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 
   it('uses contextual fallbacks, preserves configured placeholders and retains public field design', () => {

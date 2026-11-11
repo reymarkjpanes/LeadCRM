@@ -14,7 +14,7 @@ function FieldRow({ field, design, configured, onUpdate, onRemove, productCatalo
   const [editing, setEditing] = useState(false);
   const [previewProducts, setPreviewProducts] = useState<string[]>([]);
   const [previewName, setPreviewName] = useState('');
-  const isNameField = field.mapToField === 'firstName' || field.mapToField === 'lastName';
+  const isNameField = field.mapToField === 'firstName' || field.mapToField === 'lastName' || field.mapToField === 'fullName';
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
   const layout = ['header', 'heading', 'paragraph', 'divider'].includes(field.type);
   return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? .4 : 1 }} className={'min-w-0 p-1 ' + (field.width === 'half' ? '' : 'sm:col-span-2')}>

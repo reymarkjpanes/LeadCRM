@@ -62,9 +62,36 @@ it('validates renamed CRM name fields immediately and blocks posting until both 
   expect(posts()).toHaveLength(0);
   change('Family Name', 'O’Connor');
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  change('Given Name', 'Anne@'); change('Family Name', 'Smith_');
+  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  await submit();
+  expect(posts()).toHaveLength(0);
+  change('Given Name', 'Anne-Marie'); change('Family Name', 'O’Connor');
   await submit();
   expect(posts()).toHaveLength(1);
   expect(JSON.parse(posts()[0][1].body).values).toMatchObject({ given: 'Anne-Marie', family: 'O’Connor' });
+});
+
+it('validates a legacy mapped Full Name immediately and accepts a corrected Unicode name', async () => {
+  definition.fields = definition.fields.filter(field => !['firstName', 'lastName'].includes(field.mapToField ?? ''));
+  definition.fields.unshift({ id: 'person', label: 'Your name', type: 'contact-name', mapToField: 'fullName', required: true });
+  await mount();
+  change('Email Address', 'full-name@example.com');
+  change('Your name', 'John@ Smith123');
+  const input = screen.getByLabelText(/Your name/);
+  expect(screen.getByText('Full name must not contain numbers.').id).toBe(input.getAttribute('aria-describedby'));
+  expect(input).toHaveProperty('value', 'John@ Smith123');
+  await advance(); await submit();
+  expect(posts()).toHaveLength(0);
+  change('Your name', 'John@ Smith');
+  expect(screen.getByText('Full name must not contain special characters.')).toBeTruthy();
+  change('Your name', 'María O’Connor');
+  expect(input.getAttribute('aria-invalid')).toBe('false');
+  expect(screen.queryByText('Full name must not contain special characters.')).toBeNull();
+  await submit();
+  expect(posts()).toHaveLength(1);
+  expect(JSON.parse(posts()[0][1].body).values.person).toBe('María O’Connor');
 });
 
 it('captures legacy tagged links without a remember checkbox and reuses the submission identity on retry', async () => {

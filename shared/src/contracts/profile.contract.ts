@@ -9,9 +9,9 @@ export const PROFILE_FIELD_LIMIT_ERRORS = {
   jobTitle: `Job title must not exceed ${PROFILE_FIELD_LIMITS.jobTitle} characters.`,
 } as const;
 
-export function getNameDigitError(field: string | undefined, value: unknown, validateSpecialCharacters = false): string | undefined {
+export function getNameDigitError(field: string | undefined, value: unknown, validateSpecialCharacters = true): string | undefined {
   if (typeof value !== 'string') return;
-  const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : undefined;
+  const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : field === 'fullName' ? 'Full name' : undefined;
   if (!label) return;
   if (/[0-9]/.test(value)) return `${label} must not contain numbers.`;
   if (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value)) {

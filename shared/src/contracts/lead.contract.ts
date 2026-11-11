@@ -4,13 +4,20 @@ import { CrmEmailSchema } from '../validation/crm-email';
 import { LeadStatusSchema, LeadSourceSchema } from './record-experience';
 import { CustomFieldValuesSchema } from './closing-requirements';
 import { NewAccountSchema, exclusiveAccountInput } from './organization';
+import { getNameDigitError } from './profile.contract';
 
 export const LeadNameSchema = cleanText(100).pipe(z.string().min(1, 'Name is required'));
 export const LeadPhoneSchema = z.union([z.literal(''), AdministrationPhoneSchema]);
 export const OptionalLeadSourceSchema = z.union([z.literal(''), LeadSourceSchema]);
 const fields = {
-  firstName: LeadNameSchema,
-  lastName: LeadNameSchema,
+  firstName: z.string().superRefine((value, ctx) => {
+    const error = getNameDigitError('firstName', value);
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(LeadNameSchema),
+  lastName: z.string().superRefine((value, ctx) => {
+    const error = getNameDigitError('lastName', value);
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(LeadNameSchema),
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
   companyName: cleanText(2000).optional(),

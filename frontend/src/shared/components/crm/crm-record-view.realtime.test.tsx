@@ -125,6 +125,7 @@ it.each(cases)('keeps the $module $surface mounted on $filter while sent and rec
     act(() => streams[0].dispatchEvent(new Event('mailbox-change')));
     await waitFor(() => expect(within(timeline).getByText(`Persisted ${direction} body`)).toBeTruthy());
     await waitFor(() => expect(badge.textContent).toBe(`Activity${index + (filter === 'All' ? 2 : 1)}`));
+    expect(within(timeline).getByText(`Persisted ${direction} body`).closest('[data-email-body]')?.classList.contains('inbox-message-typography')).toBe(true);
     expect(within(timeline).getByText(direction === 'inbound' ? 'Received' : 'Sent')).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Activity Timeline' })).toBe(timeline);
     expect(screen.getByRole('tab', { name: /^Activity/ })).toBe(badge);

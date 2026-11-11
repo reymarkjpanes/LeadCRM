@@ -50,6 +50,24 @@ describe.skipIf(!disposable)('profile and sorting persistence through authentica
     expect((await request('/auth/profile', 'PATCH', { firstName: 'Anonymous' }, false)).status).toBe(401);
     expect(await prisma.auditLog.count({ where: { userId, action: 'profile.updated' } })).toBe(1);
   });
+  it('rejects submitted invalid names and allows partial edits of a historical profile', async () => {
+    for (const field of ['firstName', 'lastName']) {
+      for (const value of ['John@1', 'John@']) {
+        const response = await request('/auth/profile', 'PATCH', { [field]: value });
+        expect(response.status).toBe(400);
+        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+      }
+    }
+    const previous = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { firstName: 'Old@1', lastName: 'Smith#' } });
+      expect((await request('/auth/profile', 'PATCH', { phone: '9181234567' })).status).toBe(200);
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: userId } })).toMatchObject({ firstName: 'Old@1', lastName: 'Smith#' });
+      expect((await request('/auth/profile', 'PATCH', { firstName: 'María' })).status).toBe(200);
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: userId } })).toMatchObject({ firstName: 'María', lastName: 'Smith#' });
+    } finally { await prisma.user.update({ where: { id: userId }, data: { firstName: previous.firstName, lastName: previous.lastName, phone: previous.phone } }); }
+  });
+
   it('verifies a Client Admin’s new email and revokes the old login and recovery state', async () => {
     const password = 'Disposable!Profile2026';
     const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email: 'profile-old@camxian.com',

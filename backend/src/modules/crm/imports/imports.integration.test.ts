@@ -86,6 +86,25 @@ describe.skipIf(!disposable)('CRM CSV import database and HTTP', () => {
   });
   afterAll(async () => { if (server) await new Promise<void>(resolve => server.close(() => resolve())); await prisma.$disconnect(); });
 
+  it.each(['leads', 'contacts'] as const)('rejects invalid %s CSV names in preview and import without storing them', async module => {
+    const input = csv([
+      { ...person(`${randomUUID()}@example.test`, ''), firstName: 'John1@' },
+      { ...person(`${randomUUID()}@example.test`, ''), lastName: 'Smith_' },
+      { ...person(`${randomUUID()}@example.test`, ''), firstName: 'María', lastName: 'O’Connor' },
+    ]);
+    const preview = await request(module, '/preview', 'POST', input);
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.map((row: { isValid: boolean }) => row.isValid)).toEqual([false, false, true]);
+    expect(preview.body.data[0].errors.join()).toContain('First name must not contain numbers.');
+    expect(preview.body.data[1].errors.join()).toContain('Last name must not contain special characters.');
+    const result = await run(module, input);
+    expect(result.successfulRecords).toBe(1);
+    expect(result.failedRecords).toBe(2);
+    const email = parseImportCsv(input.csvText).rows[2][2];
+    const saved = module === 'leads' ? await prisma.lead.findFirstOrThrow({ where: { tenantId, email } }) : await prisma.contact.findFirstOrThrow({ where: { tenantId, email } });
+    expect(saved).toMatchObject({ firstName: 'María', lastName: 'O’Connor' });
+  });
+
   it('imports canonical and old Account templates with identical preview/persistence and retained address/history', async () => {
     const headers = 'Company Name,Industry,Website,Full Address,City,Province / State,Country,Company Size';
     const input = { fileName:'old-accounts.csv', csvText: headers + '\nLegacy Address Account,IT,https://example.test,"10 Street\nToronto",Toronto,Ontario,Canada,1-10',

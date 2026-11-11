@@ -55,15 +55,15 @@ it.each([
   const save = vi.fn();
   const initialData = editing ? {
     id: 'person', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z',
-    firstName: 'Mar1a', lastName: 'Visitor', email: 'visitor@example.test', status: 'Inquiry' as const,
+    firstName: 'Maria', lastName: 'Visitor', email: 'visitor@example.test', status: 'Inquiry' as const,
   } : undefined;
   const { container } = render(<Form initialData={initialData} onSave={save} onCancel={vi.fn()} />);
   const first = screen.getByLabelText('First Name *');
   const last = screen.getByLabelText('Last Name *');
   if (!editing) {
     fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'visitor@example.test' } });
-    fireEvent.input(first, { target: { value: 'Mar1a' } });
   }
+  fireEvent.input(first, { target: { value: 'Mar1a' } });
   const firstError = screen.getByText('First name must not contain numbers.');
   expect(first.getAttribute('aria-describedby')).toBe(firstError.id);
   fireEvent.input(last, { target: { value: '123' } });
@@ -83,6 +83,17 @@ it.each([
 
   fireEvent.input(last, { target: { value: 'O’Connor' } });
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  fireEvent.input(first, { target: { value: 'María@' } });
+  fireEvent.input(last, { target: { value: 'O’Connor_' } });
+  expect(screen.getByText('First name must not contain special characters.').id).toBe(first.getAttribute('aria-describedby'));
+  expect(screen.getByText('Last name must not contain special characters.').id).toBe(last.getAttribute('aria-describedby'));
+  expect(first).toHaveProperty('value', 'María@');
+  await act(async () => { fireEvent.submit(form); });
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.input(first, { target: { value: 'María' } });
+  fireEvent.input(last, { target: { value: 'O’Connor' } });
+  expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
+  expect(screen.queryByText('Last name must not contain special characters.')).toBeNull();
   await act(async () => { fireEvent.submit(form); });
   expect(save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' }));
 });
@@ -92,18 +103,66 @@ it.each([
   ['lastName', 'Last name', 'Last name must not contain numbers.'],
 ] as const)('blocks Save and Enter for an invalid inline %s and accepts a correction', async (field, label, message) => {
   const save = vi.fn().mockResolvedValue(undefined);
-  render(<InlineEditRows canEdit onSave={save} rows={[{ label, apiField: field, value: '123John', required: true }]} />);
+  render(<InlineEditRows canEdit onSave={save} rows={[{ label, apiField: field, value: 'John', required: true }]} />);
   fireEvent.click(screen.getByRole('button', { name: `Edit ${label}` }));
   const input = screen.getByLabelText(label);
+  fireEvent.input(input, { target: { value: '123John' } });
   expect(screen.getByText(message).id).toBe(input.getAttribute('aria-describedby'));
   fireEvent.keyDown(input, { key: 'Enter' });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   expect(save).not.toHaveBeenCalled();
   fireEvent.input(input, { target: { value: 'Anne-Marie' } });
   expect(screen.queryByText(message)).toBeNull();
+  fireEvent.input(input, { target: { value: 'John@' } });
+  expect(screen.getByText(`${label} must not contain special characters.`)).toBeTruthy();
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.input(input, { target: { value: 'Anne-Marie' } });
+  expect(input.getAttribute('aria-invalid')).toBe('false');
   fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() => expect(screen.queryByRole('textbox', { name: label })).toBeNull());
   expect(save).toHaveBeenCalledExactlyOnceWith(field, 'Anne-Marie');
+});
+
+it.each([['Lead', AddLeadForm], ['Contact', ContactFormInner]] as const)('%s edit omits unchanged historical names and validates only a changed name', async (_label, Form) => {
+  const save = vi.fn();
+  const initialData = { id: 'legacy', tenantId: 'tenant', createdAt: '2026-09-30T00:00:00Z', firstName: 'Old@1', lastName: 'Smith#', email: 'legacy@example.test', status: 'Inquiry' as const };
+  const { container } = render(<Form initialData={initialData} onSave={save} onCancel={vi.fn()} />);
+  expect(screen.queryAllByText(/must not contain/)).toHaveLength(0);
+  fireEvent.input(screen.getByLabelText(_label === 'Lead' ? 'Lead Address' : 'Contact Address'), { target: { value: '123 Main St' } });
+  await act(async () => { fireEvent.submit(container.querySelector('form')!); });
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0][0]).not.toHaveProperty('firstName');
+  expect(save.mock.calls[0][0]).not.toHaveProperty('lastName');
+  save.mockClear();
+  const first = screen.getByLabelText('First Name *');
+  fireEvent.input(first, { target: { value: 'New@' } });
+  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  await act(async () => { fireEvent.submit(container.querySelector('form')!); });
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.input(first, { target: { value: 'Anne-Marie' } });
+  await act(async () => { fireEvent.submit(container.querySelector('form')!); });
+  expect(save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'Anne-Marie' }));
+  expect(save.mock.calls[0][0]).not.toHaveProperty('lastName');
+});
+
+it('closes an unchanged historical inline name without resubmitting it and clears stale errors on correction', async () => {
+  const save = vi.fn().mockRejectedValueOnce(new Error('First name must not contain special characters.')).mockResolvedValue(undefined);
+  render(<InlineEditRows canEdit onSave={save} rows={[{ label: 'First name', apiField: 'firstName', value: 'Legacy@1', required: true }]} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit First name' }));
+  fireEvent.keyDown(screen.getByLabelText('First name'), { key: 'Enter' });
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('First name')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit First name' }));
+  fireEvent.input(screen.getByLabelText('First name'), { target: { value: 'Anne' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('First name must not contain special characters.');
+  fireEvent.input(screen.getByLabelText('First name'), { target: { value: 'María' } });
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.keyDown(screen.getByLabelText('First name'), { key: 'Enter' });
+  await waitFor(() => expect(screen.queryByLabelText('First name')).toBeNull());
+  expect(save).toHaveBeenLastCalledWith('firstName', 'María');
 });
 
 const emptyDeal: Deal = {

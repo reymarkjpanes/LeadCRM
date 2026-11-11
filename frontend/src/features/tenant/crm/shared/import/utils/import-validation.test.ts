@@ -5,6 +5,17 @@ import { accountImportConfig, getImportConfig, IMPORT_CONFIGS } from '../configs
 import { importRequiredFields, importRowSchemas, mapImportCsv, type CrmImportModule } from '@leadcrm/shared';
 
 describe('CSV parsing and active import validation', () => {
+  it.each(['leads', 'contacts'] as const)('uses shared person-name rules in %s CSV review', module => {
+    const person = { firstName: 'María', lastName: 'O’Connor', email: 'visitor@example.test', phone: '9171234567', companyName: 'Acme@123', address: '123 Main St' };
+    const config = getImportConfig(module);
+    expect(validateRow(config, person, 2).isValid).toBe(true);
+    for (const field of ['firstName', 'lastName']) {
+      const row = validateRow(config, { ...person, [field]: 'John@1' }, 3);
+      expect(row.isValid).toBe(false);
+      expect(row.errors.join()).toContain('must not contain numbers.');
+      expect(validateRow(config, { ...person, [field]: 'John@' }, 4).errors.join()).toContain('must not contain special characters.');
+    }
+  });
   it('preserves quoted commas, escaped quotes, newlines and formula-like plain text', () => {
     expect(parseCsv('Title,Description\r\n"Deal, one","A ""quote"""\r\n=SUM(A1),"line\nsecond"')).toEqual({ headers: ['Title', 'Description'], rows: [['Deal, one', 'A "quote"'], ['=SUM(A1)', 'line\nsecond']], rowNumbers: [2, 3] });
   });

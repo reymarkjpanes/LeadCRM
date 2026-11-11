@@ -11,6 +11,7 @@ const zod_1 = require("zod");
 const source_attribution_1 = require("./source-attribution");
 const administration_user_schema_1 = require("../validation/administration-user.schema");
 const record_experience_1 = require("./record-experience");
+const profile_contract_1 = require("./profile.contract");
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 exports.FORM_PRODUCT_INTERESTS = [
     'CCTV Surveillance System', 'Biometrics', 'Door Access Control', 'Smart Lock',
@@ -170,6 +171,11 @@ function validateFormValues(fields, values) {
                 errors[f.id] = 'Please check this field.';
             else
                 clean[f.id] = raw;
+            continue;
+        }
+        const nameError = (0, profile_contract_1.getNameDigitError)(f.mapToField, raw);
+        if (nameError) {
+            errors[f.id] = nameError;
             continue;
         }
         const parsed = text(f.mapToField === 'firstName' || f.mapToField === 'lastName' ? 100 : f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);

@@ -7,12 +7,21 @@ const crm_email_1 = require("../validation/crm-email");
 const record_experience_1 = require("./record-experience");
 const closing_requirements_1 = require("./closing-requirements");
 const organization_1 = require("./organization");
+const profile_contract_1 = require("./profile.contract");
 exports.LeadNameSchema = (0, administration_user_schema_1.cleanText)(100).pipe(zod_1.z.string().min(1, 'Name is required'));
 exports.LeadPhoneSchema = zod_1.z.union([zod_1.z.literal(''), administration_user_schema_1.AdministrationPhoneSchema]);
 exports.OptionalLeadSourceSchema = zod_1.z.union([zod_1.z.literal(''), record_experience_1.LeadSourceSchema]);
 const fields = {
-    firstName: exports.LeadNameSchema,
-    lastName: exports.LeadNameSchema,
+    firstName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('firstName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(exports.LeadNameSchema),
+    lastName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('lastName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(exports.LeadNameSchema),
     email: crm_email_1.CrmEmailSchema,
     phone: exports.LeadPhoneSchema.optional(),
     companyName: (0, administration_user_schema_1.cleanText)(2000).optional(),
