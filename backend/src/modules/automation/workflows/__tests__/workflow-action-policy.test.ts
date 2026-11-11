@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORKFLOW_TRIGGERS, getAvailableActions, getWorkflowConditionFields, getWorkflowUpdateFields, workflowActionAllowed, workflowActionPolicyIssues, type WorkflowDraft } from '@leadcrm/shared';
+import { WORKFLOW_TRIGGERS, getAvailableActions, getWorkflowConditionFields, getWorkflowUpdateFields, workflowActionAllowed, workflowActionPolicyIssues, workflowDefinitionIssues, type WorkflowDraft } from '@leadcrm/shared';
 
 describe('Workflow trigger action policy', () => {
   for (const trigger of WORKFLOW_TRIGGERS) it(`enforces the action matrix for ${trigger.type}`, () => {
@@ -36,5 +36,28 @@ describe('Workflow trigger action policy', () => {
     expect(workflowActionAllowed(`${entity}.updated`, 'move_deal_stage')).toBe(true);
     expect(workflowActionAllowed(draft.trigger, 'send_email')).toBe(true);
     expect(workflowActionPolicyIssues({ ...draft, actions: [{ ...draft.actions[0], enabled: false }] })).toEqual([]);
+  });
+  it('requires Deal Updated stage moves to declare their source stage', () => {
+    const draft: WorkflowDraft = { name: 'Quotation to Qualified', trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.quotationSent', operator: 'is_not_empty', value: null }] },
+      actions: [{ type: 'move_deal_stage', config: { stageId: 'target-stage' } }] };
+    expect(workflowDefinitionIssues(draft)[0]).toContain('explicit Deal Stage Equals condition');
+    expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'AND', conditions: [
+      { field: 'deal.stageId', operator: 'equals', value: 'source-stage' }, ...draft.conditions!.conditions,
+    ] } })).toEqual([]);
+    expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'OR', conditions: [
+      { field: 'deal.stageId', operator: 'equals', value: 'source-stage' },
+      { field: 'deal.quotationSent', operator: 'is_not_empty', value: null },
+    ] } })[0]).toContain('For OR conditions, every option');
+    expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'OR', conditions: [
+      { field: 'deal.stageId', operator: 'equals', value: 'source-a' },
+      { field: 'deal.stageId', operator: 'equals', value: 'source-b' },
+    ] } })).toEqual([]);
+  });
+  it('does not constrain stage moves on other supported trigger types or disabled actions', () => {
+    const draft: WorkflowDraft = { name: 'Initial stage route', trigger: 'deal.created', isActive: true,
+      actions: [{ type: 'move_deal_stage', config: { stageId: 'target-stage' } }] };
+    expect(workflowDefinitionIssues(draft)).toEqual([]);
+    expect(workflowDefinitionIssues({ ...draft, trigger: 'deal.updated', actions: [{ ...draft.actions[0], enabled: false }] })).toEqual([]);
   });
 });

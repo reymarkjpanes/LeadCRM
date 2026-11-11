@@ -1,4 +1,4 @@
-import { workflowOperators, WorkflowConditionSchema, missingWorkflowConditionValues, retiredContactReferences, workflowActionPolicyIssues, WORKFLOW_MODULES, isWorkflowStatusField, parseStoredCrmStatus, type WorkflowDraft, type WorkflowField } from '@leadcrm/shared';
+import { workflowOperators, WorkflowConditionSchema, missingWorkflowConditionValues, retiredContactReferences, workflowDefinitionIssues, WORKFLOW_MODULES, isWorkflowStatusField, parseStoredCrmStatus, type WorkflowDraft, type WorkflowField } from '@leadcrm/shared';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { AppError } from '../../../shared/errors/app-error';
 import { findTrigger } from '../triggers/trigger-catalog';
@@ -51,9 +51,10 @@ export async function validateConditionReferences(draft: WorkflowDraft, tenantId
 }
 
 export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, previousConditions?: unknown): Promise<void> {
-  const policyIssues = workflowActionPolicyIssues(draft);
+  const policyIssues = workflowDefinitionIssues(draft);
   if (policyIssues.length) throw new ValidationError(policyIssues[0]);
   await validateConditionReferences(draft, tenantId);
+  await validateDealStageMovePipelineReferences(draft, tenantId);
   const previous = WorkflowConditionSchema.safeParse(previousConditions);
   const missing = missingWorkflowConditionValues(draft.conditions, previous.success ? previous.data : undefined);
   if (missing.length) throw new ValidationError(`Condition ${missing[0] + 1}: Enter a value or choose an empty-value operator.`);
@@ -64,6 +65,27 @@ export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, p
     catch (error) {
       if (!(error instanceof AppError)) throw error;
       throw new ValidationError(`Action ${index + 1}: ${error.message}`);
+    }
+  }
+}
+
+/** Ensure every permitted source stage for a Deal Updated stage move can transition to its target. */
+export async function validateDealStageMovePipelineReferences(draft: WorkflowDraft, tenantId: string): Promise<void> {
+  if (draft.trigger !== 'deal.updated') return;
+  const rules = draft.conditions?.conditions ?? [];
+  const sourceStageIds = [...new Set(rules
+    .filter(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' && typeof rule.value === 'string')
+    .map(rule => String(rule.value)))];
+  for (const [index, action] of draft.actions.entries()) {
+    if (action.enabled === false || action.type !== 'move_deal_stage') continue;
+    const target = await refs.findStage(String(action.config.stageId), tenantId);
+    if (!target) throw new ValidationError(`Action ${index + 1}: Target stage is unavailable.`);
+    for (const sourceId of sourceStageIds) {
+      const source = await refs.findStage(sourceId, tenantId);
+      if (!source) throw new ValidationError(`Action ${index + 1}: Source stage is unavailable.`);
+      if (source.pipelineId !== target.pipelineId) {
+        throw new ValidationError(`Action ${index + 1}: Every source Deal stage must belong to the same pipeline as the target stage.`);
+      }
     }
   }
 }

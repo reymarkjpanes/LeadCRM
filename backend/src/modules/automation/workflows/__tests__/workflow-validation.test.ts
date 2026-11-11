@@ -5,6 +5,9 @@ import { validateAction } from '../../actions/action-validation';
 import { validateWorkflow } from '../workflow-validation';
 
 vi.mock('../../actions/action-validation', () => ({ validateAction: vi.fn() }));
+vi.mock('../../actions/actions.repository', () => ({ findStage: vi.fn() }));
+
+import * as actionRefs from '../../actions/actions.repository';
 
 const draft: WorkflowDraft = {
   name: 'Follow up',
@@ -36,5 +39,31 @@ describe('workflow activation errors', () => {
     await expect(validateWorkflow({ ...draft, conditions }, 'tenant', conditions)).resolves.toBeUndefined();
     await expect(validateWorkflow({ ...draft, conditions }, 'tenant', { ...conditions, conditions: [{ ...conditions.conditions[0], incompleteValue: true }] })).rejects.toThrow('Condition 1: Enter a value');
     await expect(validateWorkflow({ ...draft, conditions: { operator: 'AND', conditions: [{ field: 'lead.firstName', operator: 'is_empty', value: null }] } }, 'tenant')).resolves.toBeUndefined();
+  });
+  it('rejects Deal Updated stage moves without a source-stage condition at backend activation', async () => {
+    const dealWorkflow: WorkflowDraft = { name: 'Quotation to Qualified', trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.title', operator: 'equals', value: 'Proposal sent' }] },
+      actions: [{ type: 'move_deal_stage', config: { stageId: 'target-stage' } }] };
+    await expect(validateWorkflow(dealWorkflow, 'tenant')).rejects.toThrow('explicit Deal Stage Equals condition');
+  });
+  it('rejects Deal Updated stage moves when a source stage belongs to another pipeline', async () => {
+    const source = '11111111-1111-4111-8111-111111111111';
+    const target = '22222222-2222-4222-8222-222222222222';
+    vi.mocked(validateAction).mockResolvedValue(undefined);
+    vi.mocked(actionRefs.findStage).mockImplementation(async id => ({ id, pipelineId: id === source ? 'pipeline-a' : 'pipeline-b' } as never));
+    const dealWorkflow: WorkflowDraft = { name: 'Move only from Contacted', trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: source }] },
+      actions: [{ type: 'move_deal_stage', config: { stageId: target } }] };
+    await expect(validateWorkflow(dealWorkflow, 'tenant')).rejects.toThrow('Every source Deal stage must belong to the same pipeline');
+  });
+  it('accepts a Deal Updated stage move when source and target belong to the same pipeline', async () => {
+    const source = '11111111-1111-4111-8111-111111111111';
+    const target = '22222222-2222-4222-8222-222222222222';
+    vi.mocked(validateAction).mockResolvedValue(undefined);
+    vi.mocked(actionRefs.findStage).mockResolvedValue({ id: source, pipelineId: 'pipeline-a' } as never);
+    const dealWorkflow: WorkflowDraft = { name: 'Move only from Contacted', trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: source }] },
+      actions: [{ type: 'move_deal_stage', config: { stageId: target } }] };
+    await expect(validateWorkflow(dealWorkflow, 'tenant')).resolves.toBeUndefined();
   });
 });
