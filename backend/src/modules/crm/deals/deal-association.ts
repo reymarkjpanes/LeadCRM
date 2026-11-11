@@ -1,10 +1,58 @@
 import type { Prisma } from '@prisma/client';
 import { assertExternalCustomerEmail } from '../record-validation';
-import { dealAssociationPatch, type DealAssociationChange } from '@leadcrm/shared';
+import { dealAssociationPatch, formatAssignmentChange, type DealAssociationChange } from '@leadcrm/shared';
 import { AppError } from '../../../shared/errors/app-error';
 import { ConflictError, ValidationError } from '../../../shared/errors/http-error';
-import { assertCrmCreateAssignment, assertCrmRecordRead, crmActor, mayReadCrmModule, resolveCrmActor } from '../access/crm-record-access.service';
+import { assertCrmCreateAssignment, assertCrmRecordMutation, assertCrmRecordRead, authorizedWorkflowScope, crmActor, mayReadCrmModule, resolveCrmActor } from '../access/crm-record-access.service';
 import { resolveSalesAgent, validateSalesOwner } from '../leads/lead-automation.service';
+import { assignmentSnapshot } from '../../notifications/assignment-presentation';
+import { writeAuditLog } from '../../../core/audit/audit.service';
+
+/** Manual reassignment only; the caller holds the source lock in salesTransaction. */
+export async function synchronizeAssociatedDealAssignment(tx: Prisma.TransactionClient, tenantId: string,
+  source: { type: 'lead' | 'contact'; id: string; assignedUserId: string | null },
+  assignedUserId: string | null | undefined, actorId?: string) {
+  if (!actorId || !assignedUserId || assignedUserId === source.assignedUserId || authorizedWorkflowScope(tenantId)) return;
+  await validateSalesOwner(tx, tenantId, assignedUserId, [source.type === 'lead' ? 'leads' : 'contacts', 'deals']);
+  const read = async () => await tx.deal.findMany({
+    where: { tenantId, isArchived: false, deletedAt: null, ...(source.type === 'lead'
+      ? { leadDeals: { some: { tenantId, leadId: source.id } } }
+      : { contactDeals: { some: { tenantId, contactId: source.id } } }) },
+    orderBy: { id: 'asc' },
+    select: { id: true, assignedUserId: true,
+      leadDeals: { where: { tenantId }, select: { leadId: true, lead: { select: { contactId: true, convertedAt: true } } } },
+      contactDeals: { where: { tenantId }, select: { contactId: true } },
+    },
+  });
+  // Enumerate complete junctions even when an associated Deal is hidden. These
+  // facts stay internal; every candidate must pass ordinary mutation authorization.
+  const actor = crmActor.getStore();
+  const deals = actor ? await crmActor.run({ ...actor, readRecords: false }, read) : await read();
+  for (const deal of deals) {
+    await assertCrmRecordMutation(tx, 'deals', deal.id, 'edit', { assignedUserId });
+    const exclusive = source.type === 'lead'
+      ? deal.contactDeals.length === 0 && deal.leadDeals.length === 1 && deal.leadDeals[0].leadId === source.id
+      : deal.contactDeals.length === 1 && deal.contactDeals[0].contactId === source.id &&
+        deal.leadDeals.every(link => link.lead.convertedAt && link.lead.contactId === source.id);
+    if (!exclusive || deal.assignedUserId !== source.assignedUserId) {
+      throw new ConflictError('Cannot synchronize Assigned Agent: an associated Deal is shared or independently assigned. Resolve its ownership or relationships before reassigning this record.');
+    }
+  }
+  if (!deals.length) return;
+  const assignment = await assignmentSnapshot(tx, tenantId, source.assignedUserId, assignedUserId, actorId);
+  for (const deal of deals) {
+    await tx.deal.update({ where: { tenantId, id: deal.id, isArchived: false, deletedAt: null, assignedUserId: source.assignedUserId }, data: { assignedUserId } });
+    await writeAuditLog({ tenantId, userId: actorId, action: 'deal.updated', entityType: 'Deal', entityId: deal.id,
+      before: { assignedUserId: source.assignedUserId }, after: { assignedUserId },
+      metadata: { changedFields: ['assignedUserId'], source: `${source.type}_assignment`, sourceRecordId: source.id },
+    }, tx);
+    await tx.activity.create({ data: { tenantId, dealId: deal.id, createdById: actorId, type: 'assignment',
+      ...formatAssignmentChange(assignment), metadata: { ...assignment, sourceType: source.type, sourceRecordId: source.id },
+    } });
+  }
+  // Database triggers capture assignment notifications and CRM revisions. Do not
+  // enqueue Deal workflows: this cascade must not start unrelated automation.
+}
 
 export async function readDealAssociation(tx: Prisma.TransactionClient, tenantId: string, association: Pick<DealAssociationChange, 'type' | 'id'>) {
   const module = association.type === 'lead' ? 'leads' : 'contacts';

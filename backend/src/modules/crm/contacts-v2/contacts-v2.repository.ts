@@ -1,4 +1,5 @@
 import { salesContext } from '../leads/sales-context';
+import { synchronizeAssociatedDealAssignment } from '../deals/deal-association';
 import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
 import { salesActivityDates } from '../sales-activity';
 import { applyManagedCustomerStatus, assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
@@ -174,6 +175,7 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     if (dto.productInterests !== undefined || dto.productInterestIds !== undefined) Object.assign(dto, await productRelationData(tx, 'contact', tenantId, { ids: dto.productInterestIds as string[] | undefined, names: dto.productInterests as string[] | undefined }, current, true));
     let status = dto.status === undefined ? undefined : CrmStatusSchema.parse(dto.status);
     if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Contact changed. Reload its current status before saving.');
+    await synchronizeAssociatedDealAssignment(tx, tenantId, { type: 'contact', id, assignedUserId: current.assignedUserId }, dto.assignedUserId as string | null | undefined, actorId);
     const managed = await applyManagedCustomerStatus(tx, tenantId, { contactId: id }, actorId, current.status, status);
     if (managed) status = undefined;
     await assertCustomerStatusEdit(tx, tenantId, { contactId: id }, current, status);
