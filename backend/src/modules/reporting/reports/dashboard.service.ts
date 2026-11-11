@@ -123,15 +123,8 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         WHERE ${scope} AND s."isWon" AND d."closedAt" >= ${utc(sourcePeriod.from)} AND d."closedAt" < ${utc(sourcePeriod.until)}
           AND d."closedAt" >= d."createdAt" AND d."closedAt" <= ${utc(now)}
         GROUP BY 1 ORDER BY won DESC, name ASC`);
-      const unspecified = sourceGroups.find(row => row.name === 'Not specified');
-      const named = sourceGroups.filter(row => row.name !== 'Not specified' && row.name !== 'Others');
-      const sources = named.slice(0, unspecified ? 4 : 5);
-      if (unspecified) sources.push(unspecified);
-      const others = sourceGroups.filter(row => !sources.includes(row)).reduce((sum, row) => sum + row.won, 0);
-      if (others) sources.push({ name: 'Others', won: others });
-      sources.sort((a, b) => b.won - a.won || a.name.localeCompare(b.name));
       result.leadSourcePerformance = {
-        period: { start: sourcePeriod.start, end: sourcePeriod.end, timezone: sourcePeriod.timezone }, sources,
+        period: { start: sourcePeriod.start, end: sourcePeriod.end, timezone: sourcePeriod.timezone }, sources: sourceGroups,
       };
       const totals = (await raw<Totals[]>(Prisma.sql`
         WITH eligible AS (SELECT d.*, s."isWon", s."isLost" FROM "Deal" d

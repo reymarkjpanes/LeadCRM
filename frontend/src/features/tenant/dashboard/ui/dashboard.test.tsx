@@ -1,7 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { DashboardReport, DashboardQuery } from '@leadcrm/shared';
+import { LEAD_SOURCES, type DashboardReport, type DashboardQuery } from '@leadcrm/shared';
 import Dashboard from './dashboard';
 
 const mocks = vi.hoisted(() => ({ report: null as DashboardReport | null, query: null as DashboardQuery | null, error: null as string | null, loading: false, refresh: vi.fn(async () => true), charts: [] as any[], success: vi.fn(), failure: vi.fn() }));
@@ -118,7 +118,7 @@ it('shows exact compact amounts on keyboard focus', async () => {
   expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', '₱45,000.00');
 });
 
-it('uses real distribution values, saved colors and count-relative widths, excluding closed stages', () => {
+it('shows distribution counts, saved colors and count-relative widths, excluding money and closed stages', () => {
   mocks.report!.distribution = [
     { id: 'lead', name: 'Lead', color: '#FFCC00', count: 13, value: 132123, percentage: 72.2 },
     { id: 'contacted', name: 'Contacted', color: '#123456', count: 3, value: 37000, percentage: 16.7 },
@@ -130,34 +130,64 @@ it('uses real distribution values, saved colors and count-relative widths, exclu
   expect(pipeline.getAllByRole('listitem').map(row => row.getAttribute('aria-label'))).toEqual(['Lead', 'Contacted', 'Qualified']);
   const lead = within(pipeline.getByRole('listitem', { name: 'Lead' }));
   expect(lead.getByText('13 deals')).toBeTruthy();
-  expect(lead.getByLabelText('₱132,123.00').textContent).toBe('₱132.1K');
+  expect(pipeline.queryByText(/₱|Unavailable/)).toBeNull();
   expect((lead.getByRole('meter').firstChild as HTMLElement).style.width).toBe('100%');
   expect((lead.getByRole('meter').firstChild as HTMLElement).style.backgroundColor).toBe('rgb(255, 204, 0)');
   const contacted = pipeline.getByRole('meter', { name: 'Contacted deal count relative to largest stage' });
   expect(parseFloat((contacted.firstChild as HTMLElement).style.width)).toBeCloseTo(3 / 13 * 100);
-  expect(within(pipeline.getByRole('listitem', { name: 'Qualified' })).getByText('Unavailable')).toBeTruthy();
+  expect(within(pipeline.getByRole('listitem', { name: 'Qualified' })).getByText('2 deals')).toBeTruthy();
 });
 
-it('replaces the Dashboard funnel with backend source counts and a horizontal chart', () => {
+it('shows every configured source in a vertical chart with stable colors, exact counts and horizontal multiline labels', () => {
   render(<Dashboard />);
   const source = within(screen.getByRole('region', { name: 'Lead Source Performance' }));
   expect(source.getByText('Won Deals by Lead Source')).toBeTruthy();
-  expect(source.getByRole('list').textContent).toBe('Referral: 12 won dealsNot specified: 2 won deals');
+  expect(source.getByRole('list').textContent).toContain('Google Ads: 0 won deals');
+  expect(source.getByRole('list').textContent).toContain('Referral: 12 won deals');
+  expect(source.getByRole('list').textContent).toContain('Not specified: 2 won deals');
   const chart = mocks.charts.find(chart => chart.type === 'bar');
-  expect(chart.options.indexAxis).toBe('y');
-  expect(chart.data.labels).toEqual(['Referral', 'Not specified']);
-  expect(chart.data.datasets[0].data).toEqual([12, 2]);
+  expect(chart.options.indexAxis).toBe('x');
+  expect(chart.data.labels).toEqual([...LEAD_SOURCES, 'Not specified']);
+  expect(chart.data.datasets[0].data).toEqual([0, 12, 0, 0, 0, 0, 0, 0, 0, 2]);
+  expect(chart.data.datasets[0].backgroundColor).toEqual(['#2563EB', '#10B981', '#8B5CF6', '#0EA5E9', '#F59E0B', '#EC4899', '#6366F1', '#14B8A6', '#64748B', '#64748B']);
+  expect(chart.data.datasets[0].barThickness).toBe(24);
+  expect(chart.data.datasets[0].borderRadius).toBe(6);
+  expect(chart.options.scales.x.ticks.autoSkip).toBe(false);
+  expect(chart.options.scales.x.ticks.maxRotation).toBe(0);
+  expect(chart.options.scales.x.ticks.callback(5)).toEqual(['Social Media', 'Advertisement']);
+  expect(chart.options.scales.x.ticks.callback(2)).toEqual(['Email', 'Campaign']);
+  expect(chart.options.scales.x.ticks.callback(7)).toEqual(['Content', 'Marketing']);
+  expect(chart.options.scales.x.ticks.callback(0)).toBe('Google Ads');
+  expect(chart.options.scales.y.beginAtZero).toBe(true);
+  expect(chart.options.scales.y.ticks.precision).toBe(0);
+  expect(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Won Deals' }, parsed: { y: 123456 } })).toBe('Won Deals: 123456');
   expect(chart.options.plugins.legend.display).toBe(false);
   expect(chart.plugins).toHaveLength(1);
+  expect(source.getByRole('region', { name: 'Scrollable lead source chart' }).getAttribute('tabindex')).toBe('0');
   expect(source.queryByRole('button', { name: 'Lead Source date range' })).toBeNull();
   for (const removed of ['Conversion Funnel', 'Historical Conversion Rates', 'Current pipeline stage counts']) expect(screen.queryByText(removed)).toBeNull();
+});
+it('keeps source identities and colors across reordered responses and preserves additional sources once', () => {
+  mocks.report!.leadSourcePerformance!.sources = [{ name: 'Website', won: 1 }, { name: 'Partner Event', won: 4 }, { name: 'Others', won: 2 }];
+  const view = render(<Dashboard />);
+  const original = mocks.charts.find(chart => chart.type === 'bar');
+  expect(original.data.labels).toEqual([...LEAD_SOURCES, 'Partner Event']);
+  expect(original.data.datasets[0].data).toEqual([0, 0, 0, 0, 1, 0, 0, 0, 2, 4]);
+  mocks.charts = [];
+  mocks.report!.leadSourcePerformance!.sources = [{ name: 'Partner Event', won: 9 }, { name: 'Others', won: 0 }, { name: 'Website', won: 3 }];
+  view.rerender(<Dashboard />);
+  const refreshed = mocks.charts.find(chart => chart.type === 'bar');
+  expect(refreshed.data.labels).toEqual(original.data.labels);
+  expect(refreshed.data.datasets[0].backgroundColor).toEqual(original.data.datasets[0].backgroundColor);
+  expect(refreshed.data.datasets[0].data).toEqual([0, 0, 0, 0, 3, 0, 0, 0, 0, 9]);
 });
 it('distinguishes an empty source period from unavailable access', () => {
   mocks.report!.leadSourcePerformance!.sources = [];
   const view = render(<Dashboard />);
   const source = within(screen.getByRole('region', { name: 'Lead Source Performance' }));
   expect(source.getByText('No won deals for this period.')).toBeTruthy();
-  expect(mocks.charts.filter(chart => chart.type === 'bar')).toHaveLength(0);
+  expect(mocks.charts.find(chart => chart.type === 'bar').data.labels).toEqual(LEAD_SOURCES);
+  expect(mocks.charts.find(chart => chart.type === 'bar').data.datasets[0].data).toEqual(LEAD_SOURCES.map(() => 0));
   mocks.report!.leadSourcePerformance = null; mocks.report!.access.deals = false;
   view.rerender(<Dashboard />);
   expect(source.getByText('Deal reporting unavailable.')).toBeTruthy();
@@ -219,7 +249,8 @@ it('renders truthful empty states, zero current counts and unavailable rates', (
   expect(screen.getByText('No won deals for this period.')).toBeTruthy();
   expect(within(screen.getByRole('group', { name: 'Forecast' })).getByText('Unavailable')).toBeTruthy();
   expect(screen.queryByRole('meter')).toBeNull();
-  expect(mocks.charts).toHaveLength(0);
+  expect(mocks.charts).toHaveLength(1);
+  expect(mocks.charts[0].data.datasets[0].data).toEqual(LEAD_SOURCES.map(() => 0));
 });
 
 it('preserves chart report data, compact ticks, exact tooltips and opt-in data points', () => {

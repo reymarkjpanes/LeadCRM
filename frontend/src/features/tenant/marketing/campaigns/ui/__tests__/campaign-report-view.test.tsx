@@ -42,6 +42,73 @@ const select = (label: string) => {
 };
 const rows = () => within(screen.getAllByRole('grid')[0]).getAllByRole('row').slice(1);
 describe('campaign report', () => {
+  it('updates engagement and activity every 2.5 seconds while keeping a Delivered Email delivered', async () => {
+    vi.useFakeTimers();
+    const initial = { ...response().data, status: 'delivered', openedCount: 0, clickedCount: 0, bouncedCount: 0,
+      recipients: [{ ...recipients[0], opened: false, clicked: false }], topLinks: [] };
+    vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: initial } as never);
+    mount(); await act(async () => {});
+    const updated = { ...initial, openedCount: 1, clickedCount: 1, deliveredCount: 4, sentCount: 5, bouncedCount: 1,
+      recipients: [{ ...initial.recipients[0], opened: true, clicked: true, lastActivity: '2026-10-02T03:14:00Z' }] };
+    vi.mocked(campaignsApi.report).mockResolvedValue({ success: true, data: updated } as never);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2499); });
+    expect(screen.queryByLabelText('Opened', { selector: 'span' })).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    const metrics = screen.getByRole('region', { name: 'Campaign metrics' });
+    for (const [label, count] of [['Opened', 1], ['Total Clicks', 1], ['Delivered', 4], ['Submitted', 5], ['Bounced', 1]]) {
+      expect(within(metrics).getByRole('heading', { name: String(label) }).parentElement?.querySelector('.text-2xl')?.textContent).toBe(String(count));
+    }
+    expect(screen.getByLabelText('Opened', { selector: 'span' })).toBeTruthy();
+    expect(screen.getByLabelText('Clicked', { selector: 'span' })).toBeTruthy();
+    expect(screen.getByText(formatDateTime(updated.recipients[0].lastActivity))).toBeTruthy();
+    expect(screen.getAllByText('Delivered').length).toBeGreaterThan(1);
+  });
+  it('recovers a hung request and ignores its late result after the next confirmed report', async () => {
+    vi.useFakeTimers();
+    let finish!: (value: never) => void;
+    vi.mocked(campaignsApi.report).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mount(); await act(async () => {});
+    const signal = vi.mocked(campaignsApi.report).mock.calls[0][1]!;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(signal.aborted).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('timed out');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(screen.getByText('4 of 4 recipients')).toBeTruthy();
+    await act(async () => { finish({ success: true, data: { ...response().data, recipients: [], recipientCount: 0 } } as never); });
+    expect(screen.getByText('4 of 4 recipients')).toBeTruthy();
+    expect(campaignsApi.report).toHaveBeenCalledTimes(2);
+  });
+  it('ignores an older campaign response after navigation and aborts it on cleanup', async () => {
+    let finish!: (value: never) => void;
+    vi.mocked(campaignsApi.report).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const { rerender } = mount();
+    const signal = vi.mocked(campaignsApi.report).mock.calls[0][1]!;
+    rerender(<CampaignReportView campaign={{ ...campaign, id: 'next-campaign' } as never} onBack={vi.fn()} />);
+    await screen.findByText('4 of 4 recipients');
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish({ success: true, data: { ...response().data, recipients: [], recipientCount: 0 } } as never); });
+    expect(screen.getByText('4 of 4 recipients')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('pauses offline, resumes immediately online, and coalesces focus/visibility refreshes', async () => {
+    vi.useFakeTimers();
+    let online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    mount(); await act(async () => {});
+    online = false;
+    await act(async () => { window.dispatchEvent(new Event('offline')); await vi.advanceTimersByTimeAsync(60000); });
+    expect(campaignsApi.report).toHaveBeenCalledTimes(1);
+    let finish!: (value: never) => void;
+    vi.mocked(campaignsApi.report).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    online = true;
+    await act(async () => {
+      window.dispatchEvent(new Event('online')); window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(campaignsApi.report).toHaveBeenCalledTimes(2);
+    await act(async () => { finish(response() as never); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(campaignsApi.report).toHaveBeenCalledTimes(3);
+  });
   it('shows Submitted for SMS acceptance and follows later delivery evidence without refresh', async () => {
     vi.useFakeTimers();
     const first = { ...response().data, type: 'Sms', status: 'submitted', submissionStartedAt: new Date().toISOString(), recipients: [{ ...recipients[0], deliveryStatus: 'Submitted' }] };

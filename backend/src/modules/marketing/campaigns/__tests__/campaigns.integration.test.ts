@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 // A send must resolve its audience on the transaction's existing connection.
@@ -105,6 +105,90 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     });
     const reloaded = await request(`/marketing/campaigns/${campaign.id}`);
     expect(reloaded.status).toBe(200); expect(reloaded.body.data.status).toBe('SUBMITTED'); expect(reloaded.body.data.deliveredCount).toBe(0);
+  });
+  it('recovers engagement after delivery, deduplicates history and callbacks, and preserves provider time', async ({ onTestFinished }) => {
+    const campaign = await draft();
+    onTestFinished(async () => {
+      await prisma.emailDeliveryLog.deleteMany({ where: { tenantId, campaignId: campaign.id } });
+      await prisma.campaign.delete({ where: { tenantId, id: campaign.id } });
+    });
+    await scoped(() => sendCampaign(campaign.id, tenantId, userId));
+    const recipients = await prisma.campaignContact.findMany({ where: { tenantId, campaignId: campaign.id }, orderBy: { id: 'asc' } });
+    const submitted = new Date(Math.floor((Date.now() - 3600000) / 1000) * 1000);
+    const delivered = new Date(+submitted + 1000), opened = new Date(+submitted + 120000), clicked = new Date(+submitted + 180000);
+    await prisma.campaignContact.updateMany({ where: { tenantId, campaignId: campaign.id }, data: { submittedAt: submitted } });
+    for (const row of recipients) await processBrevoEvent({ event: 'delivered', email: row.email, 'message-id': row.messageId, ts_epoch: +delivered });
+    expect((await scoped(() => getCampaignById(campaign.id, tenantId))).status).toBe('DELIVERED');
+    const first = recipients[0];
+    // Already-saved callback uses a send epoch, unlike provider history's event date.
+    await processBrevoEvent({ event: 'opened', email: first.email, 'message-id': first.messageId, ts_epoch: +submitted, ts_event: +opened / 1000 });
+    const firstLog = await prisma.emailDeliveryLog.findUniqueOrThrow({ where: { brevoMessageId: first.messageId! } });
+    await prisma.emailEvent.updateMany({ where: { deliveryLogId: firstLog.id, eventType: 'opened' },
+      data: { providerEventKey: `${firstLog.id}:opened:v2:${'a'.repeat(64)}` } });
+    const fetchHistory = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(init?.method).toBe('GET');
+      const url = new URL(String(input));
+      const row = recipients.find(item => item.messageId === url.searchParams.get('messageId'))!;
+      const identity = { messageId: row.messageId!.replace(/^<|>$/g, ''), email: row.email!.toUpperCase() };
+      return Response.json({ events: [
+        { ...identity, event: 'delivered', date: delivered.toISOString() },
+        { ...identity, event: 'uniqueOpened', date: opened.toISOString(), link: null },
+        { ...identity, event: 'opened', date: opened.toISOString() },
+        { ...identity, event: 'opened', date: new Date(+opened + 1000).toISOString() },
+        ...(row.id === first.id ? [{ ...identity, event: 'clicks', date: clicked.toISOString(), link: 'https://camxian.com/services' }] : []),
+        { ...identity, event: 'clicks', date: new Date(+clicked + 1000).toISOString(), link: 'javascript:invalid' },
+        { ...identity, event: 'opened', date: new Date(+submitted - 180000).toISOString() },
+        { ...identity, event: 'opened', date: new Date(Date.now() + 3600000).toISOString() },
+        { ...identity, messageId: 'another-message', event: 'opened', date: opened.toISOString() },
+        { ...identity, email: 'another@example.test', event: 'opened', date: opened.toISOString() },
+      ] });
+    });
+    try {
+      await reconcileBrevoStatuses();
+      await reconcileBrevoStatuses();
+      expect(fetchHistory).toHaveBeenCalledTimes(3); // Fully recovered recipients no longer need lookups.
+    } finally { fetchHistory.mockRestore(); }
+    const callback = { event: 'click', email: first.email, 'message-id': first.messageId, ts_epoch: +submitted, ts_event: +clicked / 1000, link: 'https://camxian.com/services' };
+    await processBrevoEvent(callback); await processBrevoEvent(callback);
+    // History can prove a click without returning a destination. A later callback
+    // supplies attribution for that same evidence rather than a second click.
+    const second = recipients[1], unattributed = { event: 'click', email: second.email, 'message-id': second.messageId, ts_epoch: +clicked };
+    await processBrevoEvent(unattributed, 'history');
+    await processBrevoEvent({ ...unattributed, link: 'https://camxian.com/services' });
+    await processBrevoEvent(unattributed, 'history');
+    const report = await scoped(() => getCampaignReport(campaign.id, tenantId));
+    expect(report).toMatchObject({ status: 'DELIVERED', openedCount: 2, clickedCount: 2, deliveredCount: 2, totalOpens: 4, totalClicks: 2 });
+    expect(report.topLinks).toEqual([expect.objectContaining({ url: 'https://camxian.com/services', uniqueClicks: 2, totalClicks: 2 })]);
+    expect(report.recipients.find(row => row.id === first.id)).toMatchObject({ opened: true, clicked: true, deliveryStatus: 'Delivered', lastActivity: clicked.toISOString() });
+    expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: first.id } })).toMatchObject({ openedAt: opened, clickedAt: clicked });
+    expect((await scoped(() => getCampaignById(campaign.id, tenantId)))).toMatchObject({ openedCount: 2, clickedCount: 2 });
+    expect(await prisma.emailEvent.count({ where: { tenantId, deliveryLog: { campaignId: campaign.id }, eventType: 'opened' } })).toBe(4);
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(sendSms).not.toHaveBeenCalled();
+  });
+  it.each(['opened', 'click'] as const)('deduplicates coarse history before precise %s callbacks without losing millisecond repeats', async event => {
+    const campaign = await draft();
+    onTestFinished(async () => {
+      await prisma.emailDeliveryLog.deleteMany({ where: { tenantId, campaignId: campaign.id } });
+      await prisma.campaign.delete({ where: { tenantId, id: campaign.id } });
+    });
+    await scoped(() => sendCampaign(campaign.id, tenantId, userId));
+    const log = await prisma.emailDeliveryLog.findFirstOrThrow({ where: { tenantId, campaignId: campaign.id } });
+    const at = Math.floor(Date.now() / 1000) * 1000 - 10000;
+    const payload = { event, email: log.toEmail, 'message-id': log.brevoMessageId!,
+      ...(event === 'click' ? { link: 'https://camxian.com/services' } : {}) };
+    await processBrevoEvent({ ...payload, ts_epoch: at }, 'history');
+    await processBrevoEvent({ ...payload, ts_epoch: at + 123 });
+    await processBrevoEvent({ ...payload, ts_epoch: at + 123 });
+    expect(await prisma.emailEvent.count({ where: { deliveryLogId: log.id, eventType: event } })).toBe(1);
+    await processBrevoEvent({ ...payload, ts_epoch: at + 456 });
+    await processBrevoEvent({ ...payload, ts_epoch: at }, 'history');
+    const events = await prisma.emailEvent.findMany({ where: { deliveryLogId: log.id, eventType: event }, orderBy: { createdAt: 'asc' } });
+    expect(events.map(receipt => +receipt.createdAt)).toEqual([at, at + 456]);
+    const report = await scoped(() => getCampaignReport(campaign.id, tenantId));
+    expect(report[event === 'opened' ? 'openedCount' : 'clickedCount']).toBe(1);
+    expect(event === 'opened' ? report.totalOpens : report.topLinks[0].totalClicks).toBe(2);
+    expect(sendMail).toHaveBeenCalledTimes(2);
   });
   it('recovers missed Brevo receipts from provider history without resending email', async ({ onTestFinished }) => {
     const campaign = await draft();

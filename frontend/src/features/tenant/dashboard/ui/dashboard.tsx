@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/shared/components/ui/dropdown-menu';
 import DashboardSkeleton from '@/shared/components/dashboard-skeleton';
 import { useDashboard } from '../hooks/use-dashboard-report';
-import { DASHBOARD_TIMEZONE, DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, dashboardToday, pipelineStageColor, type DashboardQuery, type DashboardReport, type DashboardRange, type FunnelRange } from '@leadcrm/shared';
+import { DASHBOARD_TIMEZONE, LEAD_SOURCES, DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, dashboardToday, pipelineStageColor, type DashboardQuery, type DashboardReport, type DashboardRange, type FunnelRange } from '@leadcrm/shared';
 import { Input } from '@/shared/components/ui/input';
 import { Tooltip as ValueTooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/shared/components/ui/tooltip';
 import { toast } from '@/shared/utils/toast';
@@ -27,6 +27,23 @@ const colors: Record<string, { bg: string; text: string }> = {
   purple: { bg: 'bg-purple-500/10', text: 'text-purple-500' }, orange: { bg: 'bg-orange-500/10', text: 'text-orange-500' },
   pink: { bg: 'bg-pink-500/10', text: 'text-pink-500' }, indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-500' },
 };
+const leadSourceColors: Record<string, string> = {
+  'Google Ads': '#2563EB', Referral: '#10B981', 'Email Campaign': '#8B5CF6', 'Direct Email': '#0EA5E9',
+  Website: '#F59E0B', 'Social Media Advertisement': '#EC4899', 'Direct Mail': '#6366F1',
+  'Content Marketing': '#14B8A6', Others: '#64748B',
+};
+function leadSourceLabel(value: unknown): string | string[] {
+  const name = String(value);
+  if (name === 'Social Media Advertisement') return ['Social Media', 'Advertisement'];
+  if (name.length <= 12) return name;
+  const words = name.split(/\s+/);
+  if (words.length < 2) return [name.slice(0, Math.ceil(name.length / 2)), name.slice(Math.ceil(name.length / 2))];
+  let split = 1;
+  for (let index = 2; index < words.length; index++) {
+    if (Math.abs(words.slice(0, index).join(' ').length - name.length / 2) < Math.abs(words.slice(0, split).join(' ').length - name.length / 2)) split = index;
+  }
+  return [words.slice(0, split).join(' '), words.slice(split).join(' ')];
+}
 function PesoIcon({ size }: { size: number }) { return <span style={{ fontSize: size, lineHeight: 1, fontWeight: 700 }} aria-hidden="true">₱</span>; }
 function ChartHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return <div className="mb-4 min-w-0"><h3 className="break-words font-semibold text-slate-900 dark:text-white">{title}</h3>{subtitle && <p className="break-words text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}</div>;
@@ -129,6 +146,10 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
   const metric = report?.metrics;
   const { won, lost } = metric ?? {};
   const periodWinRate = won == null || lost == null ? null : won === 0 ? 0 : Math.round(won / (won + lost) * 1000) / 10;
+  const sourceCounts = new Map(report?.leadSourcePerformance?.sources.map(source => [source.name, source.won]) ?? []);
+  const sourceNames = [...new Set<string>([...LEAD_SOURCES, ...sourceCounts.keys()])];
+  const leadSourceData = sourceNames.map(name => ({ name, won: sourceCounts.get(name) ?? 0 }));
+  const sourceCategoryWidth = Math.max(88, ...sourceNames.flatMap(name => [leadSourceLabel(name)].flat().map(line => line.length * 6 + 8)));
   const pipelineData = report?.distribution.map(row => ({ ...row, value: row.count, color: pipelineStageColor(row) })) ?? [];
   const pipelineValues = report?.distribution.map(row => ({ name: row.name, value: row.value ?? 0, color: pipelineStageColor(row) })) ?? [];
   const interval = query.revenueInterval ?? 'month';
@@ -271,19 +292,21 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
             <section aria-label="Pipeline Overview" className={`${card} !p-4 sm:!p-5 lg:col-span-5`}>
               <h3 className="mb-5 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Layers size={21} className="text-purple-500" aria-hidden="true" />Pipeline Overview</h3>
               {(!report.access.deals || metric?.activeDeals === null) ? <Empty>Deal reporting unavailable.</Empty> : largestStage === 0 ? <Empty>No open deals.</Empty> : <ul className="space-y-5">{openStages.map(stage => <li key={stage.id} aria-label={stage.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 text-xs">
-                <span className="font-medium text-slate-600 dark:text-slate-300">{stage.name}</span><span className="font-bold tabular-nums text-slate-950 dark:text-white"><CompactMoney value={stage.value} currency={currency} /></span>
-                <div role="meter" aria-label={`${stage.name} deal count relative to largest stage`} aria-valuemin={0} aria-valuemax={largestStage} aria-valuenow={stage.count} className="h-3 min-w-0 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full" style={{ width: `${stage.count / largestStage * 100}%`, backgroundColor: pipelineStageColor(stage) }} /></div><span className="text-right tabular-nums text-slate-500 dark:text-slate-400">{stage.count} {stage.count === 1 ? 'deal' : 'deals'}</span>
+                <span className="font-medium text-slate-600 dark:text-slate-300">{stage.name}</span><span className="font-bold tabular-nums text-slate-950 dark:text-white">{countLabel(stage.count, 'deal')}</span>
+                <div role="meter" aria-label={`${stage.name} deal count relative to largest stage`} aria-valuemin={0} aria-valuemax={largestStage} aria-valuenow={stage.count} className="col-span-2 h-3 min-w-0 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full" style={{ width: `${stage.count / largestStage * 100}%`, backgroundColor: pipelineStageColor(stage) }} /></div>
               </li>)}</ul>}
             </section>
             <section aria-label="Lead Source Performance" className={`${card} !p-4 sm:!p-5 lg:col-span-7`}>
               <ChartHeading title="Lead Source Performance" subtitle="Won Deals by Lead Source" />
               {!report.access.deals || !report.leadSourcePerformance ? <Empty>Deal reporting unavailable.</Empty>
-                : report.leadSourcePerformance.sources.length === 0 ? <Empty>No won deals for this period.</Empty>
                 : <>
-                  <div role="img" aria-label="Won Deals by Lead Source. Source names and counts follow." style={{ height: Math.max(180, report.leadSourcePerformance.sources.length * 64) }} className="min-w-0">
-                    <ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={report.leadSourcePerformance.sources} showValueLabels wrapCategoryLabels><XAxis /><YAxis dataKey="name" /><Tooltip /><Bar dataKey="won" name="Won Deals" fill="#3B82F6" barSize={16} /></BarChart></ResponsiveContainer>
+                  <div role="region" aria-label="Scrollable lead source chart" tabIndex={0} className="min-w-0 max-w-full overflow-x-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+                    <div role="img" aria-label="Won Deals by Lead Source. Source names and counts follow." style={{ height: 320, minWidth: 48 + leadSourceData.length * sourceCategoryWidth }}>
+                      <ResponsiveContainer width="100%" height="100%"><BarChart data={leadSourceData} showValueLabels><XAxis dataKey="name" interval={0} tickFormatter={leadSourceLabel} /><YAxis allowDecimals={false} /><Tooltip formatter={value => String(value)} /><Bar dataKey="won" name="Won Deals" fill="#64748B" data={leadSourceData.map(source => ({ color: Object.hasOwn(leadSourceColors, source.name) ? leadSourceColors[source.name] : '#64748B' }))} barSize={24} /></BarChart></ResponsiveContainer>
+                    </div>
                   </div>
-                  <ul className="sr-only" aria-label="Won Deals by Lead Source">{report.leadSourcePerformance.sources.map(source => <li key={source.name}>{source.name}: {source.won} {source.won === 1 ? 'won deal' : 'won deals'}</li>)}</ul>
+                  {leadSourceData.every(source => source.won === 0) && <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No won deals for this period.</p>}
+                  <ul className="sr-only" aria-label="Won Deals by Lead Source">{leadSourceData.map(source => <li key={source.name}>{source.name}: {source.won} {source.won === 1 ? 'won deal' : 'won deals'}</li>)}</ul>
                 </>}
             </section>
           </div>
