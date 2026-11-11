@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { LEAD_SOURCES } from '../../shared/src/contracts/record-experience.js';
 
 // Uses only the parent harness's disposable SQL, real API, sessions and proxy.
 export async function verifyDashboardMetrics({ page, staffPage, base, output, http, prisma, tenant, agent, replacement, pipeline, stages, record, until, wait, expectValue, sourceOnly = false }) {
@@ -75,13 +76,17 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   for(const stage of initial.distribution){
     const row=overview.getByRole('listitem',{name:stage.name,exact:true});
     assert.equal(await row.getByRole('meter').getAttribute('aria-valuenow'),String(stage.count));
-    assert.equal(await row.getByLabel(money(stage.value),{exact:true}).count(),1);
+    assert.equal(await row.getByText(`${stage.count} ${stage.count === 1 ? 'deal' : 'deals'}`,{exact:true}).count(),1);
     assert.equal(await row.getByRole('meter').locator('div').evaluate((bar,color)=>{const probe=document.createElement('span');probe.style.backgroundColor=color;return probe.style.backgroundColor===bar.style.backgroundColor;},stage.color),true);
   }
   const currentCounts = report => report.pipeline.stages.slice(0, 4).map(stage => stage.isWon ? report.metrics.currentWon : report.distribution.find(row => row.id === stage.id).count);
   async function expectSources(report, tab = page) {
     const region = tab.getByRole('region', { name: 'Lead Source Performance', exact: true });
-    const expected = report.leadSourcePerformance.sources.map(row => `${row.name}: ${row.won} ${row.won === 1 ? 'won deal' : 'won deals'}`);
+    const counts = new Map(report.leadSourcePerformance.sources.map(row => [row.name, row.won]));
+    const expected = [...new Set([...LEAD_SOURCES, ...counts.keys()])].map(name => {
+      const won = counts.get(name) ?? 0;
+      return `${name}: ${won} ${won === 1 ? 'won deal' : 'won deals'}`;
+    });
     await until(async () => JSON.stringify(await region.getByRole('listitem').allTextContents()) === JSON.stringify(expected), 'Source chart matches authoritative won Deal counts');
     assert.equal(await tab.getByRole('region', { name: 'Conversion Funnel', exact: true }).count(), 0);
   }
@@ -107,8 +112,9 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
           charts: [...document.querySelectorAll('canvas')].map(canvas => { const bounds = canvas.getBoundingClientRect(); return { width: bounds.width, height: bounds.height, left: bounds.left, right: bounds.right, labels: canvas.__labels ?? [] }; }) }));
         assert.ok(dimensions.scrollWidth <= width + 1, JSON.stringify(dimensions));
         assert.equal(dimensions.charts.length, 2);
-        for (const canvas of dimensions.charts) {
-          assert.ok(canvas.width > 0 && canvas.height > 0 && canvas.left >= 0 && canvas.right <= width + 1, JSON.stringify(canvas));
+        for (const [index, canvas] of dimensions.charts.entries()) {
+          assert.ok(canvas.width > 0 && canvas.height > 0, JSON.stringify(canvas));
+          if (index === 0) assert.ok(canvas.left >= 0 && canvas.right <= width + 1, JSON.stringify(canvas));
           assert.ok(!canvas.labels.some(label => /^\d{4}-\d{2}-\d{2}$/.test(label)), 'Human-readable dates');
         }
         assert.ok(dimensions.charts[0].labels.some(label => label.startsWith('₱')), 'Compact currency scale');
@@ -188,7 +194,10 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
   const invalid = await create('Metrics missing money', 100, 0);
   await prisma.deal.update({ where: { id: invalid.id }, data: { value: null } });
   await expectValue('Forecasted Revenue', money(37000));
-  await page.getByRole('region', {name:'Pipeline Overview'}).getByText('Unavailable', {exact:true}).waitFor();
+  const missingMoneyReport = await fetchReport('range=thisMonth');
+  const leadStage = missingMoneyReport.distribution.find(stage => stage.id === stages[0].id);
+  await overview.getByRole('listitem', {name:leadStage.name,exact:true}).getByText(`${leadStage.count} deals`, {exact:true}).waitFor();
+  assert.equal(await overview.getByText('Unavailable', {exact:true}).count(), 0);
   await http(`/crm/deals/${invalid.id}/stage`, 'PATCH', { stageId: stages[2].id });
   await expectValue('Forecasted Revenue', 'Unavailable');
   await prisma.deal.update({ where: { id: invalid.id }, data: { value: 1234567890.12 } });
@@ -272,10 +281,11 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
       value: 0, currency: 'PHP', createdAt: new Date(+stamp - 3600000), closedAt: stamp,
     }))) });
     const grouped = await fetchReport('range=thisMonth');
-    assert.equal(grouped.leadSourcePerformance.sources.length, 6);
+    assert.equal(grouped.leadSourcePerformance.sources.length, sourceFixtures.length);
     assert.equal(grouped.leadSourcePerformance.sources[0].won, 1234);
     assert.ok(grouped.leadSourcePerformance.sources.some(row => row.name === 'Not specified'));
     assert.equal(grouped.leadSourcePerformance.sources.filter(row => row.name === 'Others').length, 1);
+    assert.equal(grouped.leadSourcePerformance.sources.find(row => row.name === 'Others').won, 1);
     assert.equal(grouped.leadSourcePerformance.sources.reduce((sum, row) => sum + row.won, 0), grouped.metrics.won);
     await page.goto(base + '/dashboard'); await expectSources(grouped);
     for (const theme of ['light', 'dark']) {
@@ -287,20 +297,28 @@ export async function verifyDashboardMetrics({ page, staffPage, base, output, ht
           const canvas = region.querySelector('canvas'), bounds = canvas.getBoundingClientRect();
           return { width: innerWidth, rootWidth: document.documentElement.scrollWidth, chartWidth: bounds.width,
             texts: canvas.__texts ?? [], labels: canvas.__labels ?? [],
+            scrollable: (() => { const scroller = region.querySelector('[aria-label="Scrollable lead source chart"]'); return { width: scroller.clientWidth, scrollWidth: scroller.scrollWidth, tabIndex: scroller.tabIndex }; })(),
             sections: ['Pipeline Overview', 'Lead Source Performance'].map(name => { const rect = document.querySelector(`section[aria-label="${name}"]`).getBoundingClientRect(); return { x: rect.x, y: rect.y, bottom: rect.bottom, right: rect.right }; }) };
         });
         assert.ok(dimensions.rootWidth <= width + 1);
+        assert.ok(dimensions.scrollable.scrollWidth > dimensions.scrollable.width);
+        assert.equal(dimensions.scrollable.tabIndex, 0);
         for (const row of grouped.leadSourcePerformance.sources) {
-          const count = dimensions.texts.find(text => text.text === String(row.won) && text.align === 'left');
+          const count = dimensions.texts.find(text => text.text === String(row.won) && text.align === 'center' && text.color === (theme === 'dark' ? '#f8fafc' : '#0f172a'));
           assert.ok(count && count.left >= 0 && count.right <= dimensions.chartWidth + 1, JSON.stringify({ row, dimensions }));
           assert.equal(count.color, theme === 'dark' ? '#f8fafc' : '#0f172a');
         }
         assert.ok(dimensions.texts.every(text => text.left >= -1 && text.right <= dimensions.chartWidth + 1), JSON.stringify(dimensions));
+        const social = dimensions.texts.find(text => text.text === 'Social Media');
+        const advertisement = dimensions.texts.find(text => text.text === 'Advertisement');
+        assert.ok(social && advertisement);
+        assert.equal(social.x, advertisement.x);
+        assert.ok(advertisement.y > social.y);
         const [left, right] = dimensions.sections;
         if (width >= 1024) { assert.ok(Math.abs(left.y - right.y) <= 1); assert.ok(right.x >= left.right); }
         else assert.ok(right.y >= left.bottom);
         await sources.screenshot({ path: resolve(output, `lead-sources-full-${theme}-${width}.png`) });
-        record(`Actual source groups, wrapped names and four-digit bar-end counts fit ${theme} ${width}px`, dimensions);
+        record(`All configured sources, centered multiline labels and exact vertical counts scroll inside ${theme} ${width}px cards`, dimensions);
       }
     }
     const pipelineBefore = await overview.innerHTML();

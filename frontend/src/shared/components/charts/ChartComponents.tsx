@@ -105,7 +105,7 @@ interface PieProps {
 interface CellProps { fill?: string; stroke?: string; }
 interface XAxisProps { 
   dataKey?: string; 
-  tickFormatter?: (v: unknown) => string;
+  tickFormatter?: (v: unknown) => string | string[];
   stroke?: string; 
   fontSize?: number; 
   tickLine?: boolean; 
@@ -197,7 +197,8 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
   const dark = useChartTheme();
   let xDataKey = 'name';
   let yTickFormatter: ((v: any) => string) | undefined;
-  let xTickFormatter: ((v: any) => string) | undefined;
+  let xTickFormatter: XAxisProps['tickFormatter'];
+  let showAllCategories = false;
   let tooltipFormatter: TooltipProps['formatter'];
   let tooltipLabelFormatter: TooltipProps['labelFormatter'];
   const horizontal = layout === 'vertical';
@@ -207,7 +208,7 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
   React.Children.forEach(children, (child: any) => {
     if (!child) return;
     const t = child.type;
-    if (t === XAxis) { if (!horizontal) xDataKey = child.props.dataKey || 'name'; xTickFormatter = child.props.tickFormatter; }
+    if (t === XAxis) { if (!horizontal) xDataKey = child.props.dataKey || 'name'; xTickFormatter = child.props.tickFormatter; showAllCategories = child.props.interval === 0; }
     if (t === YAxis) { if (horizontal) xDataKey = child.props.dataKey || 'name'; yTickFormatter = child.props.tickFormatter; }
     if (t === TooltipStub) { tooltipFormatter = child.props.formatter; tooltipLabelFormatter = child.props.labelFormatter; }
     if (t === BarStub) bars.push(child.props);
@@ -234,6 +235,7 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
     maintainAspectRatio: false,
     ...(showValueLabels ? { color: dark ? '#f8fafc' : '#0f172a' } : {}),
     ...(showValueLabels && horizontal ? { layout: { padding: { right: Math.max(24, ...datasets.flatMap(dataset => dataset.data.map(value => String(value).length * 8 + 12))) } } } : {}),
+    ...(showValueLabels && !horizontal ? { layout: { padding: { top: 24, bottom: 8 } } } : {}),
     plugins: {
       legend: showLegend
         ? { labels: { color: dark ? '#94a3b8' : '#475569', boxWidth: 12 } }
@@ -246,7 +248,8 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
     scales: {
       x: { ...getAxisDefaults(dark), grid: { color: 'transparent' }, ...(horizontal ? { beginAtZero: true } : {}),
         ...(showValueLabels && horizontal ? { display: false } : {}),
-        ticks: { ...getAxisDefaults(dark).ticks, maxRotation: 0, maxTicksLimit: 6,
+        ticks: { ...getAxisDefaults(dark).ticks, maxRotation: 0,
+          ...(showAllCategories && !horizontal ? { autoSkip: false } : { maxTicksLimit: 6 }),
           callback: horizontal ? xTickFormatter : value => xTickFormatter ? xTickFormatter(labels[Number(value)]) : labels[Number(value)] } },
       y: {
         ...getAxisDefaults(dark),
@@ -289,11 +292,13 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
     afterDatasetsDraw(chart) {
       const context = chart.ctx;
       context.save(); context.font = '600 12px sans-serif';
-      context.fillStyle = String(chart.options.color); context.textAlign = 'left'; context.textBaseline = 'middle';
+      context.fillStyle = String(chart.options.color); context.textAlign = horizontal ? 'left' : 'center'; context.textBaseline = horizontal ? 'middle' : 'bottom';
       chart.data.datasets.forEach((dataset, datasetIndex) => {
         if (!chart.isDatasetVisible(datasetIndex)) return;
         chart.getDatasetMeta(datasetIndex).data.forEach((element, index) => {
-          context.fillText(String(dataset.data[index]), element.x + 6, element.y);
+          const value = Number(dataset.data[index]);
+          if (!horizontal && value === 0) return;
+          context.fillText(String(dataset.data[index]), horizontal ? element.x + 6 : element.x, horizontal ? element.y : element.y - 6);
         });
       });
       context.restore();
@@ -302,7 +307,7 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
 
   return (
     <div style={{ position: 'relative', minWidth: 0, width: '100%', height: '100%' }}>
-      <ChartBar style={{ maxWidth: '100%' }} data={{ labels, datasets }} options={options} plugins={showValueLabels && horizontal ? [valueLabels] : undefined} />
+      <ChartBar style={{ maxWidth: '100%' }} data={{ labels, datasets }} options={options} plugins={showValueLabels ? [valueLabels] : undefined} />
     </div>
   );
 }

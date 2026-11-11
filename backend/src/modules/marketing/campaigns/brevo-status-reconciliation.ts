@@ -7,16 +7,19 @@ import { BrevoEventSchema, processBrevoEvent } from './brevo-webhook';
 const batchSize = 5;
 const historyDays = 30;
 const minute = 60_000;
-const terminalStatuses = ['delivered', 'excluded', 'failed', 'error', 'hard_bounce', 'blocked', 'invalid_email'];
+const terminalStatuses = ['excluded', 'failed', 'error', 'hard_bounce', 'blocked', 'invalid_email'];
 const historyResponse = z.object({ events: z.array(z.unknown()).default([]) });
 const historyEvent = z.object({
   event: z.string(), messageId: z.string(), email: z.string(), date: z.string().datetime({ offset: true }),
+  link: z.string().max(8192).nullish(),
 });
 const deliveryEvents = new Map([
   ['requests', 'request'], ['request', 'request'], ['delivered', 'delivered'], ['deferred', 'deferred'],
   ['softbounces', 'soft_bounce'], ['softbounce', 'soft_bounce'], ['soft_bounce', 'soft_bounce'],
   ['hardbounces', 'hard_bounce'], ['hardbounce', 'hard_bounce'], ['hard_bounce', 'hard_bounce'],
   ['blocked', 'blocked'], ['invalid', 'invalid_email'], ['invalid_email', 'invalid_email'], ['error', 'error'],
+  ['opened', 'opened'], ['uniqueopened', 'unique_opened'], ['unique_opened', 'unique_opened'],
+  ['clicks', 'click'], ['click', 'click'],
 ]);
 const normalizeMessageId = (value: string) => value.trim().replace(/^<|>$/g, '');
 
@@ -25,29 +28,33 @@ function deliveryReceipts(input: unknown, messageId: string, recipient: string, 
   for (const raw of historyResponse.parse(input).events) {
     const parsed = historyEvent.safeParse(raw);
     if (!parsed.success) continue;
-    const { date, email, event, messageId: providerId } = parsed.data;
+    const { date, email, event, messageId: providerId, link } = parsed.data;
     if (normalizeMessageId(providerId) !== normalizeMessageId(messageId) ||
       email.trim().toLowerCase() !== recipient.trim().toLowerCase()) continue;
     const time = Date.parse(date), type = deliveryEvents.get(event.toLowerCase());
     if (!type || !Number.isFinite(time) || time < +submittedAt - 2 * minute || time > +now + 5 * minute) continue;
-    const receipt = BrevoEventSchema.safeParse({ event: type, email: recipient, 'message-id': messageId, ts_epoch: time });
+    const receipt = BrevoEventSchema.safeParse({ event: type, email: recipient, 'message-id': messageId, ts_epoch: time,
+      ...(type === 'click' && link ? { link } : {}) });
     if (!receipt.success) continue;
-    const previous = receipts.get(type)?.time;
+    // Engagement is repeatable; retain each timestamp without inflating unique recipients.
+    const key = ['opened', 'unique_opened', 'click'].includes(type) ? `${type}:${time}:${link ?? ''}` : type;
+    const previous = receipts.get(key)?.time;
     if (previous === undefined || (type === 'request' ? time < previous : time > previous)) {
-      receipts.set(type, { time, event: receipt.data });
+      receipts.set(key, { time, event: receipt.data });
     }
   }
   return [...receipts.values()].sort((a, b) => a.time - b.time).map(receipt => receipt.event);
 }
 
-/** Recover lost delivery callbacks from existing provider messages. This never submits email. */
+/** Recover delivery and engagement for recent existing messages. This never submits email. */
 export async function reconcileBrevoStatuses(afterId?: string, now = new Date()): Promise<string | undefined> {
   if (!isBrevoConfigured()) return undefined;
   const rows = await prisma.campaignContact.findMany({
     where: {
       ...(afterId ? { id: { gt: afterId } } : {}),
-      email: { not: null }, messageId: { not: null }, deliveredAt: null,
+      email: { not: null }, messageId: { not: null },
       status: { notIn: terminalStatuses },
+      OR: [{ deliveredAt: null }, { openedAt: null }, { clickedAt: null }],
       submittedAt: { gte: new Date(+now - historyDays * 24 * 60 * minute), lte: new Date(+now - 2 * minute) },
       campaign: { type: 'EMAIL', isArchived: false, submissionFinishedAt: { not: null } },
     },
@@ -64,21 +71,28 @@ export async function reconcileBrevoStatuses(afterId?: string, now = new Date())
         signal: AbortSignal.timeout(4000), redirect: 'error',
       });
       if (response.ok) {
-        const receipts = deliveryReceipts(await response.json(), messageId, email, submittedAt, now);
+        const body = historyResponse.parse(await response.json());
+        const receipts = deliveryReceipts(body, messageId, email, submittedAt, now);
+        if (body.events.length >= 5000) console.warn('[Campaigns]', { event: 'brevo_history_truncated', campaignId, recipientId: id });
+        if (body.events.length && !receipts.length) console.warn('[Campaigns]', { event: 'brevo_history_unmatched', campaignId, recipientId: id, category: 'no_verified_events' });
         if (receipts.length) await tenantContext.run({ tenantId }, async () => {
           const log = await prisma.emailDeliveryLog.findFirst({
             where: { tenantId, campaignId, brevoMessageId: messageId, toEmail: { equals: email, mode: 'insensitive' } },
             select: { id: true },
           });
-          if (!log) return;
-          for (const receipt of receipts) await processBrevoEvent(receipt);
+          if (!log) {
+            console.warn('[Campaigns]', { event: 'brevo_history_unmatched', campaignId, recipientId: id });
+            return;
+          }
+          for (const receipt of receipts) await processBrevoEvent(receipt, 'history');
         });
       } else {
         console.warn('[Campaigns]', { event: 'brevo_status_lookup_failed', httpStatus: response.status });
         if ([401, 403, 429].includes(response.status) || response.status >= 500) return cursor;
       }
-    } catch {
-      console.warn('[Campaigns]', { event: 'brevo_status_lookup_failed', recipientId: id });
+    } catch (error) {
+      console.warn('[Campaigns]', { event: 'brevo_status_lookup_failed', campaignId, recipientId: id,
+        category: error instanceof z.ZodError || error instanceof SyntaxError ? 'response_validation' : 'transport_or_persistence' });
     }
     cursor = id;
   }

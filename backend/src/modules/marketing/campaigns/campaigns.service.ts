@@ -115,7 +115,7 @@ export async function getCampaignReport(id: string, tenantId: string) {
     if (row.openedAt && row.email) openingRecipients.add(row.email.toLowerCase());
     if (row.clickedAt && row.email) clickingRecipients.add(row.email.toLowerCase());
   }
-  const completeHistory = campaign.type === 'SMS' ? campaign.smsTrackingVersion === 1 : !emailDeliveryLogs.some(log => log.EmailEvent.some(event => ['click', 'opened'].includes(event.eventType) && !event.providerEventKey?.includes(`:${event.eventType}:v2:`))) && eligible.length === campaign.recipientCount && eligible.every(row =>
+  const completeHistory = campaign.type === 'SMS' ? campaign.smsTrackingVersion === 1 : !emailDeliveryLogs.some(log => log.EmailEvent.some(event => ['click', 'opened'].includes(event.eventType) && ![2, 3].some(version => event.providerEventKey?.includes(`:${event.eventType}:v${version}:`)))) && eligible.length === campaign.recipientCount && eligible.every(row =>
     !row.email || ((!row.openedAt || historyByEmail.get(row.email.toLowerCase())?.has('opened')) && (!row.clickedAt || historyByEmail.get(row.email.toLowerCase())?.has('click'))));
   const trackingStatus = campaign.status === 'DRAFT' ? 'draft' as const
     : !campaign.submissionStartedAt && !campaign.sentCount ? 'not_sent' as const

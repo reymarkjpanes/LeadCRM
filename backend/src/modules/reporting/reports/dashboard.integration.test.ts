@@ -107,13 +107,14 @@ describe('Lead Source Performance', () => {
     await db.stage.create({ data: { id: 'source-foreign-won', tenantId: 'source-foreign', pipelineId: 'source-foreign-sales', name: 'Won', order: 0, isWon: true } });
     await create('foreign', 'Foreign source', { tenantId: 'source-foreign', pipelineId: 'source-foreign-sales', stageId: 'source-foreign-won' });
   });
-  it('counts distinct valid wins, saves source precedence, and groups overflow without changing revenue', async () => {
+  it('returns every distinct valid source count without grouping overflow or changing revenue', async () => {
     const result = await read();
     expect(result.leadSourcePerformance).toEqual({
       period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila' },
       sources: [
-        { name: 'Referral', won: 12 }, { name: 'Website', won: 8 }, { name: 'Others', won: 6 },
+        { name: 'Referral', won: 12 }, { name: 'Website', won: 8 },
         { name: 'Social Media Advertisement', won: 5 }, { name: 'Email Campaign', won: 3 }, { name: 'Not specified', won: 3 },
+        { name: 'Content Marketing', won: 2 }, { name: 'Others', won: 2 }, { name: 'Direct Mail', won: 1 }, { name: 'Google Ads', won: 1 },
       ],
     });
     expect(result.leadSourcePerformance!.sources.reduce((sum, row) => sum + row.won, 0)).toBe(result.metrics.won);
@@ -124,7 +125,7 @@ describe('Lead Source Performance', () => {
     expect(different.distribution).toEqual(result.distribution);
     expect(different.conversion).toEqual(result.conversion);
   });
-  it('uses close dates and half-open Manila boundaries, with five named groups when none are missing', async () => {
+  it('uses close dates and half-open Manila boundaries without limiting additional named groups', async () => {
     const from = '2020-01-09T16:00:00Z', until = '2020-01-10T16:00:00Z';
     for (const [name, count] of [['Alpha', 6], ['Beta', 5], ['Gamma', 4], ['Delta', 3], ['Epsilon', 2], ['Zeta', 1]] as const) {
       for (let i = 0; i < count; i++) await create(`boundary-${name}-${i}`, name, { closedAt: new Date(from) });
@@ -135,7 +136,7 @@ describe('Lead Source Performance', () => {
     const result = await read({ leadSourceRange: 'custom', leadSourceStart: '2020-01-10', leadSourceEnd: '2020-01-10' });
     expect(result.leadSourcePerformance!.sources).toEqual([
       { name: 'Alpha', won: 6 }, { name: 'Beta', won: 5 }, { name: 'Gamma', won: 4 }, { name: 'Delta', won: 3 },
-      { name: 'Epsilon', won: 2 }, { name: 'Others', won: 2 },
+      { name: 'Epsilon', won: 2 }, { name: 'Zeta', won: 2 },
     ]);
     expect(result.leadSourcePerformance!.sources.reduce((sum, row) => sum + row.won, 0)).toBe(22);
   });

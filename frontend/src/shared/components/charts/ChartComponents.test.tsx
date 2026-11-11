@@ -36,6 +36,29 @@ it('renders horizontal stage bars with official colors and formatted currency to
   expect(captured.bar.options.scales.y.ticks.callback(0)).toBe('Lead');
   expect(captured.bar.options.plugins.tooltip.callbacks.label({ dataset: { label: 'PHP' }, parsed: { x: 1500, y: 0 } })).toBe('PHP: ₱1500');
 });
+it('opts into all multiline X-axis labels and centered nonzero vertical counts without changing the original labels', () => {
+  render(<BarChart data={[{ name: 'Social Media Advertisement', won: 123456 }, { name: 'Referral', won: 0 }]} showValueLabels>
+    <XAxis dataKey="name" interval={0} tickFormatter={value => value === 'Social Media Advertisement' ? ['Social Media', 'Advertisement'] : String(value)} />
+    <YAxis allowDecimals={false} /><Bar dataKey="won" name="Won Deals" />
+  </BarChart>);
+  expect(captured.bar.data.labels).toEqual(['Social Media Advertisement', 'Referral']);
+  expect(captured.bar.options.scales.x.ticks.callback(0)).toEqual(['Social Media', 'Advertisement']);
+  expect(captured.bar.options.scales.x.ticks.callback(1)).toBe('Referral');
+  expect(captured.bar.options.scales.x.ticks.autoSkip).toBe(false);
+  expect(captured.bar.options.scales.x.ticks.maxTicksLimit).toBeUndefined();
+  expect(captured.bar.options.scales.x.ticks.maxRotation).toBe(0);
+  expect(captured.bar.options.scales.y.beginAtZero).toBe(true);
+  expect(captured.bar.options.scales.y.ticks.precision).toBe(0);
+  expect(captured.bar.options.layout.padding.top).toBeGreaterThanOrEqual(20);
+  const context = { save: vi.fn(), restore: vi.fn(), fillText: vi.fn() };
+  captured.bar.plugins[0].afterDatasetsDraw({ ctx: context, data: captured.bar.data, options: { color: '#0f172a' },
+    isDatasetVisible: () => true, getDatasetMeta: () => ({ data: [{ x: 100, y: 32 }, { x: 200, y: 100 }] }),
+  });
+  expect(context.fillText).toHaveBeenCalledExactlyOnceWith('123456', 100, 26);
+  expect((context as any).textAlign).toBe('center');
+  expect((context as any).textBaseline).toBe('bottom');
+  expect((context as any).fillStyle).toBe('#0f172a');
+});
 it('applies actual monetary formatting to the revenue area tooltip', () => {
   render(<AreaChart data={[{ name: '2020-01-01', revenue: 45000 }]}><XAxis dataKey="name" /><YAxis /><Tooltip formatter={value => `₱${value}`} /><Area dataKey="revenue" name="Revenue" /></AreaChart>);
   expect(captured.line.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Revenue' }, parsed: { y: 45000 } })).toBe('Revenue: ₱45000');

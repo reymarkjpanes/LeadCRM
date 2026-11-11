@@ -54,7 +54,7 @@ function hasChanges(current: Record<string, unknown>, update: Record<string, unk
   });
 }
 
-export async function processBrevoEvent(input: unknown) {
+export async function processBrevoEvent(input: unknown, source: 'webhook' | 'history' = 'webhook') {
   const event = BrevoEventSchema.parse(input);
   let tags: unknown = event.tags;
   if (!tags && event.tag) {
@@ -67,10 +67,18 @@ export async function processBrevoEvent(input: unknown) {
   const bareId = rawId.replace(/^<|>$/g, '');
   const logs = await prisma.emailDeliveryLog.findMany({ where: { brevoMessageId: { in: [rawId, bareId, `<${bareId}>`] },
     toEmail: { equals: event.email, mode: 'insensitive' }, campaignId: { not: null } }, take: 2 });
-  if (logs.length > 1) throw new AppError('Delivery record is ambiguous.', 409);
+  if (logs.length > 1) {
+    console.warn('[Campaigns]', { event: 'brevo_event_unmatched', category: 'ambiguous', source,
+      messageIdHash: createHash('sha256').update(bareId).digest('hex').slice(0, 16) });
+    throw new AppError('Delivery record is ambiguous.', 409);
+  }
   const [log] = logs;
   // A callback can race the send response. The history lookup can recover a missed event.
-  if (!log) throw new AppError('Delivery record is not available.', 503);
+  if (!log) {
+    console.warn('[Campaigns]', { event: 'brevo_event_unmatched', category: 'not_found', source,
+      messageIdHash: createHash('sha256').update(bareId).digest('hex').slice(0, 16) });
+    throw new AppError('Delivery record is not available.', 503);
+  }
   return tenantContext.run({ tenantId: log.tenantId }, async () => {
     const scope = { tenantId: log.tenantId };
     const type = event.event === 'unique_opened' ? 'opened' : event.event === 'unsubscribed' ? 'unsubscribe' : event.event;
@@ -84,22 +92,48 @@ export async function processBrevoEvent(input: unknown) {
       const at = brevoEventTime(event);
       const legacyKey = type === 'click' && event.link
         ? `${log.id}:click:${createHash('sha256').update(JSON.stringify([event.link, event.ts_epoch ?? event.ts_event ?? null])).digest('hex')}` : `${log.id}:${type}`;
-      // The payload's id identifies the webhook subscription, not the event.
-      // Include both provider timestamps: ts_epoch can refer to the original send.
+      // History and callbacks describe the same evidence with different timestamp
+      // fields. Key engagement by the resolved provider time, not the raw payload.
       const repeatable = type === 'click' || type === 'opened';
+      const coarseHistoryPrefix = `${log.id}:${type}:v3:history:`;
       const eventKey = timedDelivery ? legacyKey + ':at:' + at.toISOString() : repeatable
-        ? `${log.id}:${type}:v2:${createHash('sha256').update(JSON.stringify([event.link ?? '', event.ts_epoch ?? null, event.ts_event ?? event.ts ?? null])).digest('hex')}`
+        ? `${source === 'history' && at.getMilliseconds() === 0 ? coarseHistoryPrefix : `${log.id}:${type}:v3:`}${createHash('sha256').update(JSON.stringify([event.link ?? '', at.toISOString()])).digest('hex')}`
         : legacyKey;
+      // Older receipts used payload-based keys. History may only expose seconds
+      // and omit a click URL; do not invent another event when that evidence exists.
+      let matchingReceipt = repeatable && await tx.emailEvent.findFirst({ where: {
+        ...scope, deliveryLogId: log.id, eventType: type,
+        ...(source === 'history' && at.getMilliseconds() === 0
+          ? { createdAt: { gte: at, lt: new Date(+at + 1000) } } : { createdAt: at }),
+        ...(type === 'click' && event.link ? { OR: [{ url: event.link }, { url: null }] } : {}),
+      } });
+      if (!matchingReceipt && repeatable && source === 'webhook' && at.getMilliseconds() !== 0) {
+        matchingReceipt = await tx.emailEvent.findFirst({ where: {
+          ...scope, deliveryLogId: log.id, eventType: type,
+          createdAt: new Date(Math.floor(+at / 1000) * 1000), providerEventKey: { startsWith: coarseHistoryPrefix },
+          ...(type === 'click' && event.link ? { OR: [{ url: event.link }, { url: null }] } : {}),
+        } });
+      }
+      const matchedHistory = matchingReceipt && source === 'webhook' && matchingReceipt.providerEventKey?.startsWith(coarseHistoryPrefix);
+      if (matchingReceipt && (matchedHistory || (type === 'click' && event.link && !matchingReceipt.url))) {
+        // Claim coarse history once with the callback's precise identity, keeping
+        // its verified timestamp and allowing separate same-second callbacks.
+        await tx.emailEvent.update({ where: { id: matchingReceipt.id, ...scope }, data: {
+          ...(matchedHistory ? { providerEventKey: eventKey } : {}),
+          ...(type === 'click' && event.link && !matchingReceipt.url ? { url: event.link } : {}),
+        } });
+      }
       // Recognize retries of receipts saved before the expanded event key.
       const legacyReceipt = (repeatable || timedDelivery) && await tx.emailEvent.findFirst({ where: { ...scope, deliveryLogId: log.id, providerEventKey: legacyKey,
         createdAt: { gte: new Date(Math.floor(at.getTime() / 1000) * 1000), lt: new Date(Math.floor(at.getTime() / 1000) * 1000 + 1000) } } });
-      const inserted = !legacyReceipt && (await tx.emailEvent.createMany({ data: [{ ...scope, deliveryLogId: log.id, eventType: type,
+      const inserted = !matchingReceipt && !legacyReceipt && (await tx.emailEvent.createMany({ data: [{ ...scope, deliveryLogId: log.id, eventType: type,
         url: type === 'click' ? event.link : undefined, createdAt: at, providerEventKey: eventKey }], skipDuplicates: true })).count > 0;
       if (!inserted && !timedDelivery) return;
       const current = await tx.emailDeliveryLog.findFirstOrThrow({ where: { id: log.id, ...scope } });
       const recipientWhere = { ...scope, campaignId: log.campaignId!, messageId: log.brevoMessageId,
         email: { equals: log.toEmail, mode: 'insensitive' as const } };
       const recipient = await tx.campaignContact.findFirst({ where: recipientWhere });
+      if (!recipient) throw new AppError('Campaign recipient is not available.', 503);
       // Terminal receipts outrank retryable transport events. Within terminal
       // outcomes the latest provider evidence wins, independent of arrival order.
       const terminal = await tx.emailEvent.findMany({ where: { ...scope, deliveryLogId: log.id, eventType: { in: terminalEvents } },
@@ -134,15 +168,27 @@ export async function processBrevoEvent(input: unknown) {
       const logUpdate = { ...sharedUpdate, ...(suppression ? { status: suppression } : {}) };
       if (hasChanges(current, logUpdate)) await tx.emailDeliveryLog.update({ where: { id: log.id, ...scope }, data: logUpdate });
       await recalculateCampaignDelivery(tx, log.campaignId!, log.tenantId, true);
+    }).catch(error => {
+      console.warn('[Campaigns]', { event: 'brevo_event_processing_failed', campaignId: log.campaignId,
+        deliveryLogId: log.id, eventType: type, source,
+        category: error instanceof AppError ? 'event_validation_or_matching' : 'persistence' });
+      throw error;
     });
   });
 }
 export const brevoWebhookRouter = Router();
 brevoWebhookRouter.post(['/', '/email'], rateLimit({ windowMs: 60000, limit: 1000, standardHeaders: true, legacyHeaders: false }), async (req, res, next) => {
+  let category = 'https';
   try {
     if (process.env.NODE_ENV === 'production' && !req.secure) throw new AppError('HTTPS is required.', 400);
+    category = 'authentication';
     verifyWebhookAuthorization(req.get('authorization'));
+    category = 'processing';
     await processBrevoEvent(req.body);
     res.json({ success: true });
-  } catch (error) { next(error); }
+  } catch (error) {
+    console.warn('[Campaigns]', { event: 'brevo_webhook_failed', category: error instanceof z.ZodError ? 'payload_validation' : category,
+      httpStatus: error instanceof AppError ? error.statusCode : error instanceof z.ZodError ? 400 : 500 });
+    next(error);
+  }
 });

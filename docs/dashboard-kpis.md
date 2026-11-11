@@ -28,6 +28,8 @@ Dashboard Revenue Trend groups ranges of up to 31 days by calendar week (Monday 
 
 ## KPIs and charts
 
+Pipeline Overview displays the current deal count for each open stage, with the saved stage color and bar widths relative to the largest stage. It does not display stage monetary totals; missing Deal amounts do not hide valid stage counts.
+
 | Metric | Formula and time basis |
 | --- | --- |
 | Total Revenue | Sum tenant-currency amounts of eligible Deals currently in Closed Deal with valid `closedAt` in the selected period |
@@ -50,9 +52,9 @@ Currencies are never converted or mixed. Money uses tenant currency (PHP when un
 
 Dashboard shows distinct currently Won Deals grouped by trimmed saved `Deal.leadSource`, using the existing authorized Sales Pipeline population and valid `closedAt` boundaries. Missing or blank sources are “Not specified”; related Lead/Contact sources are not inferred. Counts include eligible Deals regardless of their currency or monetary-data validity.
 
-The chart uses the Dashboard toolbar dates, including applied custom dates. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays “No won deals for this period.” Request errors appear in the Dashboard report status.
+The chart uses the Dashboard toolbar dates, including applied custom dates. Sync Metrics and realtime reconciliation update it with the rest of Dashboard. No wins displays the configured zero-count categories with “No won deals for this period.” Request errors appear in the Dashboard report status.
 
-Up to five individual source groups are shown, reserving one slot for nonzero “Not specified”. Overflow and saved “Others” values form a single Others bar. Displayed bars sort by won count descending, then source name. Revenue, current Pipeline Overview, and other metrics retain their existing definitions.
+The API returns every source group, ordered by won count descending and source name. “Others” counts only saved Others sources; missing sources remain “Not specified”. The Dashboard renders vertical bars for all nine `LEAD_SOURCES` in configured order, filling missing categories with zero and appending additional returned sources. Each configured source has a fixed name-keyed color; additional sources use slate. Counts appear above nonzero bars and in tooltips. Horizontal X-axis labels wrap onto two lines where needed, and narrow cards scroll internally. Revenue, current Pipeline Overview, and other metrics retain their existing definitions.
 
 ## Reports: Deal Pipeline Conversion Funnel
 

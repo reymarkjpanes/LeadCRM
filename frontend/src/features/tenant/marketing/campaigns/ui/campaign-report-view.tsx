@@ -71,10 +71,17 @@ export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; o
     const sequence = ++request.current;
     const controller = new AbortController();
     activeRequest.current = controller;
+    const timeout = setTimeout(() => controller.abort(new Error('Report refresh timed out. Retrying automatically.')), 30000);
     if (!background) setLoading(true);
     setError('');
     try {
-      const pending = campaignsApi.report(campaign.id, controller.signal);
+      const transport = campaignsApi.report(campaign.id, controller.signal);
+      // Release the request lock even if a stalled transport ignores cancellation.
+      const pending = new Promise<CampaignReportResponse>((resolve, reject) => {
+        const abort = () => reject(controller.signal.reason);
+        controller.signal.addEventListener('abort', abort, { once: true });
+        void transport.then(resolve, reject).finally(() => controller.signal.removeEventListener('abort', abort));
+      });
       pendingReport.current = pending;
       const result = await pending;
       if (sequence === request.current) {
@@ -87,11 +94,16 @@ export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; o
     } catch (failure) {
       if (sequence === request.current) {
         polling.current.failures++;
+        console.warn('[CampaignReport]', { event: 'report_sync_failed', campaignId: campaign.id,
+          category: controller.signal.aborted ? 'timeout' : 'request', httpStatus: (failure as { status?: number })?.status });
         if ([401, 403, 404].includes((failure as { status?: number })?.status || 0)) setReport(null);
         setError(failure instanceof Error ? failure.message : 'Unable to load campaign report. Please try again.');
       }
     } finally {
-      if (sequence === request.current) { inFlight.current = false; setLoading(false); }
+      clearTimeout(timeout);
+      if (sequence === request.current) {
+        inFlight.current = false; pendingReport.current = null; activeRequest.current = null; setLoading(false);
+      }
     }
   }, [campaign.id]);
   useEffect(() => {
@@ -100,24 +112,30 @@ export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; o
     inFlight.current = false;
     polling.current = { fastUntil: 0, failures: 0 };
     let disposed = false;
-    const refresh = () => { if (!document.hidden) void fetchReport(true); };
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
+      clearTimeout(timer);
       if (disposed) return;
+      if (document.hidden || navigator.onLine === false) return;
       const isSms = campaign.type.toUpperCase() === 'SMS';
       const delay = isSms && Date.now() >= polling.current.fastUntil ? 30000 : 2500;
       timer = setTimeout(async () => {
-        if (!document.hidden) await fetchReport(true);
+        if (!document.hidden && navigator.onLine !== false) await fetchReport(true);
         schedule();
       }, Math.max(delay, polling.current.failures ? Math.min(30000, 2500 * 2 ** polling.current.failures) : 0));
     };
-    void fetchReport().finally(schedule);
+    const refresh = () => {
+      clearTimeout(timer);
+      if (!document.hidden && navigator.onLine !== false) void fetchReport(true).finally(schedule);
+    };
+    if (!document.hidden && navigator.onLine !== false) void fetchReport().finally(schedule);
     const outcome = (event: Event) => {
       const detail = (event as CustomEvent<{ campaignIds?: string[] }>).detail;
       if (detail?.campaignIds?.includes(campaign.id)) refresh();
     };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('online', refresh);
+    window.addEventListener('offline', refresh);
     window.addEventListener('focus', refresh);
     window.addEventListener('sms-campaign-updated', outcome);
     return () => {
@@ -127,6 +145,7 @@ export function CampaignReportView({ campaign, onBack }: { campaign: Campaign; o
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', refresh);
+      window.removeEventListener('offline', refresh);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('sms-campaign-updated', outcome);
     };
