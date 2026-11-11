@@ -81,6 +81,33 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     expect(edited.status, JSON.stringify(edited.body)).toBe(200); expect(edited.body.data.status).toBe('Cold');
     expect(module === 'leads' ? (await prisma.lead.findUniqueOrThrow({ where: { id } })).status : (await prisma.contact.findUniqueOrThrow({ where: { id } })).status).toBe(module === 'leads' ? 'Cold' : 'COLD');
   });
+  it.each(['leads', 'contacts'])('validates submitted %s names through HTTP while preserving historical names on partial edits', async module => {
+    const input = { firstName: 'María', lastName: 'O’Connor', assignedUserId: agentId, email: `${randomUUID()}@example.test`, requestId: randomUUID() };
+    for (const field of ['firstName', 'lastName']) {
+      for (const value of ['John123', 'John@', 'John1@']) {
+        const response = await call(`/crm/${module}`, 'POST', { ...input, [field]: value });
+        expect(response.status, JSON.stringify(response.body)).toBe(400);
+        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+      }
+    }
+    const created = await call(`/crm/${module}`, 'POST', input);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const id = created.body.data.id;
+    for (const field of ['firstName', 'lastName']) {
+      const response = await call(`/crm/${module}/${id}`, 'PUT', { [field]: 'John@123' });
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(response.body)).toContain('must not contain numbers.');
+    }
+    const legacy = { firstName: 'Legacy@1', lastName: 'Smith#' };
+    if (module === 'leads') await prisma.lead.update({ where: { id }, data: legacy });
+    else await prisma.contact.update({ where: { id }, data: legacy });
+    expect((await call(`/crm/${module}/${id}`, 'PUT', { address: '123 Main St' })).status).toBe(200);
+    const read = () => module === 'leads' ? prisma.lead.findUniqueOrThrow({ where: { id } }) : prisma.contact.findUniqueOrThrow({ where: { id } });
+    expect(await read()).toMatchObject({ ...legacy, address: '123 Main St' });
+    expect((await call(`/crm/${module}/${id}`, 'PUT', { firstName: 'Anne-Marie' })).status).toBe(200);
+    expect(await read()).toMatchObject({ firstName: 'Anne-Marie', lastName: legacy.lastName });
+  });
+
   it.each(['leads', 'contacts'])('creates manual %s for the logged-in Sales agent and rejects another assignee', async module => {
     const input = { firstName: 'Sales', lastName: 'Self', email: `${randomUUID()}@example.test`, assignedUserId: agentId, requestId: randomUUID() };
     const created = await call(`/crm/${module}`, 'POST', input, agentToken);

@@ -45,6 +45,14 @@ it('checks both new user names as they change and blocks creation until correcte
   expect(mocks.create).not.toHaveBeenCalled();
   change('Last Name', 'O’Connor');
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
+  change('First Name', 'John@'); change('Last Name', 'Smith_');
+  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  fireEvent.click(create);
+  expect(mocks.create).not.toHaveBeenCalled();
+  change('First Name', 'María'); change('Last Name', 'O’Connor');
+  expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
+  expect(screen.queryByText('Last name must not contain special characters.')).toBeNull();
   fireEvent.click(create);
   await waitFor(() => expect(mocks.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' })));
 });

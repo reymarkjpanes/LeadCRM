@@ -16,6 +16,12 @@ export function ProductEditor({ product, categories = [], canCreateCategory = fa
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; category?: string; description?: string; dealValue?: string }>({});
   const previousCategory = useRef(product?.category ?? '');
   const submitting = useRef(false);
+  const amountError = (value: string) => {
+    if (!value.trim()) return PRODUCT_DEAL_VALUE_REQUIRED_ERROR;
+    if (product) return 'Enter a non-negative amount with up to two decimal places.';
+    if (/^-\d+(?:\.\d*)?$/.test(value)) return PRODUCT_DEAL_VALUE_NEGATIVE_ERROR;
+    return /^\d+\.\d*$/.test(value) ? 'Enter a non-negative amount with up to two decimal places.' : PRODUCT_DEAL_VALUE_DIGITS_ERROR;
+  };
   useEffect(() => {
     const previous = previousCategory.current;
     previousCategory.current = product?.category ?? '';
@@ -38,7 +44,7 @@ export function ProductEditor({ product, categories = [], canCreateCategory = fa
     else if (!addingCategory && !categories.includes(parsedCategory.data)) errors.category = 'Select an available Product Category.';
     else if (addingCategory && categories.some(value => value.toLowerCase() === parsedCategory.data.toLowerCase())) errors.category = 'Category names must be unique.';
     if (dealValue === null) {
-      errors.dealValue = amount.length === 0 || amount.trim().length === 0 ? PRODUCT_DEAL_VALUE_REQUIRED_ERROR : product ? 'Enter a non-negative amount with up to two decimal places.' : /^-\d+$/.test(amount) ? PRODUCT_DEAL_VALUE_NEGATIVE_ERROR : PRODUCT_DEAL_VALUE_DIGITS_ERROR;
+      errors.dealValue = amountError(amount);
       setFieldErrors(errors);
       return;
     }
@@ -80,17 +86,21 @@ export function ProductEditor({ product, categories = [], canCreateCategory = fa
       </label>
       {addingCategory && <label className={panelLabelClass + " min-w-0 space-y-1.5"}>New Category <span aria-hidden="true" className="ml-1 text-red-500">*</span><Input placeholder="Enter category name..." aria-label="New Category" required className={inputClass} disabled={busy} maxLength={PRODUCT_INTEREST_NAME_MAX_LENGTH} value={category} onChange={event => { setCategory(event.target.value); setFieldErrors(current => ({ ...current, category: '' })); }} /></label>}
       <label className={panelLabelClass + " min-w-0 space-y-1.5"}>Product Description<Textarea placeholder="Describe this product..." aria-label="Product Description" className={inputClass} rows={4} disabled={busy} maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH} value={description} onChange={event => { setDescription(event.target.value); setFieldErrors(current => ({ ...current, description: '' })); }} />{fieldErrors.description && <span role="alert" className="block text-xs text-destructive">{fieldErrors.description}</span>}</label>
-      <label className={panelLabelClass + " min-w-0 space-y-1.5"}>Deal Value (PHP) {!product && <span aria-hidden="true" className="ml-1 text-red-500">*</span>}<span className="relative block"><span className="absolute left-3 top-3 text-sm">₱</span><Input placeholder="0" className={`${inputClass} pl-7 ${fieldErrors.dealValue ? 'border-red-500' : ''}`} aria-label="Deal Value (PHP)" aria-invalid={!!fieldErrors.dealValue} aria-describedby={fieldErrors.dealValue ? 'product-deal-value-error' : undefined} inputMode={product ? 'decimal' : 'numeric'} value={amount} disabled={busy} onChange={e => {
+      <label className={panelLabelClass + " min-w-0 space-y-1.5"}>Deal Value (PHP) {!product && <span aria-hidden="true" className="ml-1 text-red-500">*</span>}<span className="relative block"><span className="absolute left-3 top-3 text-sm">₱</span><Input placeholder="0" className={`${inputClass} pl-7 ${fieldErrors.dealValue ? 'border-red-500' : ''}`} aria-label="Deal Value (PHP)" aria-invalid={!!fieldErrors.dealValue} aria-describedby={fieldErrors.dealValue ? 'product-deal-value-error' : undefined} inputMode="decimal" value={amount} disabled={busy} onChange={e => {
         const value = e.target.value;
         if (!product && !isProductCreateAmountInput(value)) {
-          setFieldErrors(current => ({ ...current, dealValue: PRODUCT_DEAL_VALUE_DIGITS_ERROR }));
+          setFieldErrors(current => ({ ...current, dealValue: amountError(value) }));
           return;
         }
         setAmount(value);
+        if (!product && /^\d+\.$/.test(value)) {
+          setFieldErrors(current => ({ ...current, dealValue: '' }));
+          return;
+        }
         const parsed = product ? parseProductAmount(value) : parseProductCreateAmount(value);
         const result = parsed === null ? undefined : (product ? ProductInterestSchema : ProductInterestCreateSchema).shape.dealValue.safeParse(parsed);
         setFieldErrors(current => ({ ...current, dealValue: parsed === null
-          ? value.length === 0 || value.trim().length === 0 ? PRODUCT_DEAL_VALUE_REQUIRED_ERROR : product ? 'Enter a non-negative amount with up to two decimal places.' : /^-\d+$/.test(value) ? PRODUCT_DEAL_VALUE_NEGATIVE_ERROR : PRODUCT_DEAL_VALUE_DIGITS_ERROR
+          ? amountError(value)
           : result?.success === false ? result.error.issues[0].message : '' }));
       }} required /></span>{fieldErrors.dealValue && <span id="product-deal-value-error" role="alert" className="block text-xs font-normal text-red-600">{fieldErrors.dealValue}</span>}</label>
     </div>

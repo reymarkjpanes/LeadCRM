@@ -46,7 +46,7 @@ export function EmailActivity({ email }: { email: ActivityEmail }) {
         <div><dt className="inline font-medium">To: </dt><dd className="inline">{email.to.join(', ')}</dd></div>
         <div><dt className="inline font-medium">Subject: </dt><dd className="inline text-foreground">{email.subject || '(No subject)'}</dd></div>
       </dl>
-      <div ref={bodyRef} data-email-body className={`min-w-0 text-xs leading-[1.2rem] text-foreground sm:text-sm sm:leading-5 ${expanded ? '' : 'max-h-32 overflow-hidden'}`}>
+      <div ref={bodyRef} data-email-body className={`inbox-message-typography min-w-0 text-foreground ${expanded ? '' : 'max-h-32 overflow-hidden'}`}>
         <div className="min-w-0 [&_*]:max-w-full [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_table]:w-full [&_table]:table-fixed [&_td]:break-words [&_pre]:whitespace-pre-wrap [&_a]:underline" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
       {(canExpand || expanded) && (

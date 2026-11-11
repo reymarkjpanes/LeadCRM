@@ -3,6 +3,31 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { EmailActivity, EmailConversations, type ActivityEmail } from '../email-activity';
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const messageFormats = [
+  { format: 'plain text', body: 'First line\nSecond line', selector: 'pre', text: 'First line\nSecond line' },
+  { format: 'pre and code', body: '<pre>First line\n<code>Second line</code></pre>', selector: 'pre code', text: 'Second line' },
+  { format: 'formatted HTML', body: '<p>Hello <strong>bold</strong> <em>italic</em> <a href="https://example.test">link</a><br>Second line</p><p>Next paragraph</p>', selector: 'p', text: 'Hello bold italic linkSecond line' },
+];
+it.each((['inbound', 'outbound'] as const).flatMap(direction => messageFormats.map(message => ({ direction, ...message }))))('uses shared body typography for $direction $format without changing content or metadata', ({ direction, body, selector, text, format }) => {
+  const email: ActivityEmail = { id: 'formatted', providerMessageId: 'formatted', threadId: 'thread', accountId: 'account', direction, from: 'sender@example.test', to: ['recipient@example.test'], subject: 'Typography', sentAt: '2026-10-01T10:00:00Z', body };
+  const { container } = render(<EmailActivity email={email} />);
+  const content = container.querySelector('[data-email-body]')!;
+  expect(content.classList.contains('inbox-message-typography')).toBe(true);
+  expect(content.className).not.toMatch(/(?:^|\s)(?:sm:)?(?:text-(?:xs|sm)|leading-\S+)/);
+  expect(content.querySelector(selector)?.textContent).toBe(text);
+  expect(container.querySelector('dl')?.classList.contains('inbox-message-typography')).toBe(false);
+  expect(screen.getByText(direction === 'inbound' ? 'Received' : 'Sent')).toBeTruthy();
+  expect(screen.getByText('sender@example.test')).toBeTruthy(); expect(screen.getByText('recipient@example.test')).toBeTruthy();
+  expect(screen.getByText('Typography')).toBeTruthy(); expect(container.querySelector('time')?.dateTime).toBe(email.sentAt);
+  if (format === 'formatted HTML') {
+    expect(content.querySelector('strong')?.textContent).toBe('bold');
+    expect(content.querySelector('em')?.textContent).toBe('italic');
+    expect(content.querySelector('a')?.getAttribute('href')).toBe('https://example.test');
+    expect(content.querySelectorAll('br')).toHaveLength(1); expect(content.querySelectorAll('p')).toHaveLength(2);
+  }
+  expect(email.body).toBe(body);
+});
+
 it('hides the expansion control when a short message is fully visible', () => {
   const email: ActivityEmail = { id: 'short', providerMessageId: 'short', threadId: 'thread', accountId: 'account', direction: 'outbound', from: 'staff@example.test', to: ['lead@example.test'], subject: 'Quick note', sentAt: '2026-10-01T10:00:00Z', body: 'Thanks, received.' };
   render(<EmailActivity email={email} />);
@@ -22,6 +47,14 @@ it('shows newest messages first, deduplicates messages and sanitizes unsafe HTML
   expect(screen.getByText('Exact quotation text')).toBeTruthy(); expect(screen.getByText('Please schedule the installation.')).toBeTruthy();
   expect(screen.queryByText('Earlier email content')).toBeNull();
   expect(screen.queryByRole('button', { name: 'View more' })).toBeNull();
+  const conversation = screen.getByRole('button', { name: /Quotation/ });
+  fireEvent.click(conversation);
+  expect(conversation.getAttribute('aria-expanded')).toBe('false');
+  expect(articles[0].closest('[hidden]')).toBeTruthy();
+  fireEvent.click(conversation);
+  expect(conversation.getAttribute('aria-expanded')).toBe('true');
+  expect(articles[0].closest('[hidden]')).toBeNull();
+  expect([...container.querySelectorAll('[data-email-body]')].every(body => body.classList.contains('inbox-message-typography'))).toBe(true);
 });
 
 it('expands a clipped long new reply without restoring quoted text', () => {
@@ -36,4 +69,8 @@ it('expands a clipped long new reply without restoring quoted text', () => {
   expect(container.querySelector('[data-email-body]')!.textContent).toBe(before);
   expect(before).toBe(text); expect(screen.queryByText('Earlier email content')).toBeNull();
   expect(screen.getByRole('button', { name: 'View less' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'View less' }));
+  expect(screen.getByRole('button', { name: 'View more' }).getAttribute('aria-expanded')).toBe('false');
+  expect(container.querySelector('[data-email-body]')!.classList.contains('max-h-32')).toBe(true);
+  expect(container.querySelector('[data-email-body]')!.textContent).toBe(before);
 });

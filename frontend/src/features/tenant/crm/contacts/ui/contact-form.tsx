@@ -163,8 +163,12 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   }, [initialData?.id]);
 
   const selectedProducts = watch('productInterest') || [];
-  const firstNameError = getNameDigitError('firstName', watch('firstName')) ?? errors.firstName?.message;
-  const lastNameError = getNameDigitError('lastName', watch('lastName')) ?? errors.lastName?.message;
+  const firstName = watch('firstName');
+  const lastName = watch('lastName');
+  const firstNameChanged = !isEdit || firstName !== (initialData?.firstName || '');
+  const lastNameChanged = !isEdit || lastName !== (initialData?.lastName || '');
+  const firstNameError = (firstNameChanged ? getNameDigitError('firstName', firstName) : undefined) ?? errors.firstName?.message;
+  const lastNameError = (lastNameChanged ? getNameDigitError('lastName', lastName) : undefined) ?? errors.lastName?.message;
   const emailCheck = useEmailAvailability(watch('email'), 'contacts', !isEdit && canSubmit);
   const emailError = emailCheck.error || errors.email?.message;
   const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'contacts', canSubmit);
@@ -174,7 +178,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   const saving = useRef(false);
   const onSubmit = async (data: CreateContactFormValues | UpdateContactFormValues): Promise<void> => {
     if (!canSubmit || saving.current) return;
-    if (getNameDigitError('firstName', data.firstName) || getNameDigitError('lastName', data.lastName)) return;
+    if ((firstNameChanged && getNameDigitError('firstName', data.firstName)) || (lastNameChanged && getNameDigitError('lastName', data.lastName))) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email!)) return;
     setPhoneTouched(true);
@@ -184,8 +188,8 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     const cleaned: Partial<Contact> = {
 
       customFieldValues: customFields.payload(),
-      firstName: data.firstName || undefined,
-      lastName: data.lastName || undefined,
+      ...(firstNameChanged ? { firstName: data.firstName } : {}),
+      ...(lastNameChanged ? { lastName: data.lastName } : {}),
       email: data.email || undefined,
       phone: phoneLocal ? toE164(phoneLocal) : isEdit ? '' : undefined,
       ...organization.payload(),
@@ -239,7 +243,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={firstNameError}>
               <Input
-                {...register('firstName')}
+                {...register('firstName', { onChange: () => clearErrors('firstName') })}
                 id={`${fieldId}-firstName`}
                 aria-invalid={!!firstNameError}
                 aria-describedby={firstNameError ? `${fieldId}-firstName-error` : undefined}
@@ -249,7 +253,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
             </FieldWrap>
             <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={lastNameError}>
               <Input
-                {...register('lastName')}
+                {...register('lastName', { onChange: () => clearErrors('lastName') })}
                 id={`${fieldId}-lastName`}
                 aria-invalid={!!lastNameError}
                 aria-describedby={lastNameError ? `${fieldId}-lastName-error` : undefined}

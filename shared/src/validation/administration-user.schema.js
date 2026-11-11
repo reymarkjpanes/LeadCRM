@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpdateAdministrationUserSchema = exports.CreateAdministrationUserSchema = exports.AdministrationPhoneSchema = exports.cleanText = void 0;
 const zod_1 = require("zod");
 const security_schema_1 = require("./security.schema");
+const profile_contract_1 = require("../contracts/profile.contract");
 // Check before trimming so surrounding control characters are not silently accepted.
 const cleanText = (max) => zod_1.z.string()
     .refine(value => !/[\u0000-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
@@ -17,8 +18,16 @@ exports.AdministrationPhoneSchema = (0, exports.cleanText)(32).superRefine((valu
         ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message });
 }).transform(value => value.startsWith('+63') ? value : `+63${value}`);
 exports.CreateAdministrationUserSchema = zod_1.z.object({
-    firstName: (0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'First name is required.')),
-    lastName: (0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'Last name is required.')),
+    firstName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('firstName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe((0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'First name is required.'))),
+    lastName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('lastName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe((0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'Last name is required.'))),
     email: security_schema_1.StaffEmailSchema,
     phone: exports.AdministrationPhoneSchema,
     // The existing user service accepts the canonical RoleDefinition.name.

@@ -9,10 +9,32 @@ vi.mock('@/shared/services/auth.api', () => ({ authApi: { uploadAvatar: mocks.up
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
 import { ProfileForm } from '../profile-form';
 beforeEach(() => {
-  vi.resetAllMocks(); user.role = 'User';
+  vi.resetAllMocks(); user.role = 'User'; user.firstName = 'Ada'; user.lastName = 'Lovelace';
   mocks.get.mockResolvedValue({ success: true, data: { available: true } });
 });
 afterEach(cleanup);
+
+it('omits unchanged historical names from unrelated saves and permits correcting either name independently', async () => {
+  user.firstName = 'Old@1'; user.lastName = 'Smith#';
+  mocks.save.mockResolvedValue(undefined);
+  render(<ProfileForm />);
+  fireEvent.click(screen.getByText('Edit'));
+  expect(screen.queryAllByRole('alert')).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText('Phone Number'), { target: { value: '9171234567' } });
+  fireEvent.click(screen.getByText('Save Changes'));
+  await waitFor(() => expect(screen.getByText('Edit')).toBeTruthy());
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ phone: '+639171234567' });
+  mocks.save.mockClear();
+  fireEvent.click(screen.getByText('Edit'));
+  fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'New@' } });
+  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'Old@1' } });
+  expect(screen.queryAllByRole('alert')).toHaveLength(0);
+  fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'Anne-Marie' } });
+  fireEvent.click(screen.getByText('Save Changes'));
+  await waitFor(() => expect(screen.getByText('Edit')).toBeTruthy());
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ firstName: 'Anne-Marie', phone: null });
+});
 
 it.each(['First Name', 'Last Name'])('shows and clears accessible special-character errors immediately for %s', label => {
   render(<ProfileForm />);
@@ -237,7 +259,7 @@ it('saves only ordinary profile fields after modal dismissal and Cancel still di
   fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
-  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ firstName: 'Anne', lastName: 'Lovelace', phone: '+639123456789' });
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ firstName: 'Anne', phone: '+639123456789' });
   expect(screen.getByLabelText('Email Address').textContent).toBe(user.email);
   expect(mocks.requestEmail).not.toHaveBeenCalled();
 

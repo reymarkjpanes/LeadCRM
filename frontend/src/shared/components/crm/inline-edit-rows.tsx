@@ -65,9 +65,9 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
   }, []);
   const editingField = rows.find(row => (row.technicalKey ?? row.label) === editingKey)?.apiField ?? null;
   const errorId = useId();
-  const nameDigitError = getNameDigitError(editingField ?? undefined, editValue);
-  const inputError = nameDigitError ?? fieldError;
   const dirty = editingKey !== null && JSON.stringify(initialValue) !== JSON.stringify(editValue);
+  const nameDigitError = dirty ? getNameDigitError(editingField ?? undefined, editValue) : undefined;
+  const inputError = nameDigitError ?? fieldError;
   useEffect(() => { onEditStateChange?.({ field: editingField, dirty, busy: isSaving }); }, [editingField, dirty, isSaving, onEditStateChange]);
   const blocked = isSaving || disabled;
   useEffect(() => { if (!canEdit) { setEditingKey(null); setEditValue(''); setFieldError(''); } }, [canEdit]);
@@ -89,6 +89,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
   };
   const commitEdit = async (apiField: string) => {
     if (blocked || !canEdit || nameDigitError) return;
+    if (!dirty && (apiField === 'firstName' || apiField === 'lastName')) { setEditingKey(null); return; }
     setFieldError('');
     const row = rows.find(row => row.apiField === apiField);
     if (row?.editorDisabled) return;
@@ -136,7 +137,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
                   ) : type === 'textarea' ? (
                     <Textarea placeholder={`Enter ${label.toLowerCase()}...`} aria-label={label} disabled={blocked} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} rows={3} autoFocus onKeyDown={e => { if (e.key === 'Escape') escapeEdit(e); }} className="w-full rounded-md border px-2 py-1 text-xs resize-none" />
                   ) : (
-                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!inputError} aria-describedby={!customEditorActions && inputError ? errorId : undefined} maxLength={type === 'email' ? 254 : required ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", inputError ? "border-red-500" : "")} />
+                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!inputError} aria-describedby={!customEditorActions && inputError ? errorId : undefined} maxLength={type === 'email' ? 254 : required ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => { setEditValue(e.target.value); if (apiField === 'firstName' || apiField === 'lastName') setFieldError(''); }} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", inputError ? "border-red-500" : "")} />
                   )}
                   {!customEditorActions && (inputError || editorError) && <p id={errorId} role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{inputError || editorError}</p>}
                   {!customEditorActions && <div className="flex flex-wrap justify-end gap-1">

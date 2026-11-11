@@ -66,6 +66,25 @@ describe.skipIf(!disposable)('user administration over authenticated HTTP', () =
     expect((await call(`/administration/users/${userId}`, 'PUT', { status: 'ACTIVE' })).status).toBe(200);
   });
 
+  it('rejects newly submitted invalid names and keeps historical names during unrelated staff edits', async () => {
+    for (const field of ['firstName', 'lastName']) {
+      for (const value of ['John@1', 'John@']) {
+        const response = await call('/administration/users', 'POST', { ...valid, email: `${randomUUID()}@camxian.com`, [field]: value });
+        expect(response.status).toBe(400);
+        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+        expect((await call(`/administration/users/${userId}`, 'PUT', { [field]: value })).status).toBe(400);
+      }
+    }
+    const previous = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { firstName: 'Old@1', lastName: 'Smith#' } });
+      expect((await call(`/administration/users/${userId}`, 'PUT', { phone: '9181234567' })).status).toBe(200);
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: userId } })).toMatchObject({ firstName: 'Old@1', lastName: 'Smith#' });
+      expect((await call(`/administration/users/${userId}`, 'PUT', { firstName: 'María' })).status).toBe(200);
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: userId } })).toMatchObject({ firstName: 'María', lastName: 'Smith#' });
+    } finally { await prisma.user.update({ where: { id: userId }, data: { firstName: previous.firstName, lastName: previous.lastName, phone: previous.phone } }); }
+  });
+
   it('allows Client Admin status changes while preserving one active administrator', async () => {
     const currentAdmin = await prisma.user.findFirstOrThrow({ where: { tenantId, role: 'Client Admin', status: 'ACTIVE' } });
     const additionalAdmin = await prisma.user.create({ data: {

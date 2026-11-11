@@ -4,6 +4,7 @@ import { AdministrationPhoneSchema } from '../validation/administration-user.sch
 import type { CrmFieldCatalogEntry } from './field-catalog';
 import type { ProductInterest } from './product-interests.contract';
 import { isDirectMailSource } from './record-experience';
+import { getNameDigitError } from './profile.contract';
 
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 export const FORM_PRODUCT_INTERESTS = [
@@ -142,6 +143,8 @@ export function validateFormValues(fields: FormField[], values: Record<string, u
       continue;
     }
     if (f.type === 'checkbox') { if (typeof raw !== 'boolean' || (f.required && !raw)) errors[f.id] = 'Please check this field.'; else clean[f.id] = raw; continue; }
+    const nameError = getNameDigitError(f.mapToField, raw);
+    if (nameError) { errors[f.id] = nameError; continue; }
     const parsed = text(f.mapToField === 'firstName' || f.mapToField === 'lastName' ? 100 : f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);
     if (!parsed.success) { errors[f.id] = parsed.error.issues[0].message; continue; }
     let value = parsed.data;

@@ -53,6 +53,38 @@ async function actor(grants?: { canView?: boolean; canCreate?: boolean; canEdit?
 }
 
 describe.sequential('Product Category persistence and HTTP authorization', () => {
+  it.each([99, 99.2, 99.25, 0.5, 1500.75, 0, 999_999_999_999, 999_999_999_998.99])('creates and reloads numeric Product amount %s with exact stored cents', async dealValue => {
+    const a = await actor();
+    await a.change({ action: 'add', name: 'Security' });
+    const created = await a.request('', 'POST', { name: 'Camera', category: 'Security', dealValue });
+    expect(created.status).toBe(200);
+    const saved = created.body.data[0];
+    expect(saved.dealValue).toBe(dealValue);
+    const stored = await db.productInterest.findUniqueOrThrow({ where: { id: saved.id } });
+    expect(stored.dealValue.toFixed(2)).toBe(dealValue.toFixed(2));
+    expect((await a.request()).body.data[0].dealValue).toBe(dealValue);
+    expect((await a.request(`/${saved.id}`)).body.data.dealValue).toBe(dealValue);
+  });
+
+  it('rejects invalid create and update amounts before persistence and retains decimal editing', async () => {
+    const a = await actor();
+    await a.change({ action: 'add', name: 'Security' });
+    const created = await a.request('', 'POST', { name: 'Camera', category: 'Security', dealValue: 99.25 });
+    expect(created.status).toBe(200);
+    const id = created.body.data[0].id;
+    for (const dealValue of [99.256, -99.25, 999_999_999_999.01, 1_000_000_000_000, '99.25', 'abc', '', null]) {
+      expect((await a.request('', 'POST', { name: 'Invalid Product', category: 'Security', dealValue })).status).toBe(400);
+      expect((await a.request(`/${id}`, 'PATCH', { dealValue })).status).toBe(400);
+    }
+    expect((await a.request('', 'POST', { name: 'Missing Value', category: 'Security' })).status).toBe(400);
+    expect(await db.productInterest.count({ where: { tenantId: a.tenantId } })).toBe(1);
+    expect((await db.productInterest.findUniqueOrThrow({ where: { id } })).dealValue.toFixed(2)).toBe('99.25');
+    const updated = await a.request(`/${id}`, 'PATCH', { dealValue: 1500.75 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data[0].dealValue).toBe(1500.75);
+    expect((await db.productInterest.findUniqueOrThrow({ where: { id } })).dealValue.toFixed(2)).toBe('1500.75');
+  });
+
   it('initializes existing category values once, including archived Products, without assigning Uncategorized records', async () => {
     const a = await actor();
     const original = await db.productInterest.create({ data: { tenantId: a.tenantId, name: 'Camera', category: 'Security', dealValue: 25 } });

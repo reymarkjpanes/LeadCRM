@@ -8,15 +8,13 @@ export function parseProductAmount(input: string): number | null {
   return Number.isFinite(amount) ? amount : null;
 }
 
-/** New catalog entries accept whole digit-only amounts in the raw form value. */
+/** Allow raw monetary input, including empty and trailing-decimal typing states. */
 export function isProductCreateAmountInput(input: string): boolean {
-  return /^\d*$/.test(input);
+  return /^(?:\d+(?:\.\d{0,2})?)?$/.test(input);
 }
 
 export function parseProductCreateAmount(input: string): number | null {
-  if (input.length === 0 || !isProductCreateAmountInput(input)) return null;
-  const amount = Number(input);
-  return Number.isFinite(amount) ? amount : null;
+  return isProductCreateAmountInput(input) ? parseProductAmount(input) : null;
 }
 
 export const PRODUCT_DEAL_VALUE_REQUIRED_ERROR = 'Deal value is required.';
@@ -48,8 +46,8 @@ export const ProductInterestSchema = z.object({
 export type ProductInterestInput = z.infer<typeof ProductInterestSchema>;
 export const ProductInterestCreateSchema = ProductInterestSchema.extend({
   dealValue: z.number({ required_error: PRODUCT_DEAL_VALUE_REQUIRED_ERROR, invalid_type_error: PRODUCT_DEAL_VALUE_DIGITS_ERROR })
-    .finite().int(PRODUCT_DEAL_VALUE_DIGITS_ERROR).min(0, PRODUCT_DEAL_VALUE_NEGATIVE_ERROR)
-    .max(999_999_999_999),
+    .finite().min(0, PRODUCT_DEAL_VALUE_NEGATIVE_ERROR)
+    .max(999_999_999_999).multipleOf(0.01),
 });
 export const ProductInterestIdSchema = z.string().uuid();
 export const ProductInterestPatchSchema = ProductInterestSchema.partial().refine(v => Object.keys(v).length > 0, 'Provide product changes.');

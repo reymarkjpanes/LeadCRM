@@ -7,6 +7,7 @@ exports.parseImportCsv = parseImportCsv;
 exports.mapImportCsv = mapImportCsv;
 const zod_1 = require("zod");
 const lead_contract_1 = require("../contracts/lead.contract");
+const profile_contract_1 = require("../contracts/profile.contract");
 exports.CSV_MAX_BYTES = 10 * 1024 * 1024;
 exports.CSV_MAX_ROWS = 5000;
 exports.CSV_MAX_COLUMNS = 100;
@@ -29,12 +30,21 @@ const website = optional(500).refine(v => {
     }
 }, 'Website must be a valid HTTP or HTTPS URL.');
 const person = {
-    firstName: required('First Name', 100), lastName: required('Last Name', 100),
+    firstName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('firstName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(required('First Name', 100)),
+    lastName: zod_1.z.string().superRefine((value, ctx) => {
+        const error = (0, profile_contract_1.getNameDigitError)('lastName', value);
+        if (error)
+            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(required('Last Name', 100)),
     email: zod_1.z.string().trim().toLowerCase().max(254).email('Invalid email address.'),
     phone: required('Phone Number', 50), companyName: required('Company Name', 200),
     address: required('Full Address', 500), productInterest: products,
 };
-exports.ImportLeadRowSchema = zod_1.z.object({ ...person, firstName: lead_contract_1.LeadNameSchema, lastName: lead_contract_1.LeadNameSchema, phone: lead_contract_1.LeadPhoneSchema.optional().default(''), companyName: optional(2000), address: optional(2000), source: lead_contract_1.OptionalLeadSourceSchema.optional().default(''),
+exports.ImportLeadRowSchema = zod_1.z.object({ ...person, firstName: lead_contract_1.LeadFieldsSchema.shape.firstName, lastName: lead_contract_1.LeadFieldsSchema.shape.lastName, phone: lead_contract_1.LeadPhoneSchema.optional().default(''), companyName: optional(2000), address: optional(2000), source: lead_contract_1.OptionalLeadSourceSchema.optional().default(''),
     status: optional(30).transform(v => v ? v[0].toUpperCase() + v.slice(1).toLowerCase() : 'Inquiry')
         .pipe(zod_1.z.enum(['Inquiry', 'Hot', 'Warm', 'Cold', 'Cancelled'], { errorMap: () => ({ message: 'Status must be Inquiry, Hot, Warm, Cold or Cancelled. Close customers through a confirmed Closed Deal Deal.' }) })),
 }).strict();

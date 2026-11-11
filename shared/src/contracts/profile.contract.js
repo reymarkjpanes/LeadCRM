@@ -11,10 +11,10 @@ exports.PROFILE_FIELD_LIMIT_ERRORS = {
     lastName: `Last name must not exceed ${exports.PROFILE_FIELD_LIMITS.lastName} characters.`,
     jobTitle: `Job title must not exceed ${exports.PROFILE_FIELD_LIMITS.jobTitle} characters.`,
 };
-function getNameDigitError(field, value, validateSpecialCharacters = false) {
+function getNameDigitError(field, value, validateSpecialCharacters = true) {
     if (typeof value !== 'string')
         return;
-    const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : undefined;
+    const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : field === 'fullName' ? 'Full name' : undefined;
     if (!label)
         return;
     if (/[0-9]/.test(value))

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { LeadNameSchema, LeadPhoneSchema, OptionalLeadSourceSchema } from '../contracts/lead.contract';
+import { LeadFieldsSchema, LeadPhoneSchema, OptionalLeadSourceSchema } from '../contracts/lead.contract';
+import { getNameDigitError } from '../contracts/profile.contract';
 
 export const CSV_MAX_BYTES = 10 * 1024 * 1024;
 export const CSV_MAX_ROWS = 5000;
@@ -17,12 +18,19 @@ const website = optional(500).refine(v => {
   try { return ['http:', 'https:'].includes(new URL(v.includes('://') ? v : `https://${v}`).protocol); } catch { return false; }
 }, 'Website must be a valid HTTP or HTTPS URL.');
 const person = {
-  firstName: required('First Name', 100), lastName: required('Last Name', 100),
+  firstName: z.string().superRefine((value, ctx) => {
+    const error = getNameDigitError('firstName', value);
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(required('First Name', 100)),
+  lastName: z.string().superRefine((value, ctx) => {
+    const error = getNameDigitError('lastName', value);
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(required('Last Name', 100)),
   email: z.string().trim().toLowerCase().max(254).email('Invalid email address.'),
   phone: required('Phone Number', 50), companyName: required('Company Name', 200),
   address: required('Full Address', 500), productInterest: products,
 };
-export const ImportLeadRowSchema = z.object({ ...person, firstName: LeadNameSchema, lastName: LeadNameSchema, phone: LeadPhoneSchema.optional().default(''), companyName: optional(2000), address: optional(2000), source: OptionalLeadSourceSchema.optional().default(''),
+export const ImportLeadRowSchema = z.object({ ...person, firstName: LeadFieldsSchema.shape.firstName, lastName: LeadFieldsSchema.shape.lastName, phone: LeadPhoneSchema.optional().default(''), companyName: optional(2000), address: optional(2000), source: OptionalLeadSourceSchema.optional().default(''),
   status: optional(30).transform(v => v ? v[0].toUpperCase() + v.slice(1).toLowerCase() : 'Inquiry')
     .pipe(z.enum(['Inquiry', 'Hot', 'Warm', 'Cold', 'Cancelled'], { errorMap: () => ({ message: 'Status must be Inquiry, Hot, Warm, Cold or Cancelled. Close customers through a confirmed Closed Deal Deal.' }) })),
 }).strict();

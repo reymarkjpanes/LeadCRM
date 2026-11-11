@@ -64,6 +64,30 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     await prisma.marketingForm.update({ where: { id: form.id }, data: { name: ' ' } });
     expect((await request('/marketing/forms/' + form.id + '/publish', 'PATCH')).status).toBe(400);
   });
+  it.each([false, true])('rejects invalid mapped person names through public HTTP (full name=%s)', async fullName => {
+    const form = await draft();
+    let fields = form.fields as FormField[];
+    if (fullName) fields = [{ id: 'person', type: 'contact-name', label: 'Your name', mapToField: 'fullName', required: true }, ...fields.filter(field => !['firstName', 'lastName'].includes(field.mapToField ?? ''))];
+    else fields = fields.map(field => field.mapToField === 'firstName' ? { ...field, id: 'given', label: 'Given name' } : field.mapToField === 'lastName' ? { ...field, id: 'family', label: 'Family name' } : field);
+    await scoped(() => service.updateForm(form.id, tenantId, userId, { revision: 0, fields }));
+    const published = await publish(form.id);
+    const email = `${randomUUID()}@example.test`;
+    const { firstName: _first, lastName: _last, ...other } = values(email);
+    const valid = { ...other, ...(fullName ? { person: 'María O’Connor' } : { given: 'María', family: 'O’Connor' }) };
+    for (const field of fullName ? ['person'] : ['given', 'family']) {
+      for (const [value, reason] of [['John@1', 'numbers'], ['John@', 'special characters']]) {
+        const response = await request(`/public/forms/${form.publicId}/submissions`, 'POST', { requestId: randomUUID(), version: published.publishedVersion, values: { ...valid, [field]: value } }, '');
+        expect(response.status, JSON.stringify(response.body)).toBe(400);
+        expect(response.body.fieldErrors[field]).toContain(`must not contain ${reason}.`);
+      }
+    }
+    expect(await prisma.formSubmission.count({ where: { formId: form.id } })).toBe(0);
+    expect(await prisma.lead.count({ where: { tenantId, email } })).toBe(0);
+    const response = await request(`/public/forms/${form.publicId}/submissions`, 'POST', { requestId: randomUUID(), version: published.publishedVersion, values: valid }, '');
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(await prisma.lead.findFirstOrThrow({ where: { tenantId, email } })).toMatchObject({ firstName: 'María', lastName: 'O’Connor' });
+  });
+
   it('returns current Lead labels only and enforces catalog authentication, permissions and availability', async () => {
     const age = await customField('Age'), contact = await customField('Contact Only', 'Text', 'contacts'), hidden = await customField('Hidden', 'Text', 'leads', tenantId, { visibleInForm: false }), disabled = await customField('Disabled', 'Text', 'leads', tenantId, { active: false });
     try {
@@ -278,7 +302,7 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
   });
 
   it('sorts persisted repeat Lead activity before pagination and preserves explicit sorting, filters, and creation dates', async () => {
-    const marker = `Activity${randomUUID()}`, form = await publish((await draft()).id), v = { ...values(), lastName: marker };
+    const marker = `Activity${randomUUID().replace(/[0-9]/g, 'a')}`, form = await publish((await draft()).id), v = { ...values(), lastName: marker };
     const old = await prisma.lead.create({ data: { tenantId, firstName: 'Returning', lastName: marker, email: v.email, status: 'Hot', source: 'Website', createdAt: new Date('2020-01-01') } });
     const newer = await prisma.lead.create({ data: { tenantId, firstName: 'Newer', lastName: marker, status: 'Hot', source: 'Website', createdAt: new Date('2024-01-01') } });
     const page = async (sort = '', page = 1) => request(`/crm/leads?search=${marker}&limit=1&page=${page}${sort ? '&sort=' + sort : ''}`);
@@ -320,7 +344,7 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
   });
 
   it('promotes returning Contacts and derives canonical converted-Lead Deal activity', async () => {
-    const marker = `ContactActivity${randomUUID()}`, form = await publish((await draft()).id), v = { ...values(), lastName: marker };
+    const marker = `ContactActivity${randomUUID().replace(/[0-9]/g, 'a')}`, form = await publish((await draft()).id), v = { ...values(), lastName: marker };
     const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Returning', lastName: marker, email: v.email, createdAt: new Date('2020-01-01') } });
     const newer = await prisma.contact.create({ data: { tenantId, firstName: 'Newer', lastName: marker, createdAt: new Date('2024-01-01') } });
     const page = () => request(`/crm/contacts?search=${marker}&limit=1`);

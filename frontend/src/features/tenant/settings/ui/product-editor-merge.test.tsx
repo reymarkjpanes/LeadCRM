@@ -46,3 +46,71 @@ it('preserves existing 200-character categories, descriptions and decimal values
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
   await waitFor(() => expect(save).toHaveBeenCalledWith({ name: product.name, category: product.category, description: product.description, dealValue: product.dealValue }));
 });
+
+it('preserves decimal typing states and the cursor while requiring a complete amount to save', async () => {
+  const save = vi.fn(async () => {});
+  render(<ProductEditor busy={false} categories={['Security']} onSave={save} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Product Name'), { target: { value: 'Camera' } });
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Security' } });
+  const input = screen.getByLabelText('Deal Value (PHP)') as HTMLInputElement;
+  expect(input.inputMode).toBe('decimal');
+  input.focus();
+  for (const value of ['9', '99', '99.']) {
+    fireEvent.change(input, { target: { value, selectionStart: value.length, selectionEnd: value.length } });
+    expect(input.value).toBe(value);
+    expect(input.selectionStart).toBe(value.length);
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByRole('alert')).toBeNull();
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert').textContent).toBe('Enter a non-negative amount with up to two decimal places.');
+  for (const value of ['99.2', '99.25']) {
+    fireEvent.change(input, { target: { value, selectionStart: value.length, selectionEnd: value.length } });
+    expect(input.value).toBe(value);
+    expect(input.selectionStart).toBe(value.length);
+    expect(screen.queryByRole('alert')).toBeNull();
+  }
+  // A valid edit in the middle must retain the browser's selection as well.
+  fireEvent.change(input, { target: { value: '98.25', selectionStart: 2, selectionEnd: 2 } });
+  expect(input.selectionStart).toBe(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ name: 'Camera', category: 'Security', description: '', dealValue: 98.25 }));
+});
+
+it.each([
+  ['99.256', 'Enter a non-negative amount with up to two decimal places.'],
+  ['-99.25', 'Deal value must not be negative.'],
+  ['abc', 'Deal value must contain digits only.'],
+])('blocks invalid input %s without submitting the retained prior value', async (value, message) => {
+  const save = vi.fn(async () => {});
+  render(<ProductEditor busy={false} categories={['Security']} onSave={save} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Product Name'), { target: { value: 'Camera' } });
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Security' } });
+  const input = screen.getByLabelText('Deal Value (PHP)');
+  fireEvent.change(input, { target: { value: '99.25' } });
+  fireEvent.change(input, { target: { value } });
+  expect(input).toHaveProperty('value', '99.25');
+  expect(input.getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByRole('alert').textContent).toBe(message);
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: '99.2' } });
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ name: 'Camera', category: 'Security', description: '', dealValue: 99.2 }));
+});
+
+it.each(['', '1000000000000'])('rejects empty or above-maximum amounts: %s', amount => {
+  const save = vi.fn(async () => {});
+  render(<ProductEditor busy={false} categories={['Security']} onSave={save} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Product Name'), { target: { value: 'Camera' } });
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Security' } });
+  const input = screen.getByLabelText('Deal Value (PHP)');
+  fireEvent.change(input, { target: { value: '1' } });
+  fireEvent.change(input, { target: { value: amount } });
+  expect(input).toHaveProperty('value', amount);
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert').textContent).toBe(amount ? 'Number must be less than or equal to 999999999999' : 'Deal value is required.');
+});

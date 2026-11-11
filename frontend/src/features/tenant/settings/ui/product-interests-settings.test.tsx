@@ -138,7 +138,7 @@ it('requires name, category and value and shows name length errors inline', asyn
   expect(apiClient.post).not.toHaveBeenCalled();
 });
 
-it.each(['₱25000', '25,000', '-25000', 'abc', '12abc', '25000.50', ' '])('rejects raw new-product Deal Value %s', async amount => {
+it.each(['₱25000', '25,000', '-25000', '-99.25', 'abc', '12abc', '99.256', '1e2', '+99', '99..25', ' '])('rejects raw new-product Deal Value %s', async amount => {
   render(<ProductsPage />); await screen.findByRole('grid');
   fireEvent.click(screen.getByRole('button', { name: 'Add Product' }));
   if (screen.queryByRole('combobox', { name: 'Category' })) fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'CCTV Surveillance System' } });
@@ -150,14 +150,35 @@ it.each(['₱25000', '25,000', '-25000', 'abc', '12abc', '25000.50', ' '])('reje
   expect(apiClient.post).not.toHaveBeenCalled();
 });
 
-it('accepts digit-only new-product values and saves the trimmed product name', async () => {
+it.each(['99', '99.2', '99.25', '0.50', '1500.75', '0', '25000', '999999999999'])('accepts new-product amount %s and saves the trimmed product name', async amount => {
   render(<ProductsPage />); await screen.findByRole('grid');
   fireEvent.click(screen.getByRole('button', { name: 'Add Product' }));
   if (screen.queryByRole('combobox', { name: 'Category' })) fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'CCTV Surveillance System' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'Product Name' }), { target: { value: '   CCTV Surveillance System   ' } });
-  fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: '25000' } });
+  fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: amount } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/administration/product-interests', { name: 'CCTV Surveillance System', category: product.category, description: '', dealValue: 25000 }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/administration/product-interests', { name: 'CCTV Surveillance System', category: product.category, description: '', dealValue: Number(amount) }));
+});
+
+it('creates a decimal Product, reloads its numeric value and reopens the editor', async () => {
+  let products = [product];
+  vi.mocked(apiClient.get).mockImplementation(async () => ({ data: products, meta: { enabled: true } }));
+  vi.mocked(apiClient.post).mockImplementation(async (_url, body) => {
+    products = [...products, { ...product, id: 'decimal-product', ...(body as { name: string; dealValue: number }) }];
+    return { data: products, meta: { enabled: true } };
+  });
+  const first = render(<ProductsPage />); await screen.findByRole('grid');
+  fireEvent.click(screen.getByRole('button', { name: 'Add Product' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Product Name' }), { target: { value: 'Decimal Product' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: product.category } });
+  fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: '99.25' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/administration/product-interests', { name: 'Decimal Product', category: product.category, description: '', dealValue: 99.25 }));
+  await screen.findByText('₱99.25');
+  first.unmount(); render(<ProductsPage />);
+  await screen.findByText('₱99.25');
+  fireEvent.click(within(screen.getByRole('row', { name: /Decimal Product/ })).getByRole('button', { name: 'Edit product' }));
+  expect(screen.getByLabelText('Deal Value (PHP)')).toHaveProperty('value', '99.25');
 });
 it('requires confirmation before archiving a product and clears bulk selection after success', async () => {
   vi.mocked(apiClient.delete).mockResolvedValue({ data: [], meta: { enabled: true } });

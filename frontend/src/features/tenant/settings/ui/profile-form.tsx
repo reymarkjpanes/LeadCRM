@@ -43,7 +43,7 @@ export function ProfileForm() {
   const errors = { ...fieldErrors };
   if (editing) {
     for (const key of ['firstName', 'lastName'] as const) {
-      const nameError = getNameDigitError(key, draft[key], true);
+      const nameError = draft[key] !== saved()[key] ? getNameDigitError(key, draft[key]) : undefined;
       if (nameError) errors[key] = nameError;
     }
   }
@@ -52,7 +52,11 @@ export function ProfileForm() {
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing || busy.current) return;
-    const parsed = UpdateSelfProfileSchema.safeParse(draft);
+    const parsed = UpdateSelfProfileSchema.safeParse({
+      ...(draft.firstName !== saved().firstName ? { firstName: draft.firstName } : {}),
+      ...(draft.lastName !== saved().lastName ? { lastName: draft.lastName } : {}),
+      phone: draft.phone,
+    });
     const phoneInput = ProfilePhoneInputSchema.safeParse(draft.phone);
     if (!parsed.success || !phoneInput.success) {
       const validationErrors: Record<string, string> = parsed.success ? {} : Object.fromEntries(parsed.error.issues.flatMap(issue => issue.path.length ? [[String(issue.path[0]), issue.message]] : []));
@@ -125,7 +129,7 @@ export function ProfileForm() {
                 }
                 setDraft(current => ({ ...current, [key]: value }));
                 const result = (key === 'phone' ? ProfilePhoneInputSchema : SelfProfileFieldSchemas[key]).safeParse(value);
-                setFieldErrors(current => ({ ...current, [key]: result.success ? '' : result.error.issues[0].message }));
+                setFieldErrors(current => ({ ...current, [key]: result.success || (key !== 'phone' && value === saved()[key]) ? '' : result.error.issues[0].message }));
               }}
               className={`w-full min-w-0 ${key === 'phone' ? 'flex-1 rounded-r-lg' : 'border rounded-lg'}  ${errors[key] ? 'border-red-500' : ''} px-3 py-2 text-sm disabled:cursor-default`} />
           </div>

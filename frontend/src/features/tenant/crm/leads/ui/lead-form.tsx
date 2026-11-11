@@ -158,8 +158,10 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
   const phoneError = phoneCheck.error || errors.phone?.message || (phoneTouched ? validatePhMobile(phoneLocal) : null);
   const watchedFirstName = watch('firstName');
   const watchedLastName = watch('lastName');
-  const firstNameError = getNameDigitError('firstName', watchedFirstName) ?? errors.firstName?.message;
-  const lastNameError = getNameDigitError('lastName', watchedLastName) ?? errors.lastName?.message;
+  const firstNameChanged = !isEdit || watchedFirstName !== (initialData?.firstName || '');
+  const lastNameChanged = !isEdit || watchedLastName !== (initialData?.lastName || '');
+  const firstNameError = (firstNameChanged ? getNameDigitError('firstName', watchedFirstName) : undefined) ?? errors.firstName?.message;
+  const lastNameError = (lastNameChanged ? getNameDigitError('lastName', watchedLastName) : undefined) ?? errors.lastName?.message;
   const { matches: duplicateMatches, isChecking: isDuplicateChecking, hasDuplicates, dismiss: dismissDuplicates } = useDuplicateCheck({
     email: watchedEmail || undefined,
     phone: phoneLocal ? toE164(phoneLocal) : undefined,
@@ -215,7 +217,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
 
   const onFormSubmit = async (data: LeadFormData): Promise<void> => {
     if (!canSubmit || saving.current) return;
-    if (getNameDigitError('firstName', data.firstName) || getNameDigitError('lastName', data.lastName)) return;
+    if ((firstNameChanged && getNameDigitError('firstName', data.firstName)) || (lastNameChanged && getNameDigitError('lastName', data.lastName))) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email)) return;
     setPhoneTouched(true);
@@ -232,8 +234,8 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
 
       customFieldValues: customFields.payload(),
       ...(!isEdit ? { requestId: requestId.current } : {}),
-      firstName: data.firstName,
-      lastName: data.lastName,
+      ...(firstNameChanged ? { firstName: data.firstName } : {}),
+      ...(lastNameChanged ? { lastName: data.lastName } : {}),
       email: data.email || undefined,
       phone: fullPhone,
       ...organization.payload(),
@@ -284,7 +286,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={firstNameError}>
               <Input
-                {...register('firstName')} maxLength={100} required aria-required="true"
+                {...register('firstName', { onChange: () => clearErrors('firstName') })} maxLength={100} required aria-required="true"
                 id={`${fieldId}-firstName`}
                 aria-invalid={!!firstNameError}
                 aria-describedby={firstNameError ? `${fieldId}-firstName-error` : undefined}
@@ -294,7 +296,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
             </FieldWrap>
             <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={lastNameError}>
               <Input
-                {...register('lastName')} maxLength={100} required aria-required="true"
+                {...register('lastName', { onChange: () => clearErrors('lastName') })} maxLength={100} required aria-required="true"
                 id={`${fieldId}-lastName`}
                 aria-invalid={!!lastNameError}
                 aria-describedby={lastNameError ? `${fieldId}-lastName-error` : undefined}
