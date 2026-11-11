@@ -106,6 +106,75 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     const reloaded = await request(`/marketing/campaigns/${campaign.id}`);
     expect(reloaded.status).toBe(200); expect(reloaded.body.data.status).toBe('SUBMITTED'); expect(reloaded.body.data.deliveredCount).toBe(0);
   });
+  it('recovers authenticated callbacks lost to database failure without acknowledging or resending them', async ({ onTestFinished }) => {
+    const campaign = await draft();
+    const constraint = `fixture_receipt_failure_${campaign.id.replaceAll('-', '')}`;
+    onTestFinished(async () => {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "EmailEvent" DROP CONSTRAINT IF EXISTS "${constraint}"`);
+      await prisma.emailDeliveryLog.deleteMany({ where: { tenantId, campaignId: campaign.id } });
+      await prisma.campaign.delete({ where: { tenantId, id: campaign.id } });
+    });
+    await scoped(() => sendCampaign(campaign.id, tenantId, userId));
+    const recipients = await prisma.campaignContact.findMany({ where: { tenantId, campaignId: campaign.id } });
+    const logs = await prisma.emailDeliveryLog.findMany({ where: { tenantId, campaignId: campaign.id } });
+    const submitted = new Date(Math.floor((Date.now() - 600000) / 1000) * 1000);
+    const delivered = new Date(+submitted + 1000), opened = new Date(+submitted + 2000), clicked = new Date(+submitted + 3000);
+    await prisma.campaignContact.updateMany({ where: { tenantId, campaignId: campaign.id }, data: { submittedAt: submitted } });
+    vi.stubEnv('BREVO_WEBHOOK_TOKEN', 'test-token-with-at-least-32-characters');
+    const callbacks = recipients.flatMap(row => [
+      { event: 'delivered', email: row.email, 'message-id': row.messageId, ts_epoch: +delivered },
+      { event: 'unique_opened', email: row.email, 'message-id': row.messageId, ts_epoch: +opened },
+      { event: 'click', email: row.email, 'message-id': row.messageId, ts_epoch: +clicked, link: 'https://camxian.com/services' },
+    ]);
+    const info = vi.spyOn(console, 'info'), warn = vi.spyOn(console, 'warn');
+    onTestFinished(() => { info.mockRestore(); warn.mockRestore(); });
+    // Reject only this fixture's receipts, proving a real transaction rollback
+    // after authentication. No production handler or bypass is introduced.
+    await prisma.$executeRawUnsafe(`ALTER TABLE "EmailEvent" ADD CONSTRAINT "${constraint}" CHECK ("deliveryLogId" NOT IN (${logs.map(log => `'${log.id}'`).join(',')})) NOT VALID`);
+    for (const event of callbacks) expect((await request('/webhooks/brevo', 'POST', event, process.env.BREVO_WEBHOOK_TOKEN)).status).toBe(500);
+    expect(await prisma.emailEvent.count({ where: { tenantId, deliveryLog: { campaignId: campaign.id } } })).toBe(0);
+    expect(info.mock.calls.some(([, fields]) => (fields as { event?: string })?.event === 'brevo_event_persisted')).toBe(false);
+    expect((await scoped(() => getCampaignReport(campaign.id, tenantId)))).toMatchObject({ status: 'SUBMITTED', deliveredCount: 0, openedCount: 0, clickedCount: 0 });
+    await prisma.$executeRawUnsafe(`ALTER TABLE "EmailEvent" DROP CONSTRAINT "${constraint}"`);
+    const nativeFetch = globalThis.fetch;
+    let outage: number | undefined = 429;
+    const lookup = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.origin !== 'https://api.brevo.com') return nativeFetch(input, init);
+      expect(init?.method).toBe('GET');
+      if (outage) return new Response('', { status: outage });
+      const row = recipients.find(recipient => recipient.messageId === url.searchParams.get('messageId'))!;
+      return Response.json({ events: [
+        { event: 'delivered', date: delivered.toISOString() },
+        { event: 'uniqueOpened', date: opened.toISOString() },
+        { event: 'clicks', date: clicked.toISOString(), link: 'https://camxian.com/services' },
+      ].map(event => ({ ...event, messageId: row.messageId, email: row.email })) });
+    });
+    try {
+      await reconcileBrevoStatuses();
+      outage = 503; await reconcileBrevoStatuses();
+      expect(await prisma.emailEvent.count({ where: { tenantId, deliveryLog: { campaignId: campaign.id } } })).toBe(0);
+      outage = undefined; await reconcileBrevoStatuses();
+    } finally { lookup.mockRestore(); }
+    const report = await scoped(() => getCampaignReport(campaign.id, tenantId));
+    expect(report).toMatchObject({ status: 'DELIVERED', deliveredCount: 2, openedCount: 2, clickedCount: 2, totalOpens: 2, totalClicks: 2 });
+    for (const row of recipients) expect(await prisma.campaignContact.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      status: 'delivered', deliveredAt: delivered, openedAt: opened, clickedAt: clicked,
+    });
+    const persisted = info.mock.calls.map(([, fields]) => fields as Record<string, unknown>)
+      .filter(fields => fields?.event === 'brevo_event_persisted');
+    expect(persisted).toHaveLength(6);
+    for (const fields of persisted) expect(fields).toMatchObject({ source: 'history', tenantId, campaignId: campaign.id,
+      providerEventAt: expect.any(String), persistenceConfirmedAt: expect.any(String), providerToPersistenceMs: expect.any(Number), durationMs: expect.any(Number) });
+    const delayed = () => warn.mock.calls.filter(([, fields]) => (fields as { event?: string })?.event === 'brevo_delivery_sync_delayed');
+    expect(delayed()).toHaveLength(2);
+    for (const event of callbacks) expect((await request('/webhooks/brevo', 'POST', event, process.env.BREVO_WEBHOOK_TOKEN)).status).toBe(200);
+    expect(await prisma.emailEvent.count({ where: { tenantId, deliveryLog: { campaignId: campaign.id } } })).toBe(6);
+    expect(delayed()).toHaveLength(2);
+    expect(info.mock.calls.filter(([, fields]) => (fields as { event?: string })?.event === 'brevo_event_persisted')).toHaveLength(6);
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(sendSms).not.toHaveBeenCalled();
+  });
   it('recovers engagement after delivery, deduplicates history and callbacks, and preserves provider time', async ({ onTestFinished }) => {
     const campaign = await draft();
     onTestFinished(async () => {
