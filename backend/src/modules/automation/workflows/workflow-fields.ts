@@ -1,7 +1,7 @@
 import { findTrigger, getWorkflowConditionFields, customFieldTechnicalKey, resolveCustomFieldReference, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowEntity } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { readConfiguredFields } from '../../crm/closing-requirements/closing-requirements.repository';
-import { normalizeWorkflowReferences, WorkflowActionSchema, WorkflowConditionSchema, normalizeSavedWorkflowAssignment, retiredAccountWorkflowReferences, ACCOUNT_RETIREMENT_REASON, workflowActionPolicyIssues } from '@leadcrm/shared';
+import { normalizeWorkflowReferences, WorkflowActionSchema, WorkflowConditionSchema, normalizeSavedWorkflowAssignment, retiredAccountWorkflowReferences, ACCOUNT_RETIREMENT_REASON, workflowDefinitionIssues } from '@leadcrm/shared';
 import { workflowEmailContent } from '../actions/action-email-content';
 
 export const workflowCustomFields = (tenantId: string, db: import('@prisma/client').Prisma.TransactionClient = prisma) => readConfiguredFields(db, tenantId);
@@ -51,7 +51,7 @@ export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'
   }) : references.actions };
   const entity = findTrigger(draft.trigger)?.entity;
   const conditions = WorkflowConditionSchema.safeParse(normalized.conditions);
-  const policyIssues = workflowActionPolicyIssues({ trigger: normalized.trigger, actions: Array.isArray(normalized.actions) ? normalized.actions.flatMap(action => {
+  const policyIssues = workflowDefinitionIssues({ trigger: normalized.trigger, actions: Array.isArray(normalized.actions) ? normalized.actions.flatMap(action => {
     const parsed = WorkflowActionSchema.safeParse(action);
     return parsed.success ? [parsed.data] : [];
   }) : [], conditions: conditions.success ? conditions.data : undefined });

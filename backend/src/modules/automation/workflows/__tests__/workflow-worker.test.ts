@@ -9,7 +9,7 @@ vi.mock('../../../../config/database.config', () => ({ default: {
   workflowExecutionRun: { findMany: mocks.findMany, updateMany: mocks.updateMany },
   workflow: { findFirst: mocks.workflow }, $transaction: mocks.transaction,
 } }));
-vi.mock('../workflow-fields', () => ({ accountWorkflowRetirementReferences: async () => [] }));
+vi.mock('../workflow-fields', () => ({ accountWorkflowRetirementReferences: async () => [], compatibleWorkflow: async (draft: unknown) => draft }));
 vi.mock('../workflows.repository', () => ({ entityContext: vi.fn() }));
 vi.mock('../workflow-interruption', () => ({ interruptWorkflowRun: mocks.interrupt }));
 vi.mock('../workflow.engine.js', () => ({ fireWorkflowTrigger: mocks.engine }));
@@ -23,7 +23,9 @@ const wake = () => {
   markWorkflowQueued(tx); workflowTransactionCommitted(tx);
 };
 const run = (id: number) => ({ id: String(id), tenantId: 'tenant', workflowId: 'workflow', status: 'queued',
-  leaseId: null, leaseUntil: null, dispatchStartedAt: null, definitionSnapshot: {},
+  leaseId: null, leaseUntil: null, dispatchStartedAt: null,
+  definitionSnapshot: { name: 'Fixture workflow', trigger: 'deal.updated', isActive: true,
+    actions: [{ type: 'create_task', config: { title: 'Fixture follow-up' } }] },
   dispatchContext: { version: 1, activatedById: 'admin' }, trigger: { triggerType: 'deal.updated', eventId: String(id) } });
 
 const transient = () => new Prisma.PrismaClientKnownRequestError('private database connection', { code: 'P1001', clientVersion: '5' });

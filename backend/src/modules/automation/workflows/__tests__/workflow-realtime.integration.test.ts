@@ -18,9 +18,10 @@ describe.skipIf(!disposable)('post-commit workflow stage dispatch', () => {
   let stop: (() => Promise<void>) | undefined;
   const scope = <T>(work: () => T) => tenantContext.run({ tenantId }, work);
   const deal = () => scope(() => prisma.deal.create({ data: { tenantId, pipelineId, stageId: initialId, title: randomUUID(), value: 1000, priority: 'LOW', assignedUserId: actorId } }));
+  const sourceStage = () => ({ field: 'deal.stageId', operator: 'equals', value: initialId });
   const workflow = (extra = {}) => scope(() => workflows.createWorkflow(tenantId, actorId, {
     name: randomUUID(), trigger: 'deal.updated', isActive: true,
-    conditions: { operator: 'AND', conditions: [{ field: 'deal.priority', operator: 'equals', value: 'HIGH' }] },
+    conditions: { operator: 'AND', conditions: [sourceStage(), { field: 'deal.priority', operator: 'equals', value: 'HIGH' }] },
     actions: [{ type: 'move_deal_stage', config: { stageId: targetId } }], ...extra,
   }));
   beforeAll(async () => {
@@ -40,7 +41,7 @@ describe.skipIf(!disposable)('post-commit workflow stage dispatch', () => {
     }));
     const cancelled = await prisma.stage.create({ data: { tenantId, pipelineId, name: 'Cancelled', order: 2, isLost: true } });
     const [backlogged, immediate, blank, mixed] = await Promise.all([deal(), deal(), deal(), deal()]);
-    const conditions = { operator: 'AND', conditions: [{ field: `deal.customFieldValues.${field.id}`, operator: 'is_not_empty', value: null }] };
+    const conditions = { operator: 'AND', conditions: [sourceStage(), { field: `deal.customFieldValues.${field.id}`, operator: 'is_not_empty', value: null }] };
     const stageAction = { type: 'move_deal_stage', config: { stageId: cancelled.id } };
     const configured = await workflow({ conditions, actions: [stageAction] });
     const other = await workflow({ conditions, actions: [stageAction] });
@@ -57,10 +58,16 @@ describe.skipIf(!disposable)('post-commit workflow stage dispatch', () => {
     expect(await runStatus(configured.id, backlogged.id)).toBe('queued');
 
     stop = startWorkflowScheduler(configured.id);
-    await vi.waitFor(async () => expect(await stageOf(backlogged.id)).toBe(cancelled.id), { timeout: 5000 });
+    // Leave room for cold startup on CI, while still requiring a wake before the 30-second sweep.
+    const wakeTimeout = 15000;
+    await vi.waitFor(async () => {
+      const run = await prisma.workflowExecutionRun.findFirstOrThrow({ where: { workflowId: configured.id, entityId: backlogged.id } });
+      expect(run.status, run.errorMessage ?? 'Scoped execution has not finished').toBe('completed');
+    }, { timeout: wakeTimeout });
+    expect(await stageOf(backlogged.id)).toBe(cancelled.id);
     await saveReason(blank.id, '   ');
     await saveReason(immediate.id, 'Budget');
-    await vi.waitFor(async () => expect(await runStatus(configured.id, immediate.id)).toBe('completed'), { timeout: 5000 });
+    await vi.waitFor(async () => expect(await runStatus(configured.id, immediate.id)).toBe('completed'), { timeout: wakeTimeout });
     expect(await stageOf(immediate.id)).toBe(cancelled.id);
     expect(await stageOf(blank.id)).toBe(initialId);
     expect(await stageOf(mixed.id)).toBe(initialId);
@@ -70,7 +77,7 @@ describe.skipIf(!disposable)('post-commit workflow stage dispatch', () => {
     await stop(); stop = undefined;
     await prisma.workflow.updateMany({ where: { id: { in: [configured.id, other.id] } }, data: { isActive: false } });
     await dispatchQueuedWorkflows();
-  });
+  }, 45000);
 
   it('moves a Deal after a field edit promptly, publishes content and deduplicates competing dispatch', async () => {
     const saved = await deal(); const configured = await workflow();
