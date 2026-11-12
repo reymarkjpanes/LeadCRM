@@ -39,7 +39,6 @@ export async function dispatchAction(action: WorkflowAction, context: Record<str
   let assignment: Awaited<ReturnType<typeof resolveWorkflowAssignee>> | undefined;
   let restoredAssignment: Record<string, unknown> = {};
   let knownResult: ActionResult | undefined;
-  let smsAttempted = false;
   const guard = execution?.guard;
   try {
     const entity = actionEntity(context);
@@ -81,11 +80,9 @@ export async function dispatchAction(action: WorkflowAction, context: Record<str
       return knownResult;
     }
     if (action.type === 'send_sms') {
-      const { phone, message, recipientId } = await prepareWorkflowSmsInput(action, entity, tenantId, context);
+      const { phone, message, recipientId, recipientEntity } = await prepareWorkflowSmsInput(action, entity, tenantId, context);
       if (execution?.stepId) await workflowLeaseWrite(tx => tx.workflowExecutionStep.update({ where: { id: execution.stepId, tenantId }, data: { resolvedInput: { version: 1, phone, message, recipientId } } }));
       await fenceWorkflowLease();
-      smsAttempted = true;
-      const recipientEntity = entity === 'lead' || config.recipient === 'primary_lead' ? 'lead' : 'contact';
       const receipt = await sendSms(phone, message, { beforeProviderWrite: () => admitDelivery(guard, tenantId, recipientEntity, recipientId, { phone }) });
       return { success: true, output: { ...receipt, recipientId, status: 'submitted' } };
     }
@@ -134,7 +131,7 @@ export async function dispatchAction(action: WorkflowAction, context: Record<str
     return knownResult;
   } catch (error) { if (isWorkflowLeaseLost(error)) throw error;
     if (actionSkipped(error)) return { success: false, skipped: true, output: { reason: error.message } };
-    return { success: false, error: safeWorkflowError(error), ...(error instanceof AppError && error.code === 'GMAIL_OUTCOME_UNKNOWN' || error instanceof SmsSubmissionError && error.outcome === 'unconfirmed' || smsAttempted && (!(error instanceof AppError) || error.statusCode >= 500) ? { output: { outcomeUnknown: true } } : assignment ? { output: { ...assignmentOutput(assignment), ...restoredAssignment } } : {}) }; }
+    return { success: false, error: safeWorkflowError(error), ...(error instanceof AppError && error.code === 'GMAIL_OUTCOME_UNKNOWN' || error instanceof SmsSubmissionError && error.outcome === 'unconfirmed' ? { output: { outcomeUnknown: true } } : assignment ? { output: { ...assignmentOutput(assignment), ...restoredAssignment } } : {}) }; }
   finally { if (assignment) try { await completeWorkflowAssignment(tenantId, assignment); }
     catch { if (knownResult) knownResult.output = { ...knownResult.output, assignmentCleanupPending: true,
       cleanupWarning: 'The action was saved. Assignment capacity cleanup is pending; its temporary reservation will expire.' }; }
@@ -180,6 +177,7 @@ async function deliverEmail(action: WorkflowAction, context: Record<string, unkn
   try {
     await fenceWorkflowLease();
     sent = await sendEmail(tenantId, senderId, recipient, subject, body, undefined, undefined, undefined, { messageId,
+      recordContext: { recordModule: recipientEntity === 'lead' ? 'leads' : 'contacts', recordId: recipientId },
       beforeProviderWrite: () => admitDelivery(guard, tenantId, recipientEntity, recipientId, { email: recipient }) });
   } catch (error) {
     if (isWorkflowLeaseLost(error)) throw error;

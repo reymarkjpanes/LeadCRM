@@ -3,14 +3,14 @@ import prisma from '../../../config/database.config';
 import { ValidationError, NotFoundError } from '../../../shared/errors/http-error';
 import { validateDealStageMove } from '../../crm/deals/deals.service';
 import { readConfiguredFields, validateClosingRequirements } from '../../crm/closing-requirements/closing-requirements.repository';
-import type { DealStageValidationState, RelatedDealMoveGuard } from '../../crm/deals/deal-lifecycle';
+import { readDealStageValidationState, type DealStageValidationState, type RelatedDealMoveGuard } from '../../crm/deals/deal-lifecycle';
 
 /** In-memory dry-run state only; execution always reads its transactional targets. */
 export type WorkflowDealProjection = Map<string, DealStageValidationState>;
 export async function loadWorkflowDealProjection(tenantId: string, id: string, projection: WorkflowDealProjection) {
   const previous = projection.get(id);
   if (previous) return previous;
-  const deal = await prisma.deal.findFirst({ where: { tenantId, id, isArchived: false, deletedAt: null }, include: { stage: true } });
+  const deal = await readDealStageValidationState(prisma, tenantId, id);
   if (!deal) throw new NotFoundError('Deal');
   projection.set(id, deal);
   return deal;

@@ -174,6 +174,7 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone as string | null : current.phone);
     if (dto.productInterests !== undefined || dto.productInterestIds !== undefined) Object.assign(dto, await productRelationData(tx, 'contact', tenantId, { ids: dto.productInterestIds as string[] | undefined, names: dto.productInterests as string[] | undefined }, current, true));
     let status = dto.status === undefined ? undefined : CrmStatusSchema.parse(dto.status);
+    const requestedStatus = status;
     if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Contact changed. Reload its current status before saving.');
     await synchronizeAssociatedDealAssignment(tx, tenantId, { type: 'contact', id, assignedUserId: current.assignedUserId }, dto.assignedUserId as string | null | undefined, actorId);
     const managed = await applyManagedCustomerStatus(tx, tenantId, { contactId: id }, actorId, current.status, status);
@@ -181,8 +182,8 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     await assertCustomerStatusEdit(tx, tenantId, { contactId: id }, current, status);
     const preparedStatus = await prepareCustomerStatus(tx, tenantId, { contactId: id }, status);
     if (preparedStatus) status = preparedStatus.status;
-    if (status === 'Closed Deal') {
-      if (normalizeCrmStatus(current.status) !== status) await assertClosedStatus(tx, tenantId, { contactId: id });
+    if (requestedStatus === 'Closed Deal') {
+      if (normalizeCrmStatus(current.status) !== requestedStatus) await assertClosedStatus(tx, tenantId, { contactId: id });
       await finalizeContactLifecycle(tx, tenantId, id, actorId);
     }
     const { customFieldValues, productInterestIds: _productIds, newAccount, expectedUpdatedAt: _version, status: _status, ...data } = dto;

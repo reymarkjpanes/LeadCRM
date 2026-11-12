@@ -163,7 +163,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
   });
   it('rejects direct calculated status edits and converts through the confirmed winning workflow', async () => {
     const { lead, deals } = await customer(null, 1);
-    await expect(scope(() => updateLead(lead.id, tenantId, { status: 'Closed Deal' }, adminId))).rejects.toThrow(/Confirm a related Deal/);
+    await expect(scope(() => updateLead(lead.id, tenantId, { status: 'Closed Deal' }, adminId))).rejects.toThrow(/Status follows associated Deals/);
     await close(deals[0].id);
     expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).contactId).toBeTruthy();
   });
@@ -187,8 +187,10 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     for (const result of responses) expect(result.status, JSON.stringify(result.body)).toBe(200);
     const saved = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
     const contact = await prisma.contact.findUniqueOrThrow({ where: { id: saved.contactId! } });
-    expect(saved.status).toBe(lead.status); expect(saved.convertedAt).not.toBeNull();
-    expect(contact).toMatchObject({ assignedUserId: agentId, lifecycleStage: stage === 'Closed Deal' ? 'CUSTOMER' : 'CONTACT', customerSince: stage === 'Closed Deal' ? confirmedAt : null });
+    const expectedStatus = stage === 'Cancelled' || stage === 'Closed Deal' ? stage : lead.status;
+    expect(saved.status).toBe(expectedStatus); expect(saved.convertedAt).not.toBeNull();
+    expect(contact).toMatchObject({ assignedUserId: agentId, status: expectedStatus.toUpperCase().replace(' ', '_'),
+      lifecycleStage: stage === 'Closed Deal' ? 'CUSTOMER' : 'CONTACT', customerSince: stage === 'Closed Deal' ? confirmedAt : null });
     expect(await prisma.contact.count({ where: { tenantId, email: lead.email } })).toBe(1);
     expect(await prisma.account.count({ where: { tenantId, name: lead.companyName! } })).toBe(1);
     expect(await prisma.activity.count({ where: { tenantId, leadId: lead.id, type: 'conversion' } })).toBe(1);
@@ -312,6 +314,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
   it('delivers reassignment, lost, failure and mailbox alerts once to the correct roles', async () => {
     const { lead, deals } = await customer(null, 1);
     await scope(() => updateLead(lead.id, tenantId, { assignedUserId: otherAgentId }, adminId));
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deals[0].id } })).toMatchObject({ assignedUserId: otherAgentId });
     await scope(() => moveDealStage(deals[0].id, tenantId, stages['Cancelled'], adminId, undefined, undefined, 'Customer declined'));
     const workflow = await prisma.workflow.create({ data: { tenantId, name: 'Failed workflow', trigger: 'lead.created', actions: [] } });
     const trigger = await prisma.workflowTriggerRecord.create({ data: { tenantId, workflowId: workflow.id, triggerType: 'lead.created', entityType: 'Lead', entityId: lead.id } });
@@ -326,7 +329,9 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     await scope(() => dispatchTenantNotifications(tenantId));
     expect(await prisma.notification.count({ where: { userId: otherAgentId, entityId: lead.id, type: 'lead_assigned' } })).toBe(1);
     for (const type of ['user_created', 'user_status_changed']) expect(await prisma.notification.count({ where: { tenantId, userId: adminId, type } }), type).toBeGreaterThan(0);
-    for (const type of ['deal_lost', 'campaign_failed', 'mailbox_disconnected']) expect(await prisma.notification.count({ where: { tenantId, userId: agentId, type } }), type).toBeGreaterThan(0);
+    expect(await prisma.notification.findMany({ where: { tenantId, entityId: deals[0].id, type: 'deal_lost' }, select: { userId: true } }))
+      .toEqual([{ userId: otherAgentId }]);
+    for (const type of ['campaign_failed', 'mailbox_disconnected']) expect(await prisma.notification.count({ where: { tenantId, userId: agentId, type } }), type).toBeGreaterThan(0);
     for (const type of ['workflow_failed', 'form_processing_failed']) expect(await prisma.notification.count({ where: { tenantId, type } }), type).toBe(0);
     await prisma.emailAccount.update({ where: { id: mailbox.id }, data: { isActive: true, syncError: 'Persistent test error' } });
     await scope(() => dispatchTenantNotifications(tenantId));

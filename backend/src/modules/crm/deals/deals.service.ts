@@ -18,7 +18,7 @@ import { CreateDealDto, UpdateDealDto, MoveDealStageDto, DealsQueryParams, Manua
 import { paginate } from '../../../shared/helpers/pagination';
 import { fireDealCreated, fireDealStageChanged, fireDealUpdated } from '../../automation/triggers/triggers.service';
 import { recordChanges, customFieldChangeTracker } from '../record-updates';
-import { assertDealStageTransition, dealHasEverBeenWon, isQualifiedStage, type DealStageMovePolicy, type RelatedDealMoveGuard } from './deal-lifecycle';
+import { assertDealStageTransition, dealHasEverBeenWon, isQualifiedStage, readDealStageValidationState, type DealStageMovePolicy, type DealStageValidationState, type RelatedDealMoveGuard } from './deal-lifecycle';
 import { isWorkflowQualified } from './workflow-qualification';
 import { manualStatusCheckpoint } from '../status-checkpoint';
 import { assertCrmRecordMutation, authorizedWorkflowScope } from '../access/crm-record-access.service';
@@ -185,19 +185,20 @@ export async function updateDeal(id: string, tenantId: string, userId: string, d
   });
 }
 
-export async function validateDealStageMove(id: string, tenantId: string, dto: MoveDealStageDto, policy: import('./deal-lifecycle').DealStageMovePolicy = {}, projectedDeal?: import('./deal-lifecycle').DealStageValidationState) {
+export async function validateDealStageMove(id: string, tenantId: string, dto: MoveDealStageDto, policy: DealStageMovePolicy = {}, projectedDeal?: DealStageValidationState) {
+  const db = salesContext.getStore() ?? prisma;
   // SEC-1 fix: Resolve stage within the tenant boundary via pipeline
-  const newStage = await (salesContext.getStore() ?? prisma).stage.findFirst({
+  const newStage = await db.stage.findFirst({
     where: { id: dto.stageId, tenantId },
   });
   if (!newStage) throw new NotFoundError('Stage');
 
-  const deal = projectedDeal ?? await (salesContext.getStore() ?? prisma).deal.findFirst({ where: { id, tenantId, isArchived: false, deletedAt: null }, include: { stage: true } });
+  const deal = projectedDeal ?? await readDealStageValidationState(db, tenantId, id);
   if (!deal) throw new NotFoundError('Deal');
   if (deal.id !== id || deal.tenantId !== tenantId || deal.isArchived || deal.deletedAt) throw new NotFoundError('Deal');
   if (deal.pipelineId !== newStage.pipelineId) throw new ValidationError('Stage must belong to this Deal’s pipeline.');
   if (deal.stageId === newStage.id) return newStage;
-  assertDealStageTransition(deal, newStage, await dealHasEverBeenWon(salesContext.getStore() ?? prisma, tenantId, deal));
+  assertDealStageTransition(deal, newStage, await dealHasEverBeenWon(db, tenantId, deal));
 
   if (newStage.isLost && !dto.lostReason?.trim() && !policy.optionalLossReason) {
     throw new ValidationError('Lost reason is required when closing a deal as lost');

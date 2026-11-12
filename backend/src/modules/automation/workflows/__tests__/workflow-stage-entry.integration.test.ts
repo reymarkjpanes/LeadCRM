@@ -142,6 +142,31 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
     ]);
   });
 
+  it('lets a guarded workflow move an open Deal back to Lead and staff move it forward again', async () => {
+    const deal = await newDeal();
+    await move(deal.id, qualifiedId);
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [
+        { field: 'deal.stageId', operator: 'equals', value: qualifiedId },
+        { field: 'event.changedFields', operator: 'contains', value: 'title' },
+      ] },
+      actions: [{ type: 'move_deal_stage', config: { stageId: initialId } }],
+    }));
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Return to intake' }));
+    await flushWorkflowQueue(tenantId);
+
+    const returned = await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } });
+    expect(returned).toMatchObject({ stageId: initialId, engagementStatus: 'Inquiry' });
+    expect(await prisma.dealStageHistory.findUniqueOrThrow({ where: { id: returned.currentStageHistoryId! } }))
+      .toMatchObject({ previousStageId: qualifiedId, newStageId: initialId });
+    expect(await runs(workflow.id)).toMatchObject([{ status: 'completed', steps: [{ status: 'success' }] }]);
+
+    const advanced = await move(deal.id, qualifiedId);
+    expect(advanced.deal).toMatchObject({ stageId: qualifiedId, engagementStatus: 'Hot' });
+    expect(advanced.stageHistory).toMatchObject({ previousStageId: initialId, newStageId: qualifiedId });
+  });
+
   const legacyStageMove = () => scope(() => prisma.workflow.create({ data: {
     tenantId, name: randomUUID(), trigger: 'deal.updated', isActive: true, status: 'ACTIVE', activatedById: actorId,
     conditions: { operator: 'AND', conditions: [{ field: 'deal.title', operator: 'equals', value: 'Only a different Deal' }] },

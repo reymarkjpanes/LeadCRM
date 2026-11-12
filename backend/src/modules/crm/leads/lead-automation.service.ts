@@ -90,7 +90,8 @@ export async function salesPipeline(tx: Tx, tenantId: string) {
   return { pipeline, initial };
 }
 
-export async function createProductDeals(tx: Tx, tenantId: string, leadId: string, actorId?: string, kind: 'lead' | 'contact' = 'lead') {
+export async function createProductDeals(tx: Tx, tenantId: string, leadId: string, actorId?: string, kind: 'lead' | 'contact' = 'lead',
+  options: { deferCustomerStatus?: boolean } = {}) {
   const scope = crmScope(tenantId);
   const lead = kind === 'lead' ? await tx.lead.findFirstOrThrow({ where: { id: leadId, ...scope } }) : await tx.contact.findFirstOrThrow({ where: { id: leadId, ...scope } });
   const productIds = kind === 'lead' && 'productInterestIds' in lead ? lead.productInterestIds : (await tx.contactProductInterest.findMany({ where: { tenantId, contactId: leadId, interested: true }, orderBy: { position: 'asc' } })).map(link => link.productInterestId);
@@ -120,7 +121,7 @@ export async function createProductDeals(tx: Tx, tenantId: string, leadId: strin
       type: 'deal_action', title: `Deal created for ${product.name}; ${agent ? 'assigned to ' + agent.firstName + ' ' + agent.lastName : 'awaiting assignment'}`, description: `System created this Deal from the ${kind === 'lead' ? 'Lead' : 'Contact'}'s Product Interest.` } });
     await fireDealCreated({ tenantId, actorId, deal });
   }
-  if (actorId) await classifyCustomerRecord(tx, tenantId, kind === 'lead' ? { leadId } : { contactId: leadId }, actorId);
+  if (actorId && !options.deferCustomerStatus) await classifyCustomerRecord(tx, tenantId, kind === 'lead' ? { leadId } : { contactId: leadId }, actorId);
 }
 
 /** Shared transactional rotation for new CRM records. */

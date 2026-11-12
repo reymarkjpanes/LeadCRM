@@ -154,6 +154,30 @@ describe.skipIf(!disposable)('Workflow capability separation with authenticated 
     expect(await prisma.workflowPublication.count({ where: { workflowId: workflow.id } })).toBeGreaterThan(0);
   });
 
+  it('requires Activate for a paused definition that was edited through the legacy API', async () => {
+    const workflow = await create();
+    const editor = await actor('Workflow editor', { ...EMPTY_PERMISSION_FLAGS, canView: true, canEdit: true });
+    const operator = await actor('Workflow operator', { ...EMPTY_PERMISSION_FLAGS, canView: true, canPause: true });
+    const path = `/automation/workflows/${workflow.id}`;
+    expect((await call(`${path}/toggle`, operator, 'PATCH', { isActive: false })).status).toBe(200);
+
+    const actions = [{ type: 'update_field', config: { field: 'address', value: 'Updated workflow action' } }];
+    const edit = await call(path, editor, 'PUT', { actions });
+    expect(edit.status, JSON.stringify(edit.body)).toBe(200);
+    expect(edit.body.data).toMatchObject({ isActive: false, status: 'PAUSED', version: workflow.version + 1 });
+    expect((await call(`${path}/toggle`, operator, 'PATCH', { isActive: true })).status).toBe(403);
+    expect(await prisma.workflowPublication.findMany({ where: { tenantId, workflowId: workflow.id }, select: { version: true } })).toEqual([{ version: workflow.version }]);
+    expect(await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).toMatchObject({ isActive: false, status: 'PAUSED' });
+
+    const activation = await call(`${path}/toggle`, manager, 'PATCH', { isActive: true });
+    expect(activation.status, JSON.stringify(activation.body)).toBe(200);
+    expect(await prisma.workflowPublication.findFirst({ where: { tenantId, workflowId: workflow.id, version: edit.body.data.version } }))
+      .toMatchObject({ activatedById: manager.id, definition: { actions } });
+    expect((await call(`${path}/toggle`, operator, 'PATCH', { isActive: false })).status).toBe(200);
+    expect((await call(`${path}/toggle`, operator, 'PATCH', { isActive: true })).status).toBe(200);
+    expect(await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).toMatchObject({ activatedById: manager.id });
+  });
+
   it('retains action permissions for checks and tenant boundaries for shared workflow access', async () => {
     const workflow = await create();
     const sample = await prisma.lead.create({ data: { tenantId, firstName: 'Permission', lastName: 'Customer' } });

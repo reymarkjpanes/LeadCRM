@@ -1,4 +1,4 @@
-import { refreshDealClassification } from './customer-classification.service';
+import { synchronizeDealCustomers } from './customer-classification.service';
 import { ContactStatus, Prisma } from '@prisma/client';
 import { CrmStatus, normalizeCrmStatus } from '@leadcrm/shared';
 import { ValidationError } from '../../shared/errors/http-error';
@@ -81,6 +81,16 @@ export async function recordCustomerStatusChange(tx: Tx, tenantId: string, actor
   return activity;
 }
 
+export async function recordDealEngagementChange(tx: Tx, tenantId: string, dealId: string, actorId: string,
+  previousStatus: string, status: CrmStatus, changedAt: Date) {
+  if (status === previousStatus) return;
+  const activity = await tx.activity.create({ data: { tenantId, dealId, createdById: actorId, type: 'stage_change',
+    title: `Deal engagement changed from ${previousStatus} to ${status}`, metadata: { source: 'deal_engagement', previousStatus, newStatus: status, occurredAt: changedAt.toISOString() } } });
+  await tx.auditLog.create({ data: { tenantId, userId: actorId, action: 'deal.engagement_changed', entityType: 'Deal', entityId: dealId,
+    changeset: { before: { engagementStatus: previousStatus }, after: { engagementStatus: status } } } });
+  return activity.id;
+}
+
 /** Shared cancellation transition; never touches historical terminal Deals. */
 export async function cancelOpenDeals(tx: Tx, tenantId: string, actorId: string, link: CustomerLink, reason: string, onlyDealId?: string, occurredAt = new Date()) {
   const deals = await tx.deal.findMany({ where: { ...customerDealWhere(tenantId, link), ...(onlyDealId ? { id: onlyDealId } : {}), stage: { isWon: false, isLost: false } }, include: { stage: true } });
@@ -88,15 +98,17 @@ export async function cancelOpenDeals(tx: Tx, tenantId: string, actorId: string,
     if (!['lead', 'contacted', 'qualified'].includes(deal.stage.name.toLowerCase())) continue;
     const lost = await tx.stage.findMany({ where: { tenantId, pipelineId: deal.pipelineId, isLost: true, isWon: false } });
     if (lost.length !== 1) continue;
-    const updated = await tx.deal.update({ where: { tenantId, id: deal.id }, data: { stageId: lost[0].id, closedAt: occurredAt, lostReason: reason, stageChangedAt: occurredAt } });
+    const updated = await tx.deal.update({ where: { tenantId, id: deal.id }, data: { stageId: lost[0].id, closedAt: occurredAt,
+      lostReason: reason, stageChangedAt: occurredAt, engagementStatus: 'Cancelled', engagementEvaluatedAt: occurredAt } });
     const history = await tx.dealStageHistory.create({ data: { tenantId, dealId: deal.id, previousStageId: deal.stageId, newStageId: lost[0].id, movedById: actorId, note: reason, movedAt: occurredAt } });
     await tx.deal.update({ where: { tenantId, id: deal.id }, data: { currentStageHistoryId: history.id } });
     await tx.activity.create({ data: { tenantId, dealId: deal.id, createdById: actorId, type: 'stage_change', title: `Deal moved from ${deal.stage.name} to ${lost[0].name}`, description: reason } });
     await tx.auditLog.create({ data: { tenantId, userId: actorId, action: 'deal.stage_changed', entityType: 'Deal', entityId: deal.id, metadata: { source: 'customer_cancellation', previousStageId: deal.stageId, newStageId: lost[0].id } } });
+    await recordDealEngagementChange(tx, tenantId, deal.id, actorId, deal.engagementStatus, 'Cancelled', occurredAt);
     await fireDealStageChanged({ tenantId, actorId, eventId: history.id, deal: updated, prevStageId: deal.stageId, newStageId: lost[0].id, newStageName: lost[0].name, isWon: false, isLost: true });
     const changes = recordChanges(deal, updated);
     await fireDealUpdated({ tenantId, actorId, eventId: history.id, record: updated, changedFields: changes.changedFields, changes });
-    await refreshDealClassification(tx, tenantId, deal.id, actorId);
+    await synchronizeDealCustomers(tx, tenantId, [deal.id], actorId);
   }
 }
 

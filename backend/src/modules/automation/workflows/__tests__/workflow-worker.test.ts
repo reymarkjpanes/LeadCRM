@@ -29,13 +29,13 @@ const run = (id: number) => ({ id: String(id), tenantId: 'tenant', workflowId: '
   dispatchContext: { version: 1, activatedById: 'admin' }, trigger: { triggerType: 'deal.updated', eventId: String(id) } });
 
 const transient = () => new Prisma.PrismaClientKnownRequestError('private database connection', { code: 'P1001', clientVersion: '5' });
+const inactiveLease = (row: { leaseId?: string; leaseUntil?: Date }) => !row.leaseId || !row.leaseUntil || +row.leaseUntil <= Date.now();
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] }); rows = [];
   vi.setSystemTime(new Date('2026-11-11T00:00:00Z')); vi.spyOn(Math, 'random').mockReturnValue(0);
   mocks.findMany.mockImplementation(async ({ where, select }) => where.status === 'queued'
     ? rows.filter(row => row.status === 'queued' && row.dispatchContext && !row.dispatchStartedAt && (!row.leaseUntil || +row.leaseUntil <= Date.now())).slice(0, 10)
-    : select ? rows.filter(row => row.dispatchContext && row.dispatchStartedAt && (row.status === 'running' && +row.leaseUntil < Date.now()
-      || row.status === 'queued' && (!row.leaseId || !row.leaseUntil || +row.leaseUntil <= Date.now()))).slice(0, 50) : []);
+    : select ? rows.filter(row => row.dispatchContext && row.dispatchStartedAt && where.status.in.includes(row.status) && inactiveLease(row)).slice(0, 50) : []);
   mocks.updateMany.mockImplementation(async ({ where, data }) => {
     const row = rows.find(row => row.id === where.id && (!where.status || (typeof where.status === 'string' ? row.status === where.status : row.status !== where.status.not))
       && (!where.leaseId || row.leaseId === where.leaseId)
@@ -48,7 +48,8 @@ beforeEach(() => {
   mocks.stepCount.mockResolvedValue(0);
   mocks.transaction.mockImplementation(work => work({ workflowExecutionRun: { updateMany: mocks.updateMany }, workflowExecutionStep: { createMany: mocks.steps, count: mocks.stepCount }, $queryRaw: mocks.admission }));
   mocks.interrupt.mockImplementation(async (_tx, item, where, _now, reason) => {
-    const row = rows.find(row => row.id === item.id && (!where.leaseId || row.leaseId === where.leaseId) && row.status === where.status);
+    const row = rows.find(row => row.id === item.id && (!where.leaseId || row.leaseId === where.leaseId) && row.status === where.status
+      && (!where.OR || inactiveLease(row)));
     if (!row) return false;
     Object.assign(row, { status: 'interrupted', completedAt: new Date(), leaseId: null, leaseUntil: null, errorMessage: reason }); return true;
   });
@@ -188,6 +189,19 @@ it('quarantines a queued dispatch marker without consuming active claims or cont
   expect(rows[0]).toMatchObject({ status: 'interrupted', dispatchStartedAt: marker });
   expect(rows.slice(1).every(row => row.status === 'queued')).toBe(true);
   expect(mocks.engine).not.toHaveBeenCalled(); expect(mocks.workflow).not.toHaveBeenCalled();
+});
+
+it('drains interrupted runs with missing or expired leases without replaying them', async () => {
+  const marker = new Date(Date.now() - 60000);
+  rows.push(...Array.from({ length: 51 }, (_, i) => ({ ...run(i), status: 'running', dispatchStartedAt: marker,
+    ...(i % 2 === 0 ? { leaseId: `old-${i}` } : { leaseUntil: new Date(Date.now() + 60000) }) })),
+    { ...run(51), status: 'running', dispatchStartedAt: marker, leaseId: 'expiring', leaseUntil: new Date() },
+    { ...run(52), status: 'running', dispatchStartedAt: marker, leaseId: 'active', leaseUntil: new Date(Date.now() + 60000) });
+  expect(await dispatchQueuedWorkflows()).toBe(true);
+  expect(await dispatchQueuedWorkflows()).toBe(false);
+  expect(rows.slice(0, 52).every(row => row.status === 'interrupted')).toBe(true);
+  expect(rows[52].status).toBe('running');
+  expect(mocks.engine).not.toHaveBeenCalled();
 });
 
 it('records successful and failed sweeps in process-local diagnostics', async () => {

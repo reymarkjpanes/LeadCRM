@@ -50,7 +50,8 @@ export async function validateConditionReferences(draft: WorkflowDraft, tenantId
   }
 }
 
-export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, previousConditions?: unknown): Promise<void> {
+export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, previousConditions?: unknown,
+  options: { enabledActionsOnly?: boolean } = {}): Promise<void> {
   const policyIssues = workflowDefinitionIssues(draft);
   if (policyIssues.length) throw new ValidationError(policyIssues[0]);
   await validateConditionReferences(draft, tenantId);
@@ -61,6 +62,7 @@ export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, p
   const trigger = findTrigger(draft.trigger)!;
   if (!draft.actions.some(action => action.enabled !== false)) throw new ValidationError('Enable at least one action before activating.');
   for (const [index, action] of draft.actions.entries()) {
+    if (options.enabledActionsOnly && action.enabled === false) continue;
     try { await validateAction(action, trigger.entity, tenantId); }
     catch (error) {
       if (!(error instanceof AppError)) throw error;
