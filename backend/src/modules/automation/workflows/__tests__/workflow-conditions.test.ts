@@ -50,6 +50,12 @@ describe('canonical flat workflow context', () => {
       { contact: { status: 'HOT' } })).toBe(false);
   });
 
+  it('distinguishes missing event evidence from an explicitly empty event value', () => {
+    const conditions = { operator: 'AND' as const, conditions: [{ field: 'event.changedFields', operator: 'is_empty' as const, value: null }] };
+    expect(evaluateCondition(conditions, {})).toBe(false);
+    expect(evaluateCondition(conditions, { 'event.changedFields': [] })).toBe(true);
+  });
+
   it.each([null, '', '   ', 'unknown', 0, undefined])('never matches an unknown stored status (%j) by comparison', value => {
     for (const operator of ['equals', 'not_equals'] as const) {
       expect(evaluateCondition({ operator: 'AND', conditions: [{ field: 'deal.engagementStatus', operator, value: 'Warm' }] },

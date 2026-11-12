@@ -26,11 +26,14 @@ export interface WorkflowFireParams {
   actorId?: string; eventId?: string; context: Record<string, unknown>;
 }
 type PreparedWorkflow = { workflow: Workflow; draft: WorkflowDraft; run: WorkflowExecutionRun; leaseId: string; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
-export function fireWorkflowTrigger(params: WorkflowFireParams, prepared?: PreparedWorkflow): Promise<void> {
+type WorkflowFireResult = void | { skipReason: string };
+export function fireWorkflowTrigger(params: WorkflowFireParams): Promise<void>;
+export function fireWorkflowTrigger(params: WorkflowFireParams, prepared: PreparedWorkflow): Promise<WorkflowFireResult>;
+export function fireWorkflowTrigger(params: WorkflowFireParams, prepared?: PreparedWorkflow): Promise<WorkflowFireResult> {
   return prepared ? workflowLease.run({ tenantId: params.tenantId, executionId: prepared.run.id, leaseId: prepared.leaseId }, () => executeWorkflowTrigger(params, prepared))
     : executeWorkflowTrigger(params);
 }
-async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: PreparedWorkflow): Promise<void> {
+async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: PreparedWorkflow): Promise<WorkflowFireResult> {
   const scope = tenantContext.getStore();
   if (!scope || scope.tenantId !== params.tenantId) throw new ValidationError('A matching CRM tenant context is required for automation.');
   const trigger = findTrigger(params.triggerType);
@@ -38,7 +41,7 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
   if (trigger.entity !== params.entityType) throw new ValidationError('Trigger record type does not match.');
   if (params.triggerType.endsWith('.updated')) {
     const fields = await supportedChangedFields(trigger.entity, params.context['event.changedFields'], params.tenantId);
-    if (!fields.length) return;
+    if (!fields.length) return prepared ? { skipReason: 'The update did not change any fields supported by this workflow trigger.' } : undefined;
     params = { ...params, context: { ...params.context, 'event.changedFields': fields } };
   }
   if (['deal.stage_changed', 'deal.closed_won', 'deal.closed_lost'].includes(params.triggerType) &&
@@ -116,8 +119,8 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
           errorMessage = 'Workflow conditions did not match the triggering event.';
         }
         if (status === 'completed') {
-          if (!actorAvailable) throw new ValidationError('Workflow dispatch skipped: no active, authorized event actor.');
-          await validateWorkflow(draft, params.tenantId, workflow.conditions);
+          if (!actorAvailable) throw new ValidationError('The event actor is missing or no longer active in this workspace.');
+          await validateWorkflow(draft, params.tenantId, workflow.conditions, { enabledActionsOnly: true });
           if (!workflow.activatedById) throw new ValidationError('Reactivate this workflow to confirm its author permissions.');
           await assertWorkflowPermissions(draft, params.tenantId, workflow.activatedById);
         }
@@ -243,21 +246,26 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
         const actions = Array.isArray(workflow.actions) ? workflow.actions : [];
         for (let index = recordedSteps + (pendingStepId ? 1 : 0); index < actions.length; index++) {
           const action = actions[index] as { type?: string };
-          await repo.createExecutionStep({ tenantId: params.tenantId, executionId: run.id, stepIndex: index, actionType: action?.type ?? 'unknown', status: 'skipped' });
+          await repo.createExecutionStep({ tenantId: params.tenantId, executionId: run.id, stepIndex: index, actionType: action?.type ?? 'unknown', status: 'skipped',
+            output: { reason: 'An earlier action or validation did not complete.' } });
         }
       }
       if (prepared) {
         try {
-          await workflowLeaseWrite(async tx => {
+          const completed = await workflowLeaseWrite(async tx => {
             if (status === 'interrupted') await interruptWorkflowEvidence(tx, run);
-            const completed = await tx.workflowExecutionRun.updateMany({ where: { id: run.id, tenantId: params.tenantId, status: 'running', leaseId: prepared.leaseId, leaseUntil: { gt: new Date() } }, data: { status, errorMessage, completedAt: new Date() } });
-            if (!completed.count) return;
-            if (actorAvailable) await repo.recordRunActivity(params.tenantId, actorId!, trigger.entity, params.entityId, workflow.id, run.id, workflow.name, status, tx);
+            return tx.workflowExecutionRun.updateMany({ where: { id: run.id, tenantId: params.tenantId, status: 'running', leaseId: prepared.leaseId, leaseUntil: { gt: new Date() } },
+              data: { status, errorMessage, completedAt: new Date(), leaseId: null, leaseUntil: null } });
           });
+          if (!completed.count) return;
         } catch (error) { if (isWorkflowLeaseLost(error)) return; throw error; }
       } else {
         await repo.updateExecutionRun(run.id, params.tenantId, { status, errorMessage, completedAt: new Date() });
-        if (actorAvailable) await repo.recordRunActivity(params.tenantId, actorId!, trigger.entity, params.entityId, workflow.id, run.id, workflow.name, status);
+      }
+      if (actorAvailable) {
+        // The secondary CRM feed may fail after the action and its execution evidence committed.
+        try { await repo.recordRunActivity(params.tenantId, actorId!, trigger.entity, params.entityId, workflow.id, run.id, workflow.name, status); }
+        catch (error) { console.warn('[Workflow]', { event: 'run_activity_failed', executionId: run.id, failureClass: error instanceof Error ? error.name : 'UnknownError' }); }
       }
       console.info('[Workflow]', { workflowId: workflow.id, executionId: run.id, trigger: params.triggerType, status, durationMs: Date.now() - run.startedAt.getTime() });
     });

@@ -7,6 +7,7 @@ import * as workflows from '../workflows.service';
 import * as projection from '../workflow-preview';
 import type { WorkflowDealProjection } from '../../actions/action-deal-targets';
 import { NotFoundError } from '../../../../shared/errors/http-error';
+import { moveDealStage } from '../../../crm/deals/deals.service';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_workflow_test_\d+$/.test(url.pathname);
@@ -95,6 +96,37 @@ describe.skipIf(!disposable)('ordered Workflow previews on disposable PostgreSQL
     const valid = await preview(deal.id, [{ type: 'update_field', config: { field: 'address', value: 'Verified address' } }, move(destination.id)]);
     expect(valid.valid, JSON.stringify(valid)).toBe(true);
     expect((await scope(() => prisma.deal.findFirstOrThrow({ where: { tenantId, id: deal.id } }))).address).toBeNull();
+  });
+
+  it('resolves legacy person requirements from Deal associations in preview and live stage moves', async () => {
+    const [destination, lead, contact] = await scope(() => Promise.all([
+      prisma.stage.create({ data: { tenantId, pipelineId, name: 'Participants verified', order: 5, requiredFields: ['leadId', 'contactId'] } }),
+      prisma.lead.create({ data: { tenantId, firstName: 'Preview', lastName: 'Lead' } }),
+      prisma.contact.create({ data: { tenantId, firstName: 'Preview', lastName: 'Contact' } }),
+    ]));
+    const deal = await sample();
+    const requireParticipants = move(destination.id);
+    await expect(scope(() => moveDealStage(deal.id, tenantId, actorId, { stageId: destination.id })))
+      .rejects.toThrow('missing required fields — leadId, contactId');
+    const projected = await preview(deal.id, [
+      { type: 'update_field', config: { field: 'leadIds', value: [lead.id] } },
+      { type: 'update_field', config: { field: 'contactIds', value: [contact.id] } },
+      requireParticipants,
+    ]);
+    expect(projected.valid, JSON.stringify(projected)).toBe(true);
+    await scope(async () => {
+      expect(await prisma.leadDeal.count({ where: { tenantId, dealId: deal.id } })).toBe(0);
+      expect(await prisma.contactDeal.count({ where: { tenantId, dealId: deal.id } })).toBe(0);
+      await prisma.leadDeal.create({ data: { tenantId, dealId: deal.id, leadId: lead.id } });
+      await prisma.contactDeal.create({ data: { tenantId, dealId: deal.id, contactId: contact.id } });
+    });
+    expect((await preview(deal.id, [requireParticipants])).actions[0].status).toBe('ready');
+    const cleared = await preview(deal.id, [
+      { type: 'update_field', config: { field: 'contactIds', clear: true } }, requireParticipants,
+    ]);
+    expect(cleared.actions[1]).toMatchObject({ status: 'failed', message: expect.stringContaining('missing required fields — contactId') });
+    await expect(scope(() => moveDealStage(deal.id, tenantId, actorId, { stageId: destination.id })))
+      .resolves.toMatchObject({ deal: { stageId: destination.id, leadId: lead.id, contactId: contact.id }, stageHistory: { newStageId: destination.id } });
   });
 
   it('does not mistake required customer fields for Closed Won evidence', async () => {

@@ -84,6 +84,26 @@ describe.skipIf(!disposable)('workflow polish with real persisted CRM records', 
     expect(copy.status).toBe('DRAFT'); expect(copy.isActive).toBe(false); expect(await runs(copy.id)).toHaveLength(0);
   });
 
+  it('matches the technical alias of a changed Custom Field to its committed ID', async () => {
+    const field = await scope(() => saveField(tenantId, actor.id, { module: 'leads', group: 'Basic Information', name: 'Changed code', type: 'Text', required: false }));
+    const condition = (operator: 'contains' | 'not_contains') => ({ operator: 'AND' as const, conditions: [
+      { field: 'event.changedFields', operator, value: `customFieldValues.${field.technicalAlias}` },
+    ] });
+    const match = await create({ conditions: condition('contains'), actions: [{ type: 'send_sms', config: { recipient: 'record', message: 'Changed field match' } }] });
+    const exclude = await create({ conditions: condition('not_contains'), actions: [{ type: 'send_sms', config: { recipient: 'record', message: 'Unrelated field match' } }] });
+
+    await scope(() => updateLead(lead.id, tenantId, actor.id, { customFieldValues: { [field.id]: 'QA' } }));
+    expect((await runs(match.id))[0]).toMatchObject({ status: 'completed' });
+    expect((await runs(exclude.id))[0]).toMatchObject({ status: 'skipped', errorMessage: 'Workflow conditions did not match the triggering event.' });
+    expect(sendSms).toHaveBeenCalledExactlyOnceWith(lead.phone, 'Changed field match', { beforeProviderWrite: expect.any(Function) });
+
+    vi.mocked(sendSms).mockClear();
+    await scope(() => updateLead(lead.id, tenantId, actor.id, { address: randomUUID() }));
+    expect((await runs(match.id))[0]).toMatchObject({ status: 'skipped', errorMessage: 'Workflow conditions did not match the triggering event.' });
+    expect((await runs(exclude.id))[0]).toMatchObject({ status: 'completed' });
+    expect(sendSms).toHaveBeenCalledExactlyOnceWith(lead.phone, 'Unrelated field match', { beforeProviderWrite: expect.any(Function) });
+  });
+
   it.each(['deal.updated', 'deal.stage_changed'])('cancels once after saving a late reason through %s', async trigger => {
     const field = await scope(() => saveField(tenantId, actor.id, { module: 'deals', group: 'Additional Details', name: `Reason for Cancellation ${randomUUID()}`, type: 'Long Text', required: false, options: [] }));
     const deal = await newDeal();
@@ -388,10 +408,15 @@ describe.skipIf(!disposable)('workflow polish with real persisted CRM records', 
     const saved = await scope(() => prisma.deal.findFirstOrThrow({ where: { id: deal.id, tenantId } }));
     expect(saved.value).toBe(deal.value); expect(saved.title).toBe(deal.title); expect(saved.priority).toBe('HIGH');
     const rejectedRun = (await runs(workflow.id))[0];
-    expect(rejectedRun).toMatchObject({ status: 'failed', steps: [
-      { actionType: 'validation', status: 'failed', error: expect.stringContaining('historical snapshots') },
-      { actionType: 'update_field', status: 'skipped' },
-    ] });
+    // Validation blocks the legacy price update and records the skipped action.
+    expect(rejectedRun).toMatchObject({
+      status: 'failed',
+      errorMessage: expect.stringContaining('historical snapshots'),
+      steps: [
+        { stepIndex: -1, actionType: 'validation', status: 'failed', error: expect.stringContaining('historical snapshots') },
+        { actionType: 'update_field', status: 'skipped' },
+      ],
+    });
     await expect(create({ trigger: 'deal.updated', actions: [{ type: 'update_field', config: { field: 'id', value: 'bad' } }] })).rejects.toThrow(/editable/);
   });
   it('sends SMS once for an event and reports a missing phone without submission', async () => {

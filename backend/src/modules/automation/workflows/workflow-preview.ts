@@ -6,12 +6,20 @@ import type { WorkflowDealProjection } from '../actions/action-deal-targets';
 export { loadWorkflowDealProjection } from '../actions/action-deal-targets';
 
 export function projectWorkflowFields(entity: WorkflowEntity, context: Record<string, unknown>, patch: Record<string, unknown>, projection: WorkflowDealProjection) {
+  const deal = entity === 'deal' && projection.get(String(context['deal.id']));
   for (const [field, value] of Object.entries(patch)) {
     if (field === 'customFieldValues') {
       for (const [id, customValue] of Object.entries(value as Record<string, unknown>)) context[`${entity}.customFieldValues.${id}`] = customValue;
-    } else context[`${entity}.${field === 'productInterest' ? 'productInterestIds' : field}`] = value;
+    } else {
+      context[`${entity}.${field === 'productInterest' ? 'productInterestIds' : field}`] = value;
+      if (entity === 'deal' && (field === 'leadIds' || field === 'contactIds') && Array.isArray(value)) {
+        const primaryField = field === 'leadIds' ? 'leadId' : 'contactId';
+        const primaryId = value[0] ?? null;
+        context[`deal.${primaryField}`] = primaryId;
+        if (deal) deal[primaryField] = primaryId;
+      }
+    }
   }
-  const deal = entity === 'deal' && projection.get(String(context['deal.id']));
   if (deal) Object.assign(deal, patch);
 }
 

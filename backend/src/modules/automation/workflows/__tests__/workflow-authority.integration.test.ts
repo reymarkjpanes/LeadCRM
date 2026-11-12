@@ -99,6 +99,29 @@ describe.skipIf(!disposable)('Workflow final authority, owner scope and assignme
     expect(await prisma.deal.findUniqueOrThrow({ where: { id: record.id } })).toMatchObject({ title: 'Event already saved' });
   });
 
+  it('captures a Deal event independently of the initiating actor’s related-record visibility', async () => {
+    const hiddenLead = await lead(ben);
+    const record = await prisma.deal.create({ data: { tenantId, pipelineId, stageId, title: 'Scoped update', assignedUserId: ana.id,
+      leadDeals: { create: { leadId: hiddenLead.id } } } });
+    const admin = await prisma.user.create({ data: { tenantId, role: 'Client Admin', email: `${randomUUID()}@camxian.com`,
+      firstName: 'Event', lastName: 'Publisher', status: 'ACTIVE' } });
+    const workflow = await create({ id: admin.id, roleId: '' }, 'deal.updated', [
+      { type: 'create_task', config: { title: 'Follow up on the updated Deal', assignedUserId: ana.id } },
+    ]);
+
+    const read = () => scope(ana, () => prisma.deal.findFirstOrThrow({ where: { id: record.id, tenantId }, include: { leadDeals: true } }));
+    expect((await read()).leadDeals).toEqual([]);
+    await scope(ana, () => updateDeal(record.id, tenantId, ana.id, { title: 'Authorized save' }));
+    expect(await read()).toMatchObject({ title: 'Authorized save', leadDeals: [] });
+    await flushWorkflowQueue(tenantId);
+
+    expect(await history(workflow.id)).toMatchObject({
+      status: 'completed',
+      dispatchContext: { eventContext: { 'deal.leadIds': [hiddenLead.id], 'deal.title': 'Authorized save' } },
+      steps: [{ actionType: 'create_task', status: 'success' }],
+    });
+  });
+
   it('permits a Lead SMS publisher without unrelated Contact grants', async () => {
     const record = await lead(ana);
     const saved = await create(ana, 'lead.created', [sms]);

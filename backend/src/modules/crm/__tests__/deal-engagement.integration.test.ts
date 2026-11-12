@@ -11,6 +11,8 @@ import type { GmailEmail } from '../../../integrations/gmail/gmail.types';
 import { associateMailboxDeal } from '../../../integrations/gmail/mailbox-sync.service';
 import { backfillDealAttribution } from '../../../integrations/gmail/mailbox-deal-attribution';
 import { updateContact } from '../contacts-v2/contacts-v2.repository';
+import { updateContact as updateLead } from '../contacts/contacts.service';
+import { cancelOpenDeals } from '../engagement.service';
 import { duplicateDeal, restoreDeal } from '../deals/deals.service';
 import { bulkArchive } from '../deals/bulk-deals.service';
 import { createWorkflow } from '../../automation/workflows/workflows.service';
@@ -19,7 +21,7 @@ import { flushWorkflowQueue } from '../../automation/workflows/__tests__/workflo
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_[a-z0-9_]+$/.test(url.pathname);
 describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
-  let tenantId: string, actorId: string, pipelineId: string, leadId: string, leadStage: string, contacted: string, qualified: string, lost: string, won: string, accountId: string;
+  let tenantId: string, actorId: string, taskAssigneeId: string, pipelineId: string, leadId: string, leadStage: string, contacted: string, qualified: string, lost: string, won: string, accountId: string;
   const scope = <T>(work: () => T) => tenantContext.run({ tenantId }, () => crmActor.run({ tenantId, userId: actorId }, work));
   const now = new Date(), ago = (days: number) => new Date(+now - days * 86_400_000);
   const refresh = (id: string, date = now) => scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, id, actorId, [], date)));
@@ -36,9 +38,32 @@ describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
       labels: ['INBOX'], sentAt: ago(days), leadId, dealId, meaningful: true, engagementRuleVersion: 2, participantPolicyVersion: 1,
       ...(verified ? { dealAttribution: { kind: 'manual', verifiedAt: now.toISOString() } } : {}) } });
   }
+  async function trackDealUpdates() {
+    return scope(() => createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger: 'deal.updated', isActive: true,
+      conditions: { operator: 'AND', conditions: [
+        { field: 'event.changedFields', operator: 'contains', value: 'engagementStatus' },
+        { field: 'event.changedFields', operator: 'contains', value: 'stageId' },
+      ] },
+      actions: [{ type: 'create_task', config: { title: 'Deal transition follow-up', assignedUserId: taskAssigneeId } }],
+    }));
+  }
+  async function assertSingleDealUpdate(dealId: string, workflowId: string, status: string) {
+    const saved = await read(dealId);
+    await flushWorkflowQueue(tenantId);
+    expect(await prisma.workflowExecutionRun.findMany({ where: { tenantId, workflowId, entityId: dealId }, include: { trigger: true } }))
+      .toMatchObject([{ status: 'completed', trigger: { eventId: `deal.updated:${saved.currentStageHistoryId}` }, dispatchContext: {
+        context: { 'event.changedFields': expect.arrayContaining(['stageId', 'engagementStatus']) },
+        eventContext: { 'deal.engagementStatus': status, 'deal.stageId': saved.stageId },
+      } }]);
+    expect(await prisma.task.count({ where: { tenantId, dealLinks: { some: { tenantId, dealId } } } })).toBe(1);
+  }
   beforeAll(async () => {
     tenantId = (await prisma.tenant.create({ data: { name: 'Deal engagement fixture', slug: randomUUID(), status: 'ACTIVE', onboardingStep: 3, onboardingCompletedAt: now } })).id;
     actorId = (await prisma.user.create({ data: { tenantId, firstName: 'Fixture', lastName: 'Admin', email: 'staff@camxian.com', role: 'Client Admin', status: 'ACTIVE', mustChangePassword: false, onboardingCompletedAt: now, emailVerified: now } })).id;
+    const staff = await prisma.roleDefinition.create({ data: { tenantId, name: 'Task Staff', permissions: { create: { module: 'tasks', canView: true } } } });
+    taskAssigneeId = (await prisma.user.create({ data: { tenantId, firstName: 'Task', lastName: 'Assignee', email: 'assignee@camxian.com', role: staff.name, status: 'ACTIVE',
+      userRoles: { create: { roleId: staff.id } } } })).id;
     pipelineId = (await prisma.pipeline.create({ data: { tenantId, name: 'Sales Pipeline' } })).id;
     leadStage = (await prisma.stage.create({ data: { tenantId, pipelineId, name: 'Lead', order: 0, isDefault: true } })).id;
     contacted = (await prisma.stage.create({ data: { tenantId, pipelineId, name: 'Contacted', order: 1 } })).id;
@@ -51,11 +76,11 @@ describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
     await prisma.workflow.updateMany({ where: { tenantId }, data: { isActive: false } });
     leadId = (await prisma.lead.create({ data: { tenantId, firstName: 'Customer', lastName: 'Fixture', email: `${randomUUID()}@example.test`, assignedUserId: actorId } })).id;
   });
-  it('prevents historical Deal status from triggering a related Deal move', async () => {
+  it('captures an aggregate Lead status change without attributing it to one Deal', async () => {
     const a = await deal(), b = await deal();
     const workflow = await scope(() => createWorkflow(tenantId, actorId, { name: 'Reply provenance', trigger: 'lead.status_changed', isActive: true,
       conditions: { operator: 'AND', conditions: [{ field: 'event.newStatus', operator: 'equals', value: 'Warm' }] },
-      actions: [{ type: 'move_deal_stage', config: { stageId: contacted, currentStageId: leadStage, targetMode: 'all_matching' } }] }));
+      actions: [{ type: 'update_field', config: { field: 'firstName', value: 'Warm customer' } }] }));
     await reply(a.id, 0);
     await scope(() => salesTransaction(tx => refreshDealClassification(tx, tenantId, a.id, actorId, [], now, true, a.id)));
     await flushWorkflowQueue(tenantId);
@@ -63,8 +88,25 @@ describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
     expect(await read(b.id)).toMatchObject({ stageId: leadStage, engagementStatus: 'Inquiry' });
     const runs = await prisma.workflowExecutionRun.findMany({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } });
     expect(runs).toHaveLength(1);
-    expect(runs[0].dispatchContext).toMatchObject({ context: { 'event.originDealId': null } });
-    expect(runs[0].steps[0].output).toMatchObject({ matchedDealIds: [], movedDealIds: [] });
+    expect(runs[0]).toMatchObject({ status: 'completed', dispatchContext: { context: { 'event.originDealId': null,
+      'event.previousStatus': 'Inquiry', 'event.newStatus': 'Warm' } } });
+    expect(await person()).toMatchObject({ firstName: 'Warm customer', status: 'Warm' });
+  });
+  it.each(['Warm', 'Inquiry'] as const)('publishes only a committed status change when adding the first Lead product (previous=%s)', async previous => {
+    await prisma.lead.update({ where: { id: leadId }, data: { status: previous } });
+    const product = await prisma.productInterest.create({ data: { tenantId, name: randomUUID(), category: 'Security', dealValue: 12000 } });
+    const workflow = await scope(() => createWorkflow(tenantId, actorId, { name: randomUUID(), trigger: 'lead.status_changed', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'event.newStatus', operator: 'equals', value: 'Inquiry' }] },
+      actions: [{ type: 'update_field', config: { field: 'firstName', value: 'Ready for intake' } }] }));
+    await scope(() => updateLead(leadId, tenantId, actorId, { productInterest: [product.id], ...(previous === 'Inquiry' ? { status: 'Warm' } : {}) }));
+    await flushWorkflowQueue(tenantId);
+    expect(await prisma.leadDeal.count({ where: { tenantId, leadId } })).toBe(1);
+    expect((await person()).status).toBe('Inquiry');
+    const executions = await prisma.workflowExecutionRun.findMany({ where: { tenantId, workflowId: workflow.id, entityId: leadId } });
+    if (previous === 'Warm') expect(executions).toMatchObject([{ status: 'completed', dispatchContext: { context: {
+      'event.previousStatus': 'Warm', 'event.newStatus': 'Inquiry', 'event.originDealId': null,
+    } } }]);
+    else expect(executions).toEqual([]);
   });
   it('synchronizes engagement while retaining manual Deal selections', async () => {
     const a = await deal(), b = await deal();
@@ -114,6 +156,7 @@ describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
         dealId: matching ? a.id : b.id, products: [{ productId: randomUUID(), quantity: 1 }], quotationDate: '2026-10-01', validUntil: '2026-11-01', notes: '' } } } } });
     await refresh(a.id);
     expect(await read(a.id)).toMatchObject({ stageId: leadStage, engagementStatus: 'Inquiry' });
+    const workflow = await trackDealUpdates();
     await prisma.mailboxSendReceipt.update({ where: { id: receipt.id }, data: { status: 'sent' } });
     await refresh(a.id, new Date(+now + 100));
     expect(await read(a.id)).toMatchObject({ stageId: matching ? qualified : leadStage, engagementStatus: matching ? 'Hot' : 'Inquiry' });
@@ -121,6 +164,16 @@ describe.skipIf(!disposable)('Deal engagement on disposable PostgreSQL', () => {
     const history = await prisma.dealStageHistory.count({ where: { tenantId, dealId: a.id } });
     await refresh(a.id, new Date(+now + 200));
     expect(await prisma.dealStageHistory.count({ where: { tenantId, dealId: a.id } })).toBe(history);
+    if (matching) await assertSingleDealUpdate(a.id, workflow.id, 'Hot');
+    else expect(await prisma.workflowExecutionRun.count({ where: { tenantId, workflowId: workflow.id, entityId: a.id } })).toBe(0);
+  });
+  it('queues one Deal update with the final stage and engagement when a customer cancellation closes a Deal', async () => {
+    const target = await deal();
+    const workflow = await trackDealUpdates();
+    await scope(() => salesTransaction(tx => cancelOpenDeals(tx, tenantId, actorId, { leadId }, 'Customer cancelled.')));
+    expect(await read(target.id)).toMatchObject({ stageId: lost, engagementStatus: 'Cancelled' });
+    expect((await person()).status).toBe('Cancelled');
+    await assertSingleDealUpdate(target.id, workflow.id, 'Cancelled');
   });
   it('retains historical communication without entering Contacted when requirements are later satisfied', async () => {
     const a = await deal();

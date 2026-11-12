@@ -185,7 +185,7 @@ export async function updateContact(
   dto: UpdateContactDto,
   updatedById?: string,
   prevStatus?: string,
-  onCommitted?: (before: LeadRecord, after: LeadRecord, changes: ReturnType<typeof recordChanges>) => Promise<void>,
+  onCommitted?: (before: LeadRecord, after: LeadRecord, changes: ReturnType<typeof recordChanges>, aggregateStatus: boolean) => Promise<void>,
 ) {
   try {
     const data: Record<string, unknown> = { ...dto };
@@ -230,7 +230,10 @@ export async function updateContact(
       }
       const previousCustom = dto.customFieldValues === undefined ? undefined : await readRecordValues(tx, tenantId, 'leads', id);
       await saveRecordValues(tx, tenantId, 'leads', id, dto.customFieldValues, updatedById);
-      const finish = async <T extends LeadRecord>(saved: T, converted = false): Promise<T> => {
+      const refreshProductDeals = !!(dto.assignedUserId || dto.productInterest);
+      // When this save creates the Deal evidence, compare the Lead before and after the whole save.
+      const coalesceProductStatus = !!onCommitted && !managed && data.manualCancellation !== true && refreshProductDeals;
+      const finish = async <T extends LeadRecord>(saved: T, converted = false, aggregateStatus = false): Promise<T> => {
         const previous = managed && !converted ? { ...current, status: saved.status } : current;
         const changes = recordChanges(previous, saved);
         if (previousCustom) {
@@ -242,7 +245,7 @@ export async function updateContact(
           }
         }
         if (updatedById && changes.changedFields.length) await tx.auditLog.create({ data: { tenantId, userId: updatedById, action: 'lead.updated', entityType: 'Lead', entityId: id, metadata: { changedFields: changes.changedFields } } });
-        if (onCommitted) await onCommitted(previous, saved, changes);
+        if (onCommitted) await onCommitted(previous, saved, changes, aggregateStatus);
         return saved;
       };
       if (data.status) {
@@ -282,7 +285,9 @@ export async function updateContact(
           metadata: { assignedUserId: dto.assignedUserId, previousUserId: current.assignedUserId, ...assignment },
         } });
       }
-      if (updated.status !== 'Closed Deal' && (dto.assignedUserId || dto.productInterest)) await createProductDeals(tx, tenantId, id, updatedById);
+      if (updated.status !== 'Closed Deal' && refreshProductDeals) {
+        await createProductDeals(tx, tenantId, id, updatedById, 'lead', { deferCustomerStatus: coalesceProductStatus });
+      }
       if (updatedById && data.manualCancellation === true) await cancelOpenDeals(tx, tenantId, updatedById, { leadId: id }, 'Staff explicitly cancelled the opportunity.');
       // An explicit Closed Deal save can finish a legacy conversion with existing sale evidence.
       if (updatedById && updated.status === 'Closed Deal' && (!managed ||
@@ -293,8 +298,9 @@ export async function updateContact(
           createdBy: { select: { id: true, firstName: true, lastName: true } }, updatedBy: { select: { id: true, firstName: true, lastName: true } },
         } }), true);
       }
-      if (updatedById) await classifyCustomerRecord(tx, tenantId, { leadId: id }, updatedById);
-      return finish({ ...updated, ...await tx.lead.findFirstOrThrow({ where: { tenantId, id } }) });
+      if (updatedById) await classifyCustomerRecord(tx, tenantId, { leadId: id }, updatedById, {}, new Date(), !coalesceProductStatus);
+      const saved = { ...updated, ...await tx.lead.findFirstOrThrow({ where: { tenantId, id } }) };
+      return finish(saved, false, coalesceProductStatus && normalizeCrmStatus(updated.status) !== normalizeCrmStatus(saved.status));
     });
   } catch (error) {
     throw error;

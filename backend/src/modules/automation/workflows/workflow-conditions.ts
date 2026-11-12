@@ -10,6 +10,8 @@ function conditionDate(value: unknown): string | undefined {
 /** Context is deliberately flat: dots are literal key characters, never traversal. */
 export function evaluateRule(rule: WorkflowConditionRule, context: Record<string, unknown>): boolean {
   const stored = Object.prototype.hasOwnProperty.call(context, rule.field) ? context[rule.field] : undefined;
+  // A record-only preview has no transition or change evidence to compare.
+  if (rule.field.startsWith('event.') && stored === undefined) return false;
   const status = isWorkflowStatusField(rule.field);
   const date = rule.field === 'deal.expectedCloseDate' || rule.operator === 'before' || rule.operator === 'after';
   const actual = status ? parseStoredCrmStatus(stored) : date ? conditionDate(stored) : stored;

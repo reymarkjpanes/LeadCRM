@@ -44,10 +44,11 @@ export async function updateContact(
   id: string, tenantId: string, userId: string, dto: UpdateContactDto,
 ) {
   dto = UpdateContactSchema.parse(dto);
-  const updated = await repo.updateContact(id, tenantId, dto, userId, undefined, async (before, contact, changes) => {
+  const updated = await repo.updateContact(id, tenantId, dto, userId, undefined, async (before, contact, changes, aggregateStatus) => {
     const eventId = randomUUID();
     if (changes.changedFields.length) await fireLeadUpdated({ tenantId, actorId: userId, eventId, record: contact, changedFields: changes.changedFields, changes });
-    if (contact.status !== before.status) await fireLeadStatusChanged({ tenantId, actorId: userId, eventId, lead: contact, prevStatus: before.status });
+    if (contact.status !== before.status) await fireLeadStatusChanged({ tenantId, actorId: userId, eventId, lead: contact, prevStatus: before.status,
+      ...(aggregateStatus ? { originDealId: null } : {}) });
   });
   return presentLead(tenantId, updated);
 }

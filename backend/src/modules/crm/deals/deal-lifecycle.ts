@@ -1,10 +1,20 @@
 import type { Prisma } from '@prisma/client';
 import { normalizeCrmStatus, type CrmStatus } from '@leadcrm/shared';
 import { ValidationError } from '../../../shared/errors/http-error';
+import { participantOrder, withDealParticipants } from './deal-participants';
 
 type StageState = { id: string; name: string; isWon: boolean; isLost: boolean };
 type DealState = { id: string; stageId: string; hasEverBeenWon?: boolean; wonHistoryVerified?: boolean; wonConfirmedAt?: Date | null; stage: StageState };
-export type DealStageValidationState = Prisma.DealGetPayload<{ include: { stage: true } }>;
+export type DealStageValidationState = NonNullable<Awaited<ReturnType<typeof readDealStageValidationState>>>;
+
+export async function readDealStageValidationState(tx: Prisma.TransactionClient, tenantId: string, id: string) {
+  const deal = await tx.deal.findFirst({ where: { id, tenantId, isArchived: false, deletedAt: null }, include: {
+    stage: true,
+    leadDeals: { orderBy: participantOrder, take: 1, select: { leadId: true } },
+    contactDeals: { orderBy: participantOrder, take: 1, select: { contactId: true } },
+  } });
+  return deal ? withDealParticipants(deal) : null;
+}
 
 /** Internal execution policy; never accepted from an HTTP request body. */
 export interface DealStageMovePolicy { optionalLossReason?: boolean; automatic?: boolean; deferCustomerStatus?: boolean }

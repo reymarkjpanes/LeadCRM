@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type Deal } from '@prisma/client';
 import { classifyDealEngagement, QuotationDraftSchema, type DealEngagementEvent } from '@leadcrm/shared';
 import { fireDealUpdated } from '../../automation/triggers/triggers.service';
 import { assertCrmRecordMutation } from '../access/crm-record-access.service';
@@ -6,7 +6,7 @@ import { AppError } from '../../../shared/errors/app-error';
 import { salesContext } from '../leads/sales-context';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { acceptsStatusReply, isManualStatus, replyStatusCheckpoint, statusContext } from '../status-checkpoint';
-import { customerDealWhere, type CustomerLink } from '../engagement.service';
+import { customerDealWhere, recordDealEngagementChange, type CustomerLink } from '../engagement.service';
 import { isMailboxForward } from '../../../integrations/gmail/mailbox-engagement';
 
 /** Shared verified inputs for classification and manual-status checkpoints. */
@@ -53,7 +53,7 @@ export async function evaluateDealEngagement(tx: Prisma.TransactionClient, tenan
   if (!deal || deal.isArchived) return deal;
   if (!deal.stage.isWon && !deal.stage.isLost && isManualStatus(deal.manualStatusContext)) return deal;
   // A sweep's snapshot may precede a qualification/reply committed during that sweep.
-  if (deal.engagementEvaluatedAt && +deal.engagementEvaluatedAt > +now) return deal;
+  if (deal.engagementEvaluatedAt && deal.engagementEvaluatedAt > now || deal.stageChangedAt && deal.stageChangedAt > now) return deal;
   const evidence = await readDealEngagementEvidence(tx, tenantId, dealId, now);
   const checkpoint = statusContext(deal.manualStatusContext);
   const replyAt = checkpoint?.source === 'reply' && typeof checkpoint.replyAt === 'string' ? new Date(checkpoint.replyAt) : undefined;
@@ -80,19 +80,21 @@ export async function evaluateDealEngagement(tx: Prisma.TransactionClient, tenan
   // The existing administrator sweep will update the derived status later.
   try { await assertCrmRecordMutation(tx, 'deals', dealId); }
   catch (error) { if (error instanceof AppError && [403, 404].includes(error.statusCode)) return deal; throw error; }
-  let updated = await tx.deal.update({ where: { tenantId, id: dealId }, data: { engagementStatus: status,
-    ...(!incomplete ? { engagementEvaluatedAt: now } : {}) } });
+  let updated: Deal;
   if (qualifiedTarget) {
+    // The stage writer persists Hot and publishes the full Deal update with the stage history ID.
+    if (!incomplete) await tx.deal.update({ where: { tenantId, id: dealId }, data: { engagementEvaluatedAt: now } });
     const { moveDealStage } = await import('./deals.service.js');
-    await salesContext.run(tx, () => moveDealStage(dealId, tenantId, actorId, { stageId: qualifiedTarget.id, note: 'Provider-accepted quotation for this Deal.' }, undefined, { automatic: true }));
-    updated = await tx.deal.findFirstOrThrow({ where: { tenantId, id: dealId } });
+    const transition = await salesContext.run(tx, () => moveDealStage(dealId, tenantId, actorId,
+      { stageId: qualifiedTarget.id, note: 'Provider-accepted quotation for this Deal.' }, undefined, { automatic: true }));
+    updated = transition.deal;
+  } else {
+    updated = await tx.deal.update({ where: { tenantId, id: dealId }, data: { engagementStatus: status,
+      ...(!incomplete ? { engagementEvaluatedAt: now } : {}) } });
   }
-  if (status !== deal.engagementStatus) {
-    const activity = await tx.activity.create({ data: { tenantId, dealId, createdById: actorId, type: 'stage_change',
-      title: `Deal engagement changed from ${deal.engagementStatus} to ${status}`, metadata: { source: 'deal_engagement', previousStatus: deal.engagementStatus, newStatus: status, occurredAt: now.toISOString() } } });
-    await tx.auditLog.create({ data: { tenantId, userId: actorId, action: 'deal.engagement_changed', entityType: 'Deal', entityId: dealId,
-      changeset: { before: { engagementStatus: deal.engagementStatus }, after: { engagementStatus: status } } } });
-    if (emit) await fireDealUpdated({ tenantId, actorId, eventId: activity.id, record: updated,
+  const eventId = await recordDealEngagementChange(tx, tenantId, dealId, actorId, deal.engagementStatus, status, now);
+  if (eventId && emit && !qualifiedTarget) {
+    await fireDealUpdated({ tenantId, actorId, eventId, record: updated,
       changedFields: ['engagementStatus'], changes: { before: { engagementStatus: deal.engagementStatus }, after: { engagementStatus: status } } });
   }
   return updated;

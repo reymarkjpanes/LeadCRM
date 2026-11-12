@@ -1,4 +1,4 @@
-import { findTrigger, getWorkflowConditionFields, customFieldTechnicalKey, resolveCustomFieldReference, WORKFLOW_MODULES, type WorkflowDraft, type WorkflowEntity } from '@leadcrm/shared';
+import { findTrigger, getWorkflowConditionFields, customFieldTechnicalKey, resolveCustomFieldReference, WORKFLOW_MODULES, type ClosingField, type WorkflowDraft, type WorkflowEntity } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { readConfiguredFields } from '../../crm/closing-requirements/closing-requirements.repository';
 import { normalizeWorkflowReferences, WorkflowActionSchema, WorkflowConditionSchema, normalizeSavedWorkflowAssignment, retiredAccountWorkflowReferences, ACCOUNT_RETIREMENT_REASON, workflowDefinitionIssues } from '@leadcrm/shared';
@@ -20,11 +20,16 @@ export async function supportedChangedFields(entity: WorkflowEntity, fields: unk
   if (!Array.isArray(fields)) return [];
   const definitions = await workflowCustomFields(tenantId);
   const allowed = new Set(getWorkflowConditionFields(entity, undefined, definitions).map(f => f.field.slice(entity.length + 1)));
-  const aliases: Record<string, string> = { productInterest: 'productInterestIds', productInterests: 'productInterestIds', productInterestId: 'productInterestIds', activeProducts: 'activeProductIds' };
-  return [...new Set(fields.filter((field): field is string => typeof field === 'string').map(field => {
-    const custom = field.startsWith('customFieldValues.') && resolveCustomFieldReference(WORKFLOW_MODULES[entity], field, definitions);
-    return custom ? `customFieldValues.${custom.id}` : aliases[field] ?? field;
-  }).filter(field => allowed.has(field)))];
+  return [...new Set(fields.filter((field): field is string => typeof field === 'string')
+    .map(field => canonicalChangedField(entity, field, definitions)).filter(field => allowed.has(field)))];
+}
+
+function canonicalChangedField(entity: WorkflowEntity, key: string, definitions: ClosingField[]): string {
+  if (['productInterest', 'productInterests', 'productInterestId'].includes(key)) return 'productInterestIds';
+  if (key === 'activeProducts') return 'activeProductIds';
+  if (!key.startsWith('customFieldValues.')) return key;
+  const field = resolveCustomFieldReference(WORKFLOW_MODULES[entity], key, definitions);
+  return field ? `customFieldValues.${field.id}` : key;
 }
 export async function conditionFields(draft: WorkflowDraft, tenantId: string) {
   const trigger = findTrigger(draft.trigger);
@@ -56,17 +61,18 @@ export async function compatibleWorkflow<T extends Pick<WorkflowDraft, 'trigger'
     return parsed.success ? [parsed.data] : [];
   }) : [], conditions: conditions.success ? conditions.data : undefined });
   if (policyIssues.length) Object.assign(normalized, { repairReason: policyIssues[0] });
-  if (!entity || !serialized.includes('customFieldValues.')) return normalized;
-  const definitions = await workflowCustomFields(tenantId, db);
-  const canonical = (key: string) => {
-    const field = resolveCustomFieldReference(WORKFLOW_MODULES[entity], key, definitions);
-    return field ? `customFieldValues.${field.id}` : key;
-  };
+  if (!entity) return normalized;
+  const definitions = serialized.includes('customFieldValues.') ? await workflowCustomFields(tenantId, db) : [];
+  const canonical = (key: string) => canonicalChangedField(entity, key, definitions);
   const savedConditions = normalized.conditions as WorkflowDraft['conditions'];
   return { ...normalized,
-    conditions: savedConditions && Array.isArray(savedConditions.conditions) ? { ...savedConditions, conditions: savedConditions.conditions.map(rule =>
-      typeof rule?.field === 'string' && rule.field.startsWith(`${entity}.customFieldValues.`) ? { ...rule, field: `${entity}.${canonical(rule.field.slice(entity.length + 1))}` } : rule,
-    ) } : normalized.conditions,
+    conditions: savedConditions && Array.isArray(savedConditions.conditions) ? { ...savedConditions, conditions: savedConditions.conditions.map(rule => {
+      if (rule?.field === 'event.changedFields' && typeof rule.value === 'string' && ['contains', 'not_contains'].includes(rule.operator)) {
+        return { ...rule, value: canonical(rule.value) };
+      }
+      return typeof rule?.field === 'string' && rule.field.startsWith(`${entity}.customFieldValues.`)
+        ? { ...rule, field: `${entity}.${canonical(rule.field.slice(entity.length + 1))}` } : rule;
+    }) } : normalized.conditions,
     actions: Array.isArray(normalized.actions) ? normalized.actions.map(action => action?.type === 'update_field' && typeof action.config?.field === 'string' && action.config.field.startsWith('customFieldValues.')
       ? { ...action, config: { ...action.config, field: canonical(action.config.field) } } : action) : normalized.actions,
   };

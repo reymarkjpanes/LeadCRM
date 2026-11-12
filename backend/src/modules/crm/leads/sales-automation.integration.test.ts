@@ -457,7 +457,7 @@ describe.skipIf(!disposable)('Sales automation database and HTTP', () => {
     expect((await request('/administration/product-interests/field', 'POST', {})).status).toBe(200);
     expect((await request('/administration/product-interests')).body.meta.enabled).toBe(true);
   });
-  it.each(['Hot', 'Warm', 'Cold', 'Cancelled'])('requires Inquiry creation and preserves %s edits at the HTTP boundary', async status => {
+  it.each(['Hot', 'Warm', 'Cold', 'Cancelled'])('requires Inquiry creation and follows related Deal authority for %s at the HTTP boundary', async status => {
     const products = await Promise.all([1250.75, 550].map(dealValue => prisma.productInterest.create({ data: { tenantId, category: 'Security', name: `Status ${status} ${dealValue}`, dealValue } })));
     const selectedIds = products.map(product => product.id);
     const leadInput = { email: 'manual@example.test', firstName: 'Manual', lastName: status, productInterest: selectedIds };
@@ -470,8 +470,14 @@ describe.skipIf(!disposable)('Sales automation database and HTTP', () => {
     expect(deals).toHaveLength(2);
     expect(deals.map(deal => deal.value).sort()).toEqual([550, 1250.75].sort());
     const editedLead = await request(`/crm/leads/${lead.body.data.id}`, 'PUT', { status });
-    expect(editedLead.status, JSON.stringify(editedLead.body)).toBe(200);
-    expect(editedLead.body.data.status).toBe(status);
+    if (status === 'Cancelled') {
+      expect(editedLead.status, JSON.stringify(editedLead.body)).toBe(200);
+      expect(editedLead.body.data.status).toBe('Cancelled');
+    } else {
+      expect(editedLead.status).toBe(400);
+      expect(editedLead.body.error).toBe('Status follows associated Deals. Update the appropriate Deal to change it.');
+      expect((await request(`/crm/leads/${lead.body.data.id}`)).body.data.status).toBe('Inquiry');
+    }
     const contactInput = { email: 'manual@example.test', firstName: 'Manual', lastName: status };
     expect((await request('/crm/contacts', 'POST', { ...contactInput, requestId: randomUUID(), status })).status).toBe(400);
     const contact = await request('/crm/contacts', 'POST', { ...contactInput, requestId: randomUUID(), status: 'Inquiry' });

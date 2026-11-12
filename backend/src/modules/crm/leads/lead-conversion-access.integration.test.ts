@@ -152,8 +152,9 @@ describe.skipIf(!disposable)('Lead conversion Account linking with authenticated
     });
     const source = await lead(); const before = await snapshot();
     const result = await convert(source.id, { contactId: target.id, accountId: existing.id });
-    expect(result.status).toBe(403);
-    expect(result.body.error).toBe('Cannot convert this Lead: updating the existing Contact requires Contact edit access. Access denied');
+    // Out-of-scope records are intentionally hidden to prevent record-ID probing.
+    expect(result.status).toBe(404);
+    expect(result.body.error).toBe('Record not found.');
     expect(await snapshot()).toEqual(before);
   });
   it.each(['participant', 'account'])('denies a necessary other-agent Deal %s change and atomically rolls back', async operation => {
@@ -166,14 +167,15 @@ describe.skipIf(!disposable)('Lead conversion Account linking with authenticated
     }
     const before = await snapshot();
     const result = await convert(source.id, { accountId: existing.id, ...(target ? { contactId: target.id } : {}) });
-    expect(result.status).toBe(403);
-    expect(result.body.error).toBe('Cannot convert this Lead: ' + (operation === 'participant' ? 'adding the Contact to a related Deal' : 'setting the Account on a related Deal') + ' requires Deal edit access. Access denied');
+    // A Deal outside the caller's ownership scope is indistinguishable from a missing Deal.
+    expect(result.status).toBe(404);
+    expect(result.body.error).toBe('Record not found.');
     expect(await snapshot()).toEqual(before);
   });
   it('rolls back a newly created Account and Contact when a later Deal link is denied', async () => {
     const source = await lead({ companyName: `Rollback new Account ${randomUUID()}` });
     await deal(source.id, { assignedUserId: b.id }); const before = await snapshot();
-    expect((await convert(source.id)).status).toBe(403);
+    expect((await convert(source.id)).status).toBe(404);
     expect(await snapshot()).toEqual(before);
     expect(await prisma.account.count({ where: { tenantId, name: source.companyName! } })).toBe(0);
   });
@@ -189,7 +191,7 @@ describe.skipIf(!disposable)('Lead conversion Account linking with authenticated
   });
   it('denies conversion of another-agent Lead and revoked Lead edit permission without side effects', async () => {
     const source = await lead({ assignedUserId: b.id }); const before = await snapshot();
-    expect((await convert(source.id)).status).toBe(403); expect(await snapshot()).toEqual(before);
+    expect((await convert(source.id)).status).toBe(404); expect(await snapshot()).toEqual(before);
     const own = await lead();
     await prisma.rolePermission.updateMany({ where: { tenantId, roleId: a.roleId, module: 'leads' }, data: { canEdit: false } });
     const ownBefore = await snapshot();

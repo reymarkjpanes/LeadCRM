@@ -126,9 +126,13 @@ export async function updateWorkflow(id: string, tenantId: string, userId: strin
   }
   const existing = pausing ? stored : await compatibleWorkflow(stored, tenantId);
   const changingDefinition = Object.keys(dto).some(key => key !== 'isActive');
+  const enablingPaused = stored.status === 'PAUSED' && !stored.isActive && dto.isActive === true && !changingDefinition;
+  const resuming = enablingPaused && !!await prisma.workflowPublication.findUnique({
+    where: { workflowId_tenantId_version: { workflowId: id, tenantId, version: stored.version } }, select: { id: true },
+  });
   const required: PermissionKey[] = changingDefinition || dto.isActive === undefined ? ['workflows.edit'] : [];
   if (dto.isActive !== undefined && (dto.isActive !== existing.isActive || !changingDefinition)) {
-    required.push(dto.isActive === true && changingDefinition ? 'workflows.activate'
+    required.push(dto.isActive === true && (changingDefinition || enablingPaused && !resuming) ? 'workflows.activate'
       : `workflows.${PERMISSION_ACTION_KEYS[workflowStateAction(existing, dto.isActive === true)]}`);
   }
   if (changingDefinition && existing.isActive && dto.isActive !== false) required.push('workflows.activate');
@@ -148,7 +152,6 @@ export async function updateWorkflow(id: string, tenantId: string, userId: strin
   const accountReferences = await accountWorkflowRetirementReferences(draft, tenantId);
   if ((draft.isActive && accountReferences.length) || accountReferences.some(field => !oldAccountReferences.has(field))) throw new ValidationError(ACCOUNT_RETIREMENT_REASON);
   if (retiredContactReferences([draft.conditions, draft.actions], findTrigger(draft.trigger)?.entity).some(field => !oldReferences.has(field))) throw new ValidationError('Retired Contact fields cannot be added to a Workflow. Repair the saved references.');
-  const resuming = stored.status === 'PAUSED' && !stored.isActive && draft.isActive && !changingDefinition;
   if (!resuming) await assertAssignmentReferencePermissions(draft, tenantId, userId);
   if (!findTrigger(draft.trigger)) throw new ValidationError('Choose a supported trigger.');
   const validationDraft = !draft.isActive && accountReferences.length ? { ...draft, actions: [], conditions: draft.conditions && { ...draft.conditions,

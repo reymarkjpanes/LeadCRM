@@ -6,6 +6,7 @@ import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema, WorkflowDraftSchema
 import { Prisma, type Workflow } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
+import { crmActor } from '../../crm/access/crm-record-access.service';
 import { workflowChain } from './workflow-dispatch-context';
 import type { WorkflowFireParams } from './workflow.engine';
 import { findTrigger } from '../triggers/trigger-catalog';
@@ -48,7 +49,8 @@ export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, param
   const context = Object.fromEntries(Object.entries(params.context).filter(([key]) => metadata.includes(key)));
   const workflows = await tx.workflow.findMany({ where: { tenantId: params.tenantId, ...(onlyWorkflowId ? { id: onlyWorkflowId } : {}), trigger: params.triggerType, isActive: true, status: 'ACTIVE', isArchived: false }, orderBy: { id: 'asc' } });
   if (!workflows.length) return;
-  const savedContext = await entityContext(trigger.entity, params.entityId, params.tenantId, tx);
+  // Capture the tenant's persisted event. Dispatch and history apply their own record access checks.
+  const savedContext = await crmActor.exit(() => entityContext(trigger.entity, params.entityId, params.tenantId, tx));
   if (!savedContext) throw new ValidationError('The triggering CRM record is unavailable.');
   const eventContext = JSON.parse(JSON.stringify({ ...savedContext, ...context })) as Prisma.InputJsonObject;
   const recordName = String(eventContext[`${trigger.entity}.title`] ?? eventContext[`${trigger.entity}.name`] ??
@@ -77,13 +79,16 @@ export async function enqueueWorkflowTrigger(tx: Prisma.TransactionClient, param
 /** A later field save can satisfy a still-current stage entry, never a historical one. */
 export async function enqueueStageConditionContinuations(tx: Prisma.TransactionClient, params: WorkflowFireParams) {
   if (params.triggerType !== 'deal.updated' || !Array.isArray(params.context['event.changedFields'])) return;
-  const deal = await tx.deal.findFirst({ where: { tenantId: params.tenantId, id: params.entityId, isArchived: false, deletedAt: null }, select: { currentStageHistoryId: true } });
-  if (!deal?.currentStageHistoryId) return;
+  const deal = await crmActor.exit(async () => await tx.deal.findFirst({
+    where: { tenantId: params.tenantId, id: params.entityId, isArchived: false, deletedAt: null }, select: { currentStageHistoryId: true },
+  }));
+  const stageHistoryId = deal?.currentStageHistoryId;
+  if (!stageHistoryId) return;
   // The update emitted with this stage entry already contributed to its snapshot.
-  if (params.eventId === `deal.updated:${deal.currentStageHistoryId}`) return;
-  const sources = await tx.workflowTriggerRecord.findMany({ where: { tenantId: params.tenantId, entityId: params.entityId, triggerType: 'deal.stage_changed', eventId: `deal.stage_changed:${deal.currentStageHistoryId}` }, include: { workflow: true, runs: { include: { steps: true } } } });
+  if (params.eventId === `deal.updated:${stageHistoryId}`) return;
+  const sources = await tx.workflowTriggerRecord.findMany({ where: { tenantId: params.tenantId, entityId: params.entityId, triggerType: 'deal.stage_changed', eventId: `deal.stage_changed:${stageHistoryId}` }, include: { workflow: true, runs: { include: { steps: true } } } });
   if (!sources.length) return;
-  const recorded = await workflowStageEvent(params.tenantId, params.entityId, 'deal.stage_changed', deal.currentStageHistoryId, tx);
+  const recorded = await crmActor.exit(() => workflowStageEvent(params.tenantId, params.entityId, 'deal.stage_changed', stageHistoryId, tx));
   let currentContext: Record<string, unknown> | undefined;
   for (const source of sources) {
     const { workflow } = source, execution = source.runs[0];
@@ -96,8 +101,8 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
     const dispatch = execution.dispatchContext as { eventContext?: Record<string, unknown> } | null;
     if (!dispatch?.eventContext || evaluateCondition(conditions.data, dispatch.eventContext)) continue;
     if (!currentContext) {
-      const savedContext = await entityContext('deal', params.entityId, params.tenantId, tx);
-      if (!savedContext || savedContext['internal.stageHistoryId'] !== deal.currentStageHistoryId) return;
+      const savedContext = await crmActor.exit(() => entityContext('deal', params.entityId, params.tenantId, tx));
+      if (!savedContext || savedContext['internal.stageHistoryId'] !== stageHistoryId) return;
       currentContext = { ...savedContext, ...recorded.context };
     }
     if (!evaluateCondition(conditions.data, currentContext)) continue;
@@ -121,21 +126,24 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
     ],
   } : {};
   // Historical runs have null context and can never be mistaken for recoverable work.
-  const abandonedQueued: Prisma.WorkflowExecutionRunWhereInput = { status: 'queued', dispatchStartedAt: { not: null },
+  const abandonedDispatch: Prisma.WorkflowExecutionRunWhereInput = { dispatchStartedAt: { not: null },
     OR: [{ leaseId: null }, { leaseUntil: null }, { leaseUntil: { lte: now } }] };
-  const expired = await prisma.workflowExecutionRun.findMany({ where: { ...scope, dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: { not: null },
-    OR: [{ status: 'running', leaseUntil: { lt: now } }, abandonedQueued] }, select: { id: true, tenantId: true, status: true }, take: 50 });
-  for (const run of expired) await tenantContext.run({ tenantId: run.tenantId }, () => prisma.$transaction(async tx => {
-    await interruptWorkflowRun(tx, run, run.status === 'queued' ? abandonedQueued : { status: 'running', leaseUntil: { lt: now } }, now,
-      run.status === 'queued' ? 'A queued execution already has a dispatch marker. Review CRM and delivery history; automatic replay is disabled.' : undefined);
-  }));
+  const expired = await prisma.workflowExecutionRun.findMany({ where: { ...scope, ...abandonedDispatch,
+    dispatchContext: { not: Prisma.DbNull }, status: { in: ['running', 'queued'] } }, select: { id: true, tenantId: true, status: true }, take: 50 });
+  let recovered = false;
+  for (const run of expired) {
+    const changed = await tenantContext.run({ tenantId: run.tenantId }, () => prisma.$transaction(tx =>
+      interruptWorkflowRun(tx, run, { ...abandonedDispatch, status: run.status }, now,
+        run.status === 'queued' ? 'A queued execution already has a dispatch marker. Review CRM and delivery history; automatic replay is disabled.' : undefined)));
+    if (changed) recovered = true;
+  }
   const due = await prisma.workflowExecutionRun.findMany({ where: { ...scope, status: 'queued', dispatchContext: { not: Prisma.DbNull }, dispatchStartedAt: null, OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 10, include: { trigger: true } });
   for (const item of due) await tenantContext.run({ tenantId: item.tenantId }, async () => {
     const leaseId = randomUUID();
     const previousAttempts = preparationAttempts(item.dispatchContext);
     const attempts = Math.min(previousAttempts + 1, WORKFLOW_PREPARATION_ATTEMPTS);
     const claimedContext = preparationContext(item.dispatchContext, attempts);
-    const context = item.dispatchContext as { version?: number; actorId?: string; activatedById?: string; ancestry?: string[]; context?: Record<string, unknown>; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence };
+    const context = item.dispatchContext as { version?: number; actorId?: string; activatedById?: string; ancestry?: string[]; context?: Record<string, unknown>; eventContext?: Record<string, unknown>; freshness?: WorkflowFreshnessEvidence } | null;
     let claimed = false;
     try {
       // Attempt evidence and the lease commit together, including a crash before admission.
@@ -169,13 +177,22 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
         progressed = true;
         return;
       }
-      if (context.version !== 1 || !workflow || !workflow.isActive || workflow.isArchived || workflow.status !== 'ACTIVE') {
-        await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'queued' }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The saved workflow authorization or definition changed after this event.', leaseId: null, leaseUntil: null } });
+      if (!workflow || !workflow.isActive || workflow.isArchived || workflow.status !== 'ACTIVE') {
+        await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'queued' }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The workflow was paused, archived, or is no longer eligible to dispatch this event.', leaseId: null, leaseUntil: null } });
         progressed = true;
         return;
       }
       const snapshot = item.definitionSnapshot && typeof item.definitionSnapshot === 'object' && !Array.isArray(item.definitionSnapshot) ? item.definitionSnapshot : null;
-      if (!snapshot || !context.activatedById) throw new ValidationError('Published workflow snapshot is unavailable.');
+      if (context?.version !== 1 || !snapshot || typeof context.activatedById !== 'string' || !context.activatedById) {
+        const reason = context?.version !== 1 ? 'This execution has unsupported saved dispatch data.'
+          : !snapshot ? 'The published workflow snapshot is unavailable.'
+            : 'The publisher for this workflow execution was not recorded.';
+        const failed = await prisma.$transaction(tx => failPreparation(tx, item, { id: item.id, tenantId: item.tenantId, leaseId,
+          status: 'queued', dispatchStartedAt: null, leaseUntil: { gt: new Date() } }, `${reason} No actions were started.`,
+        preparationContext(item.dispatchContext, attempts, 'INVALID_DISPATCH_DATA')));
+        if (failed) progressed = true;
+        return;
+      }
       const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
       const normalized = await compatibleWorkflow(captured, item.tenantId);
       const parsed = WorkflowDraftSchema.strip().safeParse(normalized);
@@ -213,8 +230,9 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
       });
       if (admission !== 'unclaimed') progressed = true;
       if (admission !== 'started') return;
-      await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, draft: parsed.data, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
-      await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'running', leaseUntil: { gt: new Date() } }, data: { status: 'skipped', completedAt: new Date(), errorMessage: 'The triggering state changed before dispatch.' } });
+      const result = await workflowChain.run(new Set(context.ancestry ?? []), () => fireWorkflowTrigger({ tenantId: item.tenantId, actorId: context.actorId, triggerType: item.trigger.triggerType, entityType: item.entityType, entityId: item.entityId, eventId: item.trigger.eventId!, context: context.context ?? {} }, { workflow: captured, draft: parsed.data, run: item, leaseId, eventContext: context.eventContext, freshness: context.freshness }));
+      await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: 'running', leaseUntil: { gt: new Date() } }, data: { status: 'skipped', completedAt: new Date(),
+        errorMessage: result?.skipReason ?? 'The triggering state changed before dispatch.', leaseId: null, leaseUntil: null } });
       await prisma.workflowExecutionRun.updateMany({ where: { id: item.id, leaseId, status: { not: 'running' } }, data: { leaseId: null, leaseUntil: null } });
     } catch (error) {
       const failure = preparationFailure(error);
@@ -250,8 +268,7 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
       if (changed && event) console.info('[Workflow]', { event, executionId: item.id, attempts, retryAt: retryAt?.toISOString(), failureClass: failure.failureClass });
     }
   });
-  // Preparation failures remain queued for recovery rather than spinning here.
-  return due.length === 10 && progressed;
+  return expired.length === 50 && recovered || due.length === 10 && progressed;
 }
 
 export function startWorkflowScheduler(dealStageWorkflowId?: string) {
