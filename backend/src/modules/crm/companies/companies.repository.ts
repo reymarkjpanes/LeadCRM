@@ -29,6 +29,7 @@ const COMPANY_FIELD_ALIASES: Record<string, string> = {
 export async function findAllCompanies(tenantId: string, query: Record<string, unknown>) {
   const db = salesContext.getStore() ?? prisma;
   const canReadDeals = await mayReadCrmModule(db, tenantId, 'deals');
+  const dealReadWhere = canReadDeals ? await crmReadWhere(db, tenantId, 'deals') as Prisma.DealWhereInput : undefined;
   const { page, limit } = getPaginationParams(query);
   const skip = (page - 1) * limit;
 
@@ -42,7 +43,7 @@ export async function findAllCompanies(tenantId: string, query: Record<string, u
   if (Array.isArray(system) && system.includes('touched') !== system.includes('untouched')) {
     filterClauses.push({ updatedAt: system.includes('touched') ? { gt: db.account.fields.createdAt } : { lte: db.account.fields.createdAt } });
   }
-  const hasDeals = { deals: { some: { tenantId, isArchived: false } } };
+  const hasDeals = { deals: { some: { AND: [{ tenantId, isArchived: false }, ...(dealReadWhere ? [dealReadWhere] : [])] } } };
   const related = parsedFilters.find(filter => filter.field === 'related')?.value;
   if (Array.isArray(related) && related.includes('has_deals')) {
     // Do not let a related-record filter become a permission oracle.
@@ -72,7 +73,7 @@ export async function findAllCompanies(tenantId: string, query: Record<string, u
     db.account.groupBy({ by: ['size'], where, _count: true }),
     db.account.count({ where: { AND: [where, { updatedAt: { gt: db.account.fields.createdAt } }] } }),
     canReadDeals ? db.account.count({ where: { AND: [where, hasDeals] } }) : 0,
-    accountDealSummaries(tenantId, data.map(row => row.id), canReadDeals),
+    accountDealSummaries(tenantId, data.map(row => row.id), dealReadWhere),
   ]);
   const facets: Record<string, number> = { touched, untouched: total - touched, has_deals: relatedCount };
   for (const row of industries) if (row.industry) facets['industry:' + row.industry] = row._count;
@@ -80,11 +81,11 @@ export async function findAllCompanies(tenantId: string, query: Record<string, u
   return { data: orderPage(data.map(row => ({ ...row, ...summaries.get(row.id) })), ids), total, page, limit, facets };
 }
 
-async function accountDealSummaries(tenantId: string, accountIds: string[], permitted: boolean) {
+async function accountDealSummaries(tenantId: string, accountIds: string[], dealReadWhere?: Prisma.DealWhereInput) {
   const summaries = new Map<string, { dealCount: number; dealValue: number }>();
-  if (!permitted || !accountIds.length) return summaries;
+  if (!dealReadWhere || !accountIds.length) return summaries;
   const rows = await (salesContext.getStore() ?? prisma).deal.groupBy({ by: ['accountId'],
-    where: { tenantId, accountId: { in: accountIds }, isArchived: false }, _count: true, _sum: { value: true } });
+    where: { AND: [{ tenantId, accountId: { in: accountIds }, isArchived: false }, dealReadWhere] }, _count: true, _sum: { value: true } });
   for (const id of accountIds) summaries.set(id, { dealCount: 0, dealValue: 0 });
   for (const row of rows) if (row.accountId) summaries.set(row.accountId, { dealCount: row._count, dealValue: row._sum.value ?? 0 });
   return summaries;
@@ -97,7 +98,10 @@ export async function findCompanyById(id: string, tenantId: string) {
 }
 
 export async function withCompanyDealSummary<T extends { id: string }>(tenantId: string, account: T) {
-  const summaries = await accountDealSummaries(tenantId, [account.id], await mayReadCrmModule(salesContext.getStore() ?? prisma, tenantId, 'deals'));
+  const db = salesContext.getStore() ?? prisma;
+  const canReadDeals = await mayReadCrmModule(db, tenantId, 'deals');
+  const dealReadWhere = canReadDeals ? await crmReadWhere(db, tenantId, 'deals') as Prisma.DealWhereInput : undefined;
+  const summaries = await accountDealSummaries(tenantId, [account.id], dealReadWhere);
   return { ...account, ...summaries.get(account.id) };
 }
 

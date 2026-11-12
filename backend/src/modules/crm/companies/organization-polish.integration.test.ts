@@ -14,7 +14,7 @@ import { CreateCompanySchema } from './companies.dto';
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = url.hostname === '127.0.0.1' && /^\/leadcrm_crm_polish_test(?:_\d+)?$/.test(url.pathname);
 describe.skipIf(!disposable)('Atomic organization creation over authenticated HTTP', () => {
-  let tenantId: string, adminId: string, adminToken: string, staffToken: string, server: Server, base: string, roleId: string, productId: string;
+  let tenantId: string, adminId: string, staffId: string, adminToken: string, staffToken: string, server: Server, base: string, roleId: string, productId: string;
   const scope = <T>(run: () => T) => tenantContext.run({ tenantId }, run);
   const person = () => ({ firstName: 'Person', lastName: 'Polish', email: `${randomUUID()}@example.test`, status: 'Inquiry', requestId: randomUUID() });
   const company = () => ({ requestId: randomUUID(), name: `Company ${randomUUID()}`, industry: 'Technology', size: '11-50', website: 'https://company.test', address: '42 Main Street\nMakati, Philippines' });
@@ -31,6 +31,7 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
     const role = await scope(() => prisma.roleDefinition.create({ data: { tenantId, name: 'Person intake' } })); roleId = role.id;
     await scope(() => prisma.rolePermission.createMany({ data: ['leads', 'contacts'].map(module => ({ tenantId, roleId, module, canView: true, canViewAll: true, canCreate: true, canEdit: true })) }));
     const staff = await prisma.user.create({ data: { tenantId, firstName: 'Test', lastName: 'Staff', role: role.name, email: `${randomUUID()}@camxian.com`, mustChangePassword: false, onboardingCompletedAt: new Date(), userRoles: { create: { roleId } } } });
+    staffId = staff.id;
     staffToken = (await issueAuthSession(staff)).token;
     server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1`;
@@ -155,13 +156,17 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
     expect(untouched.body.data.map((row: { id: string }) => row.id)).toEqual([empty.id]);
     expect((await call(`/crm/accounts/${linked.id}`, 'GET', undefined)).body.data).toMatchObject({ dealCount: 105, dealValue: 1050 });
 
-    await scope(() => prisma.rolePermission.create({ data: { tenantId, roleId, module: 'accounts', canView: true, canViewAll: true } }));
+    await scope(() => prisma.rolePermission.createMany({ data: [
+      { tenantId, roleId, module: 'accounts', canView: true, canViewAll: true },
+      { tenantId, roleId, module: 'deals', canView: true, canViewMy: true },
+    ] }));
     const restricted = await call(query, 'GET', undefined, staffToken);
     expect(restricted.status).toBe(200);
-    expect(restricted.body.data[0]).not.toHaveProperty('dealCount');
+    expect(restricted.body.data[0]).toMatchObject({ dealCount: 0, dealValue: 0 });
     expect(restricted.body.facets.has_deals).toBe(0);
     expect((await call(query + '&filter[related]=in:has_deals', 'GET', undefined, staffToken)).body.meta.total).toBe(0);
-    await scope(() => prisma.rolePermission.deleteMany({ where: { tenantId, roleId, module: 'accounts' } }));
+    expect((await call(`/crm/accounts/${linked.id}`, 'GET', undefined, staffToken)).body.data).toMatchObject({ dealCount: 0, dealValue: 0 });
+    await scope(() => prisma.rolePermission.deleteMany({ where: { tenantId, roleId, module: { in: ['accounts', 'deals'] } } }));
   });
 
   it('binds standalone receipts to the actor and tenant and rolls back invalid custom values', async () => {
@@ -246,13 +251,22 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
   });
 
   it('enforces Account permissions and rejects hidden Account metadata', async () => {
-    for (const module of ['leads', 'contacts']) {
-      const nested = { ...person(), newAccount: company() };
-      expect((await call(`/crm/${module}`, 'POST', nested, staffToken)).status).toBe(403);
-      expect(await scope(() => prisma.account.count({ where: { tenantId, name: nested.newAccount.name } }))).toBe(0);
-      const linked = await call(`/crm/${module}`, 'POST', nested);
-      expect(linked.status, JSON.stringify(linked.body)).toBe(201);
-      const response = await fetch(`${base}/crm/${module}/${linked.body.data.id}`, { headers: { Authorization: `Bearer ${staffToken}` } });
+    const linkedRecords: Array<{ module: string; id: string }> = [];
+    await scope(() => prisma.rolePermission.create({ data: { tenantId, roleId, module: 'deals', canView: true, canViewMy: true, canEdit: true } }));
+    try {
+      for (const module of ['leads', 'contacts']) {
+        const nested = { ...person(), assignedUserId: staffId, newAccount: company() };
+        expect((await call(`/crm/${module}`, 'POST', nested, staffToken)).status).toBe(403);
+        expect(await scope(() => prisma.account.count({ where: { tenantId, name: nested.newAccount.name } }))).toBe(0);
+        const linked = await call(`/crm/${module}`, 'POST', nested);
+        expect(linked.status, JSON.stringify(linked.body)).toBe(201);
+        linkedRecords.push({ module, id: linked.body.data.id });
+      }
+    } finally {
+      await scope(() => prisma.rolePermission.deleteMany({ where: { tenantId, roleId, module: 'deals' } }));
+    }
+    for (const { module, id } of linkedRecords) {
+      const response = await fetch(`${base}/crm/${module}/${id}`, { headers: { Authorization: `Bearer ${staffToken}` } });
       const hidden = await response.json(); expect(response.status).toBe(200); expect(hidden.data.account).toBeNull();
     }
   });
