@@ -38,6 +38,10 @@ export function ProductEditor({ product, categories = [], canCreateCategory = fa
     if (Object.values(fieldErrors).some(Boolean)) return;
     const dealValue = product ? parseProductAmount(amount) : parseProductCreateAmount(amount);
     const errors: { name?: string; category?: string; description?: string; dealValue?: string } = {};
+    if (!product || name !== product.name) {
+      const parsedName = ProductInterestSchema.shape.name.safeParse(name);
+      if (!parsedName.success) errors.name = parsedName.error.issues[0].message;
+    }
     const categoryChanged = !product || addingCategory || !category || category !== (product.category ?? '');
     if (categoryChanged) {
       const parsed = ProductInterestSchema.shape.category.safeParse(category);

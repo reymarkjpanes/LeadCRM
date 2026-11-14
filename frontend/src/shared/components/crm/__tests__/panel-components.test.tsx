@@ -128,7 +128,7 @@ describe('InlineTaskForm', () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Title is required')).toBeDefined();
+      expect(screen.getByText('Enter a task title.')).toBeDefined();
     });
 
     expect(mockOnSubmit).not.toHaveBeenCalled();

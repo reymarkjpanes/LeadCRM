@@ -101,7 +101,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
       if (error) { setFieldError(error); return; }
     } else {
       if (row?.required && (typeof editValue !== 'string' || !editValue.trim())) { setFieldError(`${row.label} is required`); return; }
-      if (row?.required && typeof editValue === 'string' && editValue.trim().length > (row.maxLength ?? 100)) { setFieldError(`Max ${row.maxLength ?? 100} characters`); return; }
+      if (row?.required && !row.validateText && typeof editValue === 'string' && editValue.trim().length > (row.maxLength ?? 100)) { setFieldError(`Max ${row.maxLength ?? 100} characters`); return; }
     }
     if (rows.find(row => row.apiField === apiField)?.type === 'email') {
       const result = CrmEmailSchema.safeParse(editValue);
