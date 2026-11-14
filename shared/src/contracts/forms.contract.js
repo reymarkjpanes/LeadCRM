@@ -12,6 +12,7 @@ const source_attribution_1 = require("./source-attribution");
 const administration_user_schema_1 = require("../validation/administration-user.schema");
 const record_experience_1 = require("./record-experience");
 const profile_contract_1 = require("./profile.contract");
+const organization_1 = require("./organization");
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 exports.FORM_PRODUCT_INTERESTS = [
     'CCTV Surveillance System', 'Biometrics', 'Door Access Control', 'Smart Lock',
@@ -20,7 +21,8 @@ exports.FORM_PRODUCT_INTERESTS = [
     'Laptop/Server/Data Cabinets', 'Others',
 ];
 exports.FORM_TRACKING_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
-const text = (max) => zod_1.z.string().max(max).refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v), 'Control characters are not allowed.').transform(v => v.trim());
+const plainText = zod_1.z.string().refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v), 'Control characters are not allowed.').transform(v => v.trim());
+const text = (max) => zod_1.z.string().max(max).pipe(plainText);
 exports.FormFieldTypeSchema = zod_1.z.enum(['header', 'heading', 'paragraph', 'divider', 'single-line', 'multi-line', 'email', 'phone', 'number', 'date', 'checkbox', 'radio', 'dropdown', 'url', 'rating', 'file', 'contact-name', 'contact-email', 'contact-phone', 'company-name', 'company-website']);
 exports.FORM_MAPPINGS = ['firstName', 'lastName', 'fullName', 'email', 'phone', 'companyName', 'website', 'productInterest', 'address', 'source'];
 exports.FormFieldSchema = zod_1.z.object({
@@ -178,12 +180,27 @@ function validateFormValues(fields, values) {
             errors[f.id] = nameError;
             continue;
         }
-        const parsed = text(f.mapToField === 'firstName' || f.mapToField === 'lastName' ? 100 : f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);
+        const field = f.mapToField;
+        const capped = field === 'firstName' || field === 'lastName' ? [profile_contract_1.PROFILE_FIELD_LIMITS[field], profile_contract_1.PROFILE_FIELD_LIMIT_ERRORS[field]]
+            : field === 'companyName' ? [organization_1.COMPANY_NAME_MAX_LENGTH, organization_1.COMPANY_NAME_MAX_ERROR]
+                : field === 'address' ? [organization_1.CRM_ADDRESS_MAX_LENGTH, organization_1.CRM_ADDRESS_MAX_ERROR] : undefined;
+        const parsed = capped
+            ? plainText.pipe(zod_1.z.string().max(capped[0], capped[1])).safeParse(raw)
+            : text(f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);
         if (!parsed.success) {
             errors[f.id] = parsed.error.issues[0].message;
             continue;
         }
         let value = parsed.data;
+        if (field === 'fullName' && value) {
+            const [first, ...rest] = value.split(/\s+/);
+            const nameLengthError = first.length > profile_contract_1.PROFILE_FIELD_LIMITS.firstName ? profile_contract_1.PROFILE_FIELD_LIMIT_ERRORS.firstName
+                : rest.join(' ').length > profile_contract_1.PROFILE_FIELD_LIMITS.lastName ? profile_contract_1.PROFILE_FIELD_LIMIT_ERRORS.lastName : undefined;
+            if (nameLengthError) {
+                errors[f.id] = nameLengthError;
+                continue;
+            }
+        }
         if (!value) {
             if (f.required)
                 errors[f.id] = `${f.label} is required.`;

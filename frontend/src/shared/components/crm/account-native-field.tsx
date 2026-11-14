@@ -42,10 +42,10 @@ export function AccountNativeField({ fieldKey, id, label = labels[fieldKey], reg
         <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
       </> : fieldKey === 'address' ? <>
         <MapPin size={14} className="pointer-events-none absolute left-3.5 top-3 text-slate-400" />
-        <Textarea {...common} rows={3} maxLength={2000} className={`${inputClass} pl-9 resize-y`} placeholder="Enter the complete company address" />
+        <Textarea {...common} rows={3} className={`${inputClass} pl-9 resize-y`} placeholder="Enter the complete company address" />
       </> : <>
         {fieldKey === 'name' ? <Building2 size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /> : <Globe size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />}
-        <Input {...common} type={fieldKey === 'website' ? 'url' : 'text'} maxLength={fieldKey === 'name' ? 255 : undefined} className={`${inputClass} pl-9`} placeholder={fieldKey === 'name' ? 'Enter account name' : 'https://company.com'} />
+        <Input {...common} type={fieldKey === 'website' ? 'url' : 'text'} className={`${inputClass} pl-9`} placeholder={fieldKey === 'name' ? 'Enter account name' : 'https://company.com'} />
       </>}
     </div>
     {error && <p id={`${id}-error`} role="alert" className="flex items-center gap-1 text-[11px] text-red-500"><AlertCircle size={11} />{error}</p>}

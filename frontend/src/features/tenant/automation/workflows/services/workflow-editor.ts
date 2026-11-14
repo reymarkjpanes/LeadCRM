@@ -1,3 +1,5 @@
+import { CrmAddressSchema, CrmCompanyNameSchema, personNameSchema, TaskDescriptionSchema, TaskTitleSchema, WorkflowDraftSchema } from '@leadcrm/shared';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import {
   workflowOperators,
   conditionOperatorLabel,
@@ -64,8 +66,9 @@ export function workflowNameIssue(
   workflows: Array<{ id: string; name: string }>,
   workflowId?: string,
 ): string {
-  const key = workflowNameKey(name);
-  if (!key) return 'Workflow name is required.';
+  const parsed = WorkflowDraftSchema.shape.name.safeParse(name);
+  if (!parsed.success) return parsed.error.issues[0].message;
+  const key = workflowNameKey(parsed.data);
   return workflows.some((workflow) => workflow.id !== workflowId && workflowNameKey(workflow.name) === key)
     ? 'A workflow with this name already exists. Choose another name.'
     : '';
@@ -312,6 +315,22 @@ export function conditionRuleIssue(rule: WorkflowConditionRule, trigger: Trigger
     }
     return message;
 }
+const workflowNames = { firstName: personNameSchema('firstName'), lastName: personNameSchema('lastName') };
+
+export function workflowRecordTextSchema(entity: TriggerDefinition['entity'] | undefined, field: unknown) {
+  if (!entity || entity === 'deal') return;
+  if (field === 'address') return CrmAddressSchema;
+  if (entity === 'account') return field === 'name' ? CrmCompanyNameSchema : undefined;
+  if (field === 'companyName') return CrmCompanyNameSchema;
+  if (field === 'firstName' || field === 'lastName') return workflowNames[field];
+}
+
+export function workflowTaskTextError(key: string, value: unknown, previous?: WorkflowAction) {
+  if (value === '' || value === undefined || (previous?.type === 'create_task' && value === previous.config[key])) return;
+  if (key === 'title') return textFieldError(TaskTitleSchema, value);
+  if (key === 'description') return textFieldError(TaskDescriptionSchema, value);
+}
+
 // Immediate editing guidance. Server validation still owns permissions, references and integrations.
 export function actionIssues(
   action: WorkflowAction,
@@ -319,6 +338,7 @@ export function actionIssues(
   entity: TriggerDefinition['entity'] | undefined,
   options: WorkflowOptions,
   incomplete = false,
+  previous?: WorkflowAction,
 ): string[] {
   incomplete = incomplete || action.enabled === false;
   if (entity === 'account' && retiredAccountWorkflowReferences({ trigger: 'account.updated', actions: [action] }).length) return incomplete ? [] : [ACCOUNT_RETIREMENT_REASON];
@@ -331,6 +351,10 @@ export function actionIssues(
     if (reasonIssue) issues.push(reasonIssue);
   }
   if (action.type === 'create_task') {
+    for (const key of ['title', 'description']) {
+      const error = workflowTaskTextError(key, action.config[key], previous);
+      if (error) issues.push(error);
+    }
     const selection = WorkflowTaskAssociationSchema.safeParse(action.config);
     if (!selection.success) issues.push('Choose a valid task association mode and available filters.');
     else {
@@ -348,6 +372,9 @@ export function actionIssues(
     if ((value == null || value === '' || (Array.isArray(value) && !value.length)) && !incomplete)
       return ['Enter a new value or choose Clear this field.'];
     if (value == null || value === '') return [];
+    const schema = workflowRecordTextSchema(entity, field.field);
+    const textError = schema && textFieldError(schema, value);
+    if (textError) issues.push(textError);
     if (field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) issues.push('Enter a valid number.');
     if (field.type === 'boolean' && typeof value !== 'boolean') issues.push('Choose Yes or No.');
     if (field.options && !field.options.includes(String(value))) issues.push('Choose an available value.');
@@ -412,6 +439,7 @@ export function editorIssues(
   options: WorkflowOptions,
   incomplete = false,
   previousConditions?: WorkflowCondition | null,
+  previousActions?: WorkflowAction[],
 ): EditorIssue[] {
   const { draft, actionIds } = document;
   const trigger = triggers.find((entry) => entry.type === draft.trigger);
@@ -443,6 +471,7 @@ export function editorIssues(
         trigger?.entity,
         options,
         incomplete,
+        previousActions?.[index],
       ).map((message) => ({
         step: `action:${actionIds[index]}` as const,
         message: `Action ${index + 1}: ${message}`,

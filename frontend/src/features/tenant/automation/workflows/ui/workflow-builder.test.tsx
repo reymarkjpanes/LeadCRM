@@ -143,6 +143,30 @@ describe('visual workflow editor', () => {
     fireEvent.click(button('Save draft'));
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ name, description })));
   });
+  it('keeps over-limit workflow details intact and accepts corrected boundary values', async () => {
+    const { save } = setup();
+    fireEvent.click(button('Workflow details'));
+    for (const [placeholder, label, max] of [
+      ['Enter workflow name...', 'Workflow name', 255],
+      ['Describe what this workflow does...', 'Workflow description', 1000],
+    ] as const) {
+      const input = screen.getByPlaceholderText(placeholder);
+      const value = 'W'.repeat(max + 1);
+      fireEvent.change(input, { target: { value } });
+      expect(input).toHaveProperty('value', value);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent)
+        .toBe(label + ' must not exceed ' + max + ' characters.');
+      fireEvent.click(button('Save draft'));
+      expect(save).not.toHaveBeenCalled();
+      fireEvent.change(input, { target: { value: value.slice(1) } });
+      expect(input.getAttribute('aria-invalid')).toBe('false');
+    }
+    fireEvent.click(button('Save draft'));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'W'.repeat(255), description: 'W'.repeat(1000),
+    })));
+  });
   it('edits a configured stage template, saves an inactive draft and preserves custom actions across option refresh', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const options = { users: [], templates: [], campaigns: [], pipelines: [{ id: 'pipeline', name: 'Sales', stages: [{ id: 'contacted', name: 'Contacted' }, { id: 'won', name: 'Approved', isWon: true }] }] };

@@ -66,12 +66,42 @@ describe.skipIf(!disposable)('user administration over authenticated HTTP', () =
     expect((await call(`/administration/users/${userId}`, 'PUT', { status: 'ACTIVE' })).status).toBe(200);
   });
 
+  it('rejects unsupported staff domains and normalizes allowed domains over HTTP', async () => {
+    for (const domain of ['yahoo.com', 'outlook.com', 'company.com', 'sub.camxian.com', 'gmail.com.fake']) {
+      const result = await call('/administration/users', 'POST', { ...valid, email: 'new.staff@' + domain });
+      expect(result.status).toBe(400);
+      expect(result.body.fieldErrors.email).toContain('Only @gmail.com and @camxian.com email addresses are allowed.');
+    }
+    const unsupported = await call('/administration/users/email-availability?email=staff%40company.com&purpose=staff-creation');
+    expect(unsupported.status).toBe(400);
+    expect((await call('/administration/users/email-availability?email=staff%40company.com')).body.data).toEqual({ available: true });
+    const available = await call('/administration/users/email-availability?email=New.Staff%40GMAIL.COM&purpose=staff-creation');
+    expect(available.body.data).toEqual({ available: true });
+    const delegateRole = await prisma.roleDefinition.create({ data: { tenantId, name: 'Staff provisioner', permissions: { create: [
+      { module: 'users', canView: true, canCreate: true }, { module: 'roles', canView: true, canAssign: true },
+    ] } } });
+    const delegate = await prisma.user.create({ data: {
+      tenantId, email: 'staff-provisioner@camxian.com', firstName: 'Staff', lastName: 'Provisioner',
+      role: delegateRole.name, mustChangePassword: false, onboardingCompletedAt: new Date(),
+    } });
+    await prisma.userRole.create({ data: { tenantId, userId: delegate.id, roleId: delegateRole.id } });
+    const delegateToken = (await issueAuthSession(delegate)).token;
+    const denied = await call('/administration/users', 'POST', { ...valid, email: 'New.Staff@GMAIL.COM' }, delegateToken);
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(denied.body)).toContain('Only Client Admin users can approve an external staff email.');
+    expect((await call('/administration/users', 'POST', { ...valid, email: 'delegated.staff@camxian.com' }, delegateToken)).status).toBe(201);
+    const created = await call('/administration/users', 'POST', { ...valid, email: 'New.Staff@GMAIL.COM' });
+    expect(created.status).toBe(201);
+    expect(created.body.data.email).toBe('new.staff@gmail.com');
+    expect(await prisma.auditLog.count({ where: { tenantId, entityId: created.body.data.id, action: 'user.staff_approved' } })).toBe(1);
+  });
+
   it('rejects newly submitted invalid names and keeps historical names during unrelated staff edits', async () => {
     for (const field of ['firstName', 'lastName']) {
       for (const value of ['John@1', 'John@']) {
         const response = await call('/administration/users', 'POST', { ...valid, email: `${randomUUID()}@camxian.com`, [field]: value });
         expect(response.status).toBe(400);
-        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+        expect(JSON.stringify(response.body)).toContain(`${field === 'firstName' ? 'First name' : 'Last name'} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`);
         expect((await call(`/administration/users/${userId}`, 'PUT', { [field]: value })).status).toBe(400);
       }
     }

@@ -55,7 +55,7 @@ describe.skipIf(!disposable)('profile and sorting persistence through authentica
       for (const value of ['John@1', 'John@']) {
         const response = await request('/auth/profile', 'PATCH', { [field]: value });
         expect(response.status).toBe(400);
-        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+        expect(JSON.stringify(response.body)).toContain(`${field === 'firstName' ? 'First name' : 'Last name'} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`);
       }
     }
     const previous = await prisma.user.findUniqueOrThrow({ where: { id: userId } });

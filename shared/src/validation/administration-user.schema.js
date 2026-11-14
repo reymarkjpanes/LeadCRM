@@ -5,9 +5,9 @@ const zod_1 = require("zod");
 const security_schema_1 = require("./security.schema");
 const profile_contract_1 = require("../contracts/profile.contract");
 // Check before trimming so surrounding control characters are not silently accepted.
-const cleanText = (max) => zod_1.z.string()
+const cleanText = (max, message) => zod_1.z.string()
     .refine(value => !/[\u0000-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
-    .transform(value => value.trim()).pipe(zod_1.z.string().max(max));
+    .transform(value => value.trim()).pipe(zod_1.z.string().max(max, message));
 exports.cleanText = cleanText;
 exports.AdministrationPhoneSchema = (0, exports.cleanText)(32).superRefine((value, ctx) => {
     const local = value.startsWith('+63') ? value.slice(3) : value;
@@ -18,21 +18,13 @@ exports.AdministrationPhoneSchema = (0, exports.cleanText)(32).superRefine((valu
         ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message });
 }).transform(value => value.startsWith('+63') ? value : `+63${value}`);
 exports.CreateAdministrationUserSchema = zod_1.z.object({
-    firstName: zod_1.z.string().superRefine((value, ctx) => {
-        const error = (0, profile_contract_1.getNameDigitError)('firstName', value);
-        if (error)
-            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe((0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'First name is required.'))),
-    lastName: zod_1.z.string().superRefine((value, ctx) => {
-        const error = (0, profile_contract_1.getNameDigitError)('lastName', value);
-        if (error)
-            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe((0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'Last name is required.'))),
-    email: security_schema_1.StaffEmailSchema,
+    firstName: (0, profile_contract_1.personNameSchema)('firstName', 'First name is required.'),
+    lastName: (0, profile_contract_1.personNameSchema)('lastName', 'Last name is required.'),
+    email: security_schema_1.StaffCreationEmailSchema,
     phone: exports.AdministrationPhoneSchema,
     // The existing user service accepts the canonical RoleDefinition.name.
     role: (0, exports.cleanText)(100).pipe(zod_1.z.string().min(1, 'Role is required.')),
-    jobTitle: (0, exports.cleanText)(100).optional(),
+    jobTitle: (0, exports.cleanText)(profile_contract_1.PROFILE_FIELD_LIMITS.jobTitle, profile_contract_1.PROFILE_FIELD_LIMIT_ERRORS.jobTitle).optional(),
     groupIds: zod_1.z.array(zod_1.z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
 exports.UpdateAdministrationUserSchema = exports.CreateAdministrationUserSchema.omit({ email: true, jobTitle: true }).partial()

@@ -6,7 +6,7 @@ import prisma from '../../../config/database.config';
 import { workflowChain as chain, workflowLease } from './workflow-dispatch-context';
 import { fenceWorkflowLease, isWorkflowLeaseLost, workflowLeaseWrite } from './workflow-lease';
 import { interruptWorkflowEvidence } from './workflow-interruption';
-import { WorkflowDraftSchema, WorkflowActionSchema, normalizeSavedWorkflowAssignment, parseStoredCrmStatus, WORKFLOW_MODULES, ACCOUNT_RETIREMENT_REASON, workflowDefinitionIssues, type WorkflowDraft } from '@leadcrm/shared';
+import { StoredWorkflowDraftSchema, WorkflowActionSchema, normalizeSavedWorkflowAssignment, parseStoredCrmStatus, WORKFLOW_MODULES, ACCOUNT_RETIREMENT_REASON, workflowDefinitionIssues, type WorkflowDraft } from '@leadcrm/shared';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { ValidationError, NotFoundError } from '../../../shared/errors/http-error';
 import { AppError } from '../../../shared/errors/app-error';
@@ -93,7 +93,7 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
         let draft = prepared?.draft;
         if (!draft) {
           // The read adapter may attach repair metadata; it is not a definition field.
-          const parsed = WorkflowDraftSchema.strip().safeParse(await compatibleWorkflow(workflow, params.tenantId));
+          const parsed = StoredWorkflowDraftSchema.strip().safeParse(await compatibleWorkflow(workflow, params.tenantId));
           if (!parsed.success) throw new ValidationError('This workflow uses an invalid configuration. Edit and save it before activating.');
           draft = parsed.data;
           const [issue] = workflowDefinitionIssues(draft);

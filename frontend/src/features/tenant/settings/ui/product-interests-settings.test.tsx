@@ -133,9 +133,20 @@ it('requires name, category and value and shows name length errors inline', asyn
   expect(screen.getByText('Product name is required')).toBeTruthy();
   if (screen.queryByRole('combobox', { name: 'Category' })) fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'CCTV Surveillance System' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'Product Name' }), { target: { value: ` ${'x'.repeat(201)} ` } });
-  expect((screen.getByRole('textbox', { name: 'Product Name' }) as HTMLInputElement).value).toBe('   ');
+  const nameInput = screen.getByRole('textbox', { name: 'Product Name' }) as HTMLInputElement;
+  expect(nameInput.value).toBe(` ${'x'.repeat(201)} `);
+  expect(nameInput.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(nameInput.getAttribute('aria-describedby')!)?.textContent).toBe('Product name must not exceed 200 characters.');
   expect(screen.getByText('Product name must not exceed 200 characters.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: '100' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
   expect(apiClient.post).not.toHaveBeenCalled();
+  fireEvent.change(nameInput, { target: { value: 'x'.repeat(200) } });
+  expect(screen.queryByText('Product name must not exceed 200 characters.')).toBeNull();
+  expect(nameInput.getAttribute('aria-invalid')).toBe('false');
+  expect(nameInput.getAttribute('aria-describedby')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/administration/product-interests', { name: 'x'.repeat(200), category: product.category, description: '', dealValue: 100 }));
 });
 
 it.each(['₱25000', '25,000', '-25000', '-99.25', 'abc', '12abc', '99.256', '1e2', '+99', '99..25', ' '])('rejects raw new-product Deal Value %s', async amount => {
@@ -209,7 +220,7 @@ it('shows a skeleton then applies the committed response and toasts only after s
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
   expect((screen.getByRole('button', { name: 'Saving…' }) as HTMLButtonElement).disabled).toBe(true);
   expect(toast.success).not.toHaveBeenCalled();
-  expect(apiClient.patch).toHaveBeenCalledWith('/administration/product-interests/' + product.id, { name: product.name, category: product.category, description: '', dealValue: 7000.25 });
+  expect(apiClient.patch).toHaveBeenCalledWith('/administration/product-interests/' + product.id, { dealValue: 7000.25 });
   // The follow-up GET stays pending: the mutation response must be enough to update the UI.
   vi.mocked(apiClient.get).mockImplementation(() => new Promise(() => {}));
   resolve({ data: [{ ...product, dealValue: 7000.25 }], meta: { enabled: true } });
@@ -301,7 +312,7 @@ it('saves a formatted Peso amount, reloads the committed value and reopens the e
   fireEvent.click(await screen.findByRole('button', { name: 'Edit product' }));
   fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: '₱25,000.00' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
-  await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith('/administration/product-interests/' + product.id, { name: product.name, category: product.category, description: '', dealValue: 25000 }));
+  await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith('/administration/product-interests/' + product.id, { dealValue: 25000 }));
   await screen.findByText('₱25,000.00');
   expect(toast.success).toHaveBeenCalledWith('Product updated successfully.');
   first.unmount(); render(<ProductsPage />);

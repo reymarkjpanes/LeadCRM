@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncResource } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import { accountWorkflowRetirementReferences, compatibleWorkflow } from './workflow-fields';
-import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema, WorkflowDraftSchema, workflowDefinitionIssues } from '@leadcrm/shared';
+import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema, StoredWorkflowDraftSchema, workflowDefinitionIssues } from '@leadcrm/shared';
 import { Prisma, type Workflow } from '@prisma/client';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
@@ -195,7 +195,7 @@ export async function dispatchQueuedWorkflows(dealStageWorkflowId?: string) {
       }
       const captured = { ...workflow, ...snapshot, id: workflow.id, tenantId: item.tenantId, version: item.workflowVersion ?? workflow.version, activatedById: context.activatedById } as typeof workflow;
       const normalized = await compatibleWorkflow(captured, item.tenantId);
-      const parsed = WorkflowDraftSchema.strip().safeParse(normalized);
+      const parsed = StoredWorkflowDraftSchema.strip().safeParse(normalized);
       const issue = parsed.success ? workflowDefinitionIssues(parsed.data)[0] : 'This workflow uses an invalid configuration. Edit and publish it to repair it.';
       if (!parsed.success || issue) {
         const samePublication = item.workflowVersion === workflow.version && context.activatedById === workflow.activatedById &&

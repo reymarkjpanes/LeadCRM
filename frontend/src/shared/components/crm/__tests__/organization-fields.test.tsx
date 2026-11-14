@@ -22,7 +22,7 @@ it('keeps legacy company text and an optional organization without creating an A
   const save = vi.fn(); render(<Form save={save} initial={{ id: 'person', companyName: 'Historical company' }} />);
   expect(screen.queryByLabelText('Company Name')).toBeNull();
   fireEvent.click(screen.getByText('Save'));
-  expect(save).toHaveBeenCalledWith({ companyName: 'Historical company', accountId: null });
+  expect(save).toHaveBeenCalledWith({ accountId: null });
 });
 it('shows exactly two exclusive modes and only the account picker when linking', () => {
   const save = vi.fn(); render(<Form save={save} />);

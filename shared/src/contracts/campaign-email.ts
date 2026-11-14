@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { maxLengthMessage } from '../validation/text-length';
 import { CrmStatusSchema, LeadSourceSchema } from './record-experience';
 import { LeadCreatedFilterSchema } from './lead-created.contract';
 import { QuotationTemplateContentSchema } from './quotation.contract';
@@ -16,10 +17,17 @@ export function renderEmailVariables(text: string, values: EmailVariables, html 
     return html ? escapeEmailHtml(value) : value.replace(/[\x00-\x1f\x7f]/g, ' ');
   });
 }
-export const MarketingNameSchema = z.string().trim().min(1, 'Name is required.').max(150).regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
+export const CAMPAIGN_NAME_MAX_LENGTH = 150;
+export const CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH = 200;
+export const CAMPAIGN_EMAIL_BODY_MAX_LENGTH = 50000;
+export const CampaignBodySchema = z.string().max(CAMPAIGN_EMAIL_BODY_MAX_LENGTH, maxLengthMessage('Email body', CAMPAIGN_EMAIL_BODY_MAX_LENGTH));
+const marketingName = z.string().trim().min(1, 'Name is required.');
+const singleLineMarketingName = (message?: string) => marketingName.max(CAMPAIGN_NAME_MAX_LENGTH, message)
+  .regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
+export const MarketingNameSchema = singleLineMarketingName();
 const currentCompanyVariable = (text: string) => !campaignVariableKeys(text).includes('company');
 const companyVariableMessage = 'Use {{companyName}} instead of {{company}}.';
-export const EmailSubjectSchema = z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
+export const EmailSubjectSchema = z.string().max(CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH, maxLengthMessage('Email subject', CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH)).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
 /** ALL remains a historical read value only. New operations choose one source. */
 export const AudienceSourceSchema = z.enum(['LEADS', 'CONTACTS']);
 export const AudienceMatchModeSchema = z.enum(['AND', 'OR']);
@@ -85,8 +93,8 @@ export function smsMessageStats(message: string) {
   return { characters: [...message].length, encoding: 'GSM-7', segments: units <= 160 ? 1 : Math.ceil(units / 153) };
 }
 export const CampaignDraftSchema = z.object({
-  name: MarketingNameSchema, type: z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
-  subject: EmailSubjectSchema.optional(), body: z.string().max(50000).refine(currentCompanyVariable, companyVariableMessage).optional(),
+  name: singleLineMarketingName(maxLengthMessage('Campaign name', CAMPAIGN_NAME_MAX_LENGTH)), type: z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
+  subject: EmailSubjectSchema.optional(), body: CampaignBodySchema.refine(currentCompanyVariable, companyVariableMessage).optional(),
   audienceSource: AudienceSourceSchema.optional().nullable(), targetAudienceId: z.string().uuid().optional().nullable(),
   emailTemplateId: z.string().uuid().optional().nullable(), smsTemplateId: z.string().uuid().optional().nullable(),
 }).strict();

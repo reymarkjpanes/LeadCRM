@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ChevronsUp } from 'lucide-react';
 
+import { TaskTitleSchema } from '@leadcrm/shared';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Checkbox } from '@/shared/components/ui/checkbox';
@@ -16,7 +17,7 @@ import { getAssignableAgents } from '@/shared/utils/assigned-agents';
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
 export const InlineTaskSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(255),
+  title: TaskTitleSchema,
   mode: z.enum(['task', 'call']),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']),
   dueDate: z.string().optional(),
@@ -59,6 +60,7 @@ export function InlineTaskForm({
     formState: { errors },
   } = useForm<InlineTaskFormData>({
     resolver: zodResolver(InlineTaskSchema),
+    mode: 'onChange',
     defaultValues: {
       title: '',
       mode: 'task',
@@ -135,10 +137,12 @@ export function InlineTaskForm({
           autoFocus
           placeholder={mode === 'call' ? `Call ${recordName || 'contact'}` : 'Follow up with lead'}
           {...register('title')}
+          aria-invalid={!!errors.title}
+          aria-describedby={errors.title ? 'inline-task-title-error' : undefined}
           className={cn('h-9', errors.title && 'border-rose-500 dark:border-rose-500')}
         />
         {errors.title && (
-          <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{errors.title.message}</p>
+          <p id="inline-task-title-error" role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">{errors.title.message}</p>
         )}
       </div>
 

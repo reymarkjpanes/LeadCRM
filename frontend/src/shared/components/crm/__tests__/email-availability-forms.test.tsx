@@ -57,7 +57,7 @@ it.each(['Lead', 'Contact', 'User'] as const)('%s checks while typing, shows onl
   expect(icon()).toBeNull();
   change('bad-email');
   expect(email.getAttribute('aria-invalid')).toBe('true'); expect(icon()).toBeNull(); expect(mocks.get).not.toHaveBeenCalled();
-  change('customer@example.test');
+  change(kind === 'User' ? 'customer@GMAIL.COM' : 'customer@example.test');
   expect(icon()).toBeNull(); expect(button.disabled).toBe(true);
   await advance();
   expect(mocks.get).toHaveBeenCalledTimes(1);
@@ -93,7 +93,7 @@ it.each(['Lead', 'Contact', 'User'] as const)('%s rejects unavailable emails inl
     fireEvent.change(screen.getByLabelText(/^Role/), { target: { value: 'Sales' } });
   }
   await act(async () => { fireEvent.submit(email.closest('form')!); }); expect(save).not.toHaveBeenCalled();
-  change('corrected@example.test'); expect(icon()).toBeNull();
+  change(kind === 'User' ? 'corrected@GMAIL.COM' : 'corrected@example.test'); expect(icon()).toBeNull();
   expect(screen.queryByText(EMAIL_AVAILABILITY_MESSAGES[reason])).toBeNull();
   await advance(); expect(icon()).not.toBeNull();
   change(''); expect(icon()).toBeNull(); expect(button.disabled).toBe(true);
@@ -103,25 +103,43 @@ it.each(['Lead', 'Contact', 'User'] as const)('%s ignores outdated success and r
   const old = deferred(), current = deferred(), newest = deferred();
   mocks.get.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise).mockReturnValueOnce(newest.promise);
   const { change, icon, button } = setup(kind);
-  change('first@example.test'); await advance();
+  change(kind === 'User' ? 'first@GMAIL.COM' : 'first@example.test'); await advance();
   const signal = mocks.get.mock.calls[0][1].signal as AbortSignal;
-  change('second@example.test'); expect(signal.aborted).toBe(true); await advance();
+  change(kind === 'User' ? 'second@GMAIL.COM' : 'second@example.test'); expect(signal.aborted).toBe(true); await advance();
   await act(async () => { old.resolve(available); }); expect(icon()).toBeNull(); expect(button.disabled).toBe(true);
-  change('third@example.test'); await advance();
+  change(kind === 'User' ? 'third@GMAIL.COM' : 'third@example.test'); await advance();
   await act(async () => { current.resolve({ success: true, data: { available: false, reason: 'STAFF_EMAIL_NOT_ALLOWED' } }); });
   expect(screen.queryByText(EMAIL_AVAILABILITY_MESSAGES.STAFF_EMAIL_NOT_ALLOWED)).toBeNull(); expect(icon()).toBeNull();
   await act(async () => { newest.resolve(available); }); expect(icon()).not.toBeNull();
-  change('second@example.test'); change('third@example.test'); expect(icon()).toBeNull();
+  change(kind === 'User' ? 'second@GMAIL.COM' : 'second@example.test'); change(kind === 'User' ? 'third@GMAIL.COM' : 'third@example.test'); expect(icon()).toBeNull();
 });
 
 it.each(['Lead', 'Contact', 'User'] as const)('%s blocks failed checks and retries on blur without changing the value', async kind => {
   mocks.get.mockRejectedValueOnce(new Error('offline'));
   const { change, email, icon, button } = setup(kind);
-  change('customer@example.test'); await advance();
+  change(kind === 'User' ? 'customer@GMAIL.COM' : 'customer@example.test'); await advance();
   expect(screen.getByText('Unable to verify this email. Please try again.')).toBeTruthy();
   expect(icon()).toBeNull(); expect(button.disabled).toBe(true);
   await act(async () => { fireEvent.blur(email); });
   expect(mocks.get).toHaveBeenCalledTimes(2); expect(icon()).not.toBeNull();
+});
+
+it('skips unsupported staff domains and checks the normalized address only after correction', async () => {
+  const { change, email, icon, button } = setup('User');
+  change('staff@gmail.com.fake');
+  expect(document.getElementById(email.getAttribute('aria-describedby')!)?.textContent)
+    .toBe('Only @gmail.com and @camxian.com email addresses are allowed.');
+  await advance();
+  expect(mocks.get).not.toHaveBeenCalled();
+  expect(icon()).toBeNull();
+  expect(button.disabled).toBe(true);
+  change('STAFF@GMAIL.COM');
+  expect(email.getAttribute('aria-invalid')).toBe('false');
+  expect(icon()).toBeNull();
+  await advance();
+  expect(mocks.get).toHaveBeenCalledExactlyOnceWith('/administration/users/email-availability',
+    expect.objectContaining({ params: { email: 'staff@gmail.com', purpose: 'staff-creation' } }));
+  expect(icon()).not.toBeNull();
 });
 
 it.each(['Lead', 'Contact'] as const)('%s displays a submit-time staff race only below the email field', async kind => {

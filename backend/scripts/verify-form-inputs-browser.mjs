@@ -72,6 +72,7 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await createAcceptanceContext(browser, { viewport: { width: 1440, height: 900 } });
   await isolateBrowserContext(context);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await context.addCookies([{ name: 'leadcrm_token', value: token, url: base, httpOnly: true, sameSite: 'Lax' }]);
   page = await context.newPage(); page.setDefaultTimeout(30000); page.setDefaultNavigationTimeout(120000);
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -118,6 +119,19 @@ try {
     record(`${label}: matching field surfaces and borders at desktop/mobile widths in Light/Dark`);
   }
 
+  async function verifyPastedLimit(input, text, message) {
+    await input.fill('');
+    await input.focus();
+    await page.evaluate(value => navigator.clipboard.writeText(value), text);
+    await input.press(process.platform === 'darwin' ? 'Meta+V' : 'Control+V');
+    await page.waitForFunction(({ field, value }) => field.value === value && field.getAttribute('aria-invalid') === 'true',
+      { field: await input.elementHandle(), value: text });
+    const errorId = await input.getAttribute('aria-describedby');
+    assert.equal(await page.evaluate(id => document.getElementById(id)?.textContent, errorId), message);
+    await input.fill(text.slice(1));
+    assert.equal(await input.getAttribute('aria-invalid'), 'false');
+  }
+
   await call('/administration/product-interests/categories', 'PATCH', { action: 'add', name: 'Unicode' });
   await page.goto(base + '/settings?tab=products');
   await page.getByRole('button', { name: 'Add Product', exact: true }).click();
@@ -125,6 +139,14 @@ try {
   await productName.fill(text); await productDescription.fill(notes);
   await page.getByRole('combobox', { name: 'Category', exact: true }).selectOption('Unicode');
   await page.getByRole('textbox', { name: 'Deal Value (PHP)', exact: true }).fill('123');
+  for (const [theme, width] of [['Light', 1440], ['Dark', 390]]) {
+    await setAcceptanceTheme(page, theme);
+    await page.setViewportSize({ width, height: 900 });
+    await verifyPastedLimit(productName, 'P'.repeat(201), 'Product name must not exceed 200 characters.');
+    await verifyPastedLimit(productDescription, 'D'.repeat(1001), 'Product description must not exceed 1000 characters.');
+  }
+  record('Products: pasting over-limit values preserves the draft and shows inline errors on desktop light and mobile dark');
+  await productName.fill(text); await productDescription.fill(notes);
   await visual('product', [productName, productDescription]);
   await page.getByRole('button', { name: 'Save Product', exact: true }).click();
   await page.getByRole('button', { name: 'Edit product', exact: true }).first().click();
@@ -141,6 +163,9 @@ try {
   await page.getByRole('button', { name: 'Workflow details', exact: true }).click();
   const workflowName = page.getByPlaceholder('Enter workflow name...'), workflowDescription = page.getByPlaceholder('Describe what this workflow does...');
   await workflowName.fill(text); await workflowDescription.fill(notes);
+  await verifyPastedLimit(workflowDescription, 'W'.repeat(1001), 'Workflow description must not exceed 1000 characters.');
+  record('Workflow Description: pasting 1001 characters shows an error that clears at 1000');
+  await workflowDescription.fill(notes);
   await visual('workflow-details', [workflowName, workflowDescription]);
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByText('Draft saved.', { exact: true }).waitFor();

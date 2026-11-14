@@ -63,7 +63,8 @@ it('sends an explicit clear when an existing Company Size is emptied', async () 
   fireEvent.change(screen.getByLabelText('Company Size'), { target: { value: '' } });
   fireEvent.submit(screen.getByLabelText(/Account Name/).closest('form')!);
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
-  expect(save.mock.calls[0][0]).toMatchObject({ name: 'Account', size: null });
+  expect(save.mock.calls[0][0]).toMatchObject({ size: null });
+  expect(save.mock.calls[0][0]).not.toHaveProperty('name');
   expect(save.mock.calls[0][0]).not.toHaveProperty('requestId');
 });
 
@@ -75,7 +76,7 @@ it('keeps international address data and omits legacy note inputs when editing',
   expect((screen.getByLabelText('Company Address') as HTMLTextAreaElement).value).toBe('42 Queen Street\nToronto, Ontario, Canada');
   fireEvent.submit(screen.getByLabelText(/Account Name/).closest('form')!);
   await waitFor(() => expect(save).toHaveBeenCalled());
-  expect(save.mock.calls[0][0]).toMatchObject({ address: '42 Queen Street\nToronto, Ontario, Canada' });
+  expect(save.mock.calls[0][0]).not.toHaveProperty('address');
   expect(save.mock.calls[0][0]).not.toHaveProperty('notes');
   expect(save.mock.calls[0][0]).not.toHaveProperty('internalNotes');
   for (const field of ['city', 'province', 'country']) expect(save.mock.calls[0][0]).not.toHaveProperty(field);

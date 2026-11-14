@@ -30,6 +30,7 @@ export * from './contracts/record-experience';
 
 export * from './contracts/lead-created.contract';
 export * from './validation/crm-email';
+export * from './validation/text-length';
 export * from './contracts/mailbox.contract';
 export * from './contracts/closing-requirements';
 export * from './contracts/field-catalog';

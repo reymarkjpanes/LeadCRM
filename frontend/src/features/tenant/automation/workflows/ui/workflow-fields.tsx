@@ -1,4 +1,6 @@
 'use client';
+import { workflowRecordTextSchema, workflowTaskTextError } from '../services/workflow-editor';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { useId, useState, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import type {
@@ -76,6 +78,12 @@ function UpdateFieldFields({ action, options, entity, onChange }: {
   const [group, setGroup] = useState<'standard' | 'custom'>(field?.group === 'custom' ? 'custom' : 'standard');
   const selectedGroup = field?.group ?? group;
   const value = action.config.value;
+  const errorId = useId();
+  const fieldKey = field?.customFieldId ? undefined : field?.field;
+  const valueSchema = workflowRecordTextSchema(entity, fieldKey);
+  const valueError = typeof value === 'string' && valueSchema && !action.config.clear && value
+    ? textFieldError(valueSchema, value) : undefined;
+
   const change = (patch: Record<string, unknown>) => onChange({ ...action.config, ...patch });
   const optionsForField = field?.options?.map((option) => ({ id: option, name: field?.optionLabels?.[option] ?? option })) ?? references(field?.type ?? '', options);
   const multiple = ['products', 'contacts', 'leads'].includes(field?.type ?? '');
@@ -118,8 +126,9 @@ function UpdateFieldFields({ action, options, entity, onChange }: {
           : choices ? <select aria-label="New value" className={workflowControl} value={String(value ?? '')} onChange={(event) => change({ value: event.target.value })}><option value="">Select {field.label.toLowerCase()}</option>{value && !choices.some(choice => choice.id === value) ? <option value={String(value)}>Unavailable selection</option> : null}{choices.map((choice) => <option key={choice.id} value={choice.id}>{choice.name}</option>)}</select>
             : field.type === 'list' ? <Textarea aria-label="New value" className={workflowControl} rows={4} placeholder="One value per line" value={Array.isArray(value) ? value.join('\n') : ''} onChange={(event) => change({ value: event.target.value.split('\n') })} />
             : ['number', 'date'].includes(field.type) ? <Input aria-label="New value" type={field.type === 'number' ? 'number' : 'date'} step="any" placeholder={field.type === 'number' ? 'Enter a number...' : undefined} value={String(value ?? '')} onChange={(event) => change({ value: field.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value })} />
-              : <Textarea aria-label="New value" className={workflowControl} rows={field.multiline ? 4 : 2} placeholder={`Enter ${field.label.toLowerCase()}...`} maxLength={field.maxLength ?? 1000} value={String(value ?? '')} onChange={(event) => change({ value: event.target.value })} />}
+              : <Textarea aria-label="New value" className={workflowControl} rows={field.multiline ? 4 : 2} placeholder={`Enter ${field.label.toLowerCase()}...`} aria-invalid={!!valueError} aria-describedby={valueError ? errorId : undefined} maxLength={valueSchema ? undefined : field.maxLength ?? 1000} value={String(value ?? '')} onChange={(event) => change({ value: event.target.value })} />}
       </label>}
+      {valueError && <p role="alert" id={errorId} className="text-xs text-destructive">{valueError}</p>}
       {entity !== 'lead' && othersSelected && <label className="block space-y-1">Specify (optional)<Input aria-label="Specify (optional)" placeholder="Enter additional details..." maxLength={1000} value={String(action.config.otherDetails ?? '')} onChange={(event) => change({ otherDetails: event.target.value })} /><span className="block text-xs text-[var(--muted-foreground)]">Others counts as a selected interest even without additional details.</span></label>}
       {field.type === 'stage' && <label className="block space-y-1">Lost reason (for a lost stage)<Input aria-label="Lost reason" placeholder="Enter the loss reason..." value={String(action.config.lostReason ?? '')} onChange={(event) => change({ lostReason: event.target.value })} /></label>}
     </div>}
@@ -271,6 +280,7 @@ export function ActionFields({
   entity,
   onChange,
   stageSetup,
+  previous,
 }: {
   action: WorkflowAction;
   definition?: ActionDefinition;
@@ -278,7 +288,9 @@ export function ActionFields({
   entity?: WorkflowEntity;
   onChange: (config: Record<string, unknown>) => void;
   stageSetup?: ReactNode;
+  previous?: WorkflowAction;
 }) {
+  const actionFieldId = useId();
   const savedPipeline = options.pipelines.find(entry => entry.stages.some(stage => stage.id === action.config.stageId));
   const defaultPipeline = options.pipelines.find(entry => entry.name.trim().toLowerCase() === 'sales pipeline') ?? (options.pipelines.length === 1 ? options.pipelines[0] : undefined);
   const selectedPipeline = (savedPipeline ?? defaultPipeline)?.id;
@@ -313,6 +325,9 @@ export function ActionFields({
         const change = (value: unknown) =>
           onChange({ ...action.config, [key]: value });
         const value = String(action.config[key] ?? '');
+        const taskText = action.type === 'create_task' && (key === 'title' || key === 'description');
+        const taskError = taskText ? workflowTaskTextError(key, value, previous) : undefined;
+        const errorId = actionFieldId + '-' + key + '-error';
         const placeholder = ({ title: 'Enter task title...', description: 'Describe the task...', dueDaysFromNow: 'Default: 3 days', lostReason: 'Enter the loss reason...', otherDetails: 'Enter additional details...' } as Record<string, string>)[key] ?? `Enter ${field.label.toLowerCase()}...`;
         const selectionPrompt = ({ templateId: 'Select an email template (optional)', recipient: field.required ? 'Select a recipient' : 'Use default recipient', priority: 'Default: Medium', targetMode: 'One matching Deal (default)', currentStageId: 'All current stages', productInterestId: 'All products' } as Record<string, string>)[key] ?? `Select ${field.label.toLowerCase()}`;
         const variable = ['title', 'description', 'subject', 'body', 'message'].includes(
@@ -350,16 +365,20 @@ export function ActionFields({
               ) : ['body', 'description', 'value', 'message'].includes(key) ? (
                 <Textarea
                   aria-label={field.label}
+                  aria-invalid={!!taskError}
+                  aria-describedby={taskError ? errorId : undefined}
                   placeholder={placeholder}
                   className={workflowControl}
                   rows={4}
-                  maxLength={10000}
+                  maxLength={taskText ? undefined : 10000}
                   value={value}
                   onChange={(event) => change(event.target.value)}
                 />
               ) : (
                 <Input
                   aria-label={field.label}
+                  aria-invalid={!!taskError}
+                  aria-describedby={taskError ? errorId : undefined}
                   placeholder={placeholder}
                   type={field.type === 'number' ? 'number' : 'text'}
                   min={0}
@@ -375,6 +394,7 @@ export function ActionFields({
                   }
                 />
               )}
+              {taskError && <p id={errorId} role="alert" className="text-xs text-destructive">{taskError}</p>}
             </label>
             {choices?.length === 0 && (
               <p className="text-xs text-[var(--muted-foreground)]">

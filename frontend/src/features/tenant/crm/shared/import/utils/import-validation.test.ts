@@ -12,8 +12,8 @@ describe('CSV parsing and active import validation', () => {
     for (const field of ['firstName', 'lastName']) {
       const row = validateRow(config, { ...person, [field]: 'John@1' }, 3);
       expect(row.isValid).toBe(false);
-      expect(row.errors.join()).toContain('must not contain numbers.');
-      expect(validateRow(config, { ...person, [field]: 'John@' }, 4).errors.join()).toContain('must not contain special characters.');
+      expect(row.errors.join()).toContain('must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().');
+      expect(validateRow(config, { ...person, [field]: 'John@' }, 4).errors.join()).toContain('must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().');
     }
   });
   it('preserves quoted commas, escaped quotes, newlines and formula-like plain text', () => {

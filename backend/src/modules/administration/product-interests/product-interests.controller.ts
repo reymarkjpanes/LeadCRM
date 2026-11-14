@@ -51,7 +51,8 @@ async function mutate(req: Request, res: Response, next: NextFunction, action: '
     const result = await salesTransaction(async tx => {
       const existing = id ? await tx.productInterest.findFirst({ where: { id, tenantId, active: true } }) : null;
       if (id && !existing) throw new AppError('Product not found.', 404);
-      const category = input ? await service.resolveProductCategory(tx, tenantId, input.category ?? existing?.category ?? '') : undefined;
+      const resolvedCategory = input ? await service.resolveProductCategory(tx, tenantId, input.category ?? existing?.category ?? '') : undefined;
+      const category = input?.category !== undefined ? resolvedCategory : undefined;
       if (input?.name && await tx.productInterest.findFirst({ where: { tenantId, active: true, name: { equals: input.name, mode: 'insensitive' }, ...(id ? { id: { not: id } } : {}) } })) throw new AppError('Product names must be unique.', 409);
       if (action === 'create') {
         await service.assertProductCatalogEnabled(tx, tenantId);

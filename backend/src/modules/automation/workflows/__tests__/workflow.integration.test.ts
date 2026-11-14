@@ -163,6 +163,27 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
   });
   afterAll(async () => { if (server) await new Promise<void>(resolve => server.close(() => resolve())); await prisma.$disconnect(); });
 
+  it('preserves a historical description until changed and validates new copies', async () => {
+    const path = '/automation/workflows';
+    const definition = { name: 'Historical workflow description', trigger: 'lead.created', isActive: false, actions: [] };
+    expect((await call(path, 'POST', { ...definition, description: 'W'.repeat(1001) })).status).toBe(400);
+    const created = await call(path, 'POST', { ...definition, description: 'W'.repeat(1000) });
+    expect(created.status).toBe(201);
+    const saved = created.body.data;
+    const historical = ' ' + 'W'.repeat(1001) + ' ';
+    await scope(() => prisma.workflow.update({ where: { id: saved.id }, data: { description: historical } }));
+    expect((await call(path + '/' + saved.id, 'GET')).body.data.description).toBe(historical);
+    expect((await call(path + '/' + saved.id + '/duplicate', 'POST')).status).toBe(400);
+    const draftUrl = path + '/' + saved.id + '/draft';
+    const revision = { expectedVersion: saved.version, expectedDraftRevision: saved.draftRevision };
+    const edited = await call(draftUrl, 'PUT', { ...revision, draft: { ...definition, name: 'Renamed historical workflow', description: historical } });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data.draftDefinition.description).toBe(historical);
+    const rejected = await call(draftUrl, 'PUT', { ...revision, expectedDraftRevision: edited.body.data.draftRevision,
+      draft: { ...definition, description: 'N'.repeat(1001) } });
+    expect(rejected.status).toBe(400);
+  });
+
   it('accepts a legacy Campaign template with company_name and canonical custom variables', async () => {
     const fieldId = randomUUID();
     await prisma.closingFieldDefinition.create({ data: { tenantId, id: fieldId, definition: { id: fieldId, technicalAlias: 'project-code', name: 'Project Code', module: 'leads', group: 'Basic Information', type: 'Text', active: true, required: false, visibleInForm: true, visibleInDetails: true, options: [], description: '', order: 0, version: 1 } } });
@@ -220,6 +241,20 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     await flushWorkflowQueue(tenantId);
     expect((await runs(saved.id))[0].status).toBe('failed');
     expect(await prisma.task.count({ where: { tenantId, title: 'Saved admin rejected' } })).toBe(0);
+  });
+
+  it('rejects an oversized description rendered by a published Create Task action', async () => {
+    const title = 'Generated Task description boundary';
+    const record = await scope(() => prisma.deal.update({ where: { id: deal.id }, data: { title: 'D'.repeat(100) } }));
+    const workflow = await create([{ type: 'create_task', config: { title, assignedUserId: owner.id, description: '{{title}} '.repeat(10).trim() } }]);
+    try {
+      await fire('deal', record);
+      await flushWorkflowQueue(tenantId);
+      expect((await runs(workflow.id))[0].status).toBe('failed');
+      expect(await prisma.task.count({ where: { tenantId, title } })).toBe(0);
+    } finally {
+      await scope(() => prisma.deal.update({ where: { id: deal.id }, data: { title: deal.title } }));
+    }
   });
 
   async function manualDeal(data: Record<string, unknown>) {

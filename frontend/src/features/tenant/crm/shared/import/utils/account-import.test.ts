@@ -45,8 +45,16 @@ describe('Accounts CSV address compatibility', () => {
     expect(validateRow(accountImportConfig, { name: 'Acme', city: 'X'.repeat(101) }, 2).isValid).toBe(false);
     expect(validateRow(accountImportConfig, { name: 'Acme', address: 'X'.repeat(501) }, 2).isValid).toBe(false);
     expect(validateRow(accountImportConfig, { name: 'Acme', country: 'bad\u0000value' }, 2).isValid).toBe(false);
-    const row = validateRow(accountImportConfig, { name: 'Acme', address: 'A'.repeat(500), city: 'B'.repeat(100), province: 'C'.repeat(100), country: 'D'.repeat(100) }, 2);
-    expect(row.isValid).toBe(true); expect(row.data.address).toHaveLength(806);
+    const source = { name: 'Acme', address: 'A'.repeat(194), city: 'B'.repeat(100), province: 'C'.repeat(100), country: 'D'.repeat(100) };
+    const row = validateRow(accountImportConfig, source, 2);
+    expect(row.isValid).toBe(true);
+    expect(row.data.address).toBe(normalizeAccountImportRow(source).address);
+    expect(row.data.address).toHaveLength(500);
+    const overLimit = { ...source, address: 'A'.repeat(195) };
+    const invalid = validateRow(accountImportConfig, overLimit, 2);
+    expect(invalid.isValid).toBe(false);
+    expect(invalid.errors).toContain('address: Address must not exceed 500 characters.');
+    expect(invalid.data).toEqual(overLimit);
   });
   it('does not append duplicates or inject a country', () => {
     expect(normalizeAccountImportRow({ address: '123 Street, Manila', city: 'Manila', province: 'MANILA' }).address).toBe('123 Street, Manila');

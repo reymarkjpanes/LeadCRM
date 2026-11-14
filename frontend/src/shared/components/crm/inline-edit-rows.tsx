@@ -18,6 +18,7 @@ const present = (value: unknown) => value !== undefined && value !== null && val
 
 // ── InlineEditRows — click-to-edit About section ─────────────────────────────
 export interface InlineRowDef {
+  validateText?: (value: string) => string | undefined;
   customEditorActions?: boolean;
   productRecords?: ProductInterestRecord[];
   alwaysVisible?: boolean;
@@ -28,7 +29,7 @@ export interface InlineRowDef {
   editorFullWidth?: boolean;
   renderValue?: () => React.ReactNode;
   valueHref?: string;
-  renderEditor?: (props: { values: string[]; onValuesChange: (values: string[]) => void; value: string; onChange: (value: string) => void; disabled: boolean; error: string; onSave: () => void; onCancel: () => void }) => React.ReactNode;
+  renderEditor?: (props: { values: string[]; onValuesChange: (values: string[]) => void; value: string; onChange: (value: string) => void; disabled: boolean; error: string; errorId: string; onSave: () => void; onCancel: () => void }) => React.ReactNode;
   technicalKey?: string;
   label: string;
   value: unknown;
@@ -63,11 +64,13 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
   const receiveProductCatalog = useCallback((products: ProductInterestRecord[]) => {
     setProductCatalog(previous => JSON.stringify(previous) === JSON.stringify(products) ? previous : products);
   }, []);
-  const editingField = rows.find(row => (row.technicalKey ?? row.label) === editingKey)?.apiField ?? null;
+  const editingRow = rows.find(row => (row.technicalKey ?? row.label) === editingKey);
+  const editingField = editingRow?.apiField ?? null;
   const errorId = useId();
   const dirty = editingKey !== null && JSON.stringify(initialValue) !== JSON.stringify(editValue);
   const nameDigitError = dirty ? getNameDigitError(editingField ?? undefined, editValue) : undefined;
-  const inputError = nameDigitError ?? fieldError;
+  const textError = dirty && typeof editValue === 'string' ? editingRow?.validateText?.(editValue) : undefined;
+  const inputError = nameDigitError ?? textError ?? (fieldError || undefined);
   useEffect(() => { onEditStateChange?.({ field: editingField, dirty, busy: isSaving }); }, [editingField, dirty, isSaving, onEditStateChange]);
   const blocked = isSaving || disabled;
   useEffect(() => { if (!canEdit) { setEditingKey(null); setEditValue(''); setFieldError(''); } }, [canEdit]);
@@ -88,8 +91,8 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
     else cancelEdit();
   };
   const commitEdit = async (apiField: string) => {
-    if (blocked || !canEdit || nameDigitError) return;
-    if (!dirty && (apiField === 'firstName' || apiField === 'lastName')) { setEditingKey(null); return; }
+    if (blocked || !canEdit || nameDigitError || textError) return;
+    if (!dirty && (editingRow?.validateText || apiField === 'firstName' || apiField === 'lastName')) { setEditingKey(null); return; }
     setFieldError('');
     const row = rows.find(row => row.apiField === apiField);
     if (row?.editorDisabled) return;
@@ -98,7 +101,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
       if (error) { setFieldError(error); return; }
     } else {
       if (row?.required && (typeof editValue !== 'string' || !editValue.trim())) { setFieldError(`${row.label} is required`); return; }
-      if (row?.required && typeof editValue === 'string' && editValue.trim().length > (row.maxLength ?? 100)) { setFieldError(`Max ${row.maxLength ?? 100} characters`); return; }
+      if (row?.required && !row.validateText && typeof editValue === 'string' && editValue.trim().length > (row.maxLength ?? 100)) { setFieldError(`Max ${row.maxLength ?? 100} characters`); return; }
     }
     if (rows.find(row => row.apiField === apiField)?.type === 'email') {
       const result = CrmEmailSchema.safeParse(editValue);
@@ -115,7 +118,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
 
   return (
     <dl className="divide-y divide-border/60">
-      {rows.filter(({ value, displayValue, apiField, label, technicalKey, required, alwaysVisible, productRecords }) => productRecords || alwaysVisible || required || present(displayValue ?? value) || (canEdit && !!apiField) || editingKey === (technicalKey ?? label)).map(({ technicalKey, label, value, apiField, type, options, valueMode, displayValue, productLabels, showUncategorized, required, maxLength, renderEditor, renderValue, editorDisabled, editorError, editorFullWidth, valueHref, customEditorActions, productRecords }) => {
+      {rows.filter(({ value, displayValue, apiField, label, technicalKey, required, alwaysVisible, productRecords }) => productRecords || alwaysVisible || required || present(displayValue ?? value) || (canEdit && !!apiField) || editingKey === (technicalKey ?? label)).map(({ technicalKey, label, value, apiField, type, options, valueMode, displayValue, productLabels, showUncategorized, required, maxLength, validateText, renderEditor, renderValue, editorDisabled, editorError, editorFullWidth, valueHref, customEditorActions, productRecords }) => {
         const isEditing = canEdit && editingKey === (technicalKey ?? label);
         const editable = canEdit && !!apiField;
         return (
@@ -130,18 +133,18 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
             <dd className="min-w-0">
               {isEditing && apiField ? (
                 <div className="flex flex-col gap-1.5">
-                  {renderEditor ? renderEditor({ values: Array.isArray(editValue) ? editValue : [], onValuesChange: next => { setEditValue(next); setFieldError(''); }, value: String(editValue), onChange: next => { setEditValue(next); setFieldError(''); }, disabled: blocked, error: fieldError, onSave: () => void commitEdit(apiField), onCancel: cancelEdit }) : type === 'products' ? <CatalogProductInterestSelect onCatalog={receiveProductCatalog} showUncategorized={showUncategorized} values={Array.isArray(editValue) ? editValue : []} onChange={setEditValue} valueMode={valueMode} labels={productLabels} disabled={blocked} /> : type === 'users' || type === 'accounts' ? <EntityCombobox entityType={type} multiple={false} disabled={blocked} value={String(editValue) || null} onChange={value => setEditValue(value || '')} /> : type === 'contacts' || type === 'leads' ? <EntityCombobox entityType={type} multiple disabled={blocked} values={Array.isArray(editValue) ? editValue : []} onMultiChange={setEditValue} /> : type === 'select' ? (
+                  {renderEditor ? renderEditor({ values: Array.isArray(editValue) ? editValue : [], onValuesChange: next => { setEditValue(next); setFieldError(''); }, value: String(editValue), onChange: next => { setEditValue(next); setFieldError(''); }, disabled: blocked, error: inputError ?? '', errorId, onSave: () => void commitEdit(apiField), onCancel: cancelEdit }) : type === 'products' ? <CatalogProductInterestSelect onCatalog={receiveProductCatalog} showUncategorized={showUncategorized} values={Array.isArray(editValue) ? editValue : []} onChange={setEditValue} valueMode={valueMode} labels={productLabels} disabled={blocked} /> : type === 'users' || type === 'accounts' ? <EntityCombobox entityType={type} multiple={false} disabled={blocked} value={String(editValue) || null} onChange={value => setEditValue(value || '')} /> : type === 'contacts' || type === 'leads' ? <EntityCombobox entityType={type} multiple disabled={blocked} values={Array.isArray(editValue) ? editValue : []} onMultiChange={setEditValue} /> : type === 'select' ? (
                     <select aria-label={label} disabled={blocked} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} autoFocus className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
                       {options?.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                   ) : type === 'textarea' ? (
-                    <Textarea placeholder={`Enter ${label.toLowerCase()}...`} aria-label={label} disabled={blocked} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => setEditValue(e.target.value)} rows={3} autoFocus onKeyDown={e => { if (e.key === 'Escape') escapeEdit(e); }} className="w-full rounded-md border px-2 py-1 text-xs resize-none" />
+                    <Textarea placeholder={`Enter ${label.toLowerCase()}...`} aria-label={label} disabled={blocked} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} aria-invalid={!!inputError} aria-describedby={inputError ? errorId : undefined} onChange={e => { setEditValue(e.target.value); if (validateText) setFieldError(''); }} rows={3} autoFocus onKeyDown={e => { if (e.key === 'Escape') escapeEdit(e); }} className="w-full rounded-md border px-2 py-1 text-xs resize-none" />
                   ) : (
-                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!inputError} aria-describedby={!customEditorActions && inputError ? errorId : undefined} maxLength={type === 'email' ? 254 : required ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => { setEditValue(e.target.value); if (apiField === 'firstName' || apiField === 'lastName') setFieldError(''); }} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", inputError ? "border-red-500" : "")} />
+                    <Input placeholder={!type || type === 'text' || type === 'email' ? type === 'email' ? 'email@example.com' : `Enter ${label.toLowerCase()}...` : undefined} aria-label={label} disabled={blocked} type={type ?? 'text'} required={required || type === 'email'} aria-required={required || type === 'email'} aria-invalid={!!inputError} aria-describedby={!customEditorActions && inputError ? errorId : undefined} maxLength={type === 'email' ? 254 : required && !validateText ? maxLength ?? 100 : undefined} value={Array.isArray(editValue) ? editValue.join(', ') : editValue} onChange={e => { setEditValue(e.target.value); if (validateText || apiField === 'firstName' || apiField === 'lastName') setFieldError(''); }} autoFocus onKeyDown={e => { if (e.key === 'Enter') void commitEdit(apiField); if (e.key === 'Escape') escapeEdit(e); }} className={cn("w-full rounded-md border px-2 py-1 text-xs", inputError ? "border-red-500" : "")} />
                   )}
                   {!customEditorActions && (inputError || editorError) && <p id={errorId} role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{inputError || editorError}</p>}
                   {!customEditorActions && <div className="flex flex-wrap justify-end gap-1">
-                    <button type="button" onClick={() => void commitEdit(apiField)} disabled={blocked || editorDisabled} className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-colors">{isSaving ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving…</> : 'Save'}</button>
+                    <button type="button" onClick={() => void commitEdit(apiField)} disabled={blocked || editorDisabled || !!textError || !!nameDigitError} className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-colors">{isSaving ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving…</> : 'Save'}</button>
                     <button type="button" onClick={cancelEdit} disabled={blocked} className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent disabled:opacity-50 transition-colors">Cancel</button>
                   </div>}
                 </div>

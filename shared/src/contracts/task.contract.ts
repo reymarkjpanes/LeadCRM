@@ -1,3 +1,4 @@
+import { maxLengthMessage } from '../validation/text-length';
 import type { ColumnDefinition } from "../types/preferences";
 import { z } from "zod";
 
@@ -69,9 +70,16 @@ function validateDealWrites(data: TaskLinkInput, ctx: z.RefinementCtx) {
   }
 }
 const instant = z.string().datetime({ offset: true });
+export const TASK_TITLE_MAX_LENGTH = 255;
+export const TASK_DESCRIPTION_MAX_LENGTH = 1000;
+export const TaskTitleSchema = z.string().refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.')
+  .transform(value => value.trim()).pipe(z.string().min(1, 'Enter a task title.').max(TASK_TITLE_MAX_LENGTH, maxLengthMessage('Task title', TASK_TITLE_MAX_LENGTH)));
+export const TaskDescriptionSchema = z.string().max(TASK_DESCRIPTION_MAX_LENGTH, maxLengthMessage('Task description', TASK_DESCRIPTION_MAX_LENGTH))
+  .refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').nullable().optional();
+
 const taskFields = z.object({
-  title: z.string().refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').transform(value => value.trim()).pipe(z.string().min(1, "Enter a task title.").max(255)),
-  description: z.string().max(10000).refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').nullable().optional(),
+  title: TaskTitleSchema,
+  description: TaskDescriptionSchema,
   status: TaskStatusSchema.default("pending"),
   priority: z.enum(["Low", "Medium", "High"]).default("Medium"),
   dueDate: instant,

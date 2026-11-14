@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TASK_COLUMN_DEFINITIONS = exports.TaskOptionsQuerySchema = exports.TaskBulkSchema = exports.TaskQuerySchema = exports.UpdateTaskSchema = exports.CreateTaskSchema = exports.TASK_LINK_KINDS = exports.TaskDisplayStatusSchema = exports.StoredTaskStatusSchema = exports.TaskStatusSchema = exports.TASK_STATUS_LABELS = exports.TASK_STATUSES = exports.TASK_MANUAL_STATUSES = void 0;
+exports.TASK_COLUMN_DEFINITIONS = exports.TaskOptionsQuerySchema = exports.TaskBulkSchema = exports.TaskQuerySchema = exports.UpdateTaskSchema = exports.CreateTaskSchema = exports.TaskDescriptionSchema = exports.TaskTitleSchema = exports.TASK_DESCRIPTION_MAX_LENGTH = exports.TASK_TITLE_MAX_LENGTH = exports.TASK_LINK_KINDS = exports.TaskDisplayStatusSchema = exports.StoredTaskStatusSchema = exports.TaskStatusSchema = exports.TASK_STATUS_LABELS = exports.TASK_STATUSES = exports.TASK_MANUAL_STATUSES = void 0;
 exports.taskAssociationIds = taskAssociationIds;
 exports.isTaskOverdue = isTaskOverdue;
 exports.taskDisplayStatus = taskDisplayStatus;
 exports.taskDateRange = taskDateRange;
 exports.taskAssociationPatch = taskAssociationPatch;
+const text_length_1 = require("../validation/text-length");
 const zod_1 = require("zod");
 exports.TASK_MANUAL_STATUSES = [
     "pending",
@@ -55,9 +56,15 @@ function validateDealWrites(data, ctx) {
     }
 }
 const instant = zod_1.z.string().datetime({ offset: true });
+exports.TASK_TITLE_MAX_LENGTH = 255;
+exports.TASK_DESCRIPTION_MAX_LENGTH = 1000;
+exports.TaskTitleSchema = zod_1.z.string().refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.')
+    .transform(value => value.trim()).pipe(zod_1.z.string().min(1, 'Enter a task title.').max(exports.TASK_TITLE_MAX_LENGTH, (0, text_length_1.maxLengthMessage)('Task title', exports.TASK_TITLE_MAX_LENGTH)));
+exports.TaskDescriptionSchema = zod_1.z.string().max(exports.TASK_DESCRIPTION_MAX_LENGTH, (0, text_length_1.maxLengthMessage)('Task description', exports.TASK_DESCRIPTION_MAX_LENGTH))
+    .refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').nullable().optional();
 const taskFields = zod_1.z.object({
-    title: zod_1.z.string().refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').transform(value => value.trim()).pipe(zod_1.z.string().min(1, "Enter a task title.").max(255)),
-    description: zod_1.z.string().max(10000).refine(value => !value.includes('\u0000'), 'Text must not contain NUL characters.').nullable().optional(),
+    title: exports.TaskTitleSchema,
+    description: exports.TaskDescriptionSchema,
     status: exports.TaskStatusSchema.default("pending"),
     priority: zod_1.z.enum(["Low", "Medium", "High"]).default("Medium"),
     dueDate: instant,

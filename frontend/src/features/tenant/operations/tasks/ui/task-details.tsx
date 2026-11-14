@@ -1,9 +1,10 @@
 'use client';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { toast } from '@/shared/utils/toast';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Archive, Calendar, ChevronDown, ListTodo, MoreHorizontal, Pencil, User, X } from 'lucide-react';
-import { TASK_MANUAL_STATUSES, TASK_STATUS_LABELS, taskDisplayStatus, taskAssociationIds, type TaskOption, type TaskRecord, type UpdateTaskDto } from '@leadcrm/shared';
+import { TaskTitleSchema, TaskDescriptionSchema, TASK_DESCRIPTION_MAX_LENGTH, TASK_MANUAL_STATUSES, TASK_STATUS_LABELS, taskDisplayStatus, taskAssociationIds, type TaskOption, type TaskRecord, type UpdateTaskDto } from '@leadcrm/shared';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { USE_MOCK_DATA } from '@/lib/config';
@@ -166,7 +167,7 @@ export function TaskDetails({ task: initialTask, taskId, initialMode = 'view', r
             {error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
             {ready && saved && <>
               <RecordSection title="Task Information" forceOpen={editing}>{rows([
-                { label: 'Title', value: saved.title, apiField: canEdit ? 'title' : undefined, alwaysVisible: true, required: true, maxLength: 255, editorFullWidth: true, validate: value => !value.trim() ? 'Enter a task title.' : value.trim().length > 255 ? 'Max 255 characters' : undefined },
+                { label: 'Title', value: saved.title, apiField: canEdit ? 'title' : undefined, alwaysVisible: true, required: true, editorFullWidth: true, validateText: value => textFieldError(TaskTitleSchema, value) },
                 { label: 'Status', value: TASK_STATUS_LABELS[displayStatus], alwaysVisible: true },
                 { label: 'Priority', value: saved.priority ?? 'Medium', apiField: canEdit ? 'priority' : undefined, type: 'select', options: ['Low', 'Medium', 'High'], alwaysVisible: true },
               ])}</RecordSection>
@@ -178,9 +179,9 @@ export function TaskDetails({ task: initialTask, taskId, initialMode = 'view', r
               ])}</RecordSection>
               <RecordSection title="Additional Information" forceOpen={editing}>{rows([
                 { label: 'Notes', value: saved.description, alwaysVisible: true, apiField: canEdit ? 'description' : undefined, preserveWhitespace: true, editorFullWidth: true,
-                  validate: value => value.length > 10000 ? 'Max 10000 characters' : undefined,
-                  renderEditor: ({ value, onChange, disabled }) => <label className="min-w-0"><Textarea placeholder="Add task notes..." aria-label="Notes" autoFocus rows={5} maxLength={10000} className={panelInputClass} value={value} disabled={disabled} onChange={event => onChange(event.target.value)} /><span className="text-xs text-muted-foreground">{value.length}/10000</span></label> },
-              ])}<p className="px-3 pb-2 text-xs text-muted-foreground">{saved.description.length}/10000</p></RecordSection>
+                  validateText: value => textFieldError(TaskDescriptionSchema, value),
+                  renderEditor: ({ value, onChange, disabled, error, errorId }) => <label className="min-w-0"><Textarea placeholder="Add task notes..." aria-label="Notes" autoFocus rows={5} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} className={panelInputClass} value={value} disabled={disabled} onChange={event => onChange(event.target.value)} /><span className="text-xs text-muted-foreground">{value.length}/{TASK_DESCRIPTION_MAX_LENGTH}</span></label> },
+              ])}<p className="px-3 pb-2 text-xs text-muted-foreground">{saved.description.length}/{TASK_DESCRIPTION_MAX_LENGTH}</p></RecordSection>
               <RecordSection title="Associated Deals" count={taskAssociationIds(saved, 'deal').length} forceOpen={editing}>{rows([
                 { label: 'Associated Deals', value: taskAssociationIds(saved, 'deal'), displayValue: taskRecordOptions(saved, 'deal').map(option => option.label), alwaysVisible: true, apiField: canEdit && readableRecords.deal ? 'dealIds' : undefined, editorFullWidth: true,
                   renderEditor: ({ values, onValuesChange, disabled }) => <TaskDealEditor values={values} onChange={onValuesChange} disabled={disabled} saved={saved} newDeal={newDeal} onNewDealApplied={() => setNewDeal(undefined)} createdDeals={createdDeals}

@@ -307,23 +307,45 @@ it.each(['page', 'panel'])('hides native and Account Industry in Deal Details wh
 it.each((['leads', 'contacts', 'accounts'] as const).flatMap(module =>
   (module === 'accounts' ? ['Account Name'] : ['First Name', 'Last Name']).flatMap(label =>
     ['panel', 'page'].map(surface => ({ module, label, surface }))))
-)('requires and trims $module $label in the $surface', async ({ module, label, surface }) => {
+)('validates length, requires and trims $module $label in the $surface', async ({ module, label, surface }) => {
   mocks.put.mockResolvedValue({ success: true });
   render(surface === 'panel' ? <CrmRecordPanel module={module} id="one" open onOpenChange={() => {}} /> : <CrmRecordView module={module} id="one" />);
   await screen.findByRole('heading', { level: 1 });
   fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
   expect(screen.getByText(label).textContent).toContain('*');
   fireEvent.click(screen.getByRole('button', { name: `Edit ${label}` }));
-  const input = screen.getByRole('textbox', { name: label });
+  let input = screen.getByRole('textbox', { name: label });
   expect(input.getAttribute('aria-required')).toBe('true');
-  expect(input.getAttribute('maxlength')).toBe(module === 'accounts' ? '255' : '100');
+  expect(input.getAttribute('maxlength')).toBeNull();
+  const limit = module === 'accounts' ? 255 : 100;
+  const field = module === 'accounts' ? 'name' : label === 'First Name' ? 'firstName' : 'lastName';
+  const messageLabel = module === 'accounts' ? 'Company name' : label === 'First Name' ? 'First name' : 'Last name';
+  const lengthError = `${messageLabel} must not exceed ${limit} characters.`;
+  fireEvent.change(input, { target: { value: 'A'.repeat(limit + 1) } });
+  expect(input).toHaveProperty('value', 'A'.repeat(limit + 1));
+  expect(screen.getByText(lengthError)).toBeTruthy();
+  expect(input.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent).toBe(lengthError);
+  expect(input.className).toContain('border-red-500');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(mocks.put).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: 'A'.repeat(limit) } });
+  expect(screen.queryByText(lengthError)).toBeNull();
+  expect(input.getAttribute('aria-invalid')).toBe('false');
+  expect(input.getAttribute('aria-describedby')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith(`/crm/${module}/one`, { [field]: 'A'.repeat(limit) }));
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: label })).toBeNull());
+  mocks.put.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: `Edit ${label}` }));
+  input = screen.getByRole('textbox', { name: label });
   fireEvent.change(input, { target: { value: '   ' } });
   fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
-  expect(await screen.findByText(`${label} is required`)).toBeTruthy();
+  expect(await screen.findByText(`${module === 'accounts' ? label : messageLabel} is required`)).toBeTruthy();
   expect(mocks.put).not.toHaveBeenCalled();
   fireEvent.change(input, { target: { value: '  Trimmed  ' } });
   fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith(`/crm/${module}/one`, { [module === 'accounts' ? 'name' : label === 'First Name' ? 'firstName' : 'lastName']: 'Trimmed' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith(`/crm/${module}/one`, { [field]: 'Trimmed' }));
 });
 
 afterEach(cleanup);

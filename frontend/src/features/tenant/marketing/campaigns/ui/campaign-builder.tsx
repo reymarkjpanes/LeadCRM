@@ -4,10 +4,10 @@ import { cn } from '@/lib/utils';
 import { SmsFooterControl } from '@/shared/components/sms-footer-control';
 import { insertVariableAtSelection } from '@/shared/utils/insert-variable';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { NAVIGATION_INTENT_EVENT, requestNavigation, type NavigationAction, type NavigationIntentEvent } from '@/shared/lib/navigation-intent';
-import { CampaignDraftSchema, CampaignScheduleSchema, CampaignSendSchema, campaignApprovedVariableKeys, campaignVariableChoices, campaignVariableKeys, renderEmailVariables, buildFinalSms, smsMessageStats, SMS_MAX_LENGTH, type SavedAudience, type CampaignEmailSettings, type CampaignSmsSettings } from '@leadcrm/shared';
+import { CampaignDraftSchema, CampaignBodySchema, CAMPAIGN_NAME_MAX_LENGTH, CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH, CAMPAIGN_EMAIL_BODY_MAX_LENGTH, maxLengthMessage, CampaignScheduleSchema, CampaignSendSchema, campaignApprovedVariableKeys, campaignVariableChoices, campaignVariableKeys, renderEmailVariables, buildFinalSms, smsMessageStats, SMS_MAX_LENGTH, type SavedAudience, type CampaignEmailSettings, type CampaignSmsSettings } from '@leadcrm/shared';
 import { CampaignVariablePicker, useCampaignVariableFields, campaignSampleValues } from './campaign-variable-picker';
 import { SmsMessageContent } from './sms-message-content';
 import { useCachedPage } from '@/shared/hooks/use-cached-page';
@@ -136,6 +136,16 @@ export function CampaignBuilder({
   const setMessageContent = (value: string) => setMessageBodies(previous => ({ ...previous, [campaignType]: value }));
   const [emailSubject, setEmailSubject] = useState(initialCampaign?.subject || initialSubject || '');
   const draftSnapshot = JSON.stringify({ campaignName, campaignType, targetAudience, emailSubject, messageBodies });
+  const preparedEmailBody = useMemo(() => campaignType === 'Email' ? prepareCampaignBody(messageContent) : undefined, [campaignType, messageContent]);
+  const historicalName = initialCampaign && campaignName === initialCampaign.name;
+  const historicalSubject = initialCampaign && emailSubject === (initialCampaign.subject || '');
+  const historicalBody = initialCampaign?.type === 'Email' && messageContent === (initialCampaign.body || '');
+  const campaignNameLengthError = campaignName.trim().length > CAMPAIGN_NAME_MAX_LENGTH
+    ? maxLengthMessage('Campaign name', CAMPAIGN_NAME_MAX_LENGTH) : undefined;
+  const subjectLengthError = campaignType === 'Email' && emailSubject.length > CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH
+    ? maxLengthMessage('Email subject', CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH) : undefined;
+  const bodyLengthError = preparedEmailBody !== undefined && (messageContent.length > CAMPAIGN_EMAIL_BODY_MAX_LENGTH || !CampaignBodySchema.safeParse(preparedEmailBody).success)
+    ? maxLengthMessage('Email body', CAMPAIGN_EMAIL_BODY_MAX_LENGTH) : undefined;
   const [savedSnapshot, setSavedSnapshot] = useState(draftSnapshot);
   const dirty = draftSnapshot !== savedSnapshot;
   const [exit, setExit] = useState<NavigationAction | null>(null);
@@ -325,6 +335,12 @@ export function CampaignBuilder({
   async function save(intent: SaveIntent, scheduleValue?: string, confirmed = false) {
     const send = intent !== 'draft';
     if (requestLock.current || (send ? !maySend : !canWrite)) return;
+    if ((send || !historicalName) && campaignNameLengthError ||
+        (send || !historicalSubject) && subjectLengthError ||
+        (send || !historicalBody) && bodyLengthError) {
+      setErrors({ name: campaignNameLengthError || '', subject: subjectLengthError || '', body: bodyLengthError || '' });
+      return;
+    }
     if (send && initialCampaign && initialCampaign.status.toLowerCase() !== 'draft') return;
     if (intent === 'schedule') {
       try { campaignScheduleInstant(scheduleValue || ''); }
@@ -332,9 +348,16 @@ export function CampaignBuilder({
       setScheduledTime(scheduleValue!);
     }
     const source = ['LEADS', 'CONTACTS'].includes(targetAudience) ? targetAudience : null;
-    const input = { name: campaignName, type: toApiType(campaignType), subject: campaignType === 'Email' ? emailSubject : '', body: campaignType === 'Email' ? prepareCampaignBody(messageContent) : messageContent,
+    const input = { name: campaignName, type: toApiType(campaignType), subject: campaignType === 'Email' ? emailSubject : '', body: preparedEmailBody ?? messageContent,
       audienceSource: source, targetAudienceId: source ? null : targetAudience || null };
-    const parsed = (send ? CampaignSendSchema : CampaignDraftSchema).safeParse(input);
+    const draftUpdate = savedId && !send;
+    const partialInput = { ...input,
+      ...(historicalName && campaignNameLengthError ? { name: undefined } : {}),
+      ...(historicalSubject && subjectLengthError ? { subject: undefined } : {}),
+      ...(historicalBody && bodyLengthError ? { body: undefined } : {}),
+    };
+    const parsed = send ? CampaignSendSchema.safeParse(input)
+      : draftUpdate ? CampaignDraftSchema.partial().safeParse(partialInput) : CampaignDraftSchema.safeParse(input);
     if (!parsed.success) {
       const next: Record<string, string> = {};
       for (const issue of parsed.error.issues) next[String(issue.path[0])] ??= issue.message;
@@ -552,8 +575,8 @@ export function CampaignBuilder({
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Campaign Details</h3>
             <div>
               <label htmlFor="builder-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Campaign Name <span className="text-red-500">*</span></label>
-              <Input id="builder-name" value={campaignName} onChange={(e) => setCampaignName(e.target.value)} className={`${inputCls} `} placeholder="e.g. Q3 Newsletter" />
-              <FieldError message={errors.name} />
+              <Input id="builder-name" value={campaignName} aria-invalid={!!((!historicalName && campaignNameLengthError) || errors.name)} aria-describedby={(!historicalName && campaignNameLengthError) || errors.name ? "builder-name-error" : undefined} onChange={e => { setCampaignName(e.target.value); setErrors(prev => ({ ...prev, name: '' })); }} className={`${inputCls} `} placeholder="e.g. Q3 Newsletter" />
+              <FieldError id="builder-name-error" message={(!historicalName && campaignNameLengthError) || errors.name} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -617,13 +640,13 @@ export function CampaignBuilder({
                 {campaignType === 'Email' && (
                   <div className="mb-3">
                     <label htmlFor="builder-subject" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Subject Line <span className="text-red-500">*</span></label>
-                    <Input ref={subjectRef} onFocus={() => { activeField.current = 'subject'; }} id="builder-subject" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full h-9 rounded-md border px-3 text-sm transition-colors" placeholder="e.g. Welcome to LeadCRM, {{firstName}}!" />
-                    <FieldError message={errors.subject} />
+                    <Input ref={subjectRef} onFocus={() => { activeField.current = 'subject'; }} id="builder-subject" value={emailSubject} aria-invalid={!!((!historicalSubject && subjectLengthError) || errors.subject)} aria-describedby={(!historicalSubject && subjectLengthError) || errors.subject ? "builder-subject-error" : undefined} onChange={e => { setEmailSubject(e.target.value); setErrors(prev => ({ ...prev, subject: '' })); }} className="w-full h-9 rounded-md border px-3 text-sm transition-colors" placeholder="e.g. Welcome to LeadCRM, {{firstName}}!" />
+                    <FieldError id="builder-subject-error" message={(!historicalSubject && subjectLengthError) || errors.subject} />
                   </div>
                 )}
                 <label htmlFor="builder-body" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Body <span className="text-red-500">*</span></label>
-                <Textarea ref={bodyRef} onFocus={() => { activeField.current = 'body'; }} id="builder-body" rows={campaignType === 'Email' ? 8 : 10} className="w-full rounded-lg border px-4 py-3 text-sm transition-all duration-200 resize-none leading-relaxed" placeholder={campaignType === 'SMS' ? 'Hi {{firstName}}, ...' : 'Hi {{firstName}},\n\nYour message here...'} value={messageContent} onChange={(e) => setMessageContent(e.target.value)} />
-                <FieldError message={errors.body || (campaignType === 'SMS' ? smsPreviewError : '')} />
+                <Textarea ref={bodyRef} onFocus={() => { activeField.current = 'body'; }} id="builder-body" rows={campaignType === 'Email' ? 8 : 10} className="w-full rounded-lg border px-4 py-3 text-sm transition-all duration-200 resize-none leading-relaxed" placeholder={campaignType === 'SMS' ? 'Hi {{firstName}}, ...' : 'Hi {{firstName}},\n\nYour message here...'} value={messageContent} aria-invalid={!!((!historicalBody && bodyLengthError) || errors.body || (campaignType === 'SMS' && smsPreviewError))} aria-describedby={(!historicalBody && bodyLengthError) || errors.body || (campaignType === 'SMS' && smsPreviewError) ? "builder-body-error" : undefined} onChange={e => { setMessageContent(e.target.value); setErrors(prev => ({ ...prev, body: '' })); }} />
+                <FieldError id="builder-body-error" message={(!historicalBody && bodyLengthError) || errors.body || (campaignType === 'SMS' ? smsPreviewError : '')} />
                 {campaignType === 'SMS' && <SmsFooterControl value={messageContent} onChange={setMessageContent} />}
                 {campaignType === 'SMS' && (
                   <div className="flex flex-col gap-1 mt-2 text-xs text-slate-500 dark:text-slate-400">

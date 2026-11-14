@@ -87,7 +87,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
       for (const value of ['John123', 'John@', 'John1@']) {
         const response = await call(`/crm/${module}`, 'POST', { ...input, [field]: value });
         expect(response.status, JSON.stringify(response.body)).toBe(400);
-        expect(JSON.stringify(response.body)).toContain(value.includes('1') ? 'must not contain numbers.' : 'must not contain special characters.');
+        expect(JSON.stringify(response.body)).toContain(`${field === 'firstName' ? 'First name' : 'Last name'} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`);
       }
     }
     const created = await call(`/crm/${module}`, 'POST', input);
@@ -96,7 +96,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     for (const field of ['firstName', 'lastName']) {
       const response = await call(`/crm/${module}/${id}`, 'PUT', { [field]: 'John@123' });
       expect(response.status).toBe(400);
-      expect(JSON.stringify(response.body)).toContain('must not contain numbers.');
+      expect(JSON.stringify(response.body)).toContain(`${field === 'firstName' ? 'First name' : 'Last name'} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`);
     }
     const legacy = { firstName: 'Legacy@1', lastName: 'Smith#' };
     if (module === 'leads') await prisma.lead.update({ where: { id }, data: legacy });

@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+import { CampaignBodySchema } from '@leadcrm/shared';
 import { creatorWhere } from '../../crm/access/record-visibility';
 import { randomUUID } from 'node:crypto';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
@@ -186,25 +188,37 @@ async function smsReviewCampaignIds(tenantId: string, campaignIds: string[]) {
 function campaignSendResult(campaign: { id: string; recipientCount: number; sentCount: number; failedCount: number; status: CampaignStatus; submissionFinishedAt: Date | null; submissionInterruptedAt?: Date | null }): CampaignSendResult {
   return { campaignId: campaign.id, eligibleRecipients: campaign.recipientCount, submittedRecipients: campaign.sentCount, failedRecipients: campaign.failedCount, status: campaign.status, submissionComplete: !!campaign.submissionFinishedAt, ...(campaign.submissionInterruptedAt ? { submissionInterrupted: true } : {}) };
 }
-async function validateReferences(tenantId: string, dto: ReturnType<typeof CampaignDraftSchema.parse>) {
+async function validateReferences(tenantId: string, dto: Pick<ReturnType<typeof CampaignDraftSchema.parse>, 'targetAudienceId' | 'emailTemplateId' | 'smsTemplateId' | 'audienceSource'>) {
   if (dto.targetAudienceId) await audienceDefinition(tenantId, dto.targetAudienceId);
   for (const [id, type] of [[dto.emailTemplateId, 'Email'], [dto.smsTemplateId, 'SMS']] as const) {
     if (id && !await prisma.template.findFirst({ where: { ...campaignScope(tenantId), id, type, isArchived: false } })) throw new AppError('Template not found.', 404);
   }
   if (dto.targetAudienceId && dto.audienceSource) throw new AppError('Select a saved audience or a source, not both.', 400);
 }
+function prepareCampaignDraftBody(body: string | undefined, type: string): string | undefined {
+  if (body === undefined || type === 'SMS') return body;
+  const result = CampaignBodySchema.safeParse(prepareCampaignHtml(body));
+  if (!result.success) throw new ZodError(result.error.issues.map(issue => ({ ...issue, path: ['body'] })));
+  return result.data;
+}
 export async function createCampaign(tenantId: string, userId: string, input: unknown) {
   const dto = CreateCampaignDraftSchema.parse(input);
   await validateReferences(tenantId, dto);
-  const campaign = await prisma.campaign.create({ data: { ...dto, body: dto.body === undefined ? undefined : dto.type === 'SMS' ? dto.body : prepareCampaignHtml(dto.body), ...campaignScope(tenantId), createdById: userId } });
+  const campaign = await prisma.campaign.create({ data: { ...dto, body: prepareCampaignDraftBody(dto.body, dto.type), ...campaignScope(tenantId), createdById: userId } });
   await writeAuditLog({ tenantId, userId, action: 'campaign.created', entityType: 'Campaign', entityId: campaign.id });
   return campaign;
 }
 export async function updateCampaign(id: string, tenantId: string, userId: string, input: unknown) {
   const dto = CampaignDraftSchema.partial().parse(input);
   const existing = await getCampaignById(id, tenantId);
-  await validateReferences(tenantId, CampaignDraftSchema.parse({ name: existing.name, type: existing.type, audienceSource: existing.audienceSource, targetAudienceId: existing.targetAudienceId, emailTemplateId: existing.emailTemplateId, smsTemplateId: existing.smsTemplateId, ...dto }));
-  const changed = await prisma.campaign.updateMany({ where: { id, ...await creatorWhere(tenantId), status: 'DRAFT', isArchived: false }, data: { ...dto, body: dto.body === undefined ? undefined : (dto.type ?? existing.type) === 'SMS' ? dto.body : prepareCampaignHtml(dto.body) } });
+  const references = CampaignDraftSchema.pick({ audienceSource: true, targetAudienceId: true, emailTemplateId: true, smsTemplateId: true });
+  await validateReferences(tenantId, references.parse({
+    audienceSource: dto.audienceSource !== undefined ? dto.audienceSource : existing.audienceSource,
+    targetAudienceId: dto.targetAudienceId !== undefined ? dto.targetAudienceId : existing.targetAudienceId,
+    emailTemplateId: dto.emailTemplateId !== undefined ? dto.emailTemplateId : existing.emailTemplateId,
+    smsTemplateId: dto.smsTemplateId !== undefined ? dto.smsTemplateId : existing.smsTemplateId,
+  }));
+  const changed = await prisma.campaign.updateMany({ where: { id, ...await creatorWhere(tenantId), status: 'DRAFT', isArchived: false }, data: { ...dto, body: prepareCampaignDraftBody(dto.body, dto.type ?? existing.type) } });
   if (!changed.count) throw new AppError('Only draft campaigns can be edited.', 409);
   await writeAuditLog({ tenantId, userId, action: 'campaign.updated', entityType: 'Campaign', entityId: id });
   return getCampaignById(id, tenantId);

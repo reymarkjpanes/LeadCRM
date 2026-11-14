@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MarketingTemplateSchema = exports.CampaignSendSchema = exports.CreateCampaignDraftSchema = exports.CampaignDraftSchema = exports.SMS_DEFAULT_FOOTER = exports.SMS_MAX_LENGTH = exports.CampaignScheduleConfigSchema = exports.CampaignScheduleSchema = exports.CreateAudienceSchema = exports.AudiencePreviewRequestSchema = exports.AudiencePreviewSchema = exports.AudienceConditionSchema = exports.AUDIENCE_OPERATORS = exports.AUDIENCE_FIELDS = exports.AudienceMatchModeSchema = exports.AudienceSourceSchema = exports.EmailSubjectSchema = exports.MarketingNameSchema = exports.EMAIL_VARIABLE_TOKENS = exports.EMAIL_VARIABLES = void 0;
+exports.MarketingTemplateSchema = exports.CampaignSendSchema = exports.CreateCampaignDraftSchema = exports.CampaignDraftSchema = exports.SMS_DEFAULT_FOOTER = exports.SMS_MAX_LENGTH = exports.CampaignScheduleConfigSchema = exports.CampaignScheduleSchema = exports.CreateAudienceSchema = exports.AudiencePreviewRequestSchema = exports.AudiencePreviewSchema = exports.AudienceConditionSchema = exports.AUDIENCE_OPERATORS = exports.AUDIENCE_FIELDS = exports.AudienceMatchModeSchema = exports.AudienceSourceSchema = exports.EmailSubjectSchema = exports.MarketingNameSchema = exports.CampaignBodySchema = exports.CAMPAIGN_EMAIL_BODY_MAX_LENGTH = exports.CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH = exports.CAMPAIGN_NAME_MAX_LENGTH = exports.EMAIL_VARIABLE_TOKENS = exports.EMAIL_VARIABLES = void 0;
 exports.escapeEmailHtml = escapeEmailHtml;
 exports.renderEmailVariables = renderEmailVariables;
 exports.campaignVariableKeys = campaignVariableKeys;
@@ -9,6 +9,7 @@ exports.insertDefaultSmsFooter = insertDefaultSmsFooter;
 exports.buildFinalSms = buildFinalSms;
 exports.smsMessageStats = smsMessageStats;
 const zod_1 = require("zod");
+const text_length_1 = require("../validation/text-length");
 const lead_created_contract_1 = require("./lead-created.contract");
 const quotation_contract_1 = require("./quotation.contract");
 exports.EMAIL_VARIABLES = ['first_name', 'last_name', 'company_name', 'contact_number', 'status', 'sender_name', 'sender_email'];
@@ -24,10 +25,17 @@ function renderEmailVariables(text, values, html = false, preserveUnresolved = f
         return html ? escapeEmailHtml(value) : value.replace(/[\x00-\x1f\x7f]/g, ' ');
     });
 }
-exports.MarketingNameSchema = zod_1.z.string().trim().min(1, 'Name is required.').max(150).regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
+exports.CAMPAIGN_NAME_MAX_LENGTH = 150;
+exports.CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH = 200;
+exports.CAMPAIGN_EMAIL_BODY_MAX_LENGTH = 50000;
+exports.CampaignBodySchema = zod_1.z.string().max(exports.CAMPAIGN_EMAIL_BODY_MAX_LENGTH, (0, text_length_1.maxLengthMessage)('Email body', exports.CAMPAIGN_EMAIL_BODY_MAX_LENGTH));
+const marketingName = zod_1.z.string().trim().min(1, 'Name is required.');
+const singleLineMarketingName = (message) => marketingName.max(exports.CAMPAIGN_NAME_MAX_LENGTH, message)
+    .regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.');
+exports.MarketingNameSchema = singleLineMarketingName();
 const currentCompanyVariable = (text) => !campaignVariableKeys(text).includes('company');
 const companyVariableMessage = 'Use {{companyName}} instead of {{company}}.';
-exports.EmailSubjectSchema = zod_1.z.string().max(200).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
+exports.EmailSubjectSchema = zod_1.z.string().max(exports.CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH, (0, text_length_1.maxLengthMessage)('Email subject', exports.CAMPAIGN_EMAIL_SUBJECT_MAX_LENGTH)).regex(/^[^\x00-\x1f\x7f]*$/, 'Subject must not contain line breaks or control characters.').transform(s => s.trim()).refine(currentCompanyVariable, companyVariableMessage);
 /** ALL remains a historical read value only. New operations choose one source. */
 exports.AudienceSourceSchema = zod_1.z.enum(['LEADS', 'CONTACTS']);
 exports.AudienceMatchModeSchema = zod_1.z.enum(['AND', 'OR']);
@@ -92,8 +100,8 @@ function smsMessageStats(message) {
     return { characters: [...message].length, encoding: 'GSM-7', segments: units <= 160 ? 1 : Math.ceil(units / 153) };
 }
 exports.CampaignDraftSchema = zod_1.z.object({
-    name: exports.MarketingNameSchema, type: zod_1.z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
-    subject: exports.EmailSubjectSchema.optional(), body: zod_1.z.string().max(50000).refine(currentCompanyVariable, companyVariableMessage).optional(),
+    name: singleLineMarketingName((0, text_length_1.maxLengthMessage)('Campaign name', exports.CAMPAIGN_NAME_MAX_LENGTH)), type: zod_1.z.enum(['EMAIL', 'SMS', 'MULTI_CHANNEL']),
+    subject: exports.EmailSubjectSchema.optional(), body: exports.CampaignBodySchema.refine(currentCompanyVariable, companyVariableMessage).optional(),
     audienceSource: exports.AudienceSourceSchema.optional().nullable(), targetAudienceId: zod_1.z.string().uuid().optional().nullable(),
     emailTemplateId: zod_1.z.string().uuid().optional().nullable(), smsTemplateId: zod_1.z.string().uuid().optional().nullable(),
 }).strict();

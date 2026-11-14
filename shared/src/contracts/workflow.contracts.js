@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WorkflowRevisionTokenSchema = exports.WorkflowRevisionWriteSchema = exports.WorkflowTestInputSchema = exports.WORKFLOW_OUTCOME_STATUSES = exports.WorkflowExecutionViewSchema = exports.WorkflowValidationSchema = exports.WorkflowDraftSchema = exports.WorkflowAssignmentTargetSchema = exports.WorkflowCapacitySchema = exports.WorkflowAvailabilitySchema = exports.WorkflowAssignmentStrategySchema = exports.WORKFLOW_ASSIGNMENT_METHODS = exports.WorkflowTaskAssociationSchema = exports.WorkflowActionSchema = exports.WorkflowConditionSchema = exports.WorkflowConditionRuleSchema = exports.WorkflowConditionOperatorSchema = void 0;
+exports.WorkflowRevisionTokenSchema = exports.WorkflowRevisionWriteSchema = exports.WorkflowTestInputSchema = exports.WORKFLOW_OUTCOME_STATUSES = exports.WorkflowExecutionViewSchema = exports.WorkflowValidationSchema = exports.StoredWorkflowDraftSchema = exports.WorkflowDraftSchema = exports.WorkflowDescriptionSchema = exports.WORKFLOW_DESCRIPTION_MAX_ERROR = exports.WORKFLOW_DESCRIPTION_MAX_LENGTH = exports.WORKFLOW_NAME_MAX_LENGTH = exports.WorkflowAssignmentTargetSchema = exports.WorkflowCapacitySchema = exports.WorkflowAvailabilitySchema = exports.WorkflowAssignmentStrategySchema = exports.WORKFLOW_ASSIGNMENT_METHODS = exports.WorkflowTaskAssociationSchema = exports.WorkflowActionSchema = exports.WorkflowConditionSchema = exports.WorkflowConditionRuleSchema = exports.WorkflowConditionOperatorSchema = void 0;
 exports.missingWorkflowConditionValues = missingWorkflowConditionValues;
 exports.workflowLossReason = workflowLossReason;
 exports.workflowLossReasonIssue = workflowLossReasonIssue;
@@ -10,6 +10,7 @@ exports.normalizeSavedWorkflowAssignment = normalizeSavedWorkflowAssignment;
 exports.workflowOperators = workflowOperators;
 exports.workflowRunOutcome = workflowRunOutcome;
 exports.workflowStateAction = workflowStateAction;
+const text_length_1 = require("../validation/text-length");
 const zod_1 = require("zod");
 const condition_operators_1 = require("./condition-operators");
 exports.WorkflowConditionOperatorSchema = zod_1.z.enum([
@@ -132,15 +133,22 @@ function normalizeSavedWorkflowAssignment(action) {
     const { sticky: _retired, ...pool } = target;
     return { ...normalized, config: { ...normalized.config, assignmentTarget: { ...pool, strategy: 'round_robin' } } };
 }
+exports.WORKFLOW_NAME_MAX_LENGTH = 255;
+exports.WORKFLOW_DESCRIPTION_MAX_LENGTH = 1000;
+exports.WORKFLOW_DESCRIPTION_MAX_ERROR = (0, text_length_1.maxLengthMessage)('Workflow description', exports.WORKFLOW_DESCRIPTION_MAX_LENGTH);
+const workflowDescription = (limit, message) => zod_1.z.string().max(limit, message).refine(value => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value), 'Control characters are not allowed.')
+    .transform(value => value.length > exports.WORKFLOW_DESCRIPTION_MAX_LENGTH ? value : value.trim()).nullable().optional();
+exports.WorkflowDescriptionSchema = workflowDescription(exports.WORKFLOW_DESCRIPTION_MAX_LENGTH, exports.WORKFLOW_DESCRIPTION_MAX_ERROR);
 exports.WorkflowDraftSchema = zod_1.z.object({
-    name: zod_1.z.string().regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.').trim().min(1, 'Workflow name is required.').max(255),
-    description: zod_1.z.string().max(2000).refine(value => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value), 'Control characters are not allowed.').transform(value => value.trim()).nullable().optional(),
+    name: zod_1.z.string().regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.').trim().min(1, 'Workflow name is required.').max(exports.WORKFLOW_NAME_MAX_LENGTH, (0, text_length_1.maxLengthMessage)('Workflow name', exports.WORKFLOW_NAME_MAX_LENGTH)),
+    description: exports.WorkflowDescriptionSchema,
     trigger: zod_1.z.string().min(1, 'Choose a trigger.'),
     conditions: exports.WorkflowConditionSchema.nullable().optional(),
     actions: zod_1.z.array(exports.WorkflowActionSchema).max(20),
     isActive: zod_1.z.boolean().default(false),
 }).strict();
-exports.WorkflowValidationSchema = exports.WorkflowDraftSchema.extend({ workflowId: zod_1.z.string().uuid().optional() });
+exports.StoredWorkflowDraftSchema = exports.WorkflowDraftSchema.extend({ description: workflowDescription(2000) });
+exports.WorkflowValidationSchema = exports.StoredWorkflowDraftSchema.extend({ workflowId: zod_1.z.string().uuid().optional() });
 function workflowOperators(type) {
     const keys = { gt: 'greater_than', gte: 'greater_than_or_equal', lt: 'less_than', lte: 'less_than_or_equal' };
     return (0, condition_operators_1.conditionOperators)('workflow', (0, condition_operators_1.conditionFieldKind)(type)).map(key => keys[key] ?? key);
@@ -154,7 +162,7 @@ function workflowRunOutcome(status) {
     return status === 'completed' || status === 'failed' || status === 'skipped' ? status : null;
 }
 exports.WorkflowTestInputSchema = zod_1.z.object({ entityId: zod_1.z.string().uuid(), stageHistoryId: zod_1.z.string().uuid().optional(), useDraft: zod_1.z.boolean().optional() }).strict();
-exports.WorkflowRevisionWriteSchema = zod_1.z.object({ draft: exports.WorkflowDraftSchema, expectedDraftRevision: zod_1.z.number().int().min(0), expectedVersion: zod_1.z.number().int().min(1) }).strict();
+exports.WorkflowRevisionWriteSchema = zod_1.z.object({ draft: exports.StoredWorkflowDraftSchema, expectedDraftRevision: zod_1.z.number().int().min(0), expectedVersion: zod_1.z.number().int().min(1) }).strict();
 exports.WorkflowRevisionTokenSchema = exports.WorkflowRevisionWriteSchema.omit({ draft: true });
 /** Initial activation and controlling a published workflow are separate grants. */
 function workflowStateAction(workflow, isActive) {

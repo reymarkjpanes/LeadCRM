@@ -12,19 +12,11 @@ exports.LeadNameSchema = (0, administration_user_schema_1.cleanText)(100).pipe(z
 exports.LeadPhoneSchema = zod_1.z.union([zod_1.z.literal(''), administration_user_schema_1.AdministrationPhoneSchema]);
 exports.OptionalLeadSourceSchema = zod_1.z.union([zod_1.z.literal(''), record_experience_1.LeadSourceSchema]);
 const fields = {
-    firstName: zod_1.z.string().superRefine((value, ctx) => {
-        const error = (0, profile_contract_1.getNameDigitError)('firstName', value);
-        if (error)
-            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe(exports.LeadNameSchema),
-    lastName: zod_1.z.string().superRefine((value, ctx) => {
-        const error = (0, profile_contract_1.getNameDigitError)('lastName', value);
-        if (error)
-            ctx.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe(exports.LeadNameSchema),
+    firstName: (0, profile_contract_1.personNameSchema)('firstName', 'Name is required'),
+    lastName: (0, profile_contract_1.personNameSchema)('lastName', 'Name is required'),
     email: crm_email_1.CrmEmailSchema,
     phone: exports.LeadPhoneSchema.optional(),
-    companyName: (0, administration_user_schema_1.cleanText)(2000).optional(),
+    companyName: organization_1.CrmCompanyNameSchema.optional(),
     status: record_experience_1.LeadStatusSchema,
     source: exports.OptionalLeadSourceSchema.optional(),
     sourceDetail: (0, administration_user_schema_1.cleanText)(200).optional(),
@@ -32,7 +24,7 @@ const fields = {
     newAccount: organization_1.NewAccountSchema.optional(),
     assignedUserId: zod_1.z.string().uuid().nullable().optional(),
     productInterest: zod_1.z.array(zod_1.z.string().uuid()).max(100).optional(),
-    address: zod_1.z.string().refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.').transform(value => value.trim()).pipe(zod_1.z.string().max(2000)).optional(),
+    address: organization_1.CrmAddressSchema.optional(),
     customFieldValues: closing_requirements_1.CustomFieldValuesSchema.optional(),
 };
 /** The manual Lead API accepts only the final form fields and a retry receipt. */
@@ -47,7 +39,7 @@ exports.UpdateLeadSchema = exports.LeadFieldsSchema.partial().extend({ expectedU
 /** New Account details use the same contract as standalone and linked creation. */
 exports.ConvertLeadSchema = zod_1.z.object({
     accountId: zod_1.z.string().uuid().optional(),
-    accountName: zod_1.z.string().trim().min(1).max(2000).optional(),
+    accountName: zod_1.z.string().trim().min(1).max(organization_1.COMPANY_NAME_MAX_LENGTH, organization_1.COMPANY_NAME_MAX_ERROR).optional(),
     newAccount: organization_1.NewAccountSchema.optional(),
     skipAccountCreation: zod_1.z.boolean().optional(),
     createContact: zod_1.z.literal(true).default(true),

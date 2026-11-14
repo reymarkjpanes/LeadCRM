@@ -68,6 +68,29 @@ function unloadPrevented() {
   return event.defaultPrevented;
 }
 const existingDraft = { id: 'saved-id', name: 'Saved campaign', type: 'Email', status: 'Draft', subject: 'Saved subject', body: 'Saved body', audienceSource: 'LEADS' };
+it('shows accessible email campaign length errors and saves the maximum valid draft', async () => {
+  render(<CampaignBuilder onBack={vi.fn()} />);
+  for (const [label, field, limit] of [
+    [/Campaign Name/, 'Campaign name', 150], [/Subject Line/, 'Email subject', 200], [/^Body/, 'Email body', 50000],
+  ] as const) {
+    const input = screen.getByLabelText(label);
+    const over = 'A'.repeat(limit + 1);
+    fireEvent.change(input, { target: { value: over } });
+    expect(input).toHaveProperty('value', over);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent)
+      .toBe(field + ' must not exceed ' + limit + ' characters.');
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }));
+    expect(campaignsApi.create).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: over.slice(1) } });
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }));
+  await waitFor(() => expect(campaignsApi.create).toHaveBeenCalledWith(expect.objectContaining({
+    name: 'A'.repeat(150), subject: 'A'.repeat(200), body: 'A'.repeat(50000),
+  })));
+});
+
 describe('custom audience deletion', () => {
   async function openDelete() {
     await waitFor(() => expect(audiencesApi.list).toHaveBeenCalled());

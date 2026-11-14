@@ -1,4 +1,4 @@
-import { MAX_ACTIVE_PRODUCTS, ProductCategoryNameSchema, ProductInterestIdSchema, type ProductCategoryMutation, type ProductInterest, type ProductWonDeal } from '@leadcrm/shared';
+import { MAX_ACTIVE_PRODUCTS, StoredProductCategoryNameSchema, ProductInterestIdSchema, type ProductCategoryMutation, type ProductInterest, type ProductWonDeal } from '@leadcrm/shared';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { tenantContext } from '../../../core/tenant/tenant-context';
@@ -12,7 +12,7 @@ const categoryIdentity = (name: string) => name.trim().toLowerCase();
 export async function productCategories(tx: Prisma.TransactionClient, tenantId: string, { readOnly = false } = {}): Promise<string[]> {
   const key = categoryKey(tenantId);
   const saved = await tx.tenantPreference.findUnique({ where: { tenantId_module_key: key } });
-  if (saved) return z.array(ProductCategoryNameSchema).parse(saved.value);
+  if (saved) return z.array(StoredProductCategoryNameSchema).parse(saved.value);
   // Bootstrap once from assignments, including archived Products. An empty saved
   // list remains authoritative so deleted categories cannot reappear.
   const rows = await tx.productInterest.findMany({ where: { tenantId, category: { not: '' } }, select: { category: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
@@ -22,7 +22,7 @@ export async function productCategories(tx: Prisma.TransactionClient, tenantId: 
 }
 
 export async function resolveProductCategory(tx: Prisma.TransactionClient, tenantId: string, name: string) {
-  const parsed = ProductCategoryNameSchema.parse(name);
+  const parsed = StoredProductCategoryNameSchema.parse(name);
   const category = (await productCategories(tx, tenantId)).find(value => categoryIdentity(value) === categoryIdentity(parsed));
   if (!category) throw new AppError('Select an available Product Category.', 400);
   return category;

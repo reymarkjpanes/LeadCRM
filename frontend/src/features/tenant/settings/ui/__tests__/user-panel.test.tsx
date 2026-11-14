@@ -10,6 +10,10 @@ vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error:
 vi.mock('@/shared/services/groups.api', () => ({ groupsApi: { getAll: mocks.getGroups } }));
 import { UserPanel } from '../user-panel';
 import type { User } from '@/store/types';
+
+const invalidName = 'must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().';
+const firstNameError = `First name ${invalidName}`;
+const lastNameError = `Last name ${invalidName}`;
 const user: User = { id: 'u', tenantId: 't', firstName: 'Juan', lastName: 'Dela Cruz', email: 'juan@camxian.com', role: 'Sales', status: 'active', phone: '+639171234567', jobTitle: 'Agent' };
 const roles = [{ id: 'r', name: 'Sales' }];
 const renderPanel = (saved?: User, props: Partial<React.ComponentProps<typeof UserPanel>> = {}) => { const onSaved = vi.fn(), onClose = vi.fn(); const view = render(<UserPanel user={saved} roles={roles} canEdit onSaved={onSaved} onClose={onClose} {...props} />); return { onSaved, onClose, ...view }; };
@@ -30,10 +34,10 @@ it('checks both new user names as they change and blocks creation until correcte
   renderPanel();
   fillNewUser();
   change('First Name', 'John123');
-  const firstError = screen.getByText('First name must not contain numbers.');
+  const firstError = screen.getByText(firstNameError);
   expect(screen.getByLabelText('First Name', { exact: false }).getAttribute('aria-describedby')).toBe(firstError.id);
   change('Last Name', '123');
-  const lastError = screen.getByText('Last name must not contain numbers.');
+  const lastError = screen.getByText(lastNameError);
   const create = screen.getByRole('button', { name: 'Create User' });
   fireEvent.click(create);
   expect(mocks.create).not.toHaveBeenCalled();
@@ -46,13 +50,13 @@ it('checks both new user names as they change and blocks creation until correcte
   change('Last Name', 'O’Connor');
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
   change('First Name', 'John@'); change('Last Name', 'Smith_');
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
-  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
+  expect(screen.getByText(lastNameError)).toBeTruthy();
   fireEvent.click(create);
   expect(mocks.create).not.toHaveBeenCalled();
   change('First Name', 'María'); change('Last Name', 'O’Connor');
-  expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
-  expect(screen.queryByText('Last name must not contain special characters.')).toBeNull();
+  expect(screen.queryByText(firstNameError)).toBeNull();
+  expect(screen.queryByText(lastNameError)).toBeNull();
   fireEvent.click(create);
   await waitFor(() => expect(mocks.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' })));
 });
@@ -281,6 +285,21 @@ it('accepts full registered email addresses and rejects malformed addresses', ()
   expect(email.getAttribute('aria-invalid')).toBe('false');
   expect(mocks.create).not.toHaveBeenCalled();
 });
+it('rejects unsupported staff domains immediately and clears the inline error on correction', () => {
+  mocks.actor.role = 'Client Admin';
+  renderPanel();
+  const email = screen.getByLabelText('Email', { exact: false });
+  for (const domain of ['yahoo.com', 'outlook.com', 'company.com', 'sub.camxian.com', 'gmail.com.fake']) {
+    change('Email', 'new.staff@' + domain);
+    expect(email.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(email.getAttribute('aria-describedby')!)?.textContent)
+      .toBe('Only @gmail.com and @camxian.com email addresses are allowed.');
+  }
+  change('Email', 'NEW.STAFF@GMAIL.COM');
+  expect(email.getAttribute('aria-invalid')).toBe('false');
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
 it('lets Client Admin provision Gmail staff using the exact full address', async () => {
   mocks.actor.role = 'Client Admin'; renderPanel();
   change('First Name', 'New'); change('Last Name', 'Staff'); change('Email', ' NEW.STAFF@GMAIL.COM '); change('Phone', '9171234567'); change('Role', 'Sales');

@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { StaffEmailSchema } from './security.schema';
-import { getNameDigitError } from '../contracts/profile.contract';
+import { StaffCreationEmailSchema } from './security.schema';
+import { personNameSchema, PROFILE_FIELD_LIMITS, PROFILE_FIELD_LIMIT_ERRORS } from '../contracts/profile.contract';
 
 // Check before trimming so surrounding control characters are not silently accepted.
-export const cleanText = (max: number) => z.string()
+export const cleanText = (max: number, message?: string) => z.string()
   .refine(value => !/[\u0000-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
-  .transform(value => value.trim()).pipe(z.string().max(max));
+  .transform(value => value.trim()).pipe(z.string().max(max, message));
 
 export const AdministrationPhoneSchema = cleanText(32).superRefine((value, ctx) => {
   const local = value.startsWith('+63') ? value.slice(3) : value;
@@ -16,19 +16,13 @@ export const AdministrationPhoneSchema = cleanText(32).superRefine((value, ctx) 
 }).transform(value => value.startsWith('+63') ? value : `+63${value}`);
 
 export const CreateAdministrationUserSchema = z.object({
-  firstName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('firstName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(cleanText(100).pipe(z.string().min(1, 'First name is required.'))),
-  lastName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('lastName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(cleanText(100).pipe(z.string().min(1, 'Last name is required.'))),
-  email: StaffEmailSchema,
+  firstName: personNameSchema('firstName', 'First name is required.'),
+  lastName: personNameSchema('lastName', 'Last name is required.'),
+  email: StaffCreationEmailSchema,
   phone: AdministrationPhoneSchema,
   // The existing user service accepts the canonical RoleDefinition.name.
   role: cleanText(100).pipe(z.string().min(1, 'Role is required.')),
-  jobTitle: cleanText(100).optional(),
+  jobTitle: cleanText(PROFILE_FIELD_LIMITS.jobTitle, PROFILE_FIELD_LIMIT_ERRORS.jobTitle).optional(),
   groupIds: z.array(z.string().uuid()).max(100).refine(ids => new Set(ids).size === ids.length, 'Choose each group once.').optional(),
 }).strict();
 
