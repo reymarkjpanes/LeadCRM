@@ -1,5 +1,6 @@
 'use client';
-import { getNameDigitError } from '@/shared/utils/name-digit-error';
+import { omitUnchangedText, textFieldError } from '@/shared/utils/text-field-validation';
+import { CrmAddressSchema } from '@leadcrm/shared';
 import { applyCrmFieldErrors, showCrmMutationError, isStaffEmailError } from '@/shared/utils/crm-mutation-error';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
@@ -135,7 +136,9 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     clearErrors,
   } = useForm<CreateContactFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RHF v7.82 + resolvers v5.4 type mismatch
-    resolver: zodResolver(schema) as never,
+    resolver: (values, context, options) => zodResolver(schema)(
+      omitUnchangedText(values, initialData ? { firstName: initialData.firstName, lastName: initialData.lastName, address: initialData.address ?? '' } : undefined, ['firstName', 'lastName', 'address']), context, options as never
+    ) as never,
     defaultValues,
     mode: 'onBlur',
   });
@@ -165,10 +168,13 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   const selectedProducts = watch('productInterest') || [];
   const firstName = watch('firstName');
   const lastName = watch('lastName');
+  const address = watch('address') ?? '';
+  const addressChanged = !isEdit || address !== (initialData?.address || '');
+  const addressError = (addressChanged ? textFieldError(CrmAddressSchema, address) : undefined) ?? errors.address?.message;
   const firstNameChanged = !isEdit || firstName !== (initialData?.firstName || '');
   const lastNameChanged = !isEdit || lastName !== (initialData?.lastName || '');
-  const firstNameError = (firstNameChanged ? getNameDigitError('firstName', firstName) : undefined) ?? errors.firstName?.message;
-  const lastNameError = (lastNameChanged ? getNameDigitError('lastName', lastName) : undefined) ?? errors.lastName?.message;
+  const firstNameError = (firstNameChanged ? (firstName ? textFieldError(CreateContactFormSchema.shape.firstName, firstName) : undefined) : undefined) ?? errors.firstName?.message;
+  const lastNameError = (lastNameChanged ? (lastName ? textFieldError(CreateContactFormSchema.shape.lastName, lastName) : undefined) : undefined) ?? errors.lastName?.message;
   const emailCheck = useEmailAvailability(watch('email'), 'contacts', !isEdit && canSubmit);
   const emailError = emailCheck.error || errors.email?.message;
   const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'contacts', canSubmit);
@@ -178,7 +184,6 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   const saving = useRef(false);
   const onSubmit = async (data: CreateContactFormValues | UpdateContactFormValues): Promise<void> => {
     if (!canSubmit || saving.current) return;
-    if ((firstNameChanged && getNameDigitError('firstName', data.firstName)) || (lastNameChanged && getNameDigitError('lastName', data.lastName))) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email!)) return;
     setPhoneTouched(true);
@@ -199,7 +204,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
       leadSource: isDirectMailSource(data.source) ? undefined : data.source || (isEdit ? '' : undefined),
       assignedUserId: selfAssigned ? recordAccess.policy?.userId : data.assignedUserId || undefined,
       productInterest: data.productInterest || [],
-      address: data.address || (isEdit ? '' : undefined),
+      ...(addressChanged ? { address: data.address || (isEdit ? '' : undefined) } : {}),
     };
 
     if (isEdit && !data.assignedUserId) (cleaned as Record<string, unknown>).assignedUserId = null;
@@ -358,16 +363,16 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
           </FieldWrap>
 
           {/* Address */}
-              <FieldWrap fieldKey="address" label="Contact Address" htmlFor={`${fieldId}-address`} error={errors.address?.message}>
+              <FieldWrap fieldKey="address" label="Contact Address" htmlFor={`${fieldId}-address`} error={addressError}>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-3 text-slate-400" size={14} />
               <Textarea
-                {...register('address')}
+                {...register('address', { onChange: () => clearErrors('address') })}
                 id={`${fieldId}-address`}
-                aria-invalid={!!errors.address}
-                aria-describedby={errors.address ? `${fieldId}-address-error` : undefined}
+                aria-invalid={!!addressError}
+                aria-describedby={addressError ? `${fieldId}-address-error` : undefined}
                 rows={3}
-                className={`w-full pl-9 pr-4 border rounded-xl py-2.5 text-sm transition-all resize-none ${errors.address ? inputErrorCls : ''}`}
+                className={`w-full pl-9 pr-4 border rounded-xl py-2.5 text-sm transition-all resize-none ${addressError ? inputErrorCls : ''}`}
                 placeholder="123 Main St, City, State, Zip Code"
               />
             </div>

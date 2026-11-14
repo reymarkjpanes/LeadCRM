@@ -2,14 +2,16 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AVATAR_MAX_BYTES = exports.AVATAR_MIME_TYPES = exports.ConfirmProfileEmailChangeSchema = exports.RequestProfileEmailChangeSchema = exports.UpdateSelfProfileSchema = exports.SelfProfileFieldSchemas = exports.ProfilePhoneInputSchema = exports.PROFILE_FIELD_LIMIT_ERRORS = exports.PROFILE_FIELD_LIMITS = void 0;
 exports.getNameDigitError = getNameDigitError;
+exports.personNameSchema = personNameSchema;
 const zod_1 = require("zod");
 const ph_phone_1 = require("../validation/ph-phone");
+const text_length_1 = require("../validation/text-length");
 const security_schema_1 = require("../validation/security.schema");
-exports.PROFILE_FIELD_LIMITS = { firstName: 50, lastName: 50, jobTitle: 100 };
+exports.PROFILE_FIELD_LIMITS = { firstName: 100, lastName: 100, jobTitle: 100 };
 exports.PROFILE_FIELD_LIMIT_ERRORS = {
-    firstName: `First name must not exceed ${exports.PROFILE_FIELD_LIMITS.firstName} characters.`,
-    lastName: `Last name must not exceed ${exports.PROFILE_FIELD_LIMITS.lastName} characters.`,
-    jobTitle: `Job title must not exceed ${exports.PROFILE_FIELD_LIMITS.jobTitle} characters.`,
+    firstName: (0, text_length_1.maxLengthMessage)('First name', exports.PROFILE_FIELD_LIMITS.firstName),
+    lastName: (0, text_length_1.maxLengthMessage)('Last name', exports.PROFILE_FIELD_LIMITS.lastName),
+    jobTitle: (0, text_length_1.maxLengthMessage)('Job title', exports.PROFILE_FIELD_LIMITS.jobTitle),
 };
 function getNameDigitError(field, value, validateSpecialCharacters = true) {
     if (typeof value !== 'string')
@@ -17,10 +19,8 @@ function getNameDigitError(field, value, validateSpecialCharacters = true) {
     const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : field === 'fullName' ? 'Full name' : undefined;
     if (!label)
         return;
-    if (/[0-9]/.test(value))
-        return `${label} must not contain numbers.`;
-    if (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value)) {
-        return `${label} must not contain special characters.`;
+    if (/\p{N}/u.test(value) || (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value))) {
+        return `${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`;
     }
 }
 const profilePhone = zod_1.z.string().nullable().optional().transform((value, context) => {
@@ -37,17 +37,17 @@ const profilePhone = zod_1.z.string().nullable().optional().transform((value, co
 });
 exports.ProfilePhoneInputSchema = zod_1.z.string().refine(value => value === '' || (0, ph_phone_1.isValidPhMobile)(value), ph_phone_1.PH_MOBILE_ERROR)
     .transform(value => value === '' ? null : (0, ph_phone_1.toE164)(value));
+function personNameSchema(field, requiredMessage) {
+    const label = field === 'firstName' ? 'First name' : 'Last name';
+    return zod_1.z.string().superRefine((value, context) => {
+        const error = getNameDigitError(field, value);
+        if (error)
+            context.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
+    }).pipe(zod_1.z.string().trim().min(1, requiredMessage ?? label + ' is required').max(exports.PROFILE_FIELD_LIMITS[field], exports.PROFILE_FIELD_LIMIT_ERRORS[field]));
+}
 exports.SelfProfileFieldSchemas = {
-    firstName: zod_1.z.string().superRefine((value, context) => {
-        const error = getNameDigitError('firstName', value, true);
-        if (error)
-            context.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe(zod_1.z.string().trim().min(1, 'First name is required').max(exports.PROFILE_FIELD_LIMITS.firstName, exports.PROFILE_FIELD_LIMIT_ERRORS.firstName)).optional(),
-    lastName: zod_1.z.string().superRefine((value, context) => {
-        const error = getNameDigitError('lastName', value, true);
-        if (error)
-            context.addIssue({ code: zod_1.z.ZodIssueCode.custom, message: error });
-    }).pipe(zod_1.z.string().trim().min(1, 'Last name is required').max(exports.PROFILE_FIELD_LIMITS.lastName, exports.PROFILE_FIELD_LIMIT_ERRORS.lastName)).optional(),
+    firstName: personNameSchema('firstName').optional(),
+    lastName: personNameSchema('lastName').optional(),
     phone: exports.ProfilePhoneInputSchema,
 };
 exports.UpdateSelfProfileSchema = zod_1.z.object({ ...exports.SelfProfileFieldSchemas, phone: profilePhone }).strict()

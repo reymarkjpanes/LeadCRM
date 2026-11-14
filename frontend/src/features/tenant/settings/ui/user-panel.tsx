@@ -1,4 +1,5 @@
 'use client';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { getNameDigitError } from '@/shared/utils/name-digit-error';
 import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelPrimaryActionClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 
@@ -8,7 +9,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { toast } from '@/shared/utils/toast';
-import { CreateAdministrationUserSchema, UpdateAdministrationUserSchema, EmployeeEmailSchema, StaffEmailSchema } from '@leadcrm/shared';
+import { CreateAdministrationUserSchema, UpdateAdministrationUserSchema, EmployeeEmailSchema, StaffCreationEmailSchema } from '@leadcrm/shared';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { PhilippinePhoneInput } from '@/shared/components/philippine-phone-input';
 import { normalizePhInput } from '@/shared/utils/ph-phone';
@@ -67,7 +68,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
   const locked = useRef(false);
   const form = useRef<HTMLFormElement>(null);
   const creating = !user;
-  const emailCheck = useEmailAvailability(draft.email, 'users', creating && canEdit && canAssign);
+  const emailCheck = useEmailAvailability(draft.email, 'staff-creation', creating && canEdit && canAssign);
   useEffect(() => {
     if (user) setSaved(user);
   }, [user]);
@@ -84,7 +85,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
       const error = getNameDigitError(field, value[field]);
       if (error) next[field] = error;
     }
-    if (creating && StaffEmailSchema.safeParse(value.email).success && actor?.role !== 'Client Admin' && !EmployeeEmailSchema.safeParse(value.email).success) next.email = 'Only Client Admin users can approve an external staff email.';
+    if (creating && StaffCreationEmailSchema.safeParse(value.email).success && actor?.role !== 'Client Admin' && !EmployeeEmailSchema.safeParse(value.email).success) next.email = 'Only Client Admin users can approve an external staff email.';
     if (value.role && (!roles.some(role => role.name === value.role) ||
       (value.role === 'Client Admin' && (!creating || actor?.role !== 'Client Admin')))) next.role = 'Select an active role.';
     return next;
@@ -92,7 +93,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
   const change = (key: keyof Draft, value: string, interact = false) => {
     const next = { ...draft, [key]: value };
     setDraft(next);
-    if (key === 'email' || touched[key] || errors[key] || interact) {
+    if (['email', 'firstName', 'lastName', 'jobTitle'].includes(key) || touched[key] || errors[key] || interact) {
       setTouched(prev => ({ ...prev, [key]: true }));
       setErrors(prev => ({ ...prev, [key]: validation(next)[key] }));
     }
@@ -159,6 +160,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
     label: labels[field], value: field === 'phone' ? normalizePhInput(saved?.phone ?? '') : saved?.[field],
     displayValue: field === 'phone' ? saved?.phone : undefined, apiField: canEdit ? field : undefined,
     required: field === 'firstName' || field === 'lastName', alwaysVisible: true, preserveWhitespace: true,
+    validateText: field === 'phone' ? undefined : value => textFieldError(CreateAdministrationUserSchema.shape[field], value),
   });
   const basicRows: InlineRowDef[] = [profileRow('firstName'), profileRow('lastName'),
     { label: 'Email', value: saved?.email, alwaysVisible: true },
@@ -211,7 +213,7 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
         </select> : key === 'email' ? <div className="relative">
           <Input {...props} className={props.className + ' pr-10'} type="email" autoCapitalize="none" autoCorrect="off" maxLength={254} onChange={event => change(key, event.target.value)} />
           {emailCheck.available && !error && <Check size={16} aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-green-600 dark:text-green-400" />}
-        </div> : <Input {...props} type="text" maxLength={100} onChange={event => change(key, event.target.value)} />}
+        </div> : <Input {...props} type="text" onChange={event => change(key, event.target.value)} />}
       {key !== 'phone' && error && <p id={`${id}-error`} className="text-xs text-red-500" role="alert">{error}</p>}
     </div>;
   };

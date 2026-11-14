@@ -1,3 +1,4 @@
+import { maxLengthMessage } from '../validation/text-length';
 import { z } from 'zod';
 import type { ClosingField } from './closing-requirements';
 import { conditionFieldKind, conditionOperators } from './condition-operators';
@@ -126,16 +127,25 @@ export function normalizeSavedWorkflowAssignment(action: WorkflowAction): Workfl
   return { ...normalized, config: { ...normalized.config, assignmentTarget: { ...pool, strategy: 'round_robin' } } };
 }
 export type WorkflowEntity = 'lead' | 'contact' | 'deal' | 'account';
+export const WORKFLOW_NAME_MAX_LENGTH = 255;
+export const WORKFLOW_DESCRIPTION_MAX_LENGTH = 1000;
+export const WORKFLOW_DESCRIPTION_MAX_ERROR = maxLengthMessage('Workflow description', WORKFLOW_DESCRIPTION_MAX_LENGTH);
+
+const workflowDescription = (limit: number, message?: string) => z.string().max(limit, message).refine(value => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value), 'Control characters are not allowed.')
+  .transform(value => value.length > WORKFLOW_DESCRIPTION_MAX_LENGTH ? value : value.trim()).nullable().optional();
+export const WorkflowDescriptionSchema = workflowDescription(WORKFLOW_DESCRIPTION_MAX_LENGTH, WORKFLOW_DESCRIPTION_MAX_ERROR);
+
 export const WorkflowDraftSchema = z.object({
-  name: z.string().regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.').trim().min(1, 'Workflow name is required.').max(255),
-  description: z.string().max(2000).refine(value => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value), 'Control characters are not allowed.').transform(value => value.trim()).nullable().optional(),
+  name: z.string().regex(/^[^\x00-\x1f\x7f]*$/, 'Control characters are not allowed.').trim().min(1, 'Workflow name is required.').max(WORKFLOW_NAME_MAX_LENGTH, maxLengthMessage('Workflow name', WORKFLOW_NAME_MAX_LENGTH)),
+  description: WorkflowDescriptionSchema,
   trigger: z.string().min(1, 'Choose a trigger.'),
   conditions: WorkflowConditionSchema.nullable().optional(),
   actions: z.array(WorkflowActionSchema).max(20),
   isActive: z.boolean().default(false),
 }).strict();
 export type WorkflowDraft = z.infer<typeof WorkflowDraftSchema>;
-export const WorkflowValidationSchema = WorkflowDraftSchema.extend({ workflowId: z.string().uuid().optional() });
+export const StoredWorkflowDraftSchema = WorkflowDraftSchema.extend({ description: workflowDescription(2000) });
+export const WorkflowValidationSchema = StoredWorkflowDraftSchema.extend({ workflowId: z.string().uuid().optional() });
 export interface WorkflowOptions {
   customFields?: ClosingField[];
   fieldLayouts?: Partial<Record<import('./closing-requirements').CustomFieldModule, import('./field-catalog').FieldLayout>>;
@@ -223,7 +233,7 @@ export interface WorkflowTestResult {
 }
 export interface WorkflowNameAvailability { available: boolean; suggestedName?: string }
 
-export const WorkflowRevisionWriteSchema = z.object({ draft: WorkflowDraftSchema, expectedDraftRevision: z.number().int().min(0), expectedVersion: z.number().int().min(1) }).strict();
+export const WorkflowRevisionWriteSchema = z.object({ draft: StoredWorkflowDraftSchema, expectedDraftRevision: z.number().int().min(0), expectedVersion: z.number().int().min(1) }).strict();
 export const WorkflowRevisionTokenSchema = WorkflowRevisionWriteSchema.omit({ draft: true });
 export type WorkflowRevisionWrite = z.infer<typeof WorkflowRevisionWriteSchema>;
 export type WorkflowRevisionToken = z.infer<typeof WorkflowRevisionTokenSchema>;

@@ -1,5 +1,6 @@
 'use client';
-import { getNameDigitError } from '@/shared/utils/name-digit-error';
+import { omitUnchangedText, textFieldError } from '@/shared/utils/text-field-validation';
+import { CrmAddressSchema } from '@leadcrm/shared';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
@@ -8,7 +9,7 @@ import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
 import { LeadPhoneSchema, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
 
-import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, LeadNameSchema, OptionalLeadSourceSchema } from '@leadcrm/shared';
+import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, OptionalLeadSourceSchema } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
@@ -46,11 +47,11 @@ import { Input, textFieldClassName } from '@/shared/components/ui/input';
 
 // Shared Lead constraints; controls use empty strings for unselected relationships.
 const LeadFormSchema = z.object({
-  firstName: LeadNameSchema,
-  lastName: LeadNameSchema,
+  firstName: LeadFieldsSchema.shape.firstName,
+  lastName: LeadFieldsSchema.shape.lastName,
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
-  companyName: LeadFieldsSchema.shape.companyName,
+  companyName: z.string().optional(),
   status: LeadStatusSchema,
   source: OptionalLeadSourceSchema.optional(),
   sourceDetail: LeadFieldsSchema.shape.sourceDetail,
@@ -112,7 +113,9 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
     control,
     watch,
   } = useForm<LeadFormData>({
-    resolver: zodResolver(LeadFormSchema),
+    resolver: (values, context, options) => zodResolver(isEdit ? LeadFormSchema.partial({ firstName: true, lastName: true }) : LeadFormSchema)(
+      omitUnchangedText(values, initialData ? { firstName: initialData.firstName, lastName: initialData.lastName, address: initialData.address ?? '' } : undefined, ['firstName', 'lastName', 'address']), context, options as never
+    ) as never,
     mode: 'onBlur',
     defaultValues: {
       firstName: '',
@@ -158,10 +161,13 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
   const phoneError = phoneCheck.error || errors.phone?.message || (phoneTouched ? validatePhMobile(phoneLocal) : null);
   const watchedFirstName = watch('firstName');
   const watchedLastName = watch('lastName');
+  const address = watch('address') ?? '';
+  const addressChanged = !isEdit || address !== (initialData?.address || '');
+  const addressError = (addressChanged ? textFieldError(CrmAddressSchema, address) : undefined) ?? errors.address?.message;
   const firstNameChanged = !isEdit || watchedFirstName !== (initialData?.firstName || '');
   const lastNameChanged = !isEdit || watchedLastName !== (initialData?.lastName || '');
-  const firstNameError = (firstNameChanged ? getNameDigitError('firstName', watchedFirstName) : undefined) ?? errors.firstName?.message;
-  const lastNameError = (lastNameChanged ? getNameDigitError('lastName', watchedLastName) : undefined) ?? errors.lastName?.message;
+  const firstNameError = (firstNameChanged ? (watchedFirstName ? textFieldError(LeadFormSchema.shape.firstName, watchedFirstName) : undefined) : undefined) ?? errors.firstName?.message;
+  const lastNameError = (lastNameChanged ? (watchedLastName ? textFieldError(LeadFormSchema.shape.lastName, watchedLastName) : undefined) : undefined) ?? errors.lastName?.message;
   const { matches: duplicateMatches, isChecking: isDuplicateChecking, hasDuplicates, dismiss: dismissDuplicates } = useDuplicateCheck({
     email: watchedEmail || undefined,
     phone: phoneLocal ? toE164(phoneLocal) : undefined,
@@ -217,7 +223,6 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
 
   const onFormSubmit = async (data: LeadFormData): Promise<void> => {
     if (!canSubmit || saving.current) return;
-    if ((firstNameChanged && getNameDigitError('firstName', data.firstName)) || (lastNameChanged && getNameDigitError('lastName', data.lastName))) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email)) return;
     setPhoneTouched(true);
@@ -246,7 +251,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
       } : {}),
       assignedUserId: selfAssigned ? recordAccess.policy?.userId : data.assignedUserId || (isEdit ? '' : undefined),
       productInterest: productInterest,
-      address: data.address?.trim() ?? '',
+      ...(addressChanged ? { address: data.address?.trim() ?? '' } : {}),
     };
 
     setSubmitError(null);
@@ -286,7 +291,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldWrap fieldKey="firstName" label="First Name *" htmlFor={`${fieldId}-firstName`} error={firstNameError}>
               <Input
-                {...register('firstName', { onChange: () => clearErrors('firstName') })} maxLength={100} required aria-required="true"
+                {...register('firstName', { onChange: () => clearErrors('firstName') })} required aria-required="true"
                 id={`${fieldId}-firstName`}
                 aria-invalid={!!firstNameError}
                 aria-describedby={firstNameError ? `${fieldId}-firstName-error` : undefined}
@@ -296,7 +301,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
             </FieldWrap>
             <FieldWrap fieldKey="lastName" label="Last Name *" htmlFor={`${fieldId}-lastName`} error={lastNameError}>
               <Input
-                {...register('lastName', { onChange: () => clearErrors('lastName') })} maxLength={100} required aria-required="true"
+                {...register('lastName', { onChange: () => clearErrors('lastName') })} required aria-required="true"
                 id={`${fieldId}-lastName`}
                 aria-invalid={!!lastNameError}
                 aria-describedby={lastNameError ? `${fieldId}-lastName-error` : undefined}
@@ -424,14 +429,14 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
               )}
             </FieldWrap>
           </div>
-          <FieldWrap fieldKey="address" htmlFor={`${fieldId}-address`} error={errors.address?.message} label="Lead Address">
+          <FieldWrap fieldKey="address" htmlFor={`${fieldId}-address`} error={addressError} label="Lead Address">
             <div className="relative">
               <MapPin className="absolute left-3.5 top-3 text-slate-400" size={14} />
               <Textarea
-                {...register('address')} maxLength={2000}
+                {...register('address', { onChange: () => clearErrors('address') })}
                 id={`${fieldId}-address`}
-                aria-invalid={!!errors.address}
-                aria-describedby={errors.address ? `${fieldId}-address-error` : undefined}
+                aria-invalid={!!addressError}
+                aria-describedby={addressError ? `${fieldId}-address-error` : undefined}
                 rows={3}
                 className="w-full pl-9 pr-4 border rounded-xl py-2.5 text-sm transition-all resize-none overflow-hidden"
                 placeholder="123 Main St, Apt 4B, City, State, Zip Code"

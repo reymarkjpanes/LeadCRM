@@ -24,7 +24,7 @@ it('updates only the authenticated tenant user, audits and returns canonical pro
   expect(db.auditLog.create).toHaveBeenCalledOnce();
 });
 
-it.each(['John', 'Mary Jane', 'Anne-Marie', "O'Connor", 'María', 'Mari\u0301a', '李', 'अर्जुन', 'O‘Connor', 'O’Connor', 'Anne‐Marie', 'Anne‑Marie', 'A'.repeat(50), ' Ada '])('persists the valid profile name %s', async value => {
+it.each(['John', 'Mary Jane', 'Anne-Marie', "O'Connor", 'María', 'Mari\u0301a', '李', 'अर्जुन', 'O‘Connor', 'O’Connor', 'Anne‐Marie', 'Anne‑Marie', 'A'.repeat(100), ' Ada '])('persists the valid profile name %s', async value => {
   const result = await updateSelfProfile(user.id, user.tenantId, { firstName: value, lastName: value });
   expect(db.user.update).toHaveBeenCalledExactlyOnceWith({
     where: { id: user.id, tenantId: user.tenantId },
@@ -37,13 +37,13 @@ it.each(([
   ['firstName', 'First name'], ['lastName', 'Last name'],
 ] as const).flatMap(([field, label]) => [
   ...['@', '#', '$', '%', '&', '*', '+', '=', '!', '_', '.', '/', '\\', '(', ')', '"', '😀', '—', '\t', '\n', '\0'].map(symbol => ({
-    field, value: `John${symbol}`, message: `${label} must not contain special characters.`,
+    field, value: `John${symbol}`, message: `${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`,
   })),
-  ...['John123', 'John1@', 'A'.repeat(51) + '@1'].map(value => ({ field, value, message: `${label} must not contain numbers.` })),
-  { field, value: 'A'.repeat(51) + '@', message: `${label} must not contain special characters.` },
+  ...['John123', 'John1@', 'A'.repeat(101) + '@1'].map(value => ({ field, value, message: `${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().` })),
+  { field, value: 'A'.repeat(101) + '@', message: `${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().` },
   { field, value: '', message: `${label} is required` },
   { field, value: '   ', message: `${label} is required` },
-  { field, value: 'A'.repeat(51), message: `${label} must not exceed 50 characters.` },
+  { field, value: 'A'.repeat(101), message: `${label} must not exceed 100 characters.` },
 ]))('rejects invalid $field "$value" before database or audit writes', async ({ field, value, message }) => {
   const parsed = SelfProfileFieldSchemas[field].safeParse(value);
   expect(parsed.success).toBe(false);
@@ -63,7 +63,7 @@ it('keeps omitted profile names optional for partial updates', async () => {
 
 it.each([
   ['phone', '8123456789'], ['phone', '09123456789'], ['phone', '912345678'], ['phone', '91234567890'], ['phone', '91234abc90'],
-  ['firstName', 'F'.repeat(51)], ['lastName', 'L'.repeat(51)], ['jobTitle', 'J'.repeat(101)], ['department', 'D'.repeat(101)],
+  ['firstName', 'F'.repeat(101)], ['lastName', 'L'.repeat(101)], ['jobTitle', 'J'.repeat(101)], ['department', 'D'.repeat(101)],
 ])('rejects invalid profile %s value', async (field, value) => {
   await expect(updateSelfProfile(user.id, user.tenantId, { [field]: value } as any)).rejects.toThrow();
   expect(db.user.update).not.toHaveBeenCalled();

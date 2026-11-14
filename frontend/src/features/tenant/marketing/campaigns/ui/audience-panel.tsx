@@ -15,8 +15,8 @@ import { Button } from '@/shared/components/ui/button';
 import { transitionConditionField, transitionConditionOperator } from '@/shared/services/condition-editor';
 import { Input } from '@/shared/components/ui/input';
 
-export function FieldError({ message }: { message?: string }) {
-  return message ? <p role="alert" className="mt-1 text-xs text-red-600">{message}</p> : null;
+export function FieldError({ message, id }: { message?: string; id?: string }) {
+  return message ? <p id={id} role="alert" className="mt-1 text-xs text-red-600">{message}</p> : null;
 }
 type ConditionDraft = AudienceCondition & { key: number };
 export function AudiencePanel({ onClose, onCreated, channel = 'EMAIL', initialAudience }: { initialAudience?: SavedAudience; onClose: () => void; onCreated: (audience: SavedAudience) => void; channel?: 'EMAIL' | 'SMS' }) {

@@ -2,15 +2,25 @@ import { z } from 'zod';
 import { cleanText } from '../validation/administration-user.schema';
 import { CustomFieldValuesSchema } from './closing-requirements';
 import { COMPANY_SIZE_OPTIONS } from './record-experience';
+import { maxLengthMessage } from '../validation/text-length';
+
+export const COMPANY_NAME_MAX_LENGTH = 255;
+export const CRM_ADDRESS_MAX_LENGTH = 500;
+export const COMPANY_NAME_MAX_ERROR = maxLengthMessage('Company name', COMPANY_NAME_MAX_LENGTH);
+export const CRM_ADDRESS_MAX_ERROR = maxLengthMessage('Address', CRM_ADDRESS_MAX_LENGTH);
+export const CrmCompanyNameSchema = cleanText(COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR);
+
+export const CrmAddressSchema = z.string()
+  .refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
+  .transform(value => value.trim()).pipe(z.string().max(CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR));
 
 /** Native Account fields shared by standalone and linked Account forms. */
 export const AccountFieldsSchema = z.object({
-  name: cleanText(255).pipe(z.string().min(1, 'Account name is required.')),
+  name: CrmCompanyNameSchema.pipe(z.string().min(1, 'Account name is required.')),
   industry: cleanText(2000).optional(),
   size: z.enum(COMPANY_SIZE_OPTIONS).optional(),
   website: z.string().trim().url('Must be a valid URL').optional().or(z.literal('')),
-  address: z.string().refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
-    .transform(value => value.trim()).pipe(z.string().max(2000, 'Max 2000 characters')).optional(),
+  address: CrmAddressSchema.optional(),
 });
 
 /** Omitted fields stay unchanged; null explicitly clears an optional Company Size. */

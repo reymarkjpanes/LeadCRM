@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LeadFieldsSchema, LeadPhoneSchema, OptionalLeadSourceSchema } from '../contracts/lead.contract';
-import { getNameDigitError } from '../contracts/profile.contract';
+import { personNameSchema } from '../contracts/profile.contract';
+import { COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR, CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR } from '../contracts/organization';
 
 export const CSV_MAX_BYTES = 10 * 1024 * 1024;
 export const CSV_MAX_ROWS = 5000;
@@ -9,37 +10,34 @@ export type CrmImportModule = 'leads' | 'contacts' | 'accounts';
 export const importIdentity = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 export const splitProductInterests = (value: string) => [...new Map(value.split(';').map(v => v.trim()).filter(Boolean).map(v => [importIdentity(v), v])).values()];
 
-const text = (max: number) => z.string().trim().max(max).refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v), 'Unsupported control character.');
-const required = (label: string, max = 255) => text(max).refine(Boolean, `${label} is required.`);
-const optional = (max = 255) => text(max).optional().default('');
+const text = (max: number, message?: string) => z.string().trim().max(max, message).refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v), 'Unsupported control character.');
+const required = (label: string, max = 255, message?: string) => text(max, message).refine(Boolean, `${label} is required.`);
+const optional = (max = 255, message?: string) => text(max, message).optional().default('');
 const products = optional(20000).refine(v => splitProductInterests(v).length <= 100, 'Maximum 100 Product Interests.');
 const website = optional(500).refine(v => {
   if (!v) return true;
   try { return ['http:', 'https:'].includes(new URL(v.includes('://') ? v : `https://${v}`).protocol); } catch { return false; }
 }, 'Website must be a valid HTTP or HTTPS URL.');
 const person = {
-  firstName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('firstName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(required('First Name', 100)),
-  lastName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('lastName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(required('Last Name', 100)),
+  firstName: personNameSchema('firstName', 'First Name is required.'),
+  lastName: personNameSchema('lastName', 'Last Name is required.'),
   email: z.string().trim().toLowerCase().max(254).email('Invalid email address.'),
-  phone: required('Phone Number', 50), companyName: required('Company Name', 200),
-  address: required('Full Address', 500), productInterest: products,
+  phone: required('Phone Number', 50), companyName: required('Company Name', COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR),
+  address: required('Full Address', CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR), productInterest: products,
 };
-export const ImportLeadRowSchema = z.object({ ...person, firstName: LeadFieldsSchema.shape.firstName, lastName: LeadFieldsSchema.shape.lastName, phone: LeadPhoneSchema.optional().default(''), companyName: optional(2000), address: optional(2000), source: OptionalLeadSourceSchema.optional().default(''),
+export const ImportLeadRowSchema = z.object({ ...person, firstName: LeadFieldsSchema.shape.firstName, lastName: LeadFieldsSchema.shape.lastName, phone: LeadPhoneSchema.optional().default(''), companyName: optional(COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR), address: optional(CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR), source: OptionalLeadSourceSchema.optional().default(''),
   status: optional(30).transform(v => v ? v[0].toUpperCase() + v.slice(1).toLowerCase() : 'Inquiry')
     .pipe(z.enum(['Inquiry', 'Hot', 'Warm', 'Cold', 'Cancelled'], { errorMap: () => ({ message: 'Status must be Inquiry, Hot, Warm, Cold or Cancelled. Close customers through a confirmed Closed Deal Deal.' }) })),
 }).strict();
 export const ImportContactRowSchema = z.object(person).strict();
-export const ImportAccountRowSchema = z.object({ name: required('Company Name').transform(v => v.replace(/\s+/g, ' ')),
+const importAccountFields = z.object({ name: required('Company Name', COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR).transform(v => v.replace(/\s+/g, ' ')),
   // Split components are accepted only for legacy CSV/API compatibility.
-  industry: optional(255), website, address: optional(500), city: optional(100), province: optional(100), country: optional(100),
+  industry: optional(255), website, address: optional(CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR), city: optional(100), province: optional(100), country: optional(100),
   size: optional(20).refine(v => !v || ['1-10', '11-50', '51-200', '200+'].includes(v), 'Invalid Company Size.'),
 }).strict();
+export const ImportAccountRowSchema = importAccountFields.refine(row => normalizeAccountImportRow(row).address.length <= CRM_ADDRESS_MAX_LENGTH, {
+  path: ['address'], message: CRM_ADDRESS_MAX_ERROR,
+});
 
 /** CSV values are explicit: never infer or discard a supplied country. */
 export function normalizeAccountImportRow(data: Record<string, string>): Record<string, string> {
@@ -144,8 +142,7 @@ export function mapImportCsv(module: CrmImportModule, input: CreateCrmImportInpu
   const parsed = parseImportCsv(input.csvText);
   if (!parsed.rows.length) throw new Error('The CSV must contain headers and at least one data row.');
   if (!Object.prototype.hasOwnProperty.call(importRowSchemas, module)) throw new Error('Unsupported CRM import module.');
-  const schema = importRowSchemas[module];
-  const fields = Object.keys(schema.shape);
+  const fields = Object.keys((module === 'accounts' ? importAccountFields : importRowSchemas[module]).shape);
   const indices = Object.values(input.mappings);
   if (new Set(indices).size !== indices.length) throw new Error('Each CSV column may only be mapped once.');
   for (const [key, index] of Object.entries(input.mappings)) {

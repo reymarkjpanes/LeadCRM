@@ -153,7 +153,7 @@ export function ProductsPage() {
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Unable to enable products.'); }
     finally { lock.current = false; setBusy(false); }
   }
-  async function save(data: ProductInterestInput) {
+  async function save(data: Partial<ProductInterestInput>) {
     if (!(panel?.mode === 'edit' ? canEdit : canCreate) || lock.current) return;
     lock.current = true; setBusy(true);
     try {

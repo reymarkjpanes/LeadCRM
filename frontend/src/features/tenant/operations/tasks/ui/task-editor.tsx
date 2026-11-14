@@ -1,7 +1,8 @@
 "use client";
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { toast } from '@/shared/utils/toast';
 import { useId, useRef, useState, type ReactNode } from 'react';
-import { taskAssociationIds, type TaskLinkInput, type TaskOption, type TaskRecord } from '@leadcrm/shared';
+import { taskAssociationIds, TaskTitleSchema, TaskDescriptionSchema, TASK_DESCRIPTION_MAX_LENGTH, type TaskLinkInput, type TaskOption, type TaskRecord } from '@leadcrm/shared';
 import { useData } from '@/store/DataContext';
 import { useAuth } from '@/store/AuthContext';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
@@ -49,9 +50,11 @@ function TaskCreateForm({ links = {}, readOnly = false, preserveContextLinks = f
   const dirty = !!(title || description || assignedUserId !== initialAssignee || priority !== 'Medium' || dueDate !== initialDueDate.current || JSON.stringify(dealIds) !== JSON.stringify(taskAssociationIds(links, 'deal')));
   const closeGuard = usePanelCloseGuard(onClose, { dirty: editable && dirty, busy });
   const heading = useId();
+  const titleError = title ? textFieldError(TaskTitleSchema, title) : undefined;
+  const descriptionError = textFieldError(TaskDescriptionSchema, description);
   const person = assignedUserId === user?.id ? user : undefined;
   const save = async () => {
-    if (busy || !editable) return;
+    if (busy || !editable || titleError || descriptionError) return;
     setBusy(true); setError('');
     try {
       if (!title.trim()) throw new Error('Enter a task title.');
@@ -82,11 +85,13 @@ function TaskCreateForm({ links = {}, readOnly = false, preserveContextLinks = f
                     <Input
                       className={panelInputClass}
                       required
-                      maxLength={255}
+                      aria-invalid={!!titleError}
+                      aria-describedby={titleError ? heading + '-title-error' : undefined}
                       placeholder="Enter task title..."
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
+                    {titleError && <span id={heading + '-title-error'} role="alert" className="block text-xs text-destructive">{titleError}</span>}
                   </label>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <label className="min-w-0 space-y-1.5">
@@ -136,14 +141,16 @@ function TaskCreateForm({ links = {}, readOnly = false, preserveContextLinks = f
                     <span className={panelLabelClass}>Notes</span>
                     <Textarea
                       rows={5}
-                      maxLength={10000}
+                      aria-invalid={!!descriptionError}
+                      aria-describedby={descriptionError ? heading + '-description-error' : undefined}
                       placeholder="Describe the task..."
                       className={panelInputClass}
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                     />
+                    {descriptionError && <span id={heading + '-description-error'} role="alert" className="block text-xs text-destructive">{descriptionError}</span>}
                     <span className="text-xs text-muted-foreground">
-                      {description.length}/10000
+                      {description.length}/{TASK_DESCRIPTION_MAX_LENGTH}
                     </span>
                   </label>
               </>)}

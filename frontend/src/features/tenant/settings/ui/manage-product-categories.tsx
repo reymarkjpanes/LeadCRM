@@ -1,5 +1,6 @@
 'use client';
 
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { useId, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { ProductCategoryNameSchema, type ProductCategoryMutation } from '@leadcrm/shared';
@@ -23,6 +24,8 @@ export function ManageProductCategories({ open, onOpenChange, categories, pendin
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
   const busy = pending || !ready;
+  const addError = !editing && (error || (name ? textFieldError(ProductCategoryNameSchema, name) : undefined));
+  const renameError = editing && (error || textFieldError(ProductCategoryNameSchema, label));
   async function save(action: 'add' | 'rename') {
     const parsed = ProductCategoryNameSchema.safeParse(action === 'add' ? name : label);
     if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
@@ -45,19 +48,20 @@ export function ManageProductCategories({ open, onOpenChange, categories, pendin
         {canCreate && <form noValidate className="my-5 shrink-0 space-y-2 border-b border-border pb-5" onSubmit={event => { event.preventDefault(); if (!busy) void save('add'); }}>
           <Label htmlFor={nameId} className={`block ${responsiveTypography.control}`}>Add a new category</Label>
           <div className="flex gap-2">
-            <Input id={nameId} placeholder="New category name" required maxLength={200} className={panelInputClass + ' min-w-0 flex-1'} value={name} disabled={busy || !!editing} onChange={event => { setName(event.target.value); setError(''); }} />
-            <Button className="h-10 shrink-0" disabled={busy || !!editing || !name.trim()}><Plus aria-hidden="true" />Add</Button>
+            <Input id={nameId} aria-invalid={!!addError} aria-describedby={addError ? nameId + '-error' : undefined} placeholder="New category name" required className={panelInputClass + ' min-w-0 flex-1'} value={name} disabled={busy || !!editing} onChange={event => { setName(event.target.value); setError(''); }} />
+            <Button className="h-10 shrink-0" disabled={busy || !!editing || !name.trim() || !!addError}><Plus aria-hidden="true" />Add</Button>
           </div>
+          {addError && <p id={nameId + '-error'} role="alert" className="text-xs text-destructive">{addError}</p>}
         </form>}
-        {error && <p role="alert" className="mb-3 shrink-0 text-sm text-destructive">{error}</p>}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
           {!ready ? <p role="status" className="py-5 text-sm text-muted-foreground">Loading categories…</p> : <div className="space-y-3">
             {!categories.length && <p className="py-5 text-sm text-muted-foreground">No product categories yet.</p>}
             {categories.map(category => <div key={category} className="flex items-start gap-2 rounded-xl border border-border p-3 sm:p-4">
               <div className="min-w-0 flex-1 pt-2">
                 {editing === category ? <form noValidate className="space-y-2" onSubmit={event => { event.preventDefault(); if (!busy) void save('rename'); }}>
-                  <Input placeholder="Enter category name..." autoFocus aria-label={`Category name: ${category}`} required maxLength={200} className={panelInputClass} value={label} disabled={busy} onChange={event => { setLabel(event.target.value); setError(''); }} />
-                  <div className="flex gap-2"><Button size="sm" disabled={busy || !label.trim()}>Save</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { setEditing(null); setError(''); }}>Cancel</Button></div>
+                  <Input placeholder="Enter category name..." autoFocus aria-invalid={!!renameError} aria-describedby={renameError ? nameId + '-rename-error' : undefined} aria-label={`Category name: ${category}`} required className={panelInputClass} value={label} disabled={busy} onChange={event => { setLabel(event.target.value); setError(''); }} />
+                  {renameError && <p id={nameId + '-rename-error'} role="alert" className="text-xs text-destructive">{renameError}</p>}
+                  <div className="flex gap-2"><Button size="sm" disabled={busy || !label.trim() || !!renameError}>Save</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { setEditing(null); setError(''); }}>Cancel</Button></div>
                 </form> : <p className={`font-medium [overflow-wrap:anywhere] ${responsiveTypography.control}`}>{category}</p>}
               </div>
               <div className="flex shrink-0 gap-1">

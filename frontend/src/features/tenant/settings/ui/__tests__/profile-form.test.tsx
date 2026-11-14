@@ -8,6 +8,10 @@ vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error:
 vi.mock('@/shared/services/auth.api', () => ({ authApi: { uploadAvatar: mocks.upload, requestProfileEmailChange: mocks.requestEmail } }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
 import { ProfileForm } from '../profile-form';
+
+const invalidName = 'must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().';
+const firstNameError = `First name ${invalidName}`;
+const lastNameError = `Last name ${invalidName}`;
 beforeEach(() => {
   vi.resetAllMocks(); user.role = 'User'; user.firstName = 'Ada'; user.lastName = 'Lovelace';
   mocks.get.mockResolvedValue({ success: true, data: { available: true } });
@@ -27,7 +31,7 @@ it('omits unchanged historical names from unrelated saves and permits correcting
   mocks.save.mockClear();
   fireEvent.click(screen.getByText('Edit'));
   fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'New@' } });
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
   fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'Old@1' } });
   expect(screen.queryAllByRole('alert')).toHaveLength(0);
   fireEvent.input(screen.getByLabelText('First Name'), { target: { value: 'Anne-Marie' } });
@@ -40,7 +44,7 @@ it.each(['First Name', 'Last Name'])('shows and clears accessible special-charac
   render(<ProfileForm />);
   fireEvent.click(screen.getByText('Edit'));
   const input = screen.getByLabelText(label);
-  const message = `${label === 'First Name' ? 'First name' : 'Last name'} must not contain special characters.`;
+  const message = `${label === 'First Name' ? 'First name' : 'Last name'} ${invalidName}`;
   for (const symbol of ['@', '#', '$', '%', '&', '*', '+', '=', '!', '_', '.', '/', '\\', '(', ')', '"', '😀']) {
     const value = `John${symbol}`;
     fireEvent.input(input, { target: { value } });
@@ -58,29 +62,28 @@ it.each(['First Name', 'Last Name'])('shows and clears accessible special-charac
   expect(input.getAttribute('aria-describedby')).toBeNull();
 });
 
-it('prioritizes numbers over symbols and keeps independent length errors after correction', async () => {
+it('uses one error for numbers and symbols before applying the length limit', async () => {
   mocks.save.mockResolvedValue(undefined);
   render(<ProfileForm />);
   fireEvent.click(screen.getByText('Edit'));
   const first = screen.getByLabelText('First Name');
   const last = screen.getByLabelText('Last Name');
-  const overlong = 'A'.repeat(51);
+  const overlong = 'A'.repeat(101);
   fireEvent.input(first, { target: { value: overlong + '@1' } });
   fireEvent.input(last, { target: { value: 'Smith#' } });
-  expect(screen.getByText('First name must not contain numbers.')).toBeTruthy();
-  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
+  expect(screen.getByText(lastNameError)).toBeTruthy();
   fireEvent.input(first, { target: { value: overlong + '@' } });
   expect(first).toHaveProperty('value', overlong + '@');
-  expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError).id).toBe(first.getAttribute('aria-describedby'));
   fireEvent.input(first, { target: { value: overlong } });
   expect(first).toHaveProperty('value', overlong);
-  expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
-  expect(screen.getByText('First name must not exceed 50 characters.')).toBeTruthy();
+  expect(screen.queryByText(firstNameError)).toBeNull();
+  expect(screen.getByText('First name must not exceed 100 characters.')).toBeTruthy();
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.save).not.toHaveBeenCalled();
   fireEvent.input(first, { target: { value: 'Anne-Marie' } });
-  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(lastNameError)).toBeTruthy();
   fireEvent.input(last, { target: { value: 'O’Connor' } });
   expect(screen.queryAllByRole('alert')).toHaveLength(0);
   fireEvent.click(screen.getByText('Save Changes'));
@@ -88,7 +91,7 @@ it('prioritizes numbers over symbols and keeps independent length errors after c
   expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ firstName: 'Anne-Marie', lastName: 'O’Connor', phone: null });
 });
 
-it.each(['John', 'Mary Jane', 'Anne-Marie', "O'Connor", 'María', 'Mari\u0301a', '李', 'अर्जुन', 'O‘Connor', 'O’Connor', 'Anne‐Marie', 'Anne‑Marie', 'A'.repeat(50), ' Ada '])('accepts and saves the valid name %s', async value => {
+it.each(['John', 'Mary Jane', 'Anne-Marie', "O'Connor", 'María', 'Mari\u0301a', '李', 'अर्जुन', 'O‘Connor', 'O’Connor', 'Anne‐Marie', 'Anne‑Marie', 'A'.repeat(100), ' Ada '])('accepts and saves the valid name %s', async value => {
   mocks.save.mockResolvedValue(undefined);
   render(<ProfileForm />);
   fireEvent.click(screen.getByText('Edit'));
@@ -124,24 +127,24 @@ it('checks names immediately and retains the length rule after digits are remove
   fireEvent.click(screen.getByText('Edit'));
   const first = screen.getByLabelText('First Name');
   const last = screen.getByLabelText('Last Name');
-  const overlong = 'A'.repeat(51);
+  const overlong = 'A'.repeat(101);
   fireEvent.input(first, { target: { value: overlong + '1' } });
-  const firstError = screen.getByText('First name must not contain numbers.');
+  const firstError = screen.getByText(firstNameError);
   expect(first.getAttribute('aria-describedby')).toBe(firstError.id);
   expect(first).toHaveProperty('value', overlong + '1');
   fireEvent.input(last, { target: { value: 'Rey2es' } });
-  const lastError = screen.getByText('Last name must not contain numbers.');
+  const lastError = screen.getByText(lastNameError);
   expect(last.getAttribute('aria-describedby')).toBe(lastError.id);
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.save).not.toHaveBeenCalled();
 
   fireEvent.input(first, { target: { value: overlong } });
-  expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
-  expect(screen.getByText('First name must not exceed 50 characters.')).toBeTruthy();
+  expect(screen.queryByText(firstNameError)).toBeNull();
+  expect(screen.getByText('First name must not exceed 100 characters.')).toBeTruthy();
   expect(lastError.isConnected).toBe(true);
   fireEvent.input(first, { target: { value: 'Anne-Marie' } });
   fireEvent.input(last, { target: { value: 'Reyes' } });
-  expect(screen.queryByText('Last name must not contain numbers.')).toBeNull();
+  expect(screen.queryByText(lastNameError)).toBeNull();
   fireEvent.click(screen.getByText('Save Changes'));
   await waitFor(() => expect(screen.getByText('Edit')).toBeTruthy());
   expect(mocks.save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'Anne-Marie', lastName: 'Reyes' }));
@@ -159,7 +162,7 @@ it('starts read-only with database values and Cancel discards unsaved edits', ()
   expect(screen.getByLabelText('Job Title').textContent).toBe('Engineer');
   expect(screen.queryByRole('button', { name: 'Change email' })).toBeNull();
   fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Unsaved@' } });
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
   fireEvent.click(screen.getByText('Cancel'));
   expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('Ada');
   expect(screen.queryAllByRole('alert')).toHaveLength(0);
@@ -235,7 +238,7 @@ it.each(['close button', 'Escape', 'backdrop'])('preserves drafts and suppresses
   expect(first.value).toBe('Unsaved');
   expect(last.value).toBe('Reyes2');
   expect(phone.value).toBe('9123456789');
-  expect(screen.getByText('Last name must not contain numbers.')).toBeTruthy();
+  expect(screen.getByText(lastNameError)).toBeTruthy();
 
   // A click on the already-focused trigger must still reopen the modal.
   fireEvent.click(email);
@@ -324,12 +327,12 @@ it('rejects invalid file types and oversized files without uploading', async () 
 
 it('shows field errors for overlong profile fields and reuses the PH mobile rule', async () => {
   render(<ProfileForm />); fireEvent.click(screen.getByText('Edit'));
-  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'A'.repeat(51) } });
-  expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('A'.repeat(51));
-  expect(screen.getByText('First name must not exceed 50 characters.')).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'B'.repeat(51) } });
-  expect((screen.getByLabelText('Last Name') as HTMLInputElement).value).toBe('B'.repeat(51));
-  expect(screen.getByText('Last name must not exceed 50 characters.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'A'.repeat(101) } });
+  expect((screen.getByLabelText('First Name') as HTMLInputElement).value).toBe('A'.repeat(101));
+  expect(screen.getByText('First name must not exceed 100 characters.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'B'.repeat(101) } });
+  expect((screen.getByLabelText('Last Name') as HTMLInputElement).value).toBe('B'.repeat(101));
+  expect(screen.getByText('Last name must not exceed 100 characters.')).toBeTruthy();
   fireEvent.click(screen.getByText('Save Changes'));
   expect(mocks.save).not.toHaveBeenCalled();
   const phone = screen.getByLabelText('Phone Number') as HTMLInputElement;

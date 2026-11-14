@@ -136,7 +136,7 @@ it('preserves an Uncategorized Product and requires category selection when edit
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
   expect(screen.getByText('Category is required.')).toBeTruthy(); expect(apiClient.patch).not.toHaveBeenCalled();
   fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'Networks' } }); fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
-  await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith(endpoint + '/' + product.id, { name: product.name, category: 'Networks', description: product.description, dealValue: product.dealValue }));
+  await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith(endpoint + '/' + product.id, { category: 'Networks', dealValue: product.dealValue }));
 });
 
 it('hides the gear for view-only users and limits actions to existing Product grants', async () => {

@@ -40,6 +40,7 @@ __exportStar(require("./contracts/product-interests.contract"), exports);
 __exportStar(require("./contracts/record-experience"), exports);
 __exportStar(require("./contracts/lead-created.contract"), exports);
 __exportStar(require("./validation/crm-email"), exports);
+__exportStar(require("./validation/text-length"), exports);
 __exportStar(require("./contracts/mailbox.contract"), exports);
 __exportStar(require("./contracts/closing-requirements"), exports);
 __exportStar(require("./contracts/field-catalog"), exports);

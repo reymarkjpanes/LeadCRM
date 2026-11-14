@@ -9,6 +9,11 @@ vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: null, tenant: nu
 vi.mock('@/shared/utils/toast', () => ({ toast: { error: mocks.toast } }));
 import PublicFormPage from './public-form-page';
 
+const invalidName = 'must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().';
+const firstNameError = `First name ${invalidName}`;
+const lastNameError = `Last name ${invalidName}`;
+const fullNameError = `Full name ${invalidName}`;
+
 let definition: PublicFormDefinition;
 const available = { success: true, data: { available: true } };
 const staffMessage = EMAIL_AVAILABILITY_MESSAGES.STAFF_EMAIL_NOT_ALLOWED;
@@ -46,10 +51,10 @@ it('validates renamed CRM name fields immediately and blocks posting until both 
   await mount();
   change('Email Address', 'anne@example.com');
   change('Given Name', '123John');
-  const firstError = screen.getByText('First name must not contain numbers.');
+  const firstError = screen.getByText(firstNameError);
   expect(screen.getByLabelText(/Given Name/).getAttribute('aria-describedby')).toBe(firstError.id);
   change('Family Name', 'Dela Cru2z');
-  const lastError = screen.getByText('Last name must not contain numbers.');
+  const lastError = screen.getByText(lastNameError);
   expect(screen.getByLabelText(/Family Name/).getAttribute('aria-describedby')).toBe(lastError.id);
   await advance();
   await submit();
@@ -63,8 +68,8 @@ it('validates renamed CRM name fields immediately and blocks posting until both 
   change('Family Name', 'O’Connor');
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
   change('Given Name', 'Anne@'); change('Family Name', 'Smith_');
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
-  expect(screen.getByText('Last name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
+  expect(screen.getByText(lastNameError)).toBeTruthy();
   await submit();
   expect(posts()).toHaveLength(0);
   change('Given Name', 'Anne-Marie'); change('Family Name', 'O’Connor');
@@ -80,15 +85,15 @@ it('validates a legacy mapped Full Name immediately and accepts a corrected Unic
   change('Email Address', 'full-name@example.com');
   change('Your name', 'John@ Smith123');
   const input = screen.getByLabelText(/Your name/);
-  expect(screen.getByText('Full name must not contain numbers.').id).toBe(input.getAttribute('aria-describedby'));
+  expect(screen.getByText(fullNameError).id).toBe(input.getAttribute('aria-describedby'));
   expect(input).toHaveProperty('value', 'John@ Smith123');
   await advance(); await submit();
   expect(posts()).toHaveLength(0);
   change('Your name', 'John@ Smith');
-  expect(screen.getByText('Full name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(fullNameError)).toBeTruthy();
   change('Your name', 'María O’Connor');
   expect(input.getAttribute('aria-invalid')).toBe('false');
-  expect(screen.queryByText('Full name must not contain special characters.')).toBeNull();
+  expect(screen.queryByText(fullNameError)).toBeNull();
   await submit();
   expect(posts()).toHaveLength(1);
   expect(JSON.parse(posts()[0][1].body).values.person).toBe('María O’Connor');

@@ -1,4 +1,4 @@
-import { CrmEmailSchema, LeadPhoneSchema } from '@leadcrm/shared';
+import { CrmEmailSchema, LeadPhoneSchema, CrmAddressSchema, personNameSchema } from '@leadcrm/shared';
 /**
  * Contact form validation schemas — mirrors the contacts-v2 API DTOs.
  */
@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { CrmStatusSchema } from '@leadcrm/shared';
 
 export const CreateContactFormSchema = z.object({
-  firstName: z.string().trim().min(1, 'First name is required').max(100, 'First name must be 100 characters or less'),
-  lastName: z.string().trim().min(1, 'Last name is required').max(100, 'Last name must be 100 characters or less'),
+  firstName: personNameSchema('firstName'),
+  lastName: personNameSchema('lastName'),
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
   companyName: z.string().optional(),
@@ -17,12 +17,12 @@ export const CreateContactFormSchema = z.object({
   accountId: z.string().min(1).optional().or(z.literal('')),
   assignedUserId: z.string().min(1).optional().or(z.literal('')),
   productInterest: z.array(z.string()).optional(),
-  address: z.string().optional(),
+  address: CrmAddressSchema.optional(),
 });
 
 export const UpdateContactFormSchema = z.object({
-  firstName: CreateContactFormSchema.shape.firstName,
-  lastName: CreateContactFormSchema.shape.lastName,
+  firstName: CreateContactFormSchema.shape.firstName.optional(),
+  lastName: CreateContactFormSchema.shape.lastName.optional(),
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
   companyName: z.string().optional(),
@@ -32,7 +32,7 @@ export const UpdateContactFormSchema = z.object({
   accountId: z.string().min(1).optional().or(z.literal('')),
   assignedUserId: z.string().min(1).optional().or(z.literal('')),
   productInterest: z.array(z.string()).optional(),
-  address: z.string().optional(),
+  address: CrmAddressSchema.optional(),
 });
 
 export type CreateContactFormValues = z.infer<typeof CreateContactFormSchema>;

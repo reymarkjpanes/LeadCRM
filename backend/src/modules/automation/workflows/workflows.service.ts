@@ -9,7 +9,7 @@ import { AppError } from '../../../shared/errors/app-error';
 import { compatibleWorkflow, accountWorkflowRetirementReferences } from './workflow-fields';
 import { retiredContactReferences, retiredAccountWorkflowReferences, ACCOUNT_RETIREMENT_REASON } from '@leadcrm/shared';
 import { tenantContext } from '../../../core/tenant/tenant-context';
-import { WorkflowDraftSchema, WorkflowValidationSchema, WorkflowConditionSchema, missingWorkflowConditionValues, normalizeWorkflowAssignment, type WorkflowDraft, type WorkflowTestResult } from '@leadcrm/shared';
+import { WorkflowDraftSchema, StoredWorkflowDraftSchema, WorkflowDescriptionSchema, TaskTitleSchema, TaskDescriptionSchema, WorkflowValidationSchema, WorkflowConditionSchema, missingWorkflowConditionValues, normalizeWorkflowAssignment, type WorkflowDraft, type WorkflowTestResult } from '@leadcrm/shared';
 import { assignmentPurpose, parseAssignment, resolveWorkflowAssignee, assignmentOutput } from '../assignment/workflow-assignment.service';
 import { assertWorkflowPermissions, assertAssignmentReferencePermissions } from '../actions/action-permissions';
 import { writeAuditLog } from '../../../core/audit/audit.service';
@@ -89,14 +89,25 @@ export async function getWorkflowNameAvailability(tenantId: string, name: unknow
   const available = !names.some(existing => workflowNameKey(existing) === workflowNameKey(parsedName.data));
   return available ? { available: true } : { available: false, suggestedName: suggestWorkflowCopyName(parsedName.data, names) };
 }
-function parseDraft(value: unknown): WorkflowDraft {
-  const result = WorkflowDraftSchema.safeParse(value);
+function parseDraft(value: unknown, schema = WorkflowDraftSchema): WorkflowDraft {
+  const result = schema.safeParse(value);
   if (!result.success) throw new ValidationError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
   return result.data;
 }
+function assertWorkflowTextChanges(draft: Pick<WorkflowDraft, 'description' | 'actions'>, previous?: WorkflowDraft) {
+  if (draft.description !== previous?.description) WorkflowDescriptionSchema.parse(draft.description);
+  for (const [index, action] of draft.actions.entries()) {
+    if (action.type !== 'create_task') continue;
+    const saved = previous?.actions[index];
+    if (action.config.title && (saved?.type !== action.type || action.config.title !== saved.config.title)) TaskTitleSchema.parse(action.config.title);
+    if (saved?.type !== action.type || action.config.description !== saved.config.description) TaskDescriptionSchema.parse(action.config.description);
+  }
+}
+
 export async function createWorkflow(tenantId: string, userId: string, dto: unknown) {
   requireScope(tenantId);
   const draft = parseDraft(dto);
+  assertWorkflowTextChanges(draft);
   if (draft.isActive) {
     const issues = workflowActionPolicyIssues(draft);
     if (issues.length) throw new ValidationError(issues[0]);
@@ -146,7 +157,8 @@ export async function updateWorkflow(id: string, tenantId: string, userId: strin
   const updates = WorkflowDraftSchema.partial().safeParse(dto);
   if (!updates.success) throw new ValidationError('Use the supported workflow fields.');
   const draft = parseDraft({ name: existing.name, description: existing.description, trigger: existing.trigger,
-    conditions: existing.conditions, actions: existing.actions, isActive: existing.isActive, ...updates.data });
+    conditions: existing.conditions, actions: existing.actions, isActive: existing.isActive, ...updates.data }, StoredWorkflowDraftSchema);
+  assertWorkflowTextChanges(draft, StoredWorkflowDraftSchema.strip().parse(existing));
   const oldReferences = new Set(retiredContactReferences([existing.conditions, existing.actions], findTrigger(existing.trigger)?.entity));
   const oldAccountReferences = new Set(await accountWorkflowRetirementReferences(existing, tenantId));
   const accountReferences = await accountWorkflowRetirementReferences(draft, tenantId);
@@ -210,7 +222,7 @@ export async function testWorkflow(id: string, tenantId: string, entityId: strin
   }
   const existing = await getWorkflowById(id, tenantId);
   const draft = parseDraft(useDraft && existing.draftDefinition ? existing.draftDefinition : { name: existing.name, description: existing.description, trigger: existing.trigger,
-    conditions: existing.conditions, actions: existing.actions, isActive: false });
+    conditions: existing.conditions, actions: existing.actions, isActive: false }, StoredWorkflowDraftSchema);
   const trigger = findTrigger(draft.trigger);
   if (!trigger) throw new ValidationError('Choose a supported trigger.');
   if (userId) await assertWorkflowPermissions(draft, tenantId, userId, 'workflows.execute');
@@ -300,6 +312,7 @@ export async function validateDraft(tenantId: string, userId: string, input: unk
   const { workflowId, ...draft } = parsed.data;
   const existing = workflowId ? await getWorkflowById(workflowId, tenantId) : null;
   if (workflowId && (!existing || existing.isArchived)) throw new NotFoundError('Workflow');
+  assertWorkflowTextChanges(draft, existing ? StoredWorkflowDraftSchema.strip().parse(existing.draftDefinition ?? existing) : undefined);
   await assertAssignmentReferencePermissions(draft, tenantId, userId);
   await validateWorkflow(draft, tenantId, existing && existing.status !== 'DRAFT' ? existing.conditions : undefined);
   await assertWorkflowPermissions(draft, tenantId, userId, 'workflows.execute');
@@ -326,7 +339,7 @@ export async function duplicateWorkflow(id: string, tenantId: string, userId: st
 
 function workingCopyResponse(workflow: Awaited<ReturnType<typeof repo.findWorkflowById>>) {
   if (!workflow) throw new NotFoundError('Workflow');
-  const definition = WorkflowDraftSchema.safeParse(workflow.draftDefinition);
+  const definition = StoredWorkflowDraftSchema.safeParse(workflow.draftDefinition);
   return { ...workflow, ...(definition.success ? definition.data : {}), isActive: workflow.isActive, status: workflow.status, draftDefinition: definition.success ? definition.data : null };
 }
 export async function saveWorkflowDraft(id: string, tenantId: string, userId: string, input: unknown) {
@@ -334,6 +347,7 @@ export async function saveWorkflowDraft(id: string, tenantId: string, userId: st
   const { draft, expectedDraftRevision, expectedVersion } = WorkflowRevisionWriteSchema.parse(input);
   const existing = await getWorkflowById(id, tenantId);
   if (existing.isArchived) throw new ValidationError('Archived workflows cannot be edited.');
+  assertWorkflowTextChanges(draft, StoredWorkflowDraftSchema.strip().parse(existing.draftDefinition ?? existing));
   if (!findTrigger(draft.trigger)) throw new ValidationError('Choose a supported trigger.');
   await assertAssignmentReferencePermissions(draft, tenantId, userId);
   // Drafts may retain incomplete setup, but cannot introduce a protected role target.
@@ -359,6 +373,7 @@ export async function publishWorkflowDraft(id: string, tenantId: string, userId:
   const { draft, expectedDraftRevision, expectedVersion } = WorkflowRevisionWriteSchema.parse(input);
   const existing = await getWorkflowById(id, tenantId);
   if (existing.isArchived) throw new ValidationError('Archived workflows cannot be published.');
+  assertWorkflowTextChanges(draft, StoredWorkflowDraftSchema.strip().parse(existing.draftDefinition ?? existing));
   const active = sanitizeDraft({ ...draft, isActive: true }, existing.conditions);
   if (!(await getWorkflowNameAvailability(tenantId, active.name, id)).available) throw new ConflictError('A workflow with this name already exists.');
   if ((await accountWorkflowRetirementReferences(active, tenantId)).length || retiredContactReferences([active.conditions, active.actions], findTrigger(active.trigger)?.entity).length) throw new ValidationError('Repair retired workflow references before publishing.');
@@ -392,5 +407,5 @@ export async function restoreWorkflowPublication(id: string, tenantId: string, u
   const target = z.coerce.number().int().min(1).parse(version), tokens = WorkflowRevisionTokenSchema.parse(input);
   const revision = await prisma.workflowPublication.findFirst({ where: { tenantId, workflowId: id, version: target } });
   if (!revision) throw new NotFoundError('Published workflow version');
-  return saveWorkflowDraft(id, tenantId, userId, { ...tokens, draft: WorkflowDraftSchema.parse(revision.definition) });
+  return saveWorkflowDraft(id, tenantId, userId, { ...tokens, draft: StoredWorkflowDraftSchema.parse(revision.definition) });
 }

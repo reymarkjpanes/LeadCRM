@@ -245,7 +245,12 @@ it('cancels inline edits without updates and focuses the first permitted edit af
 it('preserves whitespace and the notes limit without rewriting untouched due dates or associations', async () => {
   render(<TaskEditor task={task} onClose={vi.fn()} />); editField('Notes');
   const notes = screen.getByRole('textbox', { name: 'Notes' });
-  expect(notes).toHaveProperty('maxLength', 10000);
+  const over = 'N'.repeat(1001);
+  fireEvent.change(notes, { target: { value: over } });
+  expect(notes).toHaveProperty('value', over);
+  expect(notes.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(notes.getAttribute('aria-describedby')!)?.textContent).toBe('Task description must not exceed 1000 characters.');
+  expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
   fireEvent.change(notes, { target: { value: '  Notes\n  with whitespace  ' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(mocks.updateTask).toHaveBeenCalledWith(task.id, { description: '  Notes\n  with whitespace  ', expectedUpdatedAt: task.updatedAt }));

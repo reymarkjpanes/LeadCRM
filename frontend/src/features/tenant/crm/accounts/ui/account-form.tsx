@@ -11,6 +11,7 @@ import { AccountNativeField } from '@/shared/components/crm/account-native-field
 import { useRecordCustomFields } from '@/shared/components/crm/record-custom-fields';
 import { panelBodyClass, panelFooterClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
+import { omitUnchangedText, textFieldError } from '@/shared/utils/text-field-validation';
 import { applyCrmFieldErrors, showCrmMutationError } from '@/shared/utils/crm-mutation-error';
 import { CreateAccountSchema, UpdateAccountSchema, type AccountFormValues } from '../schemas/account.schema';
 import type { Account, AccountMutationInput } from '../types/account.types';
@@ -36,9 +37,17 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     name: initialData?.name || '', industry: initialData?.industry || '', size: (initialData?.size as AccountFormValues['size']) || '',
     website: initialData?.website || '', address: initialData?.address || '',
   }), [initialData]);
-  const { register, handleSubmit, formState: { errors, isSubmitting: isValidatingSubmission, isDirty }, setFocus, setError } = useForm<AccountFormValues>({
-    resolver: zodResolver(isEdit ? UpdateAccountSchema : CreateAccountSchema) as never, defaultValues, mode: 'onBlur',
+  const { register, handleSubmit, formState: { errors, isSubmitting: isValidatingSubmission, isDirty }, setFocus, setError, clearErrors, watch } = useForm<AccountFormValues>({
+    resolver: (values, context, options) => zodResolver(isEdit ? UpdateAccountSchema : CreateAccountSchema)(
+      omitUnchangedText(values, isEdit ? defaultValues : undefined, ['name', 'address']), context, options as never
+    ) as never, defaultValues, mode: 'onBlur',
   });
+  const name = watch('name');
+  const address = watch('address');
+  const nameChanged = !isEdit || name !== defaultValues.name;
+  const addressChanged = !isEdit || address !== defaultValues.address;
+  const nameError = (nameChanged && name ? textFieldError(CreateAccountSchema.shape.name, name) : undefined) ?? errors.name?.message;
+  const addressError = (addressChanged ? textFieldError(CreateAccountSchema.shape.address, address) : undefined) ?? errors.address?.message;
   const fieldId = React.useId();
   const formRef = useRef<HTMLFormElement>(null);
   const saving = useRef(false);
@@ -55,10 +64,10 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     setIsSaving(true);
     try {
       if (!isEdit) requestId.current ??= crypto.randomUUID();
-      await onSave({ ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), name: data.name,
+      await onSave({ ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), ...(nameChanged ? { name: data.name } : {}),
         industry: data.industry || (isEdit ? '' : undefined), size: data.size || (isEdit ? null : undefined),
         website: data.website || (isEdit ? '' : undefined),
-        address: data.address || (isEdit ? '' : undefined) });
+        ...(addressChanged ? { address: data.address || (isEdit ? '' : undefined) } : {}) });
     } catch (error) {
       applyCrmFieldErrors(error, setError, ['name', 'industry', 'size', 'website', 'address']);
       const message = error instanceof Error ? error.message : 'Unable to save Account. Please try again.';
@@ -71,11 +80,11 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
       {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
 
       <ConfiguredFormLayout form={customFields} module="accounts">
-        <AccountNativeField fieldKey="name" label="Account Name *" id={`${fieldId}-name`} registration={register('name')} error={errors.name?.message} disabled={isSubmitting} />
+        <AccountNativeField fieldKey="name" label="Account Name *" id={`${fieldId}-name`} registration={register('name', { onChange: () => clearErrors('name') })} error={nameError} disabled={isSubmitting} />
         <AccountNativeField fieldKey="industry" label="Industry" id={`${fieldId}-industry`} registration={register('industry')} error={errors.industry?.message} disabled={isSubmitting} />
         <AccountNativeField fieldKey="size" label="Company Size" id={`${fieldId}-size`} registration={register('size')} error={errors.size?.message} disabled={isSubmitting} />
         <AccountNativeField fieldKey="website" label="Website" id={`${fieldId}-website`} registration={register('website')} error={errors.website?.message} disabled={isSubmitting} />
-        <AccountNativeField fieldKey="address" label="Company Address" id={`${fieldId}-address`} registration={register('address')} error={errors.address?.message} disabled={isSubmitting} />
+        <AccountNativeField fieldKey="address" label="Company Address" id={`${fieldId}-address`} registration={register('address', { onChange: () => clearErrors('address') })} error={addressError} disabled={isSubmitting} />
       </ConfiguredFormLayout>
     </div>
     <div className={`${panelFooterClass} justify-end`}>

@@ -12,6 +12,10 @@ import { requestNavigation } from '@/shared/lib/navigation-intent';
 import { useLayout } from '@/features/tenant/layout/use-layout';
 import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR as employeeMessage } from '@leadcrm/shared';
 import { toast } from '@/shared/utils/toast';
+
+const invalidName = 'must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().';
+const firstNameError = `First name ${invalidName}`;
+const fullNameError = `Full name ${invalidName}`;
 vi.mock('@/shared/utils/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 const routing = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('@/shared/hooks/use-email-availability', () => ({ useEmailAvailability: (email: string) => ({ available: true, blocked: false, confirm: () => true, email: email.trim(), retry: vi.fn(), reject: vi.fn() }) }));
@@ -55,14 +59,14 @@ describe('Forms UI', () => {
     const first = screen.getByRole('textbox', { name: 'First Name' });
     fireEvent.input(first, { target: { value: 'Mar1a' } });
     expect(first).toHaveProperty('value', 'Mar1a');
-    expect(screen.getByText('First name must not contain numbers.').id).toBe(first.getAttribute('aria-describedby'));
+    expect(screen.getByText(firstNameError).id).toBe(first.getAttribute('aria-describedby'));
     expect(screen.queryByText('Unsaved changes')).toBeNull();
     fireEvent.input(first, { target: { value: 'María' } });
-    expect(screen.queryByText('First name must not contain numbers.')).toBeNull();
+    expect(screen.queryByText(firstNameError)).toBeNull();
     fireEvent.input(first, { target: { value: 'María@' } });
-    expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+    expect(screen.getByText(firstNameError)).toBeTruthy();
     fireEvent.input(first, { target: { value: 'María' } });
-    expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
+    expect(screen.queryByText(firstNameError)).toBeNull();
   });
 
   it('validates mapped Full Name samples without changing the saved definition', () => {
@@ -70,11 +74,11 @@ describe('Forms UI', () => {
     render(<FormBuilderPage form={legacy} onBack={() => {}} onFormUpdate={() => {}} />);
     const input = screen.getByRole('textbox', { name: 'Your name' });
     fireEvent.input(input, { target: { value: 'John1@ Smith' } });
-    expect(screen.getByText('Full name must not contain numbers.').id).toBe(input.getAttribute('aria-describedby'));
+    expect(screen.getByText(fullNameError).id).toBe(input.getAttribute('aria-describedby'));
     fireEvent.input(input, { target: { value: 'John@ Smith' } });
-    expect(screen.getByText('Full name must not contain special characters.')).toBeTruthy();
+    expect(screen.getByText(fullNameError)).toBeTruthy();
     fireEvent.input(input, { target: { value: 'Anne-Marie O’Connor' } });
-    expect(screen.queryByText('Full name must not contain special characters.')).toBeNull();
+    expect(screen.queryByText(fullNameError)).toBeNull();
     expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 

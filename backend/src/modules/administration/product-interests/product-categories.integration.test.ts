@@ -161,6 +161,20 @@ describe.sequential('Product Category persistence and HTTP authorization', () =>
     expect((await a.request('', 'POST', { ...payload, category: 'Security' })).status).toBe(200);
   });
 
+  it('keeps historical category names and validates only new labels and assignments', async () => {
+    const a = await actor();
+    const historical = 'C'.repeat(150);
+    const product = await db.productInterest.create({ data: { tenantId: a.tenantId, name: 'Legacy Camera', category: historical, dealValue: 7 } });
+    expect((await a.request()).body.meta.categories).toContain(historical);
+    expect((await a.request()).body.meta.categories).toContain(historical);
+    expect((await a.request('/' + product.id, 'PATCH', { dealValue: 8 })).status).toBe(200);
+    expect(await db.productInterest.findUniqueOrThrow({ where: { id: product.id } })).toMatchObject({ category: historical });
+    expect((await a.request('', 'POST', { name: 'New Camera', category: historical, dealValue: 7 })).status).toBe(400);
+    expect((await a.change({ action: 'rename', name: historical, newName: 'B'.repeat(101) })).status).toBe(400);
+    expect((await a.change({ action: 'rename', name: historical, newName: 'B'.repeat(100) })).status).toBe(200);
+    expect((await db.productInterest.findUniqueOrThrow({ where: { id: product.id } })).category).toBe('B'.repeat(100));
+  });
+
   it('enforces action-specific Product permissions on direct requests', async () => {
     for (const grants of [{ canView: true }, { canView: true, canCreate: true }, { canView: true, canEdit: true }, { canView: true, canArchive: true }]) {
       const a = await actor(grants);

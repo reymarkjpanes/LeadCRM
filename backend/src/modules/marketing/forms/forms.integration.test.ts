@@ -75,10 +75,11 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     const { firstName: _first, lastName: _last, ...other } = values(email);
     const valid = { ...other, ...(fullName ? { person: 'María O’Connor' } : { given: 'María', family: 'O’Connor' }) };
     for (const field of fullName ? ['person'] : ['given', 'family']) {
-      for (const [value, reason] of [['John@1', 'numbers'], ['John@', 'special characters']]) {
+      const label = field === 'person' ? 'Full name' : field === 'given' ? 'First name' : 'Last name';
+      for (const value of ['John123', 'John@', 'John123@']) {
         const response = await request(`/public/forms/${form.publicId}/submissions`, 'POST', { requestId: randomUUID(), version: published.publishedVersion, values: { ...valid, [field]: value } }, '');
         expect(response.status, JSON.stringify(response.body)).toBe(400);
-        expect(response.body.fieldErrors[field]).toContain(`must not contain ${reason}.`);
+        expect(response.body.fieldErrors[field]).toContain(`${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`);
       }
     }
     expect(await prisma.formSubmission.count({ where: { formId: form.id } })).toBe(0);

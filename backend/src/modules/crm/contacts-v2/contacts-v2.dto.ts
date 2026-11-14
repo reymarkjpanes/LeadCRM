@@ -1,21 +1,15 @@
-import { CrmEmailSchema, LeadPhoneSchema, CustomFieldValuesSchema, ContactCreationIdentitySchema, NewAccountSchema, exclusiveAccountInput, getNameDigitError } from '@leadcrm/shared';
+import { CrmEmailSchema, LeadPhoneSchema, CustomFieldValuesSchema, ContactCreationIdentitySchema, NewAccountSchema, exclusiveAccountInput, personNameSchema, CrmCompanyNameSchema, CrmAddressSchema } from '@leadcrm/shared';
 import { z } from 'zod';
 import { CrmStatusSchema } from '@leadcrm/shared';
 import { recordText, recordName } from '../record-validation';
 const ContactFields = ContactCreationIdentitySchema.extend({
   customFieldValues: CustomFieldValuesSchema.optional(),
   productInterestOther: recordText(1000).nullable().optional(),
-  firstName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('firstName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(recordName()),
-  lastName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('lastName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(recordName()),
+  firstName: personNameSchema('firstName', 'Name is required'),
+  lastName: personNameSchema('lastName', 'Name is required'),
   email: CrmEmailSchema,
-  phone: LeadPhoneSchema.optional(), companyName: recordText().optional(),
-  address: recordText().optional(),
+  phone: LeadPhoneSchema.optional(), companyName: CrmCompanyNameSchema.optional(),
+  address: CrmAddressSchema.optional(),
   source: recordText().optional(), notes: recordText(10000).optional(),
   status: CrmStatusSchema.default('Inquiry'),
   accountId: z.string().uuid().nullable().optional(),

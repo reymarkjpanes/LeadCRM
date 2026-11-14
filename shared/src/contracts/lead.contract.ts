@@ -3,24 +3,18 @@ import { cleanText, AdministrationPhoneSchema } from '../validation/administrati
 import { CrmEmailSchema } from '../validation/crm-email';
 import { LeadStatusSchema, LeadSourceSchema } from './record-experience';
 import { CustomFieldValuesSchema } from './closing-requirements';
-import { NewAccountSchema, exclusiveAccountInput } from './organization';
-import { getNameDigitError } from './profile.contract';
+import { NewAccountSchema, exclusiveAccountInput, CrmCompanyNameSchema, CrmAddressSchema, COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR } from './organization';
+import { personNameSchema } from './profile.contract';
 
 export const LeadNameSchema = cleanText(100).pipe(z.string().min(1, 'Name is required'));
 export const LeadPhoneSchema = z.union([z.literal(''), AdministrationPhoneSchema]);
 export const OptionalLeadSourceSchema = z.union([z.literal(''), LeadSourceSchema]);
 const fields = {
-  firstName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('firstName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(LeadNameSchema),
-  lastName: z.string().superRefine((value, ctx) => {
-    const error = getNameDigitError('lastName', value);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(LeadNameSchema),
+  firstName: personNameSchema('firstName', 'Name is required'),
+  lastName: personNameSchema('lastName', 'Name is required'),
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
-  companyName: cleanText(2000).optional(),
+  companyName: CrmCompanyNameSchema.optional(),
   status: LeadStatusSchema,
   source: OptionalLeadSourceSchema.optional(),
   sourceDetail: cleanText(200).optional(),
@@ -28,7 +22,7 @@ const fields = {
   newAccount: NewAccountSchema.optional(),
   assignedUserId: z.string().uuid().nullable().optional(),
   productInterest: z.array(z.string().uuid()).max(100).optional(),
-  address: z.string().refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.').transform(value => value.trim()).pipe(z.string().max(2000)).optional(),
+  address: CrmAddressSchema.optional(),
   customFieldValues: CustomFieldValuesSchema.optional(),
 };
 /** The manual Lead API accepts only the final form fields and a retry receipt. */
@@ -46,7 +40,7 @@ export type UpdateLeadInput = z.infer<typeof UpdateLeadSchema>;
 /** New Account details use the same contract as standalone and linked creation. */
 export const ConvertLeadSchema = z.object({
   accountId: z.string().uuid().optional(),
-  accountName: z.string().trim().min(1).max(2000).optional(),
+  accountName: z.string().trim().min(1).max(COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR).optional(),
   newAccount: NewAccountSchema.optional(),
   skipAccountCreation: z.boolean().optional(),
   createContact: z.literal(true).default(true),

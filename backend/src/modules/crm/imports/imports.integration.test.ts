@@ -95,8 +95,8 @@ describe.skipIf(!disposable)('CRM CSV import database and HTTP', () => {
     const preview = await request(module, '/preview', 'POST', input);
     expect(preview.status).toBe(200);
     expect(preview.body.data.map((row: { isValid: boolean }) => row.isValid)).toEqual([false, false, true]);
-    expect(preview.body.data[0].errors.join()).toContain('First name must not contain numbers.');
-    expect(preview.body.data[1].errors.join()).toContain('Last name must not contain special characters.');
+    expect(preview.body.data[0].errors.join()).toContain('First name must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().');
+    expect(preview.body.data[1].errors.join()).toContain('Last name must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().');
     const result = await run(module, input);
     expect(result.successfulRecords).toBe(1);
     expect(result.failedRecords).toBe(2);

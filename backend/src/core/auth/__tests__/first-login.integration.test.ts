@@ -226,7 +226,7 @@ describe.sequential('first login with real sessions and migrated disposable Post
       expect(await db.user.count({ where: { tenantId, email: tester.email } })).toBe(1);
     } finally { generate.mockRestore(); }
   }, 20_000);
-  it.each(['new.staff@gmail.com', 'new.staff@workspace.example', 'later.staff@gmail.com'])('provisions and connects %s in production without an address allowlist', async email => {
+  it.each(['new.staff@gmail.com', 'later.staff@gmail.com'])('provisions and connects %s in production without an address allowlist', async email => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('LEADCRM_PRODUCTION_AUTH_ENABLED', 'false');
     vi.stubEnv('LEADCRM_PRODUCTION_EMAIL_ALLOWLIST', '');

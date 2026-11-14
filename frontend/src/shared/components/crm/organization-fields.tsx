@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { NewAccountSchema, type NewAccountInput } from '@leadcrm/shared';
+import { AccountFieldsSchema, CrmCompanyNameSchema, NewAccountSchema, type NewAccountInput } from '@leadcrm/shared';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import type { ApiRequestError } from '@/lib/api/client';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { EntityCombobox } from '@/shared/components/entity-combobox';
@@ -42,7 +43,12 @@ export function useOrganizationForm(initial?: { id?: string; accountId?: string 
   };
   const validate = () => {
     setError(''); setFieldErrors({});
-    if (mode !== 'new') return true; // Linking an Account remains optional.
+    if (mode !== 'new') {
+      const companyError = !initial?.id && !accountId && initial?.companyName
+        ? textFieldError(CrmCompanyNameSchema, initial.companyName) : undefined;
+      if (companyError) setError(companyError);
+      return !companyError;
+    }
     if (!canView || !canCreate) { setError('Accounts View and Create permissions are required. Ask your administrator for access, or link an existing account.'); return false; }
     const parsed = NewAccountSchema.safeParse(newAccount());
     if (!parsed.success) {
@@ -53,7 +59,7 @@ export function useOrganizationForm(initial?: { id?: string; accountId?: string 
     return true;
   };
   const payload = (): OrganizationPayload => mode === 'new' ? { newAccount: NewAccountSchema.parse(newAccount()) }
-    : { accountId: accountId || null, ...(!accountId && initial?.companyName ? { companyName: initial.companyName } : {}) };
+    : { accountId: accountId || null, ...(!initial?.id && !accountId && initial?.companyName ? { companyName: initial.companyName } : {}) };
   const applyServerErrors = (failure: unknown) => {
     const errors = (failure as ApiRequestError)?.fieldErrors;
     if (!errors) return;
@@ -63,7 +69,13 @@ export function useOrganizationForm(initial?: { id?: string; accountId?: string 
     else if (errors.newAccount?.[0]) setError(errors.newAccount[0]);
   };
   const dirty = mode !== baseline.current.mode || accountId !== baseline.current.accountId || JSON.stringify(fields) !== JSON.stringify(baseline.current.fields);
-  return { mode, setMode, accountId, setAccountId, fields, setFields, dirty, error, fieldErrors, custom, validate, payload, applyServerErrors };
+  const changeField = (key: keyof CompanyFields, value: string) => {
+    setFields(previous => ({ ...previous, [key]: value }));
+    const field = key === 'companyName' ? 'name' : key;
+    setFieldErrors(previous => ({ ...previous, [field]: field === 'name' || field === 'address'
+      ? textFieldError(AccountFieldsSchema.shape[field], value) ?? '' : '' }));
+  };
+  return { mode, setMode, accountId, setAccountId, fields, setFields, changeField, dirty, error, fieldErrors, custom, validate, payload, applyServerErrors };
 }
 type OrganizationForm = ReturnType<typeof useOrganizationForm>;
 
@@ -86,7 +98,7 @@ export function OrganizationFields({ draft, companyLabel = 'Company Name', showA
   const canView = useHasPermission('accounts.view');
   const canCreate = useHasPermission('accounts.create');
   const [accountDraftOpened, setAccountDraftOpened] = useState(draft.mode === 'new');
-  const change = (key: keyof CompanyFields, value: string) => draft.setFields(previous => ({ ...previous, [key]: value }));
+  const change = draft.changeField;
   const keys: AccountNativeFieldKey[] = ['name', 'industry', 'size', 'website', 'address'];
   return <div className="min-w-0 space-y-4 sm:col-span-2">
     <div className="flex flex-wrap gap-2" role="group" aria-label="Account options">

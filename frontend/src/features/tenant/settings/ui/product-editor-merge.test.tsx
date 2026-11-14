@@ -44,7 +44,7 @@ it('preserves existing 200-character categories, descriptions and decimal values
   const product = { id: 'product', name: 'Camera', category: 'C'.repeat(200), description: 'Existing description', dealValue: 15000.5, active: true, createdAt: '', updatedAt: '' };
   render(<ProductEditor product={product} categories={[product.category]} busy={false} onSave={save} onCancel={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith({ name: product.name, category: product.category, description: product.description, dealValue: product.dealValue }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ dealValue: product.dealValue }));
 });
 
 it('preserves decimal typing states and the cursor while requiring a complete amount to save', async () => {
@@ -113,4 +113,31 @@ it.each(['', '1000000000000'])('rejects empty or above-maximum amounts: %s', amo
   fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
   expect(save).not.toHaveBeenCalled();
   expect(screen.getByRole('alert').textContent).toBe(amount ? 'Number must be less than or equal to 999999999999' : 'Deal value is required.');
+});
+
+it('retains over-limit drafts and clears each inline error after correction', async () => {
+  const save = vi.fn(async () => {});
+  const add = vi.fn(async () => {});
+  render(<ProductEditor busy={false} categories={['Security']} canCreateCategory onCreateCategory={add} onSave={save} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: '__add__' } });
+  fireEvent.change(screen.getByLabelText('Deal Value (PHP)'), { target: { value: '120' } });
+  for (const [label, messageLabel, limit] of [
+    ['Product Name', 'Product name', 200], ['New Category', 'Category name', 100], ['Product Description', 'Product description', 1000],
+  ] as const) {
+    const input = screen.getByLabelText(label);
+    const over = 'A'.repeat(limit + 1);
+    fireEvent.change(input, { target: { value: over } });
+    expect(input).toHaveProperty('value', over);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent)
+      .toBe(messageLabel + ' must not exceed ' + limit + ' characters.');
+    fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: over.slice(1) } });
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save Product' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({
+    name: 'A'.repeat(200), category: 'A'.repeat(100), description: 'A'.repeat(1000), dealValue: 120,
+  }));
 });

@@ -14,7 +14,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  WorkflowDraftSchema,
+  WorkflowDraftSchema, StoredWorkflowDraftSchema, WorkflowDescriptionSchema,
   retiredAccountWorkflowReferences,
   ACCOUNT_RETIREMENT_REASON,
   workflowActionAllowed,
@@ -171,10 +171,13 @@ export default function WorkflowBuilder({
   guardState.current = { dirty, readOnly };
   useEffect(() => { leaving.current = false; }, [draft]);
   const locked = !!readOnly || busy;
+  const descriptionResult = WorkflowDescriptionSchema.safeParse(draft.description);
+  const descriptionIssue = (!savedId || draft.description !== saved.description) && !descriptionResult.success
+    ? descriptionResult.error.issues[0]?.message : undefined;
   const nameIssue = workflowNameIssue(draft.name, existingWorkflows, savedId) ||
     (nameCheck?.name === draft.name && nameCheck.available === false ? 'A workflow with this name already exists. Choose another name.' : '');
   const issues = [
-    ...editorIssues(document, triggers, definitions, options, false, savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined),
+    ...editorIssues(document, triggers, definitions, options, false, savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined, savedId ? saved.actions : undefined),
     ...workflowTemplateSetupIssues(draft, linkedTemplate?.id, options).map(message => ({ step: 'conditions' as const, message })),
     ...(nameIssue && draft.name.trim() ? [{ step: 'details' as const, message: nameIssue }] : []),
   ];
@@ -186,7 +189,7 @@ export default function WorkflowBuilder({
   );
 
   useEffect(() => {
-    if (!onCheckName || !draft.name.trim() || readOnly) return;
+    if (!onCheckName || !WorkflowDraftSchema.shape.name.safeParse(draft.name).success || readOnly) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       onCheckName(draft.name, savedId).then((available) => {
@@ -444,10 +447,10 @@ export default function WorkflowBuilder({
     if (operation.current || readOnly || (activate && !canActivate) || (validateOnly && !canExecute)) return;
     setError('');
     setMessage('');
-    if (nameIssue) {
+    if (nameIssue || descriptionIssue) {
       select('details');
-      if (confirmed) throw new Error(nameIssue);
-      reportError(nameIssue);
+      if (confirmed) throw new Error(nameIssue || descriptionIssue);
+      reportError(nameIssue || descriptionIssue || 'Review the workflow details.');
       return;
     }
     const local = [...editorIssues(
@@ -457,6 +460,7 @@ export default function WorkflowBuilder({
       options,
       !activate && !validateOnly,
       savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined,
+      savedId ? saved.actions : undefined,
     ), ...workflowTemplateSetupIssues(draft, linkedTemplate?.id, options).map(message => ({ step: 'conditions' as const, message }))];
     if (local.length) {
       select(local[0].step);
@@ -464,7 +468,7 @@ export default function WorkflowBuilder({
       reportError(local[0].message);
       return;
     }
-    const parsed = WorkflowDraftSchema.safeParse({
+    const parsed = (savedId && draft.description === saved.description ? StoredWorkflowDraftSchema : WorkflowDraftSchema).safeParse({
       ...toDraft(draft),
       isActive: activate,
     });
@@ -587,7 +591,6 @@ export default function WorkflowBuilder({
                 aria-describedby={
                   nameIssue ? 'workflow-name-error' : undefined
                 }
-                maxLength={255}
                 value={draft.name}
                 onChange={(event) =>
                   updateDraft({ ...draft, name: event.target.value })
@@ -596,7 +599,8 @@ export default function WorkflowBuilder({
               {nameIssue && (
                 <span
                   id="workflow-name-error"
-                  className="text-xs text-amber-700 dark:text-amber-300"
+                  role="alert"
+                  className="text-xs text-destructive"
                 >
                   {nameIssue}
                 </span>
@@ -608,13 +612,16 @@ export default function WorkflowBuilder({
               <Textarea
                 className={workflowControl}
                 rows={4}
-                maxLength={2000}
+                aria-label="Workflow description"
+                aria-invalid={!!descriptionIssue}
+                aria-describedby={descriptionIssue ? 'workflow-description-error' : undefined}
                 placeholder="Describe what this workflow does..."
                 value={draft.description ?? ''}
                 onChange={(event) =>
                   updateDraft({ ...draft, description: event.target.value })
                 }
               />
+              {descriptionIssue && <span id="workflow-description-error" role="alert" className="block text-xs text-destructive">{descriptionIssue}</span>}
             </label>
           </>
         )}
@@ -676,6 +683,7 @@ export default function WorkflowBuilder({
             <ActionFields
               key={document.actionIds[actionIndex]}
               action={draft.actions[actionIndex]}
+              previous={savedId ? saved.actions[actionIndex] : undefined}
               definition={definitions.find(
                 (def) => def.type === draft.actions[actionIndex].type,
               )}

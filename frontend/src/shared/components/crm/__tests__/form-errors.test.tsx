@@ -26,6 +26,10 @@ import { DealForm } from '@/features/tenant/crm/deals/ui/deal-form';
 import { DealEditForm } from '@/features/tenant/crm/deals/ui/deal-edit-form';
 import type { Deal } from '@/store/types';
 import { EntityCombobox } from '@/shared/components/entity-combobox';
+
+const invalidName = 'must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().';
+const firstNameError = `First name ${invalidName}`;
+const lastNameError = `Last name ${invalidName}`;
 afterEach(cleanup);
 it('keeps an inline employee email edit open with an error toast and accepts correction', async () => {
   vi.clearAllMocks();
@@ -64,10 +68,10 @@ it.each([
     fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'visitor@example.test' } });
   }
   fireEvent.input(first, { target: { value: 'Mar1a' } });
-  const firstError = screen.getByText('First name must not contain numbers.');
+  const firstError = screen.getByText(firstNameError);
   expect(first.getAttribute('aria-describedby')).toBe(firstError.id);
   fireEvent.input(last, { target: { value: '123' } });
-  const lastError = screen.getByText('Last name must not contain numbers.');
+  const lastError = screen.getByText(lastNameError);
   expect(last.getAttribute('aria-describedby')).toBe(lastError.id);
   expect(firstError.className).toBe(lastError.className);
   expect(first).toHaveProperty('value', 'Mar1a');
@@ -85,22 +89,22 @@ it.each([
   expect(screen.queryByText(lastError.textContent!)).toBeNull();
   fireEvent.input(first, { target: { value: 'María@' } });
   fireEvent.input(last, { target: { value: 'O’Connor_' } });
-  expect(screen.getByText('First name must not contain special characters.').id).toBe(first.getAttribute('aria-describedby'));
-  expect(screen.getByText('Last name must not contain special characters.').id).toBe(last.getAttribute('aria-describedby'));
+  expect(screen.getByText(firstNameError).id).toBe(first.getAttribute('aria-describedby'));
+  expect(screen.getByText(lastNameError).id).toBe(last.getAttribute('aria-describedby'));
   expect(first).toHaveProperty('value', 'María@');
   await act(async () => { fireEvent.submit(form); });
   expect(save).not.toHaveBeenCalled();
   fireEvent.input(first, { target: { value: 'María' } });
   fireEvent.input(last, { target: { value: 'O’Connor' } });
-  expect(screen.queryByText('First name must not contain special characters.')).toBeNull();
-  expect(screen.queryByText('Last name must not contain special characters.')).toBeNull();
+  expect(screen.queryByText(firstNameError)).toBeNull();
+  expect(screen.queryByText(lastNameError)).toBeNull();
   await act(async () => { fireEvent.submit(form); });
   expect(save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ firstName: 'María', lastName: 'O’Connor' }));
 });
 
 it.each([
-  ['firstName', 'First name', 'First name must not contain numbers.'],
-  ['lastName', 'Last name', 'Last name must not contain numbers.'],
+  ['firstName', 'First name', firstNameError],
+  ['lastName', 'Last name', lastNameError],
 ] as const)('blocks Save and Enter for an invalid inline %s and accepts a correction', async (field, label, message) => {
   const save = vi.fn().mockResolvedValue(undefined);
   render(<InlineEditRows canEdit onSave={save} rows={[{ label, apiField: field, value: 'John', required: true }]} />);
@@ -114,7 +118,7 @@ it.each([
   fireEvent.input(input, { target: { value: 'Anne-Marie' } });
   expect(screen.queryByText(message)).toBeNull();
   fireEvent.input(input, { target: { value: 'John@' } });
-  expect(screen.getByText(`${label} must not contain special characters.`)).toBeTruthy();
+  expect(screen.getByText(message)).toBeTruthy();
   fireEvent.keyDown(input, { key: 'Enter' });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   expect(save).not.toHaveBeenCalled();
@@ -138,7 +142,7 @@ it.each([['Lead', AddLeadForm], ['Contact', ContactFormInner]] as const)('%s edi
   save.mockClear();
   const first = screen.getByLabelText('First Name *');
   fireEvent.input(first, { target: { value: 'New@' } });
-  expect(screen.getByText('First name must not contain special characters.')).toBeTruthy();
+  expect(screen.getByText(firstNameError)).toBeTruthy();
   await act(async () => { fireEvent.submit(container.querySelector('form')!); });
   expect(save).not.toHaveBeenCalled();
   fireEvent.input(first, { target: { value: 'Anne-Marie' } });
@@ -148,7 +152,7 @@ it.each([['Lead', AddLeadForm], ['Contact', ContactFormInner]] as const)('%s edi
 });
 
 it('closes an unchanged historical inline name without resubmitting it and clears stale errors on correction', async () => {
-  const save = vi.fn().mockRejectedValueOnce(new Error('First name must not contain special characters.')).mockResolvedValue(undefined);
+  const save = vi.fn().mockRejectedValueOnce(new Error(firstNameError)).mockResolvedValue(undefined);
   render(<InlineEditRows canEdit onSave={save} rows={[{ label: 'First name', apiField: 'firstName', value: 'Legacy@1', required: true }]} />);
   fireEvent.click(screen.getByRole('button', { name: 'Edit First name' }));
   fireEvent.keyDown(screen.getByLabelText('First name'), { key: 'Enter' });
@@ -157,7 +161,7 @@ it('closes an unchanged historical inline name without resubmitting it and clear
   fireEvent.click(screen.getByRole('button', { name: 'Edit First name' }));
   fireEvent.input(screen.getByLabelText('First name'), { target: { value: 'Anne' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('First name must not contain special characters.');
+  await screen.findByText(firstNameError);
   fireEvent.input(screen.getByLabelText('First name'), { target: { value: 'María' } });
   expect(screen.queryByRole('alert')).toBeNull();
   fireEvent.keyDown(screen.getByLabelText('First name'), { key: 'Enter' });

@@ -4,7 +4,8 @@ import { AdministrationPhoneSchema } from '../validation/administration-user.sch
 import type { CrmFieldCatalogEntry } from './field-catalog';
 import type { ProductInterest } from './product-interests.contract';
 import { isDirectMailSource } from './record-experience';
-import { getNameDigitError } from './profile.contract';
+import { getNameDigitError, PROFILE_FIELD_LIMITS, PROFILE_FIELD_LIMIT_ERRORS } from './profile.contract';
+import { COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR, CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR } from './organization';
 
 // Legacy seed labels for database fixtures only. Runtime forms resolve database IDs.
 export const FORM_PRODUCT_INTERESTS = [
@@ -14,7 +15,8 @@ export const FORM_PRODUCT_INTERESTS = [
   'Laptop/Server/Data Cabinets', 'Others',
 ] as const;
 export const FORM_TRACKING_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as const;
-const text = (max: number) => z.string().max(max).refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v), 'Control characters are not allowed.').transform(v => v.trim());
+const plainText = z.string().refine(v => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v), 'Control characters are not allowed.').transform(v => v.trim());
+const text = (max: number) => z.string().max(max).pipe(plainText);
 export const FormFieldTypeSchema = z.enum(['header', 'heading', 'paragraph', 'divider', 'single-line', 'multi-line', 'email', 'phone', 'number', 'date', 'checkbox', 'radio', 'dropdown', 'url', 'rating', 'file', 'contact-name', 'contact-email', 'contact-phone', 'company-name', 'company-website']);
 export const FORM_MAPPINGS = ['firstName', 'lastName', 'fullName', 'email', 'phone', 'companyName', 'website', 'productInterest', 'address', 'source'] as const;
 export const FormFieldSchema = z.object({
@@ -145,9 +147,21 @@ export function validateFormValues(fields: FormField[], values: Record<string, u
     if (f.type === 'checkbox') { if (typeof raw !== 'boolean' || (f.required && !raw)) errors[f.id] = 'Please check this field.'; else clean[f.id] = raw; continue; }
     const nameError = getNameDigitError(f.mapToField, raw);
     if (nameError) { errors[f.id] = nameError; continue; }
-    const parsed = text(f.mapToField === 'firstName' || f.mapToField === 'lastName' ? 100 : f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);
+    const field = f.mapToField;
+    const capped = field === 'firstName' || field === 'lastName' ? [PROFILE_FIELD_LIMITS[field], PROFILE_FIELD_LIMIT_ERRORS[field]] as const
+      : field === 'companyName' ? [COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR] as const
+      : field === 'address' ? [CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR] as const : undefined;
+    const parsed = capped
+      ? plainText.pipe(z.string().max(capped[0], capped[1])).safeParse(raw)
+      : text(f.customFieldId ? f.type === 'multi-line' ? 10000 : 1000 : f.type === 'multi-line' ? 4000 : 254).safeParse(raw);
     if (!parsed.success) { errors[f.id] = parsed.error.issues[0].message; continue; }
     let value = parsed.data;
+    if (field === 'fullName' && value) {
+      const [first, ...rest] = value.split(/\s+/);
+      const nameLengthError = first.length > PROFILE_FIELD_LIMITS.firstName ? PROFILE_FIELD_LIMIT_ERRORS.firstName
+        : rest.join(' ').length > PROFILE_FIELD_LIMITS.lastName ? PROFILE_FIELD_LIMIT_ERRORS.lastName : undefined;
+      if (nameLengthError) { errors[f.id] = nameLengthError; continue; }
+    }
     if (!value) { if (f.required) errors[f.id] = `${f.label} is required.`; clean[f.id] = ''; continue; }
     if (['email', 'contact-email'].includes(f.type)) { value = value.toLowerCase(); if (!z.string().email().safeParse(value).success) errors[f.id] = 'Enter a valid email address.'; }
     if (['phone', 'contact-phone'].includes(f.type)) { const phone = AdministrationPhoneSchema.safeParse(value); if (!phone.success) errors[f.id] = 'Enter 10 digits starting with 9.'; else value = phone.data; }

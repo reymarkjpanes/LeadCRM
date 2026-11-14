@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CrmEmailSchema, StaffEmailSchema, EmployeeEmailSchema, EmailAvailabilitySchema, EMAIL_AVAILABILITY_MESSAGES, type EmailAvailability, type EmailAvailabilityReason } from '@leadcrm/shared';
+import { CrmEmailSchema, StaffEmailSchema, StaffCreationEmailSchema, EmployeeEmailSchema, EmailAvailabilitySchema, EMAIL_AVAILABILITY_MESSAGES, type EmailAvailability, type EmailAvailabilityReason } from '@leadcrm/shared';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/store/AuthContext';
 import { useDebounce } from './use-debounce';
@@ -9,10 +9,11 @@ import { useDebounce } from './use-debounce';
 type Check = { key: string; result?: EmailAvailability; failed?: boolean };
 
 /** Availability is always bound to the current draft and its authenticated or published-form scope. */
-export function useEmailAvailability(email: string, purpose: 'leads' | 'contacts' | 'users', enabled = true, publicForm?: { publicId: string; version: number }) {
+export function useEmailAvailability(email: string, purpose: 'leads' | 'contacts' | 'users' | 'staff-creation', enabled = true, publicForm?: { publicId: string; version: number }) {
   const { user, tenant } = useAuth();
-  const parsed = (purpose === 'users' ? StaffEmailSchema : CrmEmailSchema).safeParse(email);
-  const externalError = purpose === 'users' && parsed.success && user?.role !== 'Client Admin' && !EmployeeEmailSchema.safeParse(email).success
+  const staff = purpose === 'users' || purpose === 'staff-creation';
+  const parsed = (purpose === 'staff-creation' ? StaffCreationEmailSchema : staff ? StaffEmailSchema : CrmEmailSchema).safeParse(email);
+  const externalError = staff && parsed.success && user?.role !== 'Client Admin' && !EmployeeEmailSchema.safeParse(email).success
     ? EMAIL_AVAILABILITY_MESSAGES.EXTERNAL_STAFF_EMAIL_NOT_ALLOWED : undefined;
   const valid = parsed.success && !externalError;
   const normalized = parsed.success ? parsed.data : '';
@@ -33,9 +34,9 @@ export function useEmailAvailability(email: string, purpose: 'leads' | 'contacts
     let active = true;
     setCheck({ key });
     const path = publicId ? '/public/forms/' + encodeURIComponent(publicId) + '/email-availability'
-      : purpose === 'users' ? '/administration/users/email-availability' : '/crm/email-availability';
+      : staff ? '/administration/users/email-availability' : '/crm/email-availability';
     apiClient.get<{ success: boolean; data: EmailAvailability }>(path, {
-      params: { email: normalized, ...(publicId || purpose === 'users' ? {} : { module: purpose }) },
+      params: { email: normalized, ...(purpose === 'staff-creation' ? { purpose } : publicId || staff ? {} : { module: purpose }) },
       signal: controller.signal,
     }).then(response => {
       if (!response.success) throw new Error('Email availability could not be verified.');
@@ -43,7 +44,7 @@ export function useEmailAvailability(email: string, purpose: 'leads' | 'contacts
       if (active) setCheck({ key, result });
     }).catch(() => { if (active) setCheck({ key, failed: true }); });
     return () => { active = false; controller.abort(); };
-  }, [key, debouncedKey, normalized, purpose, publicId, enabled, valid, attempt]);
+  }, [key, debouncedKey, normalized, purpose, publicId, enabled, valid, attempt, staff]);
 
   const current = check?.key === key ? check : undefined;
   const available = enabled && valid && current?.result?.available === true;

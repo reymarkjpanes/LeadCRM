@@ -1,4 +1,6 @@
 'use client';
+import { CrmAddressSchema, CrmCompanyNameSchema, personNameSchema } from '@leadcrm/shared';
+import { textFieldError } from '@/shared/utils/text-field-validation';
 import { CustomerStatusMenu } from './crm-status';
 import { dealAddressKey, dealAddressMessage, dealCustomerAddressMessage, resolveDealAddress, type DealAddressContext } from '@leadcrm/shared';
 import { formatDateTime } from '@/shared/components/data-grid/cell-renderers';
@@ -320,22 +322,22 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
     { technicalKey: 'createdAt', label: 'Created', value: record.createdAt, displayValue: formatDateTime(record.createdAt as string | null | undefined) },
   ] : [
     ...(module === 'accounts' ? [
-      { label: 'Account name', value: record.name, apiField: 'name', required: true, maxLength: 255 },
+      { label: 'Account name', value: record.name, apiField: 'name', required: true, validateText: value => textFieldError(CrmCompanyNameSchema, value) },
       { label: 'Industry', value: record.industry, apiField: 'industry' },
       { label: 'Company size', value: record.size, apiField: 'size', type: 'select' as const, options: ['1-10', '11-50', '51-200', '200+'] },
       { label: 'Website', value: record.website, apiField: 'website', type: 'url' as const },
     ] : [
-      { label: 'First name', value: record.firstName, apiField: 'firstName', required: true },
-      { label: 'Last name', value: record.lastName, apiField: 'lastName', required: true },
+      { label: 'First name', value: record.firstName, apiField: 'firstName', validateText: value => textFieldError(personNameSchema('firstName'), value), required: true },
+      { label: 'Last name', value: record.lastName, apiField: 'lastName', validateText: value => textFieldError(personNameSchema('lastName'), value), required: true },
       { label: 'Email', value: record.email, apiField: 'email', type: 'email' as const },
       { label: 'Phone', value: record.phone, apiField: 'phone', type: 'tel' as const, customEditorActions: true,
         validate: (value: string) => { const parsed = LeadPhoneSchema.safeParse(value); return parsed.success ? undefined : parsed.error.issues[0].message; },
         renderEditor: props => <PhoneInlineEditor {...props} module={module as 'leads' | 'contacts'} /> },
-      { label: 'Company', value: record.companyName, apiField: 'companyName' },
+      { label: 'Company', value: record.companyName, apiField: 'companyName', validateText: value => textFieldError(CrmCompanyNameSchema, value) },
       ...(canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: object(record.account)?.name ?? object(record.organization)?.name }] : []),
       { label: 'Source', value: source, apiField: 'source' },
     ]),
-    { label: 'Address', value: record.address, apiField: 'address' },
+    { label: 'Address', value: record.address, apiField: 'address', validateText: value => textFieldError(CrmAddressSchema, value) },
     productRow,
     ...(module === 'accounts' ? [] : [{ label: 'Status', value: statusLabel, apiField: statusManaged || statusReadOnly ? undefined : 'status', type: 'select' as const, options: statuses }]),
     ...(module === 'accounts' ? [] : [{ technicalKey: 'assignedUserId', label: 'Assigned Agent', value: record.assignedUserId, displayValue: owner, apiField: 'assignedUserId', type: 'users' as const }]),

@@ -1,21 +1,21 @@
 import { z } from 'zod';
 import { isValidPhMobile, PH_MOBILE_ERROR, toE164 } from '../validation/ph-phone';
+import { maxLengthMessage } from '../validation/text-length';
 import { StaffEmailSchema } from '../validation/security.schema';
 
-export const PROFILE_FIELD_LIMITS = { firstName: 50, lastName: 50, jobTitle: 100 } as const;
+export const PROFILE_FIELD_LIMITS = { firstName: 100, lastName: 100, jobTitle: 100 } as const;
 export const PROFILE_FIELD_LIMIT_ERRORS = {
-  firstName: `First name must not exceed ${PROFILE_FIELD_LIMITS.firstName} characters.`,
-  lastName: `Last name must not exceed ${PROFILE_FIELD_LIMITS.lastName} characters.`,
-  jobTitle: `Job title must not exceed ${PROFILE_FIELD_LIMITS.jobTitle} characters.`,
+  firstName: maxLengthMessage('First name', PROFILE_FIELD_LIMITS.firstName),
+  lastName: maxLengthMessage('Last name', PROFILE_FIELD_LIMITS.lastName),
+  jobTitle: maxLengthMessage('Job title', PROFILE_FIELD_LIMITS.jobTitle),
 } as const;
 
 export function getNameDigitError(field: string | undefined, value: unknown, validateSpecialCharacters = true): string | undefined {
   if (typeof value !== 'string') return;
   const label = field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : field === 'fullName' ? 'Full name' : undefined;
   if (!label) return;
-  if (/[0-9]/.test(value)) return `${label} must not contain numbers.`;
-  if (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value)) {
-    return `${label} must not contain special characters.`;
+  if (/\p{N}/u.test(value) || (validateSpecialCharacters && /[^\p{L}\p{M} '\u2018\u2019\u2010\u2011-]/u.test(value))) {
+    return `${label} must not contain numbers or special characters such as @, #, $, %, &, *, !, _, +, =, /, ?, ., or ().`;
   }
 }
 
@@ -32,15 +32,17 @@ const profilePhone = z.string().nullable().optional().transform((value, context)
 export const ProfilePhoneInputSchema = z.string().refine(value => value === '' || isValidPhMobile(value), PH_MOBILE_ERROR)
   .transform(value => value === '' ? null : toE164(value));
 
+export function personNameSchema(field: 'firstName' | 'lastName', requiredMessage?: string) {
+  const label = field === 'firstName' ? 'First name' : 'Last name';
+  return z.string().superRefine((value, context) => {
+    const error = getNameDigitError(field, value);
+    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
+  }).pipe(z.string().trim().min(1, requiredMessage ?? label + ' is required').max(PROFILE_FIELD_LIMITS[field], PROFILE_FIELD_LIMIT_ERRORS[field]));
+}
+
 export const SelfProfileFieldSchemas = {
-  firstName: z.string().superRefine((value, context) => {
-    const error = getNameDigitError('firstName', value, true);
-    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(z.string().trim().min(1, 'First name is required').max(PROFILE_FIELD_LIMITS.firstName, PROFILE_FIELD_LIMIT_ERRORS.firstName)).optional(),
-  lastName: z.string().superRefine((value, context) => {
-    const error = getNameDigitError('lastName', value, true);
-    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
-  }).pipe(z.string().trim().min(1, 'Last name is required').max(PROFILE_FIELD_LIMITS.lastName, PROFILE_FIELD_LIMIT_ERRORS.lastName)).optional(),
+  firstName: personNameSchema('firstName').optional(),
+  lastName: personNameSchema('lastName').optional(),
   phone: ProfilePhoneInputSchema,
 };
 
