@@ -1,4 +1,5 @@
-import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
+import { formSubmissionLimiter } from '../../../api/routes/public-forms.routes';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 vi.mock('../../../shared/services/email.service', () => ({ sendMail: vi.fn().mockRejectedValue(new Error('provider unavailable')) }));
@@ -8,7 +9,7 @@ import { issueAuthSession } from '../../../core/auth/auth-session';
 import * as service from './forms.service';
 import { getPublicForm, submitPublicForm } from './public-forms.service';
 import app from '../../../app';
-import { ClosingFieldInputSchema, EMAIL_AVAILABILITY_MESSAGES, FORM_PRODUCT_INTERESTS, LEAD_SOURCES, SELECTABLE_LEAD_SOURCES, leadCatalogFormField, type FormField } from '@leadcrm/shared';
+import { ClosingFieldInputSchema, EMAIL_AVAILABILITY_MESSAGES, STAFF_PHONE_CONFLICT, FORM_PRODUCT_INTERESTS, LEAD_SOURCES, SELECTABLE_LEAD_SOURCES, leadCatalogFormField, type FormField } from '@leadcrm/shared';
 import { ensureSalesGroup } from '../../administration/groups/sales-group';
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_forms_test_\d+$/.test(url.pathname);
@@ -17,6 +18,7 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
   let rejectSubmissionEmail = '';
   let rejectInquiryDealTitle = '';
   let rejectEmailLookupEmail = '';
+  let rejectPhoneLookup = false;
   const scoped = <T>(work: () => T) => tenantContext.run({ tenantId }, work);
   const draft = () => scoped(() => service.createForm(tenantId, userId, { name: 'Contact Us' }));
   const publish = (id: string) => scoped(() => service.publishForm(id, tenantId, userId));
@@ -32,6 +34,7 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
       if (params.model === 'FormSubmission' && params.action === 'create' && params.args.data.email === rejectSubmissionEmail) throw new Error('Simulated submission persistence failure');
       if (rejectInquiryDealTitle && params.model === 'Deal' && params.action === 'create' && params.args.data.automationKey?.startsWith('form:') && params.args.data.title === rejectInquiryDealTitle) throw new Error('Simulated inquiry Deal failure');
       if (rejectEmailLookupEmail && params.model === 'User' && params.action === 'findMany' && params.args.where.email?.contains === rejectEmailLookupEmail) throw new Error('Simulated staff lookup failure');
+      if (rejectPhoneLookup && params.model === 'User' && params.action === 'findMany' && params.args.where.phone?.not === null) throw new Error('Simulated staff phone lookup failure');
       return next(params);
     });
     tenantId = (await prisma.tenant.create({ data: { name: 'Forms test', slug: randomUUID(), onboardingStep: 3, onboardingCompletedAt: new Date() } })).id;
@@ -46,6 +49,10 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     server = app.listen(0); await new Promise<void>(r => server.once('listening', r)); base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1`;
   });
   afterAll(async () => { if (server) await new Promise<void>(r => server.close(() => r())); await prisma.$disconnect(); });
+  beforeEach(() => {
+    formSubmissionLimiter.resetKey('127.0.0.1');
+    formSubmissionLimiter.resetKey('::ffff:127.0.0.1');
+  });
   async function customField(name: string, type: 'Text' | 'Long Text' | 'Number' | 'Date' | 'Dropdown' = 'Number', module = 'leads', owner = tenantId, extra = {}) {
     const definition = { ...ClosingFieldInputSchema.parse({ name, type, module, group: 'Basic Information', required: false, ...(type === 'Dropdown' ? { options: ['One', 'Two'] } : {}), ...extra }), id: 'qa_' + randomUUID(), version: 1, technicalAlias: 'qa_' + randomUUID().replaceAll('-', '') };
     await prisma.closingFieldDefinition.create({ data: { tenantId: owner, id: definition.id, definition } });
@@ -366,8 +373,8 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     ] } } });
     const observer = await prisma.user.create({ data: { tenantId, role: marker, firstName: 'Observer', lastName: marker, email: `${marker}@camxian.com`, mustChangePassword: false, onboardingCompletedAt: new Date(), userRoles: { create: { roleId: role.id } } } });
     const auth = (await issueAuthSession(observer)).token;
-    const old = await prisma.contact.create({ data: { tenantId, firstName: 'Old', lastName: marker, createdAt: new Date('2020-01-01') } });
-    const newer = await prisma.contact.create({ data: { tenantId, firstName: 'New', lastName: marker, createdAt: new Date('2024-01-01') } });
+    const old = await prisma.contact.create({ data: { tenantId, assignedUserId: observer.id, firstName: 'Old', lastName: marker, createdAt: new Date('2020-01-01') } });
+    const newer = await prisma.contact.create({ data: { tenantId, assignedUserId: observer.id, firstName: 'New', lastName: marker, createdAt: new Date('2024-01-01') } });
     const source = await prisma.lead.create({ data: { tenantId, firstName: 'Hidden', lastName: marker, contactId: old.id, convertedAt: new Date() } });
     const pipeline = await prisma.pipeline.findFirstOrThrow({ where: { tenantId, isArchived: false } });
     const stage = await prisma.stage.findFirstOrThrow({ where: { tenantId, pipelineId: pipeline.id } });
@@ -573,6 +580,55 @@ describe.skipIf(!disposable)('Forms database and HTTP integration', () => {
     expect(await prisma.activity.count({ where: { tenantId, leadId: unassigned.id, type: 'assignment', title: 'Lead awaiting assignment' } })).toBe(1);
     expect((await prisma.tenantPreference.findUniqueOrThrow({ where: { tenantId_module_key: cursor } })).value).toBe(beforeReturn);
   });
+  it.each(['lead', 'contact', 'converted'] as const)('accepts repeat phone inquiries for an existing %s and preserves submissions and Product Deals', async kind => {
+    const form = await publish((await draft()).id), number = `966000000${kind === 'lead' ? '1' : kind === 'contact' ? '2' : '3'}`;
+    const data = { tenantId, firstName: 'Saved', lastName: 'Customer', email: `${randomUUID()}@example.test`, phone: `0${number}` };
+    const contact = kind === 'lead' ? null : await prisma.contact.create({ data });
+    const lead = kind === 'contact' ? null : await prisma.lead.create({ data: { ...data, ...(contact ? { contactId: contact.id, convertedAt: new Date() } : {}) } });
+    const answer = { ...values(), phone: number };
+    const input = { requestId: randomUUID(), version: 1, values: answer };
+    expect((await request(`/public/forms/${form.publicId}/submissions`, 'POST', input, '')).status).toBe(201);
+    expect((await request(`/public/forms/${form.publicId}/submissions`, 'POST', input, '')).status).toBe(201);
+    expect((await request(`/public/forms/${form.publicId}/submissions`, 'POST', { ...input, requestId: randomUUID() }, '')).status).toBe(201);
+    const submissions = await prisma.formSubmission.findMany({ where: { formId: form.id } });
+    expect(submissions).toHaveLength(2);
+    expect(submissions.every(row => contact ? row.contactId === contact.id && row.leadId === null : row.leadId === lead!.id)).toBe(true);
+    expect(await prisma.lead.count({ where: { tenantId, email: answer.email } })).toBe(0);
+    expect(await prisma.contact.count({ where: { tenantId, email: answer.email } })).toBe(0);
+    const deals = await prisma.deal.findMany({ where: { tenantId, automationKey: { startsWith: 'form:' }, ...(contact ? { contactDeals: { some: { contactId: contact.id } } } : { leadDeals: { some: { leadId: lead!.id } } }) } });
+    expect(deals).toHaveLength(2); expect(deals.every(deal => deal.productInterestId === productIds['Smart Lock'])).toBe(true);
+    const saved = contact ? await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } }) : await prisma.lead.findUniqueOrThrow({ where: { id: lead!.id } });
+    expect(saved).toMatchObject({ firstName: 'Saved', lastName: 'Customer', email: data.email, phone: data.phone });
+  });
+
+  it.each(['new', 'lead', 'contact'] as const)('rejects a %s inquiry using a staff phone before matching or writing, with the mapped field error', async kind => {
+    const draftForm = await draft();
+    await scoped(() => service.updateForm(draftForm.id, tenantId, userId, { revision: 0, fields: (draftForm.fields as FormField[]).map(field => field.mapToField === 'phone' ? { ...field, id: 'visitorPhone' } : field) }));
+    const form = await publish(draftForm.id), number = `967000000${kind === 'new' ? '1' : kind === 'lead' ? '2' : '3'}`;
+    await prisma.user.create({ data: { tenantId, firstName: 'Hidden', lastName: 'Staff', role: 'Sales', status: 'INACTIVE', email: `${randomUUID()}@camxian.com`, phone: `0${number}` } });
+    const data = { tenantId, firstName: 'Existing', lastName: 'Customer', email: `${randomUUID()}@example.test`, phone: `+63${number}` };
+    if (kind === 'lead') await prisma.lead.create({ data });
+    if (kind === 'contact') await prisma.contact.create({ data });
+    const response = await request(`/public/forms/${form.publicId}/submissions`, 'POST', { requestId: randomUUID(), version: 1, values: { ...values(data.email), visitorPhone: number } }, '');
+    expect(response).toMatchObject({ status: 400, body: { fieldErrors: { visitorPhone: STAFF_PHONE_CONFLICT } } });
+    expect(await prisma.formSubmission.count({ where: { formId: form.id } })).toBe(0);
+    expect(await prisma.lead.count({ where: { tenantId, email: data.email } })).toBe(kind === 'lead' ? 1 : 0);
+    expect(await prisma.contact.count({ where: { tenantId, email: data.email } })).toBe(kind === 'contact' ? 1 : 0);
+  });
+
+  it('checks matched historical staff phones even when omitted and fails closed on staff phone lookup failure', async () => {
+    const form = await publish((await draft()).id), number = '9680000001';
+    await prisma.user.create({ data: { tenantId, firstName: 'Matched', lastName: 'Staff', role: 'Sales', email: `${randomUUID()}@camxian.com`, phone: `+63${number}` } });
+    const answer = values();
+    await prisma.contact.create({ data: { tenantId, firstName: 'Historical', lastName: 'Customer', email: answer.email, phone: `0${number}` } });
+    const response = await request(`/public/forms/${form.publicId}/submissions`, 'POST', { requestId: randomUUID(), version: 1, values: answer }, '');
+    expect(response).toMatchObject({ status: 400, body: { fieldErrors: { phone: STAFF_PHONE_CONFLICT } } });
+    rejectPhoneLookup = true;
+    try { await expect(submit(form.publicId, { ...values(), phone: '9680000002' })).rejects.toThrow('Simulated staff phone lookup failure'); }
+    finally { rejectPhoneLookup = false; }
+    expect(await prisma.formSubmission.count({ where: { formId: form.id } })).toBe(0);
+  });
+
   it('checks only staff ownership anonymously within the published tenant without exposing account details', async () => {
     const form = await draft();
     const check = (email: string, id = form.publicId) => request(`/public/forms/${id}/email-availability?${new URLSearchParams({ email })}`, 'GET', undefined, '');

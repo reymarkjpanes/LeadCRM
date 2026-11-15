@@ -1,7 +1,7 @@
 import React from 'react';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { campaignFields } from '@leadcrm/shared';
+import { campaignFields, type SavedAudience } from '@leadcrm/shared';
 import { clearPageCache } from '@/shared/cache/page-cache';
 const api = vi.hoisted(() => ({ fields: vi.fn(), preview: vi.fn(), create: vi.fn(), update: vi.fn() }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'audience-user', tenantId: 'audience-tenant', role: 'Client Admin' }, tenant: { id: 'audience-tenant' }, isLoading: false }) }));
@@ -14,6 +14,38 @@ import { campaignSampleValues } from '../campaign-variable-picker';
 const preview = { matched: 1, eligible: 1, missingEmail: 0, invalidEmail: 0, duplicateEmail: 0, staffEmail: 0, unsubscribed: 0, blocked: 0, inactive: 0, recipientNotAllowed: 0, recipients: [{ id: 'person', name: 'Saved recipient', recordType: 'Lead', email: 'one@example.test', companyName: '', phone: null }], meta: { page: 1, limit: 25, total: 1, hasMore: false } };
 beforeEach(() => { clearPageCache(); vi.clearAllMocks(); api.fields.mockImplementation(async source => ({ data: campaignFields(source) })); api.preview.mockResolvedValue({ data: preview }); });
 afterEach(cleanup);
+it.each([3, 2])('creates and reopens a Closed Deal audience displaying %i eligible recipients', async eligible => {
+  const saved: SavedAudience = { id: 'closed-deal-audience', name: 'Closed Deal customers', source: 'CONTACTS', matchMode: 'AND', conditions: [{ field: 'status', operator: 'equals', value: 'Closed Deal' }] };
+  const recipients = Array.from({ length: eligible }, (_, index) => ({ ...preview.recipients[0], id: `contact-${index}`, recordType: 'Contact', name: `Closed customer ${index}`, email: `closed-${index}@example.test` }));
+  api.preview.mockResolvedValue({ data: { ...preview, matched: 3, eligible, unsubscribed: 3 - eligible, recipients, meta: { page: 1, limit: 25, total: eligible, hasMore: false } } });
+  api.create.mockResolvedValue({ data: saved });
+  api.update.mockResolvedValue({ data: saved });
+  const onCreated = vi.fn();
+  const created = render(<AudiencePanel onClose={vi.fn()} onCreated={onCreated} />);
+  fireEvent.change(screen.getByLabelText('Audience Name'), { target: { value: saved.name } });
+  fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'CONTACTS' } });
+  fireEvent.click(screen.getByText('+ Add Condition'));
+  await screen.findByRole('option', { name: 'Closed Deal' });
+  fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: 'Closed Deal' } });
+  await screen.findByText(`${eligible} eligible recipients`);
+  expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'CONTACTS', matchMode: 'AND', conditions: saved.conditions }));
+  for (const recipient of recipients) expect(screen.getByText(recipient.name)).toBeTruthy();
+  fireEvent.click(screen.getByText('Create Audience'));
+  await waitFor(() => expect(onCreated).toHaveBeenCalledWith(saved));
+  const { id, ...definition } = saved;
+  expect(api.create).toHaveBeenCalledWith(definition);
+
+  created.unmount();
+  api.preview.mockClear();
+  render(<AudiencePanel initialAudience={saved} onClose={vi.fn()} onCreated={onCreated} />);
+  await screen.findByText(`${eligible} eligible recipients`);
+  expect((screen.getByLabelText('Condition 1 value') as HTMLSelectElement).value).toBe('Closed Deal');
+  expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'CONTACTS', conditions: saved.conditions }));
+  fireEvent.click(screen.getByText('Save Audience'));
+  await waitFor(() => expect(api.update).toHaveBeenCalledWith(id, definition));
+  expect(screen.queryByText('Invalid data supplied to database operation')).toBeNull();
+});
+
 it.each([['phone', '+639123456789'], ['email', 'one@example.test']])('selects a canonical %s value from CRM options when creating an audience', async (field, value) => {
   api.fields.mockImplementation(async source => ({ data: campaignFields(source).map(entry => entry.technicalKey === field ? { ...entry, options: [value] } : entry) }));
   api.create.mockResolvedValue({ data: { id: 'saved' } });

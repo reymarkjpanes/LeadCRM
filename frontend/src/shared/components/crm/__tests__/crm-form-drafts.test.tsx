@@ -7,7 +7,7 @@ import { LeadFormSheet } from '@/features/tenant/crm/leads/ui/lead-form';
 import { ContactFormSheet as ContactForm } from '@/features/tenant/crm/contacts/ui/contact-form';
 import type { Lead } from '@/store/types';
 import { AccountFormSheet } from '@/features/tenant/crm/accounts/ui/account-form';
-import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
+import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '@leadcrm/shared';
 import { toast } from '@/shared/utils/toast';
 
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: () => true }));
@@ -28,15 +28,15 @@ afterEach(cleanup);
 
 const forms = [{ name: 'Lead', Form: LeadFormSheet }, { name: 'Contact', Form: ContactForm }] as const;
 
-it.each(forms.flatMap(form => [false, true].map(edit => ({ ...form, edit }))))('$name rejects staff phone directly below the field and allows correction (edit=$edit)', async ({ Form, edit }) => {
-  phoneApi.get.mockResolvedValue({ success: true, data: { available: false, reason: 'STAFF_PHONE_NOT_ALLOWED' } });
+it.each(forms.flatMap(form => [false, true].flatMap(edit => ['STAFF_PHONE_NOT_ALLOWED', 'CUSTOMER_PHONE_CONFLICT'].map(reason => ({ ...form, edit, reason })))))('$name rejects $reason directly below the field and allows correction (edit=$edit)', async ({ Form, edit, reason }) => {
+  phoneApi.get.mockResolvedValue({ success: true, data: { available: false, reason } });
   const save = vi.fn();
   render(<Form isOpen onClose={vi.fn()} onSave={save} initialData={edit ? { id: 'existing', firstName: 'Ada', lastName: 'Reyes', email: 'ada@example.test', status: 'Inquiry' } as any : undefined} />);
   changeDraft.name();
   fireEvent.change(screen.getByLabelText('Last Name *'), { target: { value: 'Reyes' } });
   fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'ada@example.test' } });
   fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '9171234567' } });
-  const message = await screen.findByText(STAFF_PHONE_CONFLICT);
+  const message = await screen.findByText(reason === 'STAFF_PHONE_NOT_ALLOWED' ? STAFF_PHONE_CONFLICT : CUSTOMER_PHONE_CONFLICT);
   const input = screen.getByLabelText('Phone');
   expect(document.getElementById(input.getAttribute('aria-describedby')!)).toBe(message);
   expect(input.getAttribute('aria-invalid')).toBe('true');
@@ -45,9 +45,40 @@ it.each(forms.flatMap(form => [false, true].map(edit => ({ ...form, edit }))))('
   fireEvent.change(input, { target: { value: '9181234567' } });
   const button = await screen.findByRole('button', { name: edit ? 'Save Changes' : `Create ${Form === LeadFormSheet ? 'Lead' : 'Contact'}` });
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false), { timeout: 2000 });
+  expect(screen.queryByText(message.textContent!)).toBeNull();
+  expect(screen.getByTestId('phone-available')).toBeTruthy();
+  expect(phoneApi.get.mock.calls.at(-1)?.[1].params.excludeId).toBe(edit ? 'existing' : undefined);
   fireEvent.submit(input.closest('form')!);
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
   expect(save.mock.calls[0][0].phone).toBe('+639181234567');
+});
+
+it.each(forms)('$name blocks pending and failed phone checks, retries, and retains late customer conflicts until correction', async ({ Form, name }) => {
+  let fail!: (error: Error) => void;
+  phoneApi.get.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+  const save = vi.fn().mockRejectedValueOnce(Object.assign(new Error(CUSTOMER_PHONE_CONFLICT), { fieldErrors: { phone: [CUSTOMER_PHONE_CONFLICT] } })).mockResolvedValue(undefined);
+  render(<Form isOpen onClose={vi.fn()} onSave={save} />);
+  changeDraft.name();
+  fireEvent.change(screen.getByLabelText('Last Name *'), { target: { value: 'Reyes' } });
+  fireEvent.change(screen.getByLabelText('Email *'), { target: { value: 'ada@example.test' } });
+  const input = screen.getByLabelText('Phone'), form = input.closest('form')!;
+  fireEvent.change(input, { target: { value: '9171234567' } });
+  fireEvent.submit(form); expect(save).not.toHaveBeenCalled();
+  await waitFor(() => expect(fail).toBeTypeOf('function'), { timeout: 2000 });
+  fail(new Error('offline'));
+  await screen.findByText('Unable to verify this phone number. Please try again.');
+  fireEvent.submit(form); expect(save).not.toHaveBeenCalled();
+  fireEvent.blur(input);
+  await waitFor(() => expect(screen.queryByTestId('phone-available')).toBeTruthy());
+  fireEvent.submit(form);
+  await screen.findByText(CUSTOMER_PHONE_CONFLICT);
+  expect(screen.queryByTestId('phone-available')).toBeNull();
+  expect(screen.getByRole('button', { name: `Create ${name}` })).toHaveProperty('disabled', true);
+  fireEvent.submit(form); expect(save).toHaveBeenCalledOnce();
+  fireEvent.change(input, { target: { value: '9181234567' } });
+  expect(screen.queryByText(CUSTOMER_PHONE_CONFLICT)).toBeNull();
+  await waitFor(() => expect(screen.getByRole('button', { name: `Create ${name}` })).toHaveProperty('disabled', false), { timeout: 2000 });
+  fireEvent.submit(form); await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
 });
 
 it.each(forms)('$name derives Product Category above Product Interest from the current selection', async ({ Form }) => {

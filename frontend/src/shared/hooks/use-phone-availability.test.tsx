@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { PH_MOBILE_ERROR, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
+import { PH_MOBILE_ERROR, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '@leadcrm/shared';
 import { usePhoneAvailability } from './use-phone-availability';
 const mocks = vi.hoisted(() => ({ get: vi.fn(), userId: 'staff' }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get } }));
@@ -58,4 +58,19 @@ it('retains a save-time conflict until the number changes and ignores disabled l
   rerender({ phone: '', enabled: true }); expect(result.current.confirm('')).toBe(true);
   rerender({ phone: '+639181234567', enabled: false }); expect(result.current.blocked).toBe(false);
   expect(mocks.get).toHaveBeenCalledTimes(1);
+});
+it('maps customer conflicts and binds verification and late rejections to the edit record', async () => {
+  const { result, rerender } = renderHook(({ id }) => usePhoneAvailability('9171234567', 'contacts', true, id), { initialProps: { id: 'first-record' } });
+  await waitFor(() => expect(result.current.available).toBe(true));
+  expect(mocks.get.mock.calls[0][1].params.excludeId).toBe('first-record');
+  const old = result.current;
+  mocks.get.mockResolvedValue({ success: true, data: { available: false, reason: 'CUSTOMER_PHONE_CONFLICT' } });
+  rerender({ id: 'second-record' });
+  expect(result.current.blocked).toBe(true);
+  expect(old.confirm('9171234567')).toBe(false);
+  act(() => { expect(old.reject('CUSTOMER_PHONE_CONFLICT')).toBe(false); });
+  expect(result.current.error).toBeUndefined();
+  await waitFor(() => expect(result.current.error).toBe(CUSTOMER_PHONE_CONFLICT), { timeout: 2000 });
+  expect(mocks.get.mock.calls.at(-1)![1].params.excludeId).toBe('second-record');
+  expect(result.current.confirm('9171234567')).toBe(false);
 });

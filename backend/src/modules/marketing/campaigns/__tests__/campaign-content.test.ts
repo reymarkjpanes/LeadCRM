@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CampaignDraftSchema, CampaignSendSchema, CreateAudienceSchema, renderEmailVariables } from '@leadcrm/shared';
+import { AudiencePreviewSchema, CampaignDraftSchema, CampaignSendSchema, CreateAudienceSchema, renderEmailVariables } from '@leadcrm/shared';
 import { prepareCampaignHtml, renderCampaignMessage, sanitizeCampaignHtml } from '../campaign-content';
-import { classifyRecipients } from '../audiences.service';
+import { audiencePredicate, classifyRecipients } from '../audiences.service';
 
 describe('campaign validation and rendering', () => {
   it('persists the screenshot URL as an anchor and keeps it intact across draft edits and sending', () => {
@@ -68,5 +68,30 @@ describe('campaign validation and rendering', () => {
     const records = ['Customer@example.com', 'CUSTOMER@example.com', ' staff@camxian.com ', 'bad', null, 'optout@example.com', 'blocked@example.com', 'outside@example.com'].map(email => ({ email, reason: null, personalization: {} }));
     const result = classifyRecipients(records, new Set(['staff@camxian.com']), new Map([['optout@example.com', 'UNSUBSCRIBED'], ['blocked@example.com', 'BLOCKED']]), new Set(['customer@example.com']));
     expect(result.breakdown).toMatchObject({ matched: 8, eligible: 1, duplicateEmail: 1, staffEmail: 1, invalidEmail: 1, missingEmail: 1, unsubscribed: 1, blocked: 1, recipientNotAllowed: 1 });
+  });
+});
+
+describe('audience status predicates', () => {
+  const statuses = [
+    ['Inquiry', 'INQUIRY'], ['Hot', 'HOT'], ['Warm', 'WARM'],
+    ['Cold', 'COLD'], ['Closed Deal', 'CLOSED_DEAL'], ['Cancelled', 'CANCELLED'],
+  ] as const;
+  const cases = statuses.flatMap(([status, stored]) => (['LEADS', 'CONTACTS'] as const).flatMap(source =>
+    (['equals', 'not_equals'] as const).flatMap(operator => (['AND', 'OR'] as const).map(matchMode => ({ status, stored, source, operator, matchMode })))));
+
+  it.each(cases)('$source $status $operator with $matchMode uses the stored status format', ({ status, stored, source, operator, matchMode }) => {
+    const input = AudiencePreviewSchema.parse({ source, matchMode, conditions: [
+      { field: 'status', operator, value: status },
+      { field: 'email', operator: 'equals', value: 'selected@example.test' },
+    ] });
+    expect(audiencePredicate(input, source === 'LEADS')).toEqual({ [matchMode]: [
+      { status: { [operator === 'equals' ? 'equals' : 'not']: source === 'LEADS' ? status : stored, ...(source === 'LEADS' ? { mode: 'insensitive' } : {}) } },
+      { email: { equals: 'selected@example.test', mode: 'insensitive' } },
+    ] });
+  });
+
+  it.each(['LEADS', 'CONTACTS'] as const)('rejects an invalid %s status before generating a database filter', source => {
+    const input = AudiencePreviewSchema.parse({ source, conditions: [{ field: 'status', operator: 'equals', value: 'FAKE' }] });
+    expect(() => audiencePredicate(input, source === 'LEADS')).toThrow('Select a current Status option.');
   });
 });

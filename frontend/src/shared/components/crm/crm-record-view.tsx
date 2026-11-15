@@ -332,7 +332,7 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
       { label: 'Email', value: record.email, apiField: 'email', type: 'email' as const },
       { label: 'Phone', value: record.phone, apiField: 'phone', type: 'tel' as const, customEditorActions: true,
         validate: (value: string) => { const parsed = LeadPhoneSchema.safeParse(value); return parsed.success ? undefined : parsed.error.issues[0].message; },
-        renderEditor: props => <PhoneInlineEditor {...props} module={module as 'leads' | 'contacts'} /> },
+        renderEditor: props => <PhoneInlineEditor {...props} module={module as 'leads' | 'contacts'} recordId={id} /> },
       { label: 'Company', value: record.companyName, apiField: 'companyName', validateText: value => textFieldError(CrmCompanyNameSchema, value) },
       ...(canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: object(record.account)?.name ?? object(record.organization)?.name }] : []),
       { label: 'Source', value: source, apiField: 'source' },

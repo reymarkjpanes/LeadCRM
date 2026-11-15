@@ -7,7 +7,7 @@ import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { applyCrmFieldErrors, isStaffEmailError, showCrmMutationError } from '@/shared/utils/crm-mutation-error';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
-import { LeadPhoneSchema, STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
+import { LeadPhoneSchema, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '@leadcrm/shared';
 
 import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, OptionalLeadSourceSchema } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
@@ -157,7 +157,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
   const watchedEmail = watch('email');
   const emailCheck = useEmailAvailability(watchedEmail, 'leads', !isEdit && canSubmit);
   const emailError = emailCheck.error || errors.email?.message;
-  const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'leads', canSubmit);
+  const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'leads', canSubmit, isEdit ? initialData?.id : undefined);
   const phoneError = phoneCheck.error || errors.phone?.message || (phoneTouched ? validatePhMobile(phoneLocal) : null);
   const watchedFirstName = watch('firstName');
   const watchedLastName = watch('lastName');
@@ -259,8 +259,10 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
     setIsSaving(true);
     try { await onSave(payload); }
     catch (error: unknown) {
-      if ((error as { fieldErrors?: { phone?: string[] } }).fieldErrors?.phone?.includes(STAFF_PHONE_CONFLICT)) {
-        phoneCheck.reject(); setError('phone', { type: 'server', message: STAFF_PHONE_CONFLICT }); setSubmitError(null); return;
+      const phoneConflict = (error as { fieldErrors?: { phone?: string[] } }).fieldErrors?.phone?.find(message => message === STAFF_PHONE_CONFLICT || message === CUSTOMER_PHONE_CONFLICT);
+      if (phoneConflict) {
+        if (phoneCheck.reject(phoneConflict === STAFF_PHONE_CONFLICT ? 'STAFF_PHONE_NOT_ALLOWED' : 'CUSTOMER_PHONE_CONFLICT')) setError('phone', { type: 'server', message: phoneConflict });
+        setSubmitError(null); return;
       }
       if (!isEdit && isStaffEmailError(error)) {
         emailCheck.reject('STAFF_EMAIL_NOT_ALLOWED');
@@ -333,6 +335,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
                 onBlur={phoneCheck.retry}
                 onChange={(v) => { setPhoneLocal(v); setPhoneTouched(true); clearErrors('phone'); setValue('phone', v ? toE164(v) : '', { shouldDirty: true, shouldValidate: true }); }}
                 error={phoneError}
+                available={phoneCheck.available}
               />
             </FieldWrap>
           </div>

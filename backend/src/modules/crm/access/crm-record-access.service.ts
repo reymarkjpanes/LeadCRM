@@ -43,6 +43,11 @@ export async function runCrmAutomaticCreation<T>(tx: Tx, module: CrmModule, assi
 }
 export const isCrmAccessQuery = () => internal.getStore() === true;
 export function isCrmTransactionConflict(error: unknown): boolean {
+  // Prisma can wrap PostgreSQL trigger deadlocks/serialization failures as an
+  // unknown connector error instead of P2034. Retry only explicit SQLSTATEs.
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return /PostgresError\s*\{\s*code:\s*"(?:40001|40P01)"/.test(error.message);
+  }
   return error instanceof Prisma.PrismaClientKnownRequestError && (error.code === 'P2034' ||
     error.code === 'P2010' && ['40001', '40P01'].includes(String(error.meta?.code)));
 }

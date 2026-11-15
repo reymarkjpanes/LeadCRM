@@ -78,6 +78,7 @@ router.get('/email-availability', (req, res, next) => {
 router.get('/phone-availability', (req, res, next) => {
   const parsed = CrmPhoneAvailabilityQuerySchema.safeParse(req.query);
   if (!parsed.success) return next(parsed.error);
+  if (parsed.data.excludeId) return authorize(`${parsed.data.module}.edit`)(req, res, next);
   return authorizeAny(`${parsed.data.module}.create`, `${parsed.data.module}.edit`)(req, res, next);
 }, phoneAvailability);
 router.post(  '/duplicate-check',    validate(DuplicateCheckSchema), (req, res, next) => authorizeAll(...req.body.entityTypes.map((type: string) => `${type}s.view` as PermissionKey))(req, res, next), duplicateDetectionController.duplicateCheck);

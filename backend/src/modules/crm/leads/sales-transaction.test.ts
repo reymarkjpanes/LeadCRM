@@ -75,6 +75,8 @@ describe('serializable sales transactions', () => {
     ['unique creation', conflict('P2002')],
     ['SQL serialization', conflict('P2010', { code: '40001' })],
     ['SQL deadlock', conflict('P2010', { code: '40P01' })],
+    ['connector serialization', new Prisma.PrismaClientUnknownRequestError('ConnectorError { kind: QueryError(PostgresError { code: "40001", message: "could not serialize access" }) }', { clientVersion: '5.22.0' })],
+    ['connector deadlock', new Prisma.PrismaClientUnknownRequestError('ConnectorError { kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected" }) }', { clientVersion: '5.22.0' })],
   ])('backs off and opens a fresh transaction after a %s conflict', async (_, error) => {
     mocks.transaction.mockRejectedValueOnce(error).mockRejectedValueOnce(error);
     const work = vi.fn(async () => {
@@ -116,7 +118,11 @@ describe('serializable sales transactions', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each([new Error('provider unavailable'), conflict('P2025'), conflict('P2010', { code: '42501' })])('propagates non-retryable failures', async error => {
+  it.each([new Error('provider unavailable'), conflict('P2025'), conflict('P2010', { code: '42501' }),
+    new Error('PostgresError { code: "40P01" }'),
+    new Prisma.PrismaClientUnknownRequestError('PostgresError { code: "42501" }', { clientVersion: '5.22.0' }),
+    new Prisma.PrismaClientUnknownRequestError('Unknown connector failure', { clientVersion: '5.22.0' }),
+  ])('propagates non-retryable failures', async error => {
     mocks.transaction.mockRejectedValue(error);
     await expect(salesTransaction(vi.fn())).rejects.toBe(error);
     expect(mocks.transaction).toHaveBeenCalledOnce();

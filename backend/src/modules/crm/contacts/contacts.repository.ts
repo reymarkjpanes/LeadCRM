@@ -1,6 +1,6 @@
 import { salesContext } from '../leads/sales-context';
 import { synchronizeAssociatedDealAssignment } from '../deals/deal-association';
-import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
+import { assertExternalCustomerEmail, assertExternalCustomerPhone, assertInternalCustomerPhone } from '../record-validation';
 import { salesActivityDates } from '../sales-activity';
 import { assertContactAccountSelection, mayReadContactAccount, presentContactAccount } from '../contacts-v2/contact-account-access';
 import type { Lead as LeadRecord } from '@prisma/client';
@@ -160,6 +160,7 @@ export async function createContact(
   if (dto.status === 'Closed Deal') throw new ValidationError('Confirm a related Deal as Closed Deal before setting Closed Deal.');
   return salesTransaction(async tx => {
     const existing = requestId ? await tx.lead.findFirst({ where: { tenantId, creationKey: requestId } }) : null;
+    if (!existing) await assertInternalCustomerPhone(tx, tenantId, dto.phone);
     if (!existing) await assertCustomerEmail(tenantId, dto.email, tx);
     if (!existing) await assertContactAccountSelection(tx, tenantId, fields.accountId);
     if (!existing && newAccount) {
@@ -202,7 +203,8 @@ export async function updateContact(
       const current = await tx.lead.findFirst({ where: { id, tenantId, isArchived: false, deletedAt: null } });
       if (!current) throw new NotFoundError('Active Lead');
       await assertExternalCustomerEmail(tx, tenantId, dto.email !== undefined ? dto.email : current.email);
-      await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone : current.phone);
+      if (authorizedWorkflowScope(tenantId)) await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone : current.phone);
+      else await assertInternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone : current.phone, { module: 'leads', id, phone: current.phone });
       if (dto.expectedUpdatedAt && current.updatedAt.toISOString() !== dto.expectedUpdatedAt) throw new ConflictError('This Lead changed. Reload its current status before saving.');
       if (current.convertedAt) throw new ValidationError('This Lead has been converted. Update the linked Contact instead.');
       await synchronizeAssociatedDealAssignment(tx, tenantId, { type: 'lead', id, assignedUserId: current.assignedUserId }, dto.assignedUserId, updatedById);

@@ -1,6 +1,6 @@
 import { salesContext } from '../leads/sales-context';
 import { synchronizeAssociatedDealAssignment } from '../deals/deal-association';
-import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
+import { assertExternalCustomerEmail, assertExternalCustomerPhone, assertInternalCustomerPhone } from '../record-validation';
 import { salesActivityDates } from '../sales-activity';
 import { applyManagedCustomerStatus, assertCustomerStatusEdit, classifyCustomerRecord, prepareCustomerStatus } from '../customer-classification.service';
 import { createLinkedAccount } from '../companies/organization-creation';
@@ -154,6 +154,7 @@ export async function createContact(tenantId: string, dto: Record<string, unknow
   return salesTransaction(async tx => {
     const requestId = String(dto.requestId);
     const receipt = await tx.contactCreationReceipt.findUnique({ where: { tenantId_requestId: { tenantId, requestId } } });
+    if (!receipt) await assertInternalCustomerPhone(tx, tenantId, dto.phone as string | undefined);
     if (!receipt) await assertCustomerEmail(tenantId, String(dto.email), tx);
     return createAssignedContact(tx, tenantId, dto, actorId, requestId);
   });
@@ -171,7 +172,8 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
     await assertCrmRecordMutation(tx, 'contacts', id, 'edit', dto);
     const current = await tx.contact.findFirstOrThrow({ where: { id, tenantId } });
     await assertExternalCustomerEmail(tx, tenantId, dto.email !== undefined ? dto.email as string | null : current.email);
-    await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone as string | null : current.phone);
+    if (authorizedWorkflowScope(tenantId)) await assertExternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone as string | null : current.phone);
+    else await assertInternalCustomerPhone(tx, tenantId, dto.phone !== undefined ? dto.phone as string | null : current.phone, { module: 'contacts', id, phone: current.phone });
     if (dto.productInterests !== undefined || dto.productInterestIds !== undefined) Object.assign(dto, await productRelationData(tx, 'contact', tenantId, { ids: dto.productInterestIds as string[] | undefined, names: dto.productInterests as string[] | undefined }, current, true));
     let status = dto.status === undefined ? undefined : CrmStatusSchema.parse(dto.status);
     const requestedStatus = status;

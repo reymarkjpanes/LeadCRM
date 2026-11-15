@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useId, useLayoutEffect } from 'react';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { normalizePhInput } from '@/shared/utils/ph-phone';
 
@@ -12,6 +13,7 @@ interface PhilippinePhoneInputProps {
   value: string;
   onChange: (localNumber: string) => void;
   error?: string | null;
+  available?: boolean;
   /** Inline editors can render the visible error alongside their Save/Cancel controls. */
   showError?: boolean;
   className?: string;
@@ -22,6 +24,7 @@ export function PhilippinePhoneInput({
   value,
   onChange,
   error,
+  available = false,
   showError = true,
   className,
 }: PhilippinePhoneInputProps): React.ReactElement {
@@ -115,6 +118,8 @@ export function PhilippinePhoneInput({
           maxLength={32}
           className="flex-1 min-w-0 px-3 py-2.5 bg-transparent border-none outline-none focus:ring-0 placeholder:text-slate-400 text-slate-900 dark:text-white text-sm"
         />
+        {available && value && !error && <Check size={16} aria-hidden="true" data-testid="phone-available"
+          className="pointer-events-none mr-3.5 self-center shrink-0 text-green-600 dark:text-green-400" />}
       </div>
 
       {error && showError && (
