@@ -36,7 +36,7 @@ The forward migration preserves existing memberships and turns each nonempty leg
 
 The protected default Sales Group has stable key `SALES`; renaming its display label preserves routing. Membership remains administrator-managed. New public-form Leads rotate only among its eligible members, with a transactionally persisted cursor and request-ID retries consuming one turn. Returning records retain their agent. See [Forms verification](docs/forms-production-report.md).
 
-In Team Management, an existing Client Admin can provision another Client Admin through New User. Delegated staff with Users Create and Roles Assign permissions can provision active custom roles. Existing Client Admin role reassignment remains protected.
+In Team Management, an active Client Admin can provision another Client Admin through New User or change another user's Client Admin assignment in User Details. Role changes preserve at least one active Client Admin. Delegated staff with Users Create and Roles Assign permissions can provision active custom roles.
 
 ## Local development
 

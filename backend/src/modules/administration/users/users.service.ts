@@ -2,6 +2,7 @@ import { EmployeeEmailSchema, isOnboardingComplete, isWorkspaceAccessible, type 
 import { assertNoOwnership } from './user-deactivation.service';
 import { replaceUserGroups, serializeUserGroups } from './user-groups';
 import { eligibleAssignedAgents, hasAssignedAgentAccess, crmAssignmentRequirements, TASK_ASSIGNEE_REQUIREMENTS, type AssignedAgent } from '../../crm/access/assigned-agent-eligibility';
+import { isCrmTransactionConflict } from '../../crm/access/crm-record-access.service';
 import { requestPasswordReset } from '../../../core/auth/password-reset.service';
 import { sortedPageIds, orderPage } from '../../../shared/helpers/sorted-page';
 import { readSelfAvatar } from '../../../core/auth/profile.service';
@@ -117,38 +118,53 @@ export async function update(id: string, tenantId: string, actorId: string, dto:
     throw new ValidationError('Invalid status value provided');
   }
 
-  const existing = await prisma.user.findFirst({ where: { id, tenantId } });
-  if (!existing) throw new NotFoundError('User');
-
-
-  if (existing.role === 'Client Admin' && dto.role !== undefined) throw new ForbiddenError('Client Admin role cannot be reassigned');
-  if (id === actorId && dto.status === 'INACTIVE') throw new ForbiddenError('Cannot deactivate your own account');
-  const { groupIds, ...updateData } = dto;
-  if (dto.status) updateData.status = dto.status as any; // Cast as enum
-
-  const protectsLastClientAdmin = existing.role === 'Client Admin' && existing.status === 'ACTIVE' && dto.status === 'INACTIVE';
+  const { groupIds, role, ...updateData } = dto;
+  const assigningClientAdmin = role === 'Client Admin';
+  let protectsLastClientAdmin = false;
   let user;
   try {
     user = await prisma.$transaction(async tx => {
+      const existing = await tx.user.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundError('User');
+      if (id === actorId && dto.status === 'INACTIVE') throw new ForbiddenError('Cannot deactivate your own account');
+      const demoting = existing.role === 'Client Admin' && role !== undefined && !assigningClientAdmin;
+      const changingClientAdminRole = assigningClientAdmin || demoting;
+      if (changingClientAdminRole) {
+        if (id === actorId) throw new ForbiddenError('Ask another authorized administrator to change your role.');
+        const actor = await readAuthUser(actorId, tenantId, tx);
+        await requireEmployeeAccount(actor, tx);
+        if (actor.role !== 'Client Admin' || actor.status !== 'ACTIVE' || actor.mustChangePassword ||
+            !isOnboardingComplete(actor) || !isWorkspaceAccessible(actor.tenantStatus)) {
+          throw new ForbiddenError('Only an active Client Admin can change a Client Admin role assignment.');
+        }
+        await assertPermissions({ userId: actorId, tenantId, role: actor.role }, ['users.edit', 'roles.assign'], tx);
+        if (assigningClientAdmin && (existing.status !== 'ACTIVE' || dto.status === 'INACTIVE')) {
+          throw new ForbiddenError('Only active staff can be promoted to Client Admin.');
+        }
+      }
       if (dto.status === 'INACTIVE') await assertNoOwnership(tx, tenantId, id);
+      protectsLastClientAdmin = existing.role === 'Client Admin' && existing.status === 'ACTIVE' && (demoting || dto.status === 'INACTIVE');
       if (protectsLastClientAdmin) {
         const activeAdmins = await tx.user.count({ where: { tenantId, role: 'Client Admin', status: 'ACTIVE' } });
         if (activeAdmins <= 1) throw new ConflictError('At least one active Client Admin must remain.');
       }
-      if (dto.role) await replaceUserRole(tx, id, tenantId, dto.role, actorId);
+      if (role) await replaceUserRole(tx, id, tenantId, role, actorId, { allowClientAdminRoleChange: changingClientAdminRole });
       const updated = await tx.user.update({ where: { id, tenantId }, data: updateData, select: SAFE_USER_SELECT });
       if (groupIds !== undefined) {
         if (dto.status === 'INACTIVE') throw new ValidationError('Reassign groups separately before deactivating a user.');
         await replaceUserGroups(tx, tenantId, id, groupIds);
       }
       await tx.auditLog.create({ data: { tenantId, userId: actorId, action: 'user.updated', category: 'admin', entityType: 'User', entityId: id,
-        changeset: JSON.parse(JSON.stringify({ before: { status: existing.status }, after: dto })) as Prisma.InputJsonValue } });
+        changeset: JSON.parse(JSON.stringify({
+          before: { status: existing.status, ...(role !== undefined ? { role: existing.role } : {}) }, after: dto,
+        })) as Prisma.InputJsonValue } });
       return groupIds !== undefined ? tx.user.findFirstOrThrow({ where: { id, tenantId }, select: SAFE_USER_SELECT }) : updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
-    // A concurrent administrator deactivation can invalidate the serializable count.
-    if (protectsLastClientAdmin && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
-      throw new ConflictError('At least one active Client Admin must remain.');
+    // A concurrent role or status change can invalidate the serializable count.
+    if (isCrmTransactionConflict(error)) {
+      if (protectsLastClientAdmin) throw new ConflictError('At least one active Client Admin must remain.');
+      if (role) throw new ConflictError('The staff account or administrator access changed. Refresh and try again.');
     }
     throw error;
   }
@@ -157,12 +173,11 @@ export async function update(id: string, tenantId: string, actorId: string, dto:
 }
 
 export async function archive(id: string, tenantId: string, actorId: string) {
-  const existing = await prisma.user.findFirst({ where: { id, tenantId } });
-  if (!existing) throw new NotFoundError('User');
-  if (existing.role === 'Client Admin') throw new ForbiddenError('Client Admin cannot be archived');
-  if (id === actorId) throw new ForbiddenError('Cannot archive your own account');
-
   await prisma.$transaction(async tx => {
+    const existing = await tx.user.findFirst({ where: { id, tenantId }, select: { role: true } });
+    if (!existing) throw new NotFoundError('User');
+    if (existing.role === 'Client Admin') throw new ForbiddenError('Client Admin cannot be archived');
+    if (id === actorId) throw new ForbiddenError('Cannot archive your own account');
     await assertNoOwnership(tx, tenantId, id);
     await tx.user.update({ where: { id, tenantId }, data: { status: 'INACTIVE' } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -187,13 +202,14 @@ export async function bulkUpdate(ids: string[], tenantId: string, actorId: strin
 
   if (dto.status !== undefined && (ids.includes(actorId) || await prisma.user.count({ where: { id: { in: ids }, tenantId, role: 'Client Admin' } }))) throw new ForbiddenError('Cannot change your own or Client Admin status in bulk');
   if (dto.status === 'INACTIVE') throw new ConflictError('Deactivate users individually to review CRM ownership.');
+  const { role, ...updateData } = dto;
   await prisma.$transaction(async tx => {
     const where = { id: { in: ids }, tenantId };
-    if (dto.role) {
+    if (role) {
       const targets = await tx.user.findMany({ where, select: { id: true } });
-      for (const target of targets) await replaceUserRole(tx, target.id, tenantId, dto.role, actorId);
+      for (const target of targets) await replaceUserRole(tx, target.id, tenantId, role, actorId);
     }
-    await tx.user.updateMany({ where, data: dto });
+    if (Object.keys(updateData).length) await tx.user.updateMany({ where, data: updateData });
   });
   if (dto.status === 'INACTIVE') for (const id of ids) await revokeAllUserSessions(id);
   await writeAuditLog({ tenantId, userId: actorId, action: 'user.bulk_updated', entityType: 'User', after: { ids, updates: dto }, severity: 'WARNING' });

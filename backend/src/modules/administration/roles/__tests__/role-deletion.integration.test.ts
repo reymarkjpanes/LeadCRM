@@ -8,6 +8,7 @@ import { issueAuthSession } from '../../../../core/auth/auth-session';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import { archiveRole } from '../roles.service';
 import { replaceUserRole } from '../roles.repository';
+import { update as updateUser } from '../../users/users.service';
 import { dispatchTenantNotifications } from '../../../notifications/notification-events.service';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
@@ -127,5 +128,33 @@ describe.skipIf(!disposable)('role deletion: retained database records and concu
     expect(await prisma.roleDefinition.findUnique({ where: { id: target.id } })).toMatchObject({ isArchived: true });
     expect(await prisma.userRole.count({ where: { tenantId, roleId: target.id } })).toBe(0);
     expect(await prisma.user.findUnique({ where: { id: person.user.id } })).toMatchObject({ role: person.definition.name });
+  });
+
+  it('protects a promotion from a custom assignment or unassignment already in flight', async () => {
+    const person = await staff();
+    const custom = await role();
+    const held = gate(), release = gate();
+    const transaction = prisma.$transaction.bind(prisma);
+    const spy = vi.spyOn(prisma, '$transaction').mockImplementationOnce(((work: (tx: Prisma.TransactionClient) => Promise<unknown>, options: object) =>
+      transaction(async tx => { const result = await work(tx); held.resolve(); await release.promise; return result; }, { ...options, timeout: 15000 })) as typeof prisma.$transaction);
+    const userId = person.user.id;
+    const promotion = scope(() => updateUser(userId, tenantId, adminId, { role: 'Client Admin' }));
+    try {
+      await Promise.race([held.promise, promotion]);
+    } finally { spy.mockRestore(); }
+    const assignment = call('/administration/roles/assign', 'POST', { userId, roleId: custom.id });
+    const removal = call('/administration/roles/unassign', 'DELETE', { userId, roleId: systemRoleId });
+    try {
+      await expect.poll(async () => {
+        const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"User"%'`;
+        return Number(rows[0].count);
+      }, { timeout: 5000, interval: 25 }).toBe(2);
+    } finally { release.resolve(); }
+    expect(await promotion).toMatchObject({ role: 'Client Admin' });
+    expect((await assignment).status).toBe(409);
+    expect((await removal).status).toBe(403);
+    expect(await prisma.user.findUnique({ where: { id: userId } })).toMatchObject({ role: 'Client Admin' });
+    expect(await prisma.userRole.findMany({ where: { tenantId, userId }, select: { roleId: true } })).toEqual([{ roleId: systemRoleId }]);
   });
 });

@@ -8,11 +8,13 @@ import { toast } from '@/shared/utils/toast';
 import type { NotificationRecord, UnreadNotificationRecord } from '@leadcrm/shared';
 const mocks = vi.hoisted(() => ({ list: vi.fn(), update: vi.fn(), archive: vi.fn(), impact: vi.fn(), deactivate: vi.fn(), unlock: vi.fn(), groups: vi.fn(), counts: vi.fn(), notificationList: vi.fn(), markRead: vi.fn(), markAllRead: vi.fn(), delete: vi.fn(), refreshPermissions: vi.fn(), permissionsLoaded: true, permissionsError: null as string | null, rolesLoading: false, rolesError: '', denied: new Set<string>(), role: 'Client Admin' }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: () => true }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 't' }, isLoading: false, authError: null, isPermissionsLoaded: mocks.permissionsLoaded, permissionsError: mocks.permissionsError, refreshPermissions: mocks.refreshPermissions, user: { id: 'admin', tenantId: 't', role: mocks.role }, userCan: (module: string, action: string) => !mocks.denied.has(`${module}.${action}`) }) }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 't' }, isLoading: false, authError: null, isPermissionsLoaded: mocks.permissionsLoaded, permissionsError: mocks.permissionsError, refreshPermissions: mocks.refreshPermissions, user: { id: 'admin', tenantId: 't', role: mocks.role, status: 'ACTIVE' }, userCan: (module: string, action: string) => !mocks.denied.has(`${module}.${action}`) }) }));
 vi.mock('@/shared/services/groups.api', () => ({ groupsApi: { getAll: mocks.groups } }));
 vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ roles: [
   { id: 'r', name: 'Sales', isArchived: false, isSystemRole: false },
+  { id: 'sales-admin', name: 'Sales Admin', isArchived: false, isSystemRole: false },
+  { id: 'sales-associate', name: 'Sales Associate', isArchived: false, isSystemRole: false },
   { id: 'admin-role', name: 'Client Admin', isArchived: false, isSystemRole: true },
   { id: 'retired-role', name: 'Guest', isArchived: false, isSystemRole: true },
   { id: 'archived-role', name: 'Archived Staff', isArchived: true, isSystemRole: false },
@@ -53,8 +55,43 @@ it.each(['Client Admin', 'Sales'])('offers Client Admin creation only to an exis
   const role = screen.getByLabelText('Role', { exact: false });
   expect(within(role).queryByRole('option', { name: 'Client Admin' }) !== null).toBe(actor === 'Client Admin');
   expect(within(role).getByRole('option', { name: 'Sales' })).toBeTruthy();
+  expect(within(role).getByRole('option', { name: 'Sales Admin' })).toBeTruthy();
+  expect(within(role).getByRole('option', { name: 'Sales Associate' })).toBeTruthy();
   expect(within(role).queryByRole('option', { name: 'Guest' })).toBeNull();
   expect(within(role).queryByRole('option', { name: 'Archived Staff' })).toBeNull();
+});
+it.each(['Sales Admin', 'Sales Associate'])('promotes and reassigns %s in the open detail panel', async role => {
+  let saved = { id: 'staff', tenantId: 't', firstName: 'Staff', lastName: 'User', email: 'staff@camxian.com', role, status: 'active' };
+  mocks.list.mockImplementation(async () => ({ data: [saved], meta: { hasMore: false } }));
+  mocks.update.mockImplementation(async (_id, update) => {
+    saved = { ...saved, ...update };
+    return { data: saved };
+  });
+  render(<UsersSubTab />);
+  fireEvent.click(await screen.findByRole('button', { name: 'View Staff User' }));
+  const panel = within(screen.getByRole('dialog', { name: 'User Details' }));
+  fireEvent.click(panel.getByRole('button', { name: 'Edit Role' }));
+  const select = panel.getByLabelText('Role');
+  expect(select).toHaveProperty('value', role);
+  expect(within(select).getAllByRole('option').map(option => option.textContent)).toEqual(expect.arrayContaining([
+    'Client Admin', 'Sales Admin', 'Sales Associate',
+  ]));
+  fireEvent.change(select, { target: { value: 'Client Admin' } });
+  fireEvent.click(panel.getByRole('button', { name: 'Save' }));
+  await waitFor(() => {
+    expect(mocks.update).toHaveBeenCalledExactlyOnceWith('staff', { role: 'Client Admin' });
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(panel.getAllByText('Client Admin')).toHaveLength(2);
+  });
+  fireEvent.click(panel.getByRole('button', { name: 'Edit Role' }));
+  expect(panel.getByLabelText('Role')).toHaveProperty('value', 'Client Admin');
+  fireEvent.change(panel.getByLabelText('Role'), { target: { value: role } });
+  fireEvent.click(panel.getByRole('button', { name: 'Save' }));
+  await waitFor(() => {
+    expect(mocks.update).toHaveBeenLastCalledWith('staff', { role });
+    expect(mocks.list).toHaveBeenCalledTimes(3);
+    expect(panel.getAllByText(role)).toHaveLength(2);
+  });
 });
 it('waits for resolved permissions before reading the Users table during startup invalidation', async () => {
   mocks.permissionsLoaded = false;

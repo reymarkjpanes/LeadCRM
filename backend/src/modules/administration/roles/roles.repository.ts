@@ -184,6 +184,8 @@ export async function assignRoleToUser(userId: string, roleId: string, tenantId:
 
 export async function removeRoleFromUser(userId: string, roleId: string, tenantId: string, audit?: AssignmentAudit) {
   return prisma.$transaction(async tx => {
+    // Check protection after any concurrent primary-role change commits.
+    await tenantContext.exit(async () => await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} AND "tenantId" = ${tenantId} FOR UPDATE`);
     const user = await tx.user.findFirst({ where: { id: userId, tenantId } });
     const role = await tx.roleDefinition.findFirst({ where: { id: roleId, tenantId } });
     if (!user || !role) throw new NotFoundError('User or role');
@@ -259,6 +261,7 @@ export type { Prisma };
 /** User management selects a primary role; update both RBAC representations in its transaction. */
 export async function replaceUserRole(
   tx: Prisma.TransactionClient, userId: string, tenantId: string, roleName: string, actorId?: string,
+  { allowClientAdminRoleChange = false } = {},
 ): Promise<void> {
   // Shared with deletion's exclusive lock; recheck active state after any wait.
   await tenantContext.exit(async () => await tx.$queryRaw`SELECT "id" FROM "RoleDefinition" WHERE "tenantId" = ${tenantId} AND "name" = ${roleName} FOR SHARE`);
@@ -267,15 +270,20 @@ export async function replaceUserRole(
     tx.roleDefinition.findFirst({ where: { tenantId, name: roleName, isArchived: false } }),
   ]);
   if (!user || !role) throw new NotFoundError('User or role');
-  if (actorId === userId && user.role !== 'Client Admin' && user.role !== role.name) {
+  if (actorId === userId && user.role !== role.name) {
     throw new ForbiddenError('Ask another authorized administrator to change your role.');
   }
-  if (['Client Admin'].includes(user.role) || role.isSystemRole ||
-      ['guest', 'clientadmin'].includes(role.name.toLowerCase().replace(/[\s_-]/g, ''))) {
+  const assigningClientAdmin = allowClientAdminRoleChange && role.name === 'Client Admin' && role.isSystemRole;
+  if ((user.role === 'Client Admin' && !allowClientAdminRoleChange) || (!assigningClientAdmin && (role.isSystemRole ||
+      ['guest', 'clientadmin'].includes(role.name.toLowerCase().replace(/[\s_-]/g, ''))))) {
     throw new ForbiddenError('Select an active custom role for a non-administrator user');
   }
-  await requireEmployeeAccount({ ...user, role: role.name }, tx);
-  await tx.user.update({ where: { id: user.id }, data: { role: role.name } });
+  await requireEmployeeAccount(assigningClientAdmin ? user : { ...user, role: role.name }, tx);
+  // A concurrent role change must survive an assignment that read the old role.
+  const { count } = await tx.user.updateMany({
+    where: { id: user.id, tenantId, role: user.role }, data: { role: role.name },
+  });
+  if (!count) throw new ConflictError('The user’s role changed. Refresh and try again.');
   await tx.userRole.deleteMany({ where: { userId, tenantId, roleId: { not: role.id }, role: { tenantId, name: user.role } } });
   await tx.userRole.upsert({
     where: { userId_roleId_tenantId: { userId, roleId: role.id, tenantId } },
