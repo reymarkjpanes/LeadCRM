@@ -9,7 +9,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { toast } from '@/shared/utils/toast';
-import { CreateAdministrationUserSchema, UpdateAdministrationUserSchema, EmployeeEmailSchema, StaffCreationEmailSchema } from '@leadcrm/shared';
+import { CreateAdministrationUserSchema, UpdateAdministrationUserSchema, EmployeeEmailSchema, StaffCreationEmailSchema, StaffEmailSchema } from '@leadcrm/shared';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { PhilippinePhoneInput } from '@/shared/components/philippine-phone-input';
 import { normalizePhInput } from '@/shared/utils/ph-phone';
@@ -133,14 +133,21 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
     catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to send recovery email.'); }
     finally { locked.current = false; setBusy(false); setResetting(false); }
   };
-  const canChangeRole = canAssign && !!saved && roles.some(role => role.name === saved.role);
+  const canManageClientAdminRole = canEdit && canAssign && actor?.role === 'Client Admin' && actor.status?.toLowerCase() === 'active'
+    && !!saved && saved.id !== actor.id && saved.tenantId === actor.tenantId && StaffEmailSchema.safeParse(saved.email).success;
+  const isClientAdmin = saved?.role === 'Client Admin';
+  const canPromote = !isClientAdmin && canManageClientAdminRole && saved?.status.toLowerCase() === 'active';
+  const editRoles = roles.filter(role => role.name !== 'Client Admin' || canPromote).map(role => role.name);
+  const canChangeRole = canAssign && !!saved && (isClientAdmin
+    ? canManageClientAdminRole && editRoles.length > 0 : editRoles.includes(saved.role));
   const canChangeGroups = canManageGroups && saved?.status === 'active';
   const saveField = async (field: string, value: string | string[]) => {
     const permitted = field === 'role' ? canChangeRole : field === 'groupIds' ? canChangeGroups
       : ['firstName', 'lastName', 'phone'].includes(field) && canEdit;
     if (!saved || !permitted) throw new Error('You do not have permission to edit this field.');
     if (locked.current) throw new Error('Another request is in progress. Please try again.');
-    if (field === 'role' && !roles.some(role => role.name === value)) throw new Error('Select an active custom role.');
+    if (field === 'role' && value === saved.role) return;
+    if (field === 'role' && (typeof value !== 'string' || !editRoles.includes(value))) throw new Error('Select an active role.');
     if (field === 'groupIds' && (groupsLoading || groupError)) throw new Error(groupError || 'Wait for available groups to load.');
     const result = UpdateAdministrationUserSchema.safeParse({ [field]: field === 'groupIds' && typeof value === 'string' ? JSON.parse(value) : value });
     if (!result.success) throw new Error(result.error.issues[0].message);
@@ -177,7 +184,8 @@ export function UserPanel({ user, roles, canEdit, onSaved, onClose, actions = []
     </div> },
   ];
   const organizationRows: InlineRowDef[] = [
-    { label: 'Role', value: saved?.role, apiField: canChangeRole ? 'role' : undefined, type: 'select', options: roles.map(role => role.name), alwaysVisible: true },
+    { label: 'Role', value: saved?.role, apiField: canChangeRole ? 'role' : undefined, type: 'select',
+      options: isClientAdmin ? ['Client Admin', ...editRoles] : editRoles, alwaysVisible: true },
     { label: 'Job Title', value: saved?.jobTitle, alwaysVisible: true },
     { label: 'Login Security', value: saved?.securityLockedAt ? 'Locked — contact an administrator' : 'Unlocked', alwaysVisible: true },
     { label: 'Status', value: saved?.status, displayValue: saved?.status ? saved.status[0].toUpperCase() + saved.status.slice(1) : '—', alwaysVisible: true },

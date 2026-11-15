@@ -3,7 +3,7 @@ vi.mock('@/shared/hooks/use-email-availability', () => ({ useEmailAvailability: 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Archive, UserX } from 'lucide-react';
-const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), reset: vi.fn(), success: vi.fn(), error: vi.fn(), getGroups: vi.fn(), denied: new Set<string>(), actor: { role: 'User', tenantId: 't' } }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), reset: vi.fn(), success: vi.fn(), error: vi.fn(), getGroups: vi.fn(), denied: new Set<string>(), actor: { id: 'actor', role: 'User', tenantId: 't', status: 'ACTIVE' } }));
 vi.mock('@/features/tenant/administration/users/services/users.service', () => ({ usersService: { create: mocks.create, update: mocks.update, sendPasswordReset: mocks.reset } }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ userCan: (module: string, action: string) => !mocks.denied.has(`${module}.${action}`), user: mocks.actor }) }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error: mocks.error } }));
@@ -71,6 +71,32 @@ it('submits a Client Admin selection from an existing admin without changing the
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(created));
   expect(mocks.create.mock.calls[0][0]).toMatchObject({ role: 'Client Admin', email: 'new@camxian.com' });
   expect(screen.queryByText(/The same memberships are used by workflow assignment/)).toBeNull();
+});
+
+it.each([
+  { role: 'Sales Admin' },
+  { role: 'Sales Associate' },
+  { actorStatus: 'INACTIVE' },
+  { targetStatus: 'inactive' as const },
+  { targetStatus: 'pending' as const },
+  { targetId: 'actor' },
+  { targetTenantId: 'foreign' },
+  { targetEmail: 'invalid' },
+  { canEdit: false },
+])('limits the Client Admin option without removing custom role choices for %j', scenario => {
+  const { role = 'Client Admin', actorStatus = 'ACTIVE', targetStatus = 'active', targetId = 'u',
+    targetTenantId = 't', targetEmail = user.email, canEdit = true } = scenario;
+  mocks.actor.role = role;
+  mocks.actor.status = actorStatus;
+  try {
+    renderPanel({ ...user, id: targetId, tenantId: targetTenantId, email: targetEmail, status: targetStatus }, {
+      canEdit, roles: [...roles, { id: 'admin-role', name: 'Client Admin' }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Role' }));
+    const select = screen.getByLabelText('Role');
+    expect(within(select).getByRole('option', { name: 'Sales' })).toBeTruthy();
+    expect(within(select).queryByRole('option', { name: 'Client Admin' })).toBeNull();
+  } finally { mocks.actor.status = 'ACTIVE'; }
 });
 
 it('renders red required markers and one accessible error below each invalid control', () => {
@@ -225,6 +251,9 @@ it('allows role-only assignment and protects Client Admin and permission-denied 
   mocks.update.mockResolvedValue({ data: { ...user, role: 'Manager' } }); fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(mocks.update).toHaveBeenCalledExactlyOnceWith(user.id, { role: 'Manager' }));
   rerender(<UserPanel user={{ ...user, role: 'Client Admin' }} roles={roles} canEdit onSaved={onSaved} onClose={onClose} />);
+  expect(screen.queryByRole('button', { name: 'Edit Role' })).toBeNull();
+  mocks.actor.role = 'Client Admin';
+  rerender(<UserPanel user={{ ...user, id: mocks.actor.id, role: 'Client Admin' }} roles={roles} canEdit onSaved={onSaved} onClose={onClose} />);
   expect(screen.queryByRole('button', { name: 'Edit Role' })).toBeNull();
   mocks.denied.add('roles.canAssign');
   rerender(<UserPanel user={user} roles={roles} canEdit onSaved={onSaved} onClose={onClose} />);
