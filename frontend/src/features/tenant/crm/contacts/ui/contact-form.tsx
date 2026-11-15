@@ -4,7 +4,7 @@ import { CrmAddressSchema } from '@leadcrm/shared';
 import { applyCrmFieldErrors, showCrmMutationError, isStaffEmailError } from '@/shared/utils/crm-mutation-error';
 import { useEmailAvailability } from '@/shared/hooks/use-email-availability';
 import { usePhoneAvailability } from '@/shared/hooks/use-phone-availability';
-import { STAFF_PHONE_CONFLICT } from '@leadcrm/shared';
+import { STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '@leadcrm/shared';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 
@@ -177,7 +177,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
   const lastNameError = (lastNameChanged ? (lastName ? textFieldError(CreateContactFormSchema.shape.lastName, lastName) : undefined) : undefined) ?? errors.lastName?.message;
   const emailCheck = useEmailAvailability(watch('email'), 'contacts', !isEdit && canSubmit);
   const emailError = emailCheck.error || errors.email?.message;
-  const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'contacts', canSubmit);
+  const phoneCheck = usePhoneAvailability(watch('phone') ?? '', 'contacts', canSubmit, isEdit ? initialData?.id : undefined);
   const phoneError = phoneCheck.error || errors.phone?.message || (phoneTouched ? validatePhMobile(phoneLocal) : null);
 
   const [saveError, setSaveError] = useState('');
@@ -213,8 +213,10 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     setIsSaving(true);
     try { await onSave(cleaned); }
     catch (error) {
-      if ((error as { fieldErrors?: { phone?: string[] } }).fieldErrors?.phone?.includes(STAFF_PHONE_CONFLICT)) {
-        phoneCheck.reject(); setError('phone', { type: 'server', message: STAFF_PHONE_CONFLICT }); setSaveError(''); return;
+      const phoneConflict = (error as { fieldErrors?: { phone?: string[] } }).fieldErrors?.phone?.find(message => message === STAFF_PHONE_CONFLICT || message === CUSTOMER_PHONE_CONFLICT);
+      if (phoneConflict) {
+        if (phoneCheck.reject(phoneConflict === STAFF_PHONE_CONFLICT ? 'STAFF_PHONE_NOT_ALLOWED' : 'CUSTOMER_PHONE_CONFLICT')) setError('phone', { type: 'server', message: phoneConflict });
+        setSaveError(''); return;
       }
       if (!isEdit && isStaffEmailError(error)) {
         emailCheck.reject('STAFF_EMAIL_NOT_ALLOWED');
@@ -292,6 +294,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
                 onBlur={phoneCheck.retry}
                 onChange={(v) => { setPhoneLocal(v); setPhoneTouched(true); clearErrors('phone'); setValue('phone', v ? toE164(v) : '', { shouldDirty: true, shouldValidate: true }); }}
                 error={phoneError}
+                available={phoneCheck.available}
               />
             </FieldWrap>
           </div>

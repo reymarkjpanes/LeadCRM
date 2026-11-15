@@ -191,6 +191,16 @@ All require an authenticated session and completed per-user onboarding. Deal acc
 For Lead, Contact, and Account archive/restore endpoints, permissions, archived
 queries, and migration requirements, see [CRM archive verification](crm-archive-verification.md).
 
+`GET /crm/phone-availability?module=leads|contacts&phone=...` checks exact normalized
+Philippine mobile numbers against same-tenant staff and customer records, including
+archived history. Optional `excludeId` requires module Edit and record access.
+Responses retain `{ success: true, data: { available: true } }` or an unavailable
+reason of `STAFF_PHONE_NOT_ALLOWED` or `CUSTOMER_PHONE_CONFLICT`, without identity
+details. Manual create/update and CSV imports enforce the same policy transactionally.
+Unchanged historical customer phones and stored conversion/merge relationships
+remain supported; staff conflicts remain blocked. Public Forms apply staff-only
+phone validation and continue matching repeat customer inquiries.
+
 ### Record history and synchronization
 
 Contextual `GET /crm/activities` reads accept `leadId`, `contactId`, `accountId`, `dealId` or `taskId` and require the matching view permissions. Target records must be active and belong to the session tenant. The existing `type` filter accepts a comma-separated list; `search` matches title, description and author names. `limit` bounds each page and `cursor` is the opaque `nextCursor` returned by the previous page. Rows have stable `createdAt DESC, id DESC` ordering and author projections; the response includes `total`, `nextCursor` and compatibility `meta`. Invalid cursors return 400. Contact reads include converted source-Lead history without copying rows. Unscoped reads retain the existing requirement for all activity-linked module view permissions.

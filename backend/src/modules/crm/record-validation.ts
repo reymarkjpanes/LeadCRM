@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
-import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT, isDirectMailSource } from '@leadcrm/shared';
+import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT, isDirectMailSource } from '@leadcrm/shared';
 import { normalizePhone } from './duplicate-detection/duplicate-detection.service';
 import { readCrmStatusEvidence } from './access/crm-record-access.service';
 
@@ -41,6 +41,45 @@ export async function assertExternalCustomerPhone(tx: Prisma.TransactionClient, 
   if (staff.some(user => user.phone && normalizePhone(user.phone) === normalized)) {
     throw new z.ZodError([{ code: z.ZodIssueCode.custom, path, message: STAFF_PHONE_CONFLICT }]);
   }
+}
+
+type PhoneRecord = { module: 'leads' | 'contacts'; id: string; phone: string | null };
+
+/** Manual writes use this inside salesTransaction; public capture, conversion and merge retain staff-only validation. */
+export async function assertInternalCustomerPhone(tx: Prisma.TransactionClient, tenantId: string,
+  phone: string | null | undefined, current?: PhoneRecord): Promise<void> {
+  await assertExternalCustomerPhone(tx, tenantId, phone);
+  if (!phone?.trim()) return;
+  const normalized = normalizePhone(phone);
+  // Preserve historical duplicates on unrelated edits, including equivalent formatting.
+  if (current?.phone && normalizePhone(current.phone) === normalized) return;
+  await readCrmStatusEvidence(async () => {
+    // Do not reuse the duplicate-warning search: its sample limits and visibility
+    // filters are appropriate for suggestions, but cannot establish uniqueness.
+    const leads = await tx.lead.findMany({ where: { tenantId }, select: { id: true, phone: true, contactId: true } });
+    const contacts = await tx.contact.findMany({ where: { tenantId, phone: { not: null } }, select: { id: true, phone: true } });
+    const related = new Set<string>();
+    if (current) {
+      related.add(`${current.module}:${current.id}`);
+      const edges = leads.filter(lead => lead.contactId).map(lead => [`leads:${lead.id}`, `contacts:${lead.contactId}`]);
+      const merges = await tx.auditLog.findMany({ where: { tenantId, action: { in: ['lead.merged', 'contact.merged'] } },
+        select: { action: true, entityId: true, metadata: true } });
+      for (const merge of merges) {
+        const secondaryId = (merge.metadata as { secondaryId?: unknown } | null)?.secondaryId;
+        if (typeof secondaryId !== 'string') continue;
+        const module = merge.action === 'lead.merged' ? 'leads' : 'contacts';
+        edges.push([`${module}:${merge.entityId}`, `${module}:${secondaryId}`]);
+      }
+      // Only persisted conversion/merge provenance establishes the same customer.
+      for (let size = -1; size !== related.size;) {
+        size = related.size;
+        for (const [left, right] of edges) if (related.has(left) || related.has(right)) { related.add(left); related.add(right); }
+      }
+    }
+    const conflict = leads.some(lead => lead.phone && normalizePhone(lead.phone) === normalized && !related.has(`leads:${lead.id}`))
+      || contacts.some(contact => contact.phone && normalizePhone(contact.phone) === normalized && !related.has(`contacts:${contact.id}`));
+    if (conflict) throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ['phone'], message: CUSTOMER_PHONE_CONFLICT }]);
+  });
 }
 
 /** Validate customer identities before writing or copying ordered Deal junctions. */

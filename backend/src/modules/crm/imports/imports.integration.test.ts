@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { CreateCrmImportSchema, importRowSchemas, mapImportCsv, parseImportCsv, type CrmImportModule } from '@leadcrm/shared';
 vi.mock('../../../shared/services/email.service', () => ({ sendMail: vi.fn() }));
@@ -19,7 +19,9 @@ const csv = (rows: Record<string, string>[]) => {
   return { fileName: 'test.csv', csvText: [keys.join(','), ...rows.map(r => keys.map(k => quote(r[k] ?? '')).join(','))].join('\n'),
     mappings: Object.fromEntries(keys.map((k, i) => [k, i])), idempotencyKey: randomUUID() };
 };
-const person = (email: string, productInterest = 'CCTV Surveillance System; Biometrics') => ({ firstName: 'John', lastName: 'Doe', email, phone: '9123456789', companyName: 'ABC Corporation', address: 'Manila', productInterest });
+const person = (email: string, productInterest = 'CCTV Surveillance System; Biometrics') => ({ firstName: 'John', lastName: 'Doe', email,
+  phone: `9${String(createHash('sha256').update(email.trim().toLowerCase()).digest().readUInt32BE(0) % 1_000_000_000).padStart(9, '0')}`,
+  companyName: 'ABC Corporation', address: 'Manila', productInterest });
 
 describe('shared CSV contract', () => {
   it('rejects retired module discriminators before mapping or database access', () => {
@@ -180,6 +182,26 @@ describe.skipIf(!disposable)('CRM CSV import database and HTTP', () => {
     expect((await run('accounts', csv([{ name: 'ABC Corporation', size: '11-50' }]))).successfulRecords).toBe(1);
     expect((await run('accounts', csv([{ name: ' abc  corporation ' }]))).duplicateRecords).toBe(1);
     const account = await prisma.account.findFirstOrThrow({ where: { tenantId, name: 'ABC Corporation' } });
+  });
+  it.each(['leads', 'contacts'] as const)('blocks normalized %s phone conflicts in CSV preview, upload duplicates and commit revalidation', async module => {
+    const existingPhone = module === 'leads' ? '9690000001' : '9690000002';
+    const freshPhone = module === 'leads' ? '9690000003' : '9690000004';
+    await prisma.contact.create({ data: { tenantId, firstName: 'Archived', lastName: 'Customer', phone: `0${existingPhone}`, isArchived: true } });
+    const input = csv([
+      { ...person(`${randomUUID()}@example.test`), phone: existingPhone },
+      { ...person(`${randomUUID()}@example.test`), phone: freshPhone },
+      { ...person(`${randomUUID()}@example.test`), phone: `+63${freshPhone}` },
+    ]);
+    const preview = await request(module, '/preview', 'POST', input);
+    expect(preview.body.data.map((row: { status: string }) => row.status)).toEqual(['duplicate', 'valid', 'duplicate']);
+    const imported = await run(module, input);
+    expect([imported.successfulRecords, imported.duplicateRecords, imported.failedRecords]).toEqual([1, 2, 0]);
+    const late = person(`${randomUUID()}@example.test`), lateInput = csv([late]);
+    expect((await request(module, '/preview', 'POST', lateInput)).body.data[0].status).toBe('valid');
+    await prisma.lead.create({ data: { tenantId, firstName: 'Late', lastName: 'Conflict', phone: `+63${late.phone}` } });
+    const rejected = await run(module, lateInput);
+    expect([rejected.successfulRecords, rejected.duplicateRecords]).toEqual([0, 1]);
+    expect(await prisma.lead.count({ where: { tenantId, email: late.email } }) + await prisma.contact.count({ where: { tenantId, email: late.email } })).toBe(0);
   });
   it('creates only unique Contact Product Deals and replays a completed upload after its parent is deleted', async () => {
     const zero = await prisma.productInterest.create({ data: { tenantId, name: `Zero ${randomUUID()}`, dealValue: 0 } });

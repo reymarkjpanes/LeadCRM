@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
-import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
-import { importIdentity, importRowSchemas, normalizeAccountImportRow, splitProductInterests, type CrmImportModule, type ImportReviewRow } from '@leadcrm/shared';
+import { assertExternalCustomerEmail, assertExternalCustomerPhone, assertInternalCustomerPhone } from '../record-validation';
+import { CUSTOMER_PHONE_CONFLICT, importIdentity, importRowSchemas, normalizeAccountImportRow, splitProductInterests, type CrmImportModule, type ImportReviewRow } from '@leadcrm/shared';
+import { normalizePhone } from '../duplicate-detection/duplicate-detection.service';
 import { ValidationError } from '../../../shared/errors/http-error';
 import { createAssignedLead } from '../leads/lead-automation.service';
 import { ZodError, type ZodIssue } from 'zod';
@@ -55,6 +56,7 @@ export async function validateImportRow(tx: Tx, module: CrmImportModule, tenantI
     result.errors.push(...await handler.duplicates(tx, tenantId, result.data));
     if (result.errors.length) { result.status = 'duplicate'; return result; }
     if (module !== 'accounts') {
+      await assertInternalCustomerPhone(tx, tenantId, result.data.phone);
       result.products = await resolveImportProducts(tx, tenantId, result.data.productInterest);
       result.data.productInterest = result.products.map(p => p.name).join('; ');
     }
@@ -63,6 +65,7 @@ export async function validateImportRow(tx: Tx, module: CrmImportModule, tenantI
     const errors = importValidationErrors(error);
     if (!errors) throw error;
     result.errors.push(...errors);
+    if (error instanceof ZodError && error.issues.some(issue => issue.message === CUSTOMER_PHONE_CONFLICT)) result.status = 'duplicate';
   }
   return result;
 }
@@ -71,6 +74,7 @@ export async function validateImportRow(tx: Tx, module: CrmImportModule, tenantI
 export function csvRowValidator(module: CrmImportModule, tenantId: string, rows: MappedRow[],
   failedRow?: (tx: Tx, rowNumber: number) => Promise<boolean>) {
   const candidates = new Map<string, MappedRow[]>();
+  const phoneCandidates = new Map<string, MappedRow[]>();
   for (const row of rows) {
     const parsed = parseRow(module, row.data);
     if (!parsed.success) continue;
@@ -78,6 +82,11 @@ export function csvRowValidator(module: CrmImportModule, tenantId: string, rows:
     if (key) {
       const matches = candidates.get(key) ?? [];
       matches.push(row); candidates.set(key, matches);
+    }
+    if (module !== 'accounts' && 'phone' in parsed.data && parsed.data.phone) {
+      const phone = normalizePhone(parsed.data.phone);
+      const matches = phoneCandidates.get(phone) ?? [];
+      matches.push(row); phoneCandidates.set(phone, matches);
     }
   }
   const reviews = new WeakMap<Tx, Map<number, Promise<ResolvedRow>>>();
@@ -99,6 +108,15 @@ export function csvRowValidator(module: CrmImportModule, tenantId: string, rows:
         const review = await candidateReview(tx, first);
         if (review.isValid || review.status === 'duplicate') return validateImportRow(tx, module, tenantId, raw,
           `Duplicate ${importHandlers[module].duplicateLabel}. First occurrence: Row ${first.rowNumber}.`);
+      }
+      if (module !== 'accounts' && 'phone' in parsed.data && parsed.data.phone) {
+        for (const first of phoneCandidates.get(normalizePhone(parsed.data.phone)) ?? []) {
+          if (first.rowNumber >= raw.rowNumber) break;
+          if (failedRow && await failedRow(tx, first.rowNumber)) continue;
+          const review = await candidateReview(tx, first);
+          if (review.isValid) return validateImportRow(tx, module, tenantId, raw,
+            `${CUSTOMER_PHONE_CONFLICT} First occurrence: Row ${first.rowNumber}.`);
+        }
       }
     }
     return validateImportRow(tx, module, tenantId, raw);

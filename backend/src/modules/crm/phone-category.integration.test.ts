@@ -11,7 +11,7 @@ import { validateImportRow } from './imports/import-rows.service';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_forms_test_2')('CRM phone and product metadata on disposable PostgreSQL', () => {
-  let tenantId: string, actorId: string, token: string, editorToken: string, deniedToken: string, base: string, server: Server;
+  let tenantId: string, actorId: string, token: string, editorId: string, editorToken: string, deniedToken: string, base: string, server: Server;
   const request = async (path: string, method = 'GET', body?: unknown, auth = token) => {
     const response = await fetch(base + path, { method, headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -26,7 +26,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_forms
         mustChangePassword: false, onboardingCompletedAt: new Date(), userRoles: { create: { roleId: role.id } } } });
       const session = await issueAuthSession(user);
       if (name === 'Client Admin') { token = session.token; actorId = user.id; }
-      else if (name === 'Phone Editor') editorToken = session.token;
+      else if (name === 'Phone Editor') { editorToken = session.token; editorId = user.id; }
       else deniedToken = session.token;
     }
     server = app.listen(0, '127.0.0.1'); await new Promise<void>(done => server.once('listening', done));
@@ -85,12 +85,12 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_forms
     const product = await prisma.productInterest.create({ data: { tenantId, name: 'Retained CCTV', category: 'Security', dealValue: 100, active: false } });
     await prisma.productInterest.create({ data: { tenantId, name: 'Retained CCTV', category: 'Wrong replacement', dealValue: 200 } });
     const blank = await prisma.productInterest.create({ data: { tenantId, name: 'Legacy blank', category: '', dealValue: 0 } });
-    const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Product', lastName: 'Lead', productsNormalized: true,
+    const lead = await prisma.lead.create({ data: { tenantId, firstName: 'Product', lastName: 'Lead', assignedUserId: editorId, productsNormalized: true,
       productLinks: { create: [{ productInterestId: product.id, position: 0 }, { productInterestId: blank.id, position: 1 }] } } });
-    const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Product', lastName: 'Contact', productsNormalized: true,
+    const contact = await prisma.contact.create({ data: { tenantId, firstName: 'Product', lastName: 'Contact', assignedUserId: editorId, productsNormalized: true,
       productLinks: { create: [{ productInterestId: product.id, position: 0, interested: true }, { productInterestId: blank.id, position: 1, interested: false, activeProduct: true }] } } });
     const pipeline = await salesTransaction(tx => salesPipeline(tx, tenantId));
-    const deal = await prisma.deal.create({ data: { tenantId, title: 'Product Deal', pipelineId: pipeline.pipeline.id, stageId: pipeline.initial.id, productInterestId: product.id, productsNormalized: true } });
+    const deal = await prisma.deal.create({ data: { tenantId, title: 'Product Deal', assignedUserId: editorId, pipelineId: pipeline.pipeline.id, stageId: pipeline.initial.id, productInterestId: product.id, productsNormalized: true } });
     for (const [module, record] of [['leads', lead], ['contacts', contact], ['deals', deal]] as const) {
       const result = await request(`/crm/${module}/${record.id}`);
       expect(result.status).toBe(200);

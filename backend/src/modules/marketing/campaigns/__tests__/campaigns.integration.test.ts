@@ -31,7 +31,7 @@ import { crmActor } from '../../../crm/access/crm-record-access.service';
 import { issueAuthSession } from '../../../../core/auth/auth-session';
 import { createCampaign, getCampaignById, getCampaignReport, sendCampaign, updateCampaign, archiveCampaign, scheduleCampaign, cancelCampaignSchedule, dispatchDueCampaigns, resumePendingCampaigns, drainCampaignSubmissions, resumeCampaignSubmissions, startCampaignScheduleScheduler, duplicateCampaign } from '../campaigns.service';
 import { recoverCampaignSubmissions, interruptCampaignSubmission } from '../campaign-submission-recovery';
-import { createAudience, getAudiences, resolveAudience } from '../audiences.service';
+import { audienceDefinition, createAudience, getAudiences, resolveAudience } from '../audiences.service';
 import { createTemplate, getTemplates } from '../../templates/templates.service';
 import { processBrevoEvent } from '../brevo-webhook';
 import { reconcileBrevoStatuses } from '../brevo-status-reconciliation';
@@ -85,6 +85,145 @@ describe.skipIf(!disposable)('campaigns on disposable PostgreSQL and authenticat
     await prisma.campaignEmailQuota.deleteMany();
   });
   afterAll(async () => { vi.unstubAllEnvs(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); await prisma.$disconnect(); });
+
+  describe('status audience regressions', () => {
+    const statuses = [
+      ['Inquiry', 'INQUIRY'], ['Hot', 'HOT'], ['Warm', 'WARM'],
+      ['Cold', 'COLD'], ['Closed Deal', 'CLOSED_DEAL'], ['Cancelled', 'CANCELLED'],
+    ] as const;
+    type FixtureRow = { id: string; status: string; email: string; phone: string };
+    let statusTenantId: string, adminToken: string, agentToken: string, noGrantsToken: string, agentId: string;
+    const contacts: FixtureRow[] = [], leads: FixtureRow[] = [];
+    const statusScope = <T>(work: () => T) => scoped(work, statusTenantId);
+    const closedDefinition = { source: 'CONTACTS', matchMode: 'AND', conditions: [{ field: 'status', operator: 'equals', value: 'Closed Deal' }] };
+    const closedContacts = () => contacts.filter(row => row.status === 'Closed Deal');
+    const ids = (rows: { id: string }[]) => rows.map(row => row.id).sort();
+
+    beforeAll(async () => {
+      statusTenantId = (await prisma.tenant.create({ data: { name: 'Audience statuses', slug: randomUUID(), status: 'SANDBOX', onboardingStep: 3, onboardingCompletedAt: new Date() } })).id;
+      await statusScope(async () => {
+        const admin = await prisma.user.create({ data: { tenantId: statusTenantId, firstName: 'Audience', lastName: 'Admin', email: `${randomUUID()}@camxian.com`, role: 'Client Admin', mustChangePassword: false, emailVerified: new Date(), onboardingCompletedAt: new Date() } });
+        adminToken = (await issueAuthSession(admin)).token;
+        const role = await prisma.roleDefinition.create({ data: { tenantId: statusTenantId, name: 'Audience agent', permissions: { create: [
+          { tenantId: statusTenantId, module: 'campaigns', canView: true },
+          { tenantId: statusTenantId, module: 'contacts', canView: true, canViewAll: true },
+        ] } } });
+        const agent = await prisma.user.create({ data: { tenantId: statusTenantId, firstName: 'Audience', lastName: 'Agent', email: `${randomUUID()}@camxian.com`, role: role.name, mustChangePassword: false, emailVerified: new Date(), onboardingCompletedAt: new Date(), userRoles: { create: { tenantId: statusTenantId, roleId: role.id } } } });
+        agentId = agent.id; agentToken = (await issueAuthSession(agent)).token;
+        const denied = await prisma.user.create({ data: { tenantId: statusTenantId, firstName: 'Audience', lastName: 'Denied', email: `${randomUUID()}@camxian.com`, role: 'No grants', mustChangePassword: false, emailVerified: new Date(), onboardingCompletedAt: new Date() } });
+        noGrantsToken = (await issueAuthSession(denied)).token;
+        for (const [index, [label, stored]] of [...statuses, ['Closed Deal', 'CLOSED_DEAL'] as const, ['Closed Deal', 'CLOSED_DEAL'] as const].entries()) {
+          const email = `contact-${index}@audience-status.test`, phone = `+63917000000${index}`;
+          const contact = await prisma.contact.create({ data: { tenantId: statusTenantId, firstName: 'Status', lastName: label, status: stored, email, phone, assignedUserId: index === 4 ? agent.id : admin.id } });
+          contacts.push({ id: contact.id, status: label, email, phone });
+        }
+        for (const [index, [label]] of statuses.entries()) {
+          const email = `lead-${index}@audience-status.test`, phone = `+63918000000${index}`;
+          const lead = await prisma.lead.create({ data: { tenantId: statusTenantId, firstName: 'Status', lastName: label, status: label.toLowerCase(), email, phone } });
+          leads.push({ id: lead.id, status: label, email, phone });
+        }
+      });
+      await prisma.contact.create({ data: { tenantId: otherTenantId, firstName: 'Foreign', lastName: 'Closed customer', status: 'CLOSED_DEAL', email: 'foreign@audience-status.test' } });
+    });
+
+    const cases = statuses.flatMap(([status]) => (['LEADS', 'CONTACTS'] as const).flatMap(source =>
+      (['equals', 'not_equals'] as const).flatMap(operator => (['AND', 'OR'] as const).map(matchMode => ({ status, source, operator, matchMode })))));
+    it.each(cases)('$source $status $operator with $matchMode matches the authorized database rows', async ({ status, source, operator, matchMode }) => {
+      await statusScope(async () => {
+        const rows = source === 'LEADS' ? leads : contacts, selectedEmail = rows[0].email;
+        const matches = rows.filter(row => {
+          const statusMatches = operator === 'equals' ? row.status === status : row.status !== status;
+          return matchMode === 'AND' ? statusMatches && row.email === selectedEmail : statusMatches || row.email === selectedEmail;
+        });
+        const eligible = matches.filter(row => row.status !== 'Cancelled');
+        const preview = await previewAudience(statusTenantId, { source, matchMode, conditions: [
+          { field: 'status', operator, value: status }, { field: 'email', operator: 'equals', value: selectedEmail },
+        ] });
+        expect(preview).toMatchObject({ matched: matches.length, eligible: eligible.length, inactive: matches.length - eligible.length, meta: { total: eligible.length } });
+        expect(ids(preview.recipients)).toEqual(ids(eligible));
+      });
+    });
+
+    it('previews three Closed Deal Contacts with stable pagination and excludes them with Not Equals', async () => {
+      await statusScope(async () => {
+        const expected = ids(closedContacts());
+        const all = await previewAudience(statusTenantId, closedDefinition);
+        expect(all).toMatchObject({ matched: 3, eligible: 3, meta: { total: 3, hasMore: false } });
+        expect(ids(all.recipients)).toEqual(expected);
+        const first = await previewAudience(statusTenantId, { ...closedDefinition, limit: 2 });
+        const second = await previewAudience(statusTenantId, { ...closedDefinition, page: 2, limit: 2 });
+        const third = await previewAudience(statusTenantId, { ...closedDefinition, page: 3, limit: 2 });
+        expect(first.meta).toEqual({ page: 1, limit: 2, total: 3, hasMore: true });
+        expect(second.meta).toEqual({ page: 2, limit: 2, total: 3, hasMore: false });
+        expect(first.recipients.map(row => row.id)).toEqual(expected.slice(0, 2));
+        expect(second.recipients.map(row => row.id)).toEqual(expected.slice(2));
+        expect(third).toMatchObject({ matched: 3, eligible: 3, recipients: [], meta: { total: 3, hasMore: false } });
+        const other = await previewAudience(statusTenantId, { ...closedDefinition, conditions: [{ field: 'status', operator: 'not_equals', value: 'Closed Deal' }] });
+        expect(other).toMatchObject({ matched: 5, eligible: 4, inactive: 1 });
+        expect(other.recipients.every(row => !expected.includes(row.id))).toBe(true);
+      });
+    });
+
+    it('creates, reloads and edits a Closed Deal audience whose campaign resolver agrees with preview', async () => {
+      const input = { name: 'Closed Deal customers', ...closedDefinition };
+      const created = await request('/marketing/audiences', 'POST', input, adminToken);
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      const savedId = created.body.data.id;
+      const listed = await request('/marketing/audiences', 'GET', undefined, adminToken);
+      expect(listed.body.data.find((row: { id: string }) => row.id === savedId)).toMatchObject({ ...input, id: savedId });
+      const updated = await request(`/marketing/audiences/${savedId}`, 'PUT', { ...input, name: 'Closed Deal customers edited' }, adminToken);
+      expect(updated.status, JSON.stringify(updated.body)).toBe(200);
+      const { source, matchMode, conditions } = updated.body.data;
+      const preview = await request('/marketing/audiences/preview', 'POST', { source, matchMode, conditions }, adminToken);
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      await statusScope(async () => {
+        const definition = await audienceDefinition(statusTenantId, savedId);
+        expect(definition).toEqual(closedDefinition);
+        const resolved = await resolveAudience(statusTenantId, definition);
+        expect(resolved.breakdown).toMatchObject({ matched: 3, eligible: 3 });
+        expect(resolved.records.filter(row => !row.reason).map(row => row.contactId).sort()).toEqual(ids(preview.body.data.recipients));
+        const stored = await prisma.targetAudience.findUniqueOrThrow({ where: { id: savedId }, include: { conditions: true } });
+        expect(stored.conditions[0].value).toBe(JSON.stringify('Closed Deal'));
+      });
+      expect(sendMail).not.toHaveBeenCalled(); expect(sendSms).not.toHaveBeenCalled();
+    });
+
+    it.each(['EMAIL', 'SMS'] as const)('keeps excluded Closed Deal Contacts in matched counts for %s', async channel => {
+      await statusScope(async () => {
+        const [optedOut, missing] = closedContacts();
+        onTestFinished(() => statusScope(async () => {
+          await prisma.contact.update({ where: { id: optedOut.id }, data: { doNotContact: false } });
+          await prisma.contact.update({ where: { id: missing.id }, data: { email: missing.email, phone: missing.phone } });
+        }));
+        await prisma.contact.update({ where: { id: optedOut.id }, data: { doNotContact: true } });
+        await prisma.contact.update({ where: { id: missing.id }, data: channel === 'EMAIL' ? { email: null } : { phone: null } });
+        const preview = await previewAudience(statusTenantId, { ...closedDefinition, channel });
+        expect(preview).toMatchObject({ matched: 3, eligible: 1, meta: { total: 1 }, ...(channel === 'EMAIL' ? { unsubscribed: 1, missingEmail: 1 } : { doNotContact: 1, missingPhone: 1 }) });
+        const resolved = await resolveAudience(statusTenantId, closedDefinition, prisma, channel);
+        expect(resolved.breakdown).toEqual(expect.objectContaining({ matched: 3, eligible: 1 }));
+        expect(resolved.records.filter(row => !row.reason).map(row => row.contactId)).toEqual(preview.recipients.map(row => row.id));
+      });
+    });
+
+    it('keeps Closed Deal previews tenant scoped, assigned to the current agent, and permission checked', async () => {
+      const admin = await request('/marketing/audiences/preview', 'POST', closedDefinition, adminToken);
+      expect(admin.status, JSON.stringify(admin.body)).toBe(200);
+      expect(ids(admin.body.data.recipients)).toEqual(ids(closedContacts()));
+      const agent = await request('/marketing/audiences/preview', 'POST', closedDefinition, agentToken);
+      expect(agent.status, JSON.stringify(agent.body)).toBe(200);
+      expect(agent.body.data).toMatchObject({ matched: 1, eligible: 1 });
+      expect(agent.body.data.recipients[0].id).toBe(closedContacts()[0].id);
+      await statusScope(() => crmActor.run({ tenantId: statusTenantId, userId: agentId }, async () => {
+        const resolved = await resolveAudience(statusTenantId, closedDefinition);
+        expect(resolved.records.map(row => row.contactId)).toEqual([agent.body.data.recipients[0].id]);
+      }));
+      expect((await request('/marketing/audiences/preview', 'POST', closedDefinition, noGrantsToken)).status).toBe(403);
+      const invalid = await request('/marketing/audiences/preview', 'POST', { ...closedDefinition, conditions: [{ field: 'status', operator: 'equals', value: 'FAKE' }] }, adminToken);
+      expect(invalid.status).toBe(400);
+      expect(JSON.stringify(invalid.body)).toContain('Select a current Status option.');
+      expect(JSON.stringify(invalid.body)).not.toContain('PRISMA_VALIDATION');
+    });
+  });
 
   it('persists drafts, templates and audiences, then sends Juan and Maria personalized messages', async () => {
     const campaign = await draft();

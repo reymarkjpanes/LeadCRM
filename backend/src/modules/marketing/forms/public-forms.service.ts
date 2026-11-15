@@ -1,12 +1,12 @@
 import { fireDealCreated } from '../../automation/triggers/triggers.service';
 import { ZodError } from 'zod';
-import { assertExternalCustomerEmail } from '../../crm/record-validation';
+import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../../crm/record-validation';
 import { classifyCustomerRecord } from '../../crm/customer-classification.service';
 import { customerEmailAvailability } from '../../administration/users/user-email';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { convertClosedLead } from '../../crm/leads/lead-conversion.service';
-import { EMAIL_AVAILABILITY_MESSAGES, FormDefinitionSchema, FormFieldSchema, PublicSubmissionSchema, publicSubmissionContent, validateFormValues, withProductOptions, withoutRetiredFormSources, sourceAttribution } from '@leadcrm/shared';
+import { EMAIL_AVAILABILITY_MESSAGES, STAFF_PHONE_CONFLICT, FormDefinitionSchema, FormFieldSchema, PublicSubmissionSchema, publicSubmissionContent, validateFormValues, withProductOptions, withoutRetiredFormSources, sourceAttribution } from '@leadcrm/shared';
 import type { PublicFormDefinition } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
@@ -99,7 +99,16 @@ export async function submitPublicForm(publicId: string, body: unknown) {
               throw new SubmissionValidationError(field ? { [field.id]: message } : {});
             }
           };
+          const assertCustomerPhone = async (customerPhone: string | null | undefined) => {
+            try { await assertExternalCustomerPhone(tx, scope.tenantId, customerPhone); }
+            catch (error) {
+              if (!(error instanceof ZodError)) throw error;
+              const field = config.fields.find(field => field.mapToField === 'phone');
+              throw new SubmissionValidationError(field ? { [field.id]: STAFF_PHONE_CONFLICT } : {}, STAFF_PHONE_CONFLICT);
+            }
+          };
           await assertCustomer(email);
+          await assertCustomerPhone(phone);
           if (!email && !phone) throw new ValidationError('An email address or phone number is required.');
           const identity: Prisma.LeadWhereInput[] = [];
           if (email) identity.push({ email: { contains: email, mode: 'insensitive' } });
@@ -128,6 +137,8 @@ export async function submitPublicForm(publicId: string, body: unknown) {
           if (lead?.isArchived || contact?.isArchived) throw conflict();
           await assertCustomer(lead?.email);
           await assertCustomer(contact?.email);
+          await assertCustomerPhone(lead?.phone);
+          await assertCustomerPhone(contact?.phone);
           let leadId: string | null = lead?.id ?? null, contactId: string | null = contact?.id ?? null;
           let newWebsiteLead = false;
           if (lead && !lead.convertedAt) {
@@ -145,8 +156,9 @@ export async function submitPublicForm(publicId: string, body: unknown) {
                 contactId = ids[0] ?? null;
               }
               if (contactId) {
-                const recovered = await tx.contact.findFirst({ where: { ...scope, id: contactId }, select: { email: true } });
+                const recovered = await tx.contact.findFirst({ where: { ...scope, id: contactId }, select: { email: true, phone: true } });
                 await assertCustomer(recovered?.email);
+                await assertCustomerPhone(recovered?.phone);
                 await tx.lead.update({ where: { ...scope, id: lead.id }, data: { contactId } });
               }
               const converted = await convertClosedLead(tx, scope.tenantId, lead.id, live.createdById, { previousLead: lead });

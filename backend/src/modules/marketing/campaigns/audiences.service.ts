@@ -1,7 +1,7 @@
 import { recipientWhere } from '../../crm/access/record-visibility';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { AudienceSourceSchema, AudiencePreviewSchema, AudiencePreviewRequestSchema, CreateAudienceSchema, CRM_STATUSES, LeadCreatedFilterSchema, leadCreatedBounds, type AudienceInput, type AudienceBreakdown, type AudiencePreviewResult, type EmailVariables, campaignFields, campaignFieldsForSource, campaignConditionField, campaignConditionError, FieldLayoutSchema, type CrmFieldCatalogEntry, type AudienceCondition } from '@leadcrm/shared';
+import { AudienceSourceSchema, AudiencePreviewSchema, AudiencePreviewRequestSchema, CreateAudienceSchema, CRM_STATUSES, CrmStatusSchema, LeadCreatedFilterSchema, leadCreatedBounds, type AudienceInput, type AudienceBreakdown, type AudiencePreviewResult, type EmailVariables, campaignFields, campaignFieldsForSource, campaignConditionField, campaignConditionError, FieldLayoutSchema, type CrmFieldCatalogEntry, type AudienceCondition } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { AppError } from '../../../shared/errors/app-error';
@@ -13,6 +13,7 @@ import { CUSTOM_FIELD_MODULES, getCrmFieldCatalog, campaignPersonalizationAvaila
 import { retiredContactReferences } from '@leadcrm/shared';
 import { mayReadContactAccount, presentContactAccount } from '../../crm/contacts-v2/contact-account-access';
 import { crmActor, crmReadWhere, readCrmStatusEvidence } from '../../crm/access/crm-record-access.service';
+import { contactStatusValue } from '../../crm/engagement.service';
 
 export function campaignScope(tenantId: string) {
   const context = tenantContext.getStore();
@@ -216,7 +217,7 @@ export function conditionsFor(input: AudienceInput, lead: boolean, _companies?: 
       return { productLinks: { [['not_equals', 'is_empty'].includes(condition.operator) ? 'none' : 'some']: relation } };
     }
     const key = field.technicalKey;
-    const value = !lead && key === 'status' && typeof condition.value === 'string' ? condition.value.toUpperCase() : condition.value;
+    const value = !lead && key === 'status' && typeof condition.value === 'string' ? contactStatusValue(CrmStatusSchema.parse(condition.value)) : condition.value;
     if (['is_empty', 'is_not_empty'].includes(condition.operator) && ['status', 'createdAt'].includes(key)) return condition.operator === 'is_empty' ? { id: { in: [] } } : {};
     if (['is_empty', 'is_not_empty'].includes(condition.operator) && ['firstName', 'lastName'].includes(key)) return { [key]: condition.operator === 'is_empty' ? '' : { not: '' } };
     let scalar = scalarPredicate({ ...condition, value }, field.type === 'date', ['text', 'longText'].includes(field.type) || key === 'status' && lead);
