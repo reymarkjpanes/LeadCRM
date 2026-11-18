@@ -40,11 +40,12 @@ describe('workflow activation errors', () => {
     await expect(validateWorkflow({ ...draft, conditions }, 'tenant', { ...conditions, conditions: [{ ...conditions.conditions[0], incompleteValue: true }] })).rejects.toThrow('Condition 1: Enter a value');
     await expect(validateWorkflow({ ...draft, conditions: { operator: 'AND', conditions: [{ field: 'lead.firstName', operator: 'is_empty', value: null }] } }, 'tenant')).resolves.toBeUndefined();
   });
-  it('rejects Deal Updated stage moves without a source-stage condition at backend activation', async () => {
+  it('accepts Deal Updated stage moves with a field-only condition at backend activation', async () => {
+    vi.mocked(actionRefs.findStage).mockResolvedValue({ id: 'target-stage', pipelineId: 'pipeline' } as never);
     const dealWorkflow: WorkflowDraft = { name: 'Quotation to Qualified', trigger: 'deal.updated', isActive: true,
       conditions: { operator: 'AND', conditions: [{ field: 'deal.title', operator: 'equals', value: 'Proposal sent' }] },
       actions: [{ type: 'move_deal_stage', config: { stageId: 'target-stage' } }] };
-    await expect(validateWorkflow(dealWorkflow, 'tenant')).rejects.toThrow('explicit Deal Stage Equals condition');
+    await expect(validateWorkflow(dealWorkflow, 'tenant')).resolves.toBeUndefined();
   });
   it('rejects Deal Updated stage moves when a source stage belongs to another pipeline', async () => {
     const source = '11111111-1111-4111-8111-111111111111';

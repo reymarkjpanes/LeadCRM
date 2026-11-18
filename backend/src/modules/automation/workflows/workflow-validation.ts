@@ -24,6 +24,7 @@ export function validateWorkflowConditions(draft: WorkflowDraft, fields?: Workfl
     if (['is_empty', 'is_not_empty'].includes(rule.operator)) continue;
     const valueType = field.type === 'number' || field.type === 'boolean' ? field.type : 'string';
     if (typeof rule.value !== valueType) throw new ValidationError(`${field.label} requires a ${valueType} value.`);
+    if (field.type === 'number' && !Number.isFinite(rule.value)) throw new ValidationError(`${field.label} requires a finite number.`);
     if (typeof rule.value === 'string' && (rule.value.length > (field.maxLength ?? 1000) || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(rule.value))) throw new ValidationError('Condition value contains unsupported characters or is too long.');
     if (field.options && !field.options.includes(isWorkflowStatusField(rule.field) ? parseStoredCrmStatus(rule.value) ?? '' : String(rule.value))) {
       throw new ValidationError(`Choose a supported ${field.label}.`);
@@ -33,7 +34,7 @@ export function validateWorkflowConditions(draft: WorkflowDraft, fields?: Workfl
   }
 }
 
-export async function validateConditionReferences(draft: WorkflowDraft, tenantId: string): Promise<void> {
+export async function validateConditionReferences(draft: WorkflowDraft, tenantId: string): Promise<WorkflowField[]> {
   const fields = await conditionFields(draft, tenantId);
   validateWorkflowConditions(draft, fields);
   const entity = findTrigger(draft.trigger)!.entity;
@@ -48,6 +49,7 @@ export async function validateConditionReferences(draft: WorkflowDraft, tenantId
     if (field.type === 'pipeline' && !await refs.findPipeline(String(rule.value), tenantId)) throw new ValidationError('Condition pipeline is unavailable.');
     if (field.type === 'account' && !await refs.findAccount(String(rule.value), tenantId)) throw new ValidationError('Condition account is unavailable.');
   }
+  return fields;
 }
 
 export async function validateWorkflow(draft: WorkflowDraft, tenantId: string, previousConditions?: unknown,

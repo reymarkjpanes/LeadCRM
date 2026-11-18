@@ -12,6 +12,7 @@ import {
   moveAction,
   toDraft,
   editorIssues,
+  conditionRuleIssue,
 } from './workflow-editor';
 const actions = getAvailableActions(),
   options = { senders: [{ id: "sender", name: "Sender" }], users: [], pipelines: [], templates: [], campaigns: [] };
@@ -26,6 +27,25 @@ const draft: WorkflowDraft = {
   ],
 };
 describe('canonical workflow editing operations', () => {
+  it('rejects mistyped and unsafe condition operands before API submission while preserving valid text', () => {
+    const trigger = WORKFLOW_TRIGGERS.find(entry => entry.type === 'deal.updated')!;
+    for (const value of [0, false, null]) {
+      expect(conditionRuleIssue({ field: 'deal.title', operator: 'equals', value }, trigger, options)).toBe('Enter a text value.');
+    }
+    for (const value of ['a'.repeat(256), 'Hidden\u0001control']) {
+      expect(conditionRuleIssue({ field: 'deal.title', operator: 'equals', value }, trigger, options)).toContain('without control characters');
+    }
+    expect(conditionRuleIssue({ field: 'deal.title', operator: 'equals', value: ' José — 日本語\nSecond line ' }, trigger, options)).toBe('');
+    expect(conditionRuleIssue({ field: 'deal.title', operator: 'is_empty', value: null }, trigger, options)).toBe('');
+  });
+
+  it('validates Changed fields against catalog keys instead of labels or arbitrary text', () => {
+    const trigger = { type: 'deal.updated', label: 'Deal Updated', entity: 'deal' as const, fields: [
+      { field: 'event.changedFields', label: 'Changed fields', type: 'list' as const, options: ['title', 'stageId'], optionLabels: { title: 'Title', stageId: 'Stage' }, maxLength: 160 },
+    ] };
+    expect(conditionRuleIssue({ field: 'event.changedFields', operator: 'contains', value: 'stageId' }, trigger, options)).toBe('');
+    for (const value of ['Stage', 'StageId', 'notAField']) expect(conditionRuleIssue({ field: 'event.changedFields', operator: 'not_contains', value }, trigger, options)).toBe('Choose an available value.');
+  });
   it('moves at original insertion boundaries without losing identity or configuration', () => {
     const original = editorDocument(draft),
       id = original.actionIds[0];

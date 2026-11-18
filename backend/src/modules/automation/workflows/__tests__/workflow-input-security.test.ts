@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WorkflowDraftSchema, workflowOperators, type WorkflowDraft } from '@leadcrm/shared';
+import { WorkflowDraftSchema, workflowOperators, getWorkflowConditionFields, type WorkflowDraft } from '@leadcrm/shared';
 import { validateWorkflowConditions } from '../workflow-validation';
 import { evaluateRule } from '../workflow-conditions';
 const draft: WorkflowDraft = { name: 'Follow up', trigger: 'deal.created', actions: [], isActive: false };
@@ -22,7 +22,8 @@ describe('workflow input security', () => {
   });
   it('compares dates by calendar day and exposes only date operators', () => {
     expect(workflowOperators('date')).toEqual(['equals','not_equals','before','after','is_empty','is_not_empty']);
-    expect(evaluateRule({field:'deal.expectedCloseDate',operator:'equals',value:'2026-09-25'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'})).toBe(true);
-    expect(evaluateRule({field:'deal.expectedCloseDate',operator:'before',value:'2026-09-26'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'})).toBe(true);
+    const field = getWorkflowConditionFields('deal').find(field => field.field === 'deal.expectedCloseDate')!;
+    expect(evaluateRule({field:'deal.expectedCloseDate',operator:'equals',value:'2026-09-25'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'},field)).toBe(true);
+    expect(evaluateRule({field:'deal.expectedCloseDate',operator:'before',value:'2026-09-26'},{'deal.expectedCloseDate':'2026-09-25T10:00:00.000Z'},field)).toBe(true);
   });
 });

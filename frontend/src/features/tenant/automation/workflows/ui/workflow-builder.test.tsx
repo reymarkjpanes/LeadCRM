@@ -14,10 +14,12 @@ import {
   getAvailableActions,
   normalizeWorkflowAssignment,
   type WorkflowDraft,
+  type WorkflowOptions,
 } from '@leadcrm/shared';
 import WorkflowBuilder from './visual-workflow-builder';
 import { WORKFLOW_RECIPES, prepareWorkflowRecipe } from '../services/workflow-recipes';
 import { resolveWorkflowTemplate } from '../services/workflow-stage-templates';
+import { bindWorkflowTemplate } from '../services/workflow-template-bindings';
 import { toast } from '@/shared/utils/toast';
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { workflowsApi } from '@/shared/services/workflows.api';
@@ -69,6 +71,7 @@ function setup(
     canPause?: boolean;
     canExecute?: boolean;
     initial?: WorkflowDraft;
+    metadata?: WorkflowOptions;
   } = {},
 ) {
   const save = options.save ?? vi.fn().mockResolvedValue(undefined),
@@ -78,6 +81,7 @@ function setup(
       initial={options.initial ?? structuredClone(initial)}
       triggers={WORKFLOW_TRIGGERS}
       actions={getAvailableActions()}
+      options={options.metadata}
       canActivate={options.canActivate ?? true}
       canPause={options.canPause ?? true}
       canExecute={options.canExecute ?? true}
@@ -133,6 +137,75 @@ function ModuleNavigation({ label, module }: { label: string; module: string }) 
   return <nav aria-label="Modules"><button onClick={() => requestNavigation(() => navigate(module))}>{label}</button></nav>;
 }
 describe('visual workflow editor', () => {
+  it('keeps the current saved legacy Deal trigger readable and editable without offering it for new selection', async () => {
+    const draft: WorkflowDraft = { name: 'Existing cancellation follow-up', trigger: 'deal.closed_lost', isActive: false,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.value', operator: 'greater_than', value: 1000 }] },
+      actions: [{ type: 'create_task', config: { title: 'Review cancellation' } }] };
+    const save = vi.fn().mockResolvedValue(undefined);
+    const props = { initial: draft, workflowId: 'existing-legacy', triggers: WORKFLOW_TRIGGERS, actions: getAvailableActions(), canActivate: true, onSave: save, onClose: vi.fn() };
+    const view = render(<WorkflowBuilder {...props} />);
+    fireEvent.click(button('Triggers'));
+    expect(screen.queryByRole('button', { name: 'Add Deal Cancelled' })).toBeNull();
+    fireEvent.click(button('Configure trigger: Deal Cancelled'));
+    expect((screen.getByRole('option', { name: 'Deal Cancelled (saved legacy trigger)' }) as HTMLOptionElement).disabled).toBe(true);
+    fireEvent.click(button(/ALL conditions match/));
+    expect((screen.getByLabelText('Condition 1 field') as HTMLSelectElement).value).toBe('deal.value');
+    fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: '2000' } });
+    fireEvent.click(button('Save draft'));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'deal.closed_lost', conditions: { operator: 'AND', conditions: [{ field: 'deal.value', operator: 'greater_than', value: 2000 }] } })));
+    view.rerender(<WorkflowBuilder {...props} triggers={[]} />);
+    expect(screen.queryByRole('button', { name: 'Configure trigger: Deal Cancelled' })).toBeNull();
+    view.rerender(<WorkflowBuilder {...props} />);
+    fireEvent.click(button('Configure trigger: Deal Cancelled'));
+    fireEvent.change(screen.getByLabelText('Start when'), { target: { value: 'deal.stage_changed' } });
+    expect(screen.queryByRole('option', { name: /saved legacy trigger/ })).toBeNull();
+    expect(button('Configure trigger: Deal Stage Changed')).toBeTruthy();
+  });
+  it('adds, publishes and reloads three alternative Deal conditions with one action sequence', async () => {
+    const pipeline = '40000000-0000-4000-8000-000000000001';
+    const qualified = '40000000-0000-4000-8000-000000000002';
+    const contacted = '40000000-0000-4000-8000-000000000003';
+    const cancelled = '40000000-0000-4000-8000-000000000004';
+    const metadata: WorkflowOptions = { users: [], templates: [], campaigns: [], pipelines: [{ id: pipeline, name: 'Sales Pipeline', stages: [
+      { id: qualified, name: 'Qualified' }, { id: contacted, name: 'Contacted' }, { id: cancelled, name: 'Cancelled', isLost: true },
+    ] }] };
+    const draft: WorkflowDraft = { name: 'Cancel matching Deals', trigger: 'deal.updated', isActive: false,
+      actions: [{ type: 'move_deal_stage', config: { stageId: cancelled } }] };
+    const save = vi.fn().mockResolvedValue(undefined);
+    const { view } = setup({ initial: draft, metadata, save });
+    fireEvent.click(button('Triggers'));
+    expect(screen.queryByRole('button', { name: /Add Deal Closed|Add Deal Cancelled/ })).toBeNull();
+    expect(button('Add Deal Updated')).toBeTruthy(); expect(button('Add Deal Stage Changed')).toBeTruthy();
+    fireEvent.click(button('Conditions'));
+    fireEvent.click(button('Add Stage'));
+    expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('OR');
+    fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: qualified } });
+    fireEvent.click(button('Add condition'));
+    fireEvent.change(screen.getByLabelText('Condition 2 field'), { target: { value: 'deal.stageId' } });
+    fireEvent.change(screen.getByLabelText('Condition 2 value'), { target: { value: contacted } });
+    fireEvent.click(button('Add condition'));
+    fireEvent.change(screen.getByLabelText('Condition 3 field'), { target: { value: 'deal.lostReason' } });
+    fireEvent.change(screen.getByLabelText('Condition 3 operator'), { target: { value: 'is_not_empty' } });
+    expect(screen.queryByLabelText('Condition 3 value')).toBeNull();
+    expect(button(/ANY conditions match/)).toBeTruthy();
+    fireEvent.click(button('Publish workflow'));
+    fireEvent.click(button(/Activate workflow|Publish changes/));
+    const conditions = { operator: 'OR', conditions: [
+      { field: 'deal.stageId', operator: 'equals', value: qualified },
+      { field: 'deal.stageId', operator: 'equals', value: contacted },
+      { field: 'deal.lostReason', operator: 'is_not_empty', value: null },
+    ] };
+    await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith({ ...draft, conditions, isActive: true }));
+    view.unmount();
+    setup({ initial: save.mock.calls[0][0], metadata });
+    fireEvent.click(button(/ANY conditions match/));
+    expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('OR');
+    expect((screen.getByLabelText('Condition 2 value') as HTMLSelectElement).value).toBe(contacted);
+    expect((screen.getByLabelText('Condition 3 operator') as HTMLSelectElement).value).toBe('is_not_empty');
+    fireEvent.click(button('Remove condition 2'));
+    expect((screen.getByLabelText('Condition 2 operator') as HTMLSelectElement).value).toBe('is_not_empty');
+    expect(screen.queryByLabelText('Condition 3 field')).toBeNull();
+  });
   it('saves literal Unicode names and multiline descriptions from shared details fields', async () => {
     const { save } = setup();
     const name = `ñ é 中文 日本語 한글 مرحبا 😊 & ' " < > ∑ ₱ e\u0301`;
@@ -186,6 +259,35 @@ describe('visual workflow editor', () => {
     fireEvent.click(button('Save draft'));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0]).toMatchObject({ isActive: false, actions: [{ type: 'create_task', config: { title: 'Administrator task wording', dueDaysFromNow: 4, assignmentTarget: { type: 'record_owner' } } }], conditions: { conditions: [{ field: 'deal.pipelineId', value: 'pipeline' }, { field: 'event.newStageId', value: 'contacted' }] } });
+  });
+
+  it.each(['AND', 'OR'] as const)('preserves linked setup history and publishes custom OR conditions starting from %s', async initialMode => {
+    const pipeline = '50000000-0000-4000-8000-000000000001';
+    const source = '50000000-0000-4000-8000-000000000002';
+    const target = '50000000-0000-4000-8000-000000000003';
+    const options = { users: [], templates: [], campaigns: [], pipelines: [{ id: pipeline, name: 'Sales', stages: [{ id: source, name: 'Lead' }, { id: target, name: 'Contacted' }] }] };
+    const draft = bindWorkflowTemplate(WORKFLOW_RECIPES[34], 34, options, { pipelineId: pipeline, sourceStageId: source, targetStageId: target });
+    draft.conditions!.operator = initialMode;
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(<WorkflowBuilder initial={draft} templateIndex={34} options={options} triggers={WORKFLOW_TRIGGERS} actions={getAvailableActions()} canActivate onSave={save} onClose={vi.fn()} />);
+    fireEvent.click(button(/Configure condition:/));
+    if (initialMode === 'AND') {
+      expect(screen.getByText('Template stage setup')).toBeTruthy();
+      fireEvent.change(screen.getByLabelText('Match conditions'), { target: { value: 'OR' } });
+      expect(screen.queryByText('Template stage setup')).toBeNull();
+      fireEvent.click(button('Undo'));
+      fireEvent.click(button(/Configure condition:/));
+      expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('AND');
+      expect(screen.getByText('Template stage setup')).toBeTruthy();
+      expect((screen.getByLabelText('Template source stage') as HTMLSelectElement).value).toBe(source);
+      fireEvent.click(button('Redo'));
+      fireEvent.click(button(/Configure condition:/));
+    }
+    expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('OR');
+    expect(screen.queryByText('Template stage setup')).toBeNull();
+    fireEvent.click(button('Publish workflow'));
+    fireEvent.click(button(/Activate workflow|Publish changes/));
+    await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith({ ...draft, isActive: true, conditions: { ...draft.conditions, operator: 'OR' } }));
   });
 
   it('keeps an unavailable configured stage visible for repair and prevents saving without losing edits', async () => {

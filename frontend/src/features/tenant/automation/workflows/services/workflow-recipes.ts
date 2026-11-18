@@ -233,8 +233,12 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   {
     name: 'Deal Marked as Won',
     description: 'Create a handoff task for the assigned agent.',
-    trigger: 'deal.closed_won',
+    trigger: 'deal.stage_changed',
     isActive: false,
+    conditions: { operator: 'AND', conditions: [
+      { field: 'deal.pipelineId', operator: 'equals', value: '' },
+      { field: 'event.newStageId', operator: 'equals', value: '' },
+    ] },
     actions: [
       { type: 'create_task', config: { title: 'Arrange contact handoff', dueDaysFromNow: 1, priority: 'Medium' } },
     ],
@@ -242,11 +246,15 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   {
     name: 'Major Won Deal Celebration & Kickoff',
     description: 'Celebrate closed won deal and initiate immediate implementation kickoff.',
-    trigger: 'deal.closed_won',
+    trigger: 'deal.stage_changed',
     isActive: false,
     conditions: {
       operator: 'AND',
-      conditions: [{ field: 'deal.value', operator: 'greater_than_or_equal', value: 50000 }],
+      conditions: [
+        { field: 'deal.value', operator: 'greater_than_or_equal', value: 50000 },
+        { field: 'deal.pipelineId', operator: 'equals', value: '' },
+        { field: 'event.newStageId', operator: 'equals', value: '' },
+      ],
     },
     actions: [
       { type: 'create_task', config: { title: 'Schedule contact implementation kickoff', dueDaysFromNow: 2, priority: 'High', description: 'High-value implementation kickoff meeting and stakeholder introduction.' } },
@@ -255,8 +263,12 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   {
     name: 'Lost Deal Win/Loss Analysis',
     description: 'Prompt sales rep to document loss reasons and competitor intelligence.',
-    trigger: 'deal.closed_lost',
+    trigger: 'deal.stage_changed',
     isActive: false,
+    conditions: { operator: 'AND', conditions: [
+      { field: 'deal.pipelineId', operator: 'equals', value: '' },
+      { field: 'event.newStageId', operator: 'equals', value: '' },
+    ] },
     actions: [
       { type: 'create_task', config: { title: 'Log lost reason and review competitor insights', dueDaysFromNow: 3, priority: 'Low', description: 'Document key objections, pricing factors, and feedback for product marketing.' } },
     ],
@@ -264,11 +276,15 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   {
     name: 'High-Value Lost Deal Review',
     description: 'Schedule a strategic review when a major deal is lost.',
-    trigger: 'deal.closed_lost',
+    trigger: 'deal.stage_changed',
     isActive: false,
     conditions: {
       operator: 'AND',
-      conditions: [{ field: 'deal.value', operator: 'greater_than_or_equal', value: 50000 }],
+      conditions: [
+        { field: 'deal.value', operator: 'greater_than_or_equal', value: 50000 },
+        { field: 'deal.pipelineId', operator: 'equals', value: '' },
+        { field: 'event.newStageId', operator: 'equals', value: '' },
+      ],
     },
     actions: [
       { type: 'create_task', config: { title: 'Conduct executive post-mortem on lost deal', dueDaysFromNow: 5, priority: 'High', description: 'Analyze why this major deal was lost and evaluate future re-engagement timing.' } },
@@ -346,12 +362,20 @@ export const WORKFLOW_RECIPES: WorkflowDraft[] = [
   },
   {
     name: 'Won Deal Thank-you Email', description: 'Send an existing post-sale email template to the primary Contact when the Deal is marked Won. Existing closing requirements still apply.',
-    trigger: 'deal.closed_won', isActive: false,
+    trigger: 'deal.stage_changed', isActive: false,
+    conditions: { operator: 'AND', conditions: [
+      { field: 'deal.pipelineId', operator: 'equals', value: '' },
+      { field: 'event.newStageId', operator: 'equals', value: '' },
+    ] },
     actions: [{ type: 'send_email', config: { recipient: 'primary_contact', templateId: '' } }],
   },
   {
     name: 'Deal Marked as Lost', description: 'Create a review task for the assigned agent when a Deal is marked Lost, whether or not an automated closing action supplied a loss reason.',
-    trigger: 'deal.closed_lost', isActive: false,
+    trigger: 'deal.stage_changed', isActive: false,
+    conditions: { operator: 'AND', conditions: [
+      { field: 'deal.pipelineId', operator: 'equals', value: '' },
+      { field: 'event.newStageId', operator: 'equals', value: '' },
+    ] },
     actions: [{ type: 'create_task', config: { title: 'Review lost Deal and next steps', dueDaysFromNow: 3, priority: 'Low', assignmentTarget: { type: 'record_owner' } } }],
   },
   {

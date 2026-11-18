@@ -583,6 +583,30 @@ Assignment Follow-up starter matches `assignedUserId` changes and creates a
 linked task using the new record owner. Task creation uses existing notifications.
 Timers and Task/Campaign workflow triggers remain unavailable.
 
+The Deal trigger chooser offers Created, Updated and Stage Changed. Closed/Won
+and Cancelled/Lost are no longer offered as separate triggers; outcome templates
+use Stage Changed with an explicit destination stage. Published legacy outcome
+definitions retain their existing execution behavior.
+
+Workflows support up to 30 conditions. New condition gates default to Any condition
+(OR): one matching rule runs the action sequence once for that event, even if
+several rules match. All conditions (AND) requires every rule to match. Saved
+match modes remain unchanged. Deal Updated stage moves accept field-only and
+mixed OR rules without requiring Stage Equals. To restrict movement to a source
+stage, combine that Stage Equals rule with the other requirements using AND.
+The existing tenant, permission, pipeline and stage-transition checks still apply.
+
+Condition evaluation uses the same field metadata for preview, queued execution
+and live freshness checks. Text equality, substring, prefix and suffix comparisons
+ignore letter case; dropdown values, reference IDs and collection membership
+remain exact. Empty record values do not satisfy negative comparisons: use Is
+Empty explicitly. Zero and false are values, not empty. Existing explicit blank
+literal comparisons remain readable through the compatibility path. Date fields
+compare canonical calendar dates rather than time of day. Updated triggers offer
+a Changed fields value picker using canonical field keys and current labels,
+including supported custom fields; unknown keys fail validation.
+See [condition semantics and verification](workflows/workflow-condition-consistency.md).
+
 Send Email automatically uses the triggering Lead/Contact/Deal's assigned agent's
 authorized Gmail connection, including an earlier owner assignment. The deprecated
 `senderUserId` setting is accepted and discarded; it is never required or used to

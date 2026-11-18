@@ -300,6 +300,10 @@ export function conditionRuleIssue(rule: WorkflowConditionRule, trigger: Trigger
         message = 'Enter a valid number.';
       else if (field.type === 'boolean' && typeof rule.value !== 'boolean')
         message = 'Choose Yes or No.';
+      else if (!['number', 'boolean'].includes(field.type) && typeof rule.value !== 'string')
+        message = 'Enter a text value.';
+      else if (typeof rule.value === 'string' && (rule.value.length > (field.maxLength ?? 1000) || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(rule.value)))
+        message = `Use at most ${field.maxLength ?? 1000} characters without control characters.`;
       else if (field.options && !field.options.includes(String(rule.value)))
         message = 'Choose an available value.';
       else if (choices && !choices.some((entry) => entry.id === rule.value))

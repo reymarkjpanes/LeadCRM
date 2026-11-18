@@ -275,11 +275,20 @@ describe.skipIf(!disposable)('workflow assignment and history on disposable Post
     await scope(() => workflows.archiveWorkflow(workflow.id, tenantId, actorId));
     await expect(scope(() => workflows.toggleWorkflow(workflow.id, tenantId, actorId, true))).rejects.toThrow('Archived workflows');
   });
-  it('allows an explicit repair of an unsupported historical action and versions the replacement', async () => {
+  it.each(['update', 'draft-and-publish'] as const)('repairs an unsupported historical action through %s while preserving unchanged historical text', async mode => {
     const workflow = await create([task()]);
-    await prisma.workflow.update({ where: { id: workflow.id }, data: { isActive: false, status: 'PAUSED', actions: [{ type: 'legacy_removed_action', config: {} }] } });
-    const repaired = await scope(() => workflows.updateWorkflow(workflow.id, tenantId, actorId, { actions: [task()] }));
-    expect(repaired).toMatchObject({ version: 2, isActive: false, status: 'PAUSED' });
+    const description = 'Historical '.repeat(100);
+    await prisma.workflow.update({ where: { id: workflow.id }, data: { description, isActive: false, status: 'PAUSED', actions: [{ type: 'legacy_removed_action', config: {} }] } });
+    const repaired = mode === 'update'
+      ? await scope(() => workflows.updateWorkflow(workflow.id, tenantId, actorId, { actions: [task()] }))
+      : await scope(async () => {
+        const draft = { name: workflow.name, description, trigger: workflow.trigger, conditions: null, actions: [task()], isActive: false };
+        const saved = await workflows.saveWorkflowDraft(workflow.id, tenantId, actorId, { draft, expectedVersion: workflow.version, expectedDraftRevision: workflow.draftRevision });
+        expect(saved.draftDefinition).toMatchObject({ description, actions: [{ type: 'create_task' }] });
+        return workflows.publishWorkflowDraft(workflow.id, tenantId, actorId, { draft, expectedVersion: saved.version, expectedDraftRevision: saved.draftRevision });
+      });
+    expect(repaired).toMatchObject({ version: 2, description, isActive: mode !== 'update', status: mode === 'update' ? 'PAUSED' : 'ACTIVE' });
     expect(repaired.actions).toMatchObject([{ type: 'create_task', config: { assignmentTarget: { type: 'record_owner' } } }]);
+    await expect(scope(() => workflows.updateWorkflow(workflow.id, tenantId, actorId, { description: description + 'Changed', actions: [task()] }))).rejects.toThrow();
   });
 });

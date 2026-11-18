@@ -7,7 +7,9 @@ import { bindWorkflowTemplate, workflowTemplateDescriptor, workflowTemplateSetup
 const userId = '30000000-0000-4000-8000-000000000001';
 const stageId = '30000000-0000-4000-8000-000000000002';
 const sourceStageId = '30000000-0000-4000-8000-000000000004';
-const options = { senders: [{ id: userId, name: "Sender" }], users: [{ id: userId, name: 'Agent' }], pipelines: [{ id: '30000000-0000-4000-8000-000000000003', name: 'Sales', stages: [{ id: sourceStageId, name: 'Lead', isWon: false, isLost: false }, { id: stageId, name: 'Qualified', isWon: false, isLost: false }] }], templates: [], campaigns: [] };
+const wonStageId = '30000000-0000-4000-8000-000000000005';
+const lostStageId = '30000000-0000-4000-8000-000000000006';
+const options = { senders: [{ id: userId, name: "Sender" }], users: [{ id: userId, name: 'Agent' }], pipelines: [{ id: '30000000-0000-4000-8000-000000000003', name: 'Sales', stages: [{ id: sourceStageId, name: 'Lead', isWon: false, isLost: false }, { id: stageId, name: 'Qualified', isWon: false, isLost: false }, { id: wonStageId, name: 'Won', isWon: true, isLost: false }, { id: lostStageId, name: 'Cancelled', isWon: false, isLost: true }] }], templates: [], campaigns: [] };
 describe('complete workflow recipe catalog', () => {
   it('retains the approved starters in display order with stable template URL indexes', () => {
     expect(WORKFLOW_STARTER_TEMPLATES.map(({ index, recipe }) => [index, recipe.name])).toEqual([
@@ -37,8 +39,10 @@ describe('complete workflow recipe catalog', () => {
     }
     const index = WORKFLOW_RECIPES.indexOf(recipe);
     let draft = prepareWorkflowRecipe(recipe, options, index);
-    if (['pipeline-routing', 'related-deal-routing', 'stage-entry'].includes(workflowTemplateDescriptor(index)?.setup ?? '')) {
-      draft = bindWorkflowTemplate(draft, index, options, { pipelineId: options.pipelines[0].id, sourceStageId, targetStageId: stageId });
+    const setup = workflowTemplateDescriptor(index)?.setup;
+    if (['pipeline-routing', 'related-deal-routing', 'stage-entry', 'won-entry', 'lost-entry'].includes(setup ?? '')) {
+      draft = bindWorkflowTemplate(draft, index, options, { pipelineId: options.pipelines[0].id, sourceStageId,
+        targetStageId: setup === 'won-entry' ? wonStageId : setup === 'lost-entry' ? lostStageId : stageId });
     }
     draft.actions.forEach(action => {
       if (action.type === 'assign_owner') action.config.userId = userId;

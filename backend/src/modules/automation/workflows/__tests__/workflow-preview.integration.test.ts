@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { WorkflowAction } from '@leadcrm/shared';
+import type { WorkflowAction, WorkflowDraft } from '@leadcrm/shared';
 import prisma from '../../../../config/database.config';
 import { tenantContext } from '../../../../core/tenant/tenant-context';
 import * as workflows from '../workflows.service';
@@ -8,6 +8,7 @@ import * as projection from '../workflow-preview';
 import type { WorkflowDealProjection } from '../../actions/action-deal-targets';
 import { NotFoundError } from '../../../../shared/errors/http-error';
 import { moveDealStage } from '../../../crm/deals/deals.service';
+import { fireWorkflowTrigger } from '../workflow.engine';
 
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && /^\/leadcrm_workflow_test_\d+$/.test(url.pathname);
@@ -47,6 +48,46 @@ describe.skipIf(!disposable)('ordered Workflow previews on disposable PostgreSQL
     });
   }, 60000);
   afterAll(async () => { await prisma.$disconnect(); });
+
+  it.each(['field-and-value', 'value'] as const)('normalizes legacy Product %s in a working draft without changing stored settings', async legacy => {
+    const product = await scope(() => prisma.productInterest.create({ data: { tenantId, name: `Preview legacy ${randomUUID()}`, dealValue: 100 } }));
+    const deal = await sample({ productInterestId: product.id, productInterests: [product.name] });
+    const title = `Legacy draft preview ${randomUUID()}`;
+    const canonical: WorkflowDraft = { name: `Preview ${randomUUID()}`, trigger: 'deal.created', isActive: true,
+      conditions: { operator: 'AND', conditions: [{ field: 'deal.productInterestIds', operator: 'contains', value: product.id }] },
+      actions: [{ type: 'create_task', config: { title, assignedUserId: taskOwnerId } }],
+    };
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, actorId, canonical));
+    const draft: WorkflowDraft = { ...canonical, isActive: false, conditions: { operator: 'AND', conditions: [{
+      field: legacy === 'field-and-value' ? 'deal.productInterests' : 'deal.productInterestIds', operator: 'contains', value: product.name,
+    }] } };
+    await scope(() => workflows.saveWorkflowDraft(workflow.id, tenantId, actorId, {
+      draft, expectedDraftRevision: workflow.draftRevision, expectedVersion: workflow.version,
+    }));
+    const before = await scope(() => Promise.all([
+      prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } }),
+      prisma.task.count({ where: { tenantId } }), prisma.activity.count({ where: { tenantId } }),
+      prisma.auditLog.count({ where: { tenantId } }), prisma.workflowExecutionRun.count({ where: { tenantId } }),
+    ]));
+    const workingPreview = await scope(() => workflows.testWorkflow(workflow.id, tenantId, deal.id, actorId, undefined, true));
+    const publishedPreview = await scope(() => workflows.testWorkflow(workflow.id, tenantId, deal.id, actorId));
+    expect(workingPreview.conditions).toEqual({ total: 1, passed: 1, matched: true });
+    expect(workingPreview.conditions).toEqual(publishedPreview.conditions);
+    expect(workingPreview.valid, JSON.stringify(workingPreview)).toBe(true);
+    expect(workingPreview.actions.map(action => action.status)).toEqual(['ready']);
+    const after = await scope(() => Promise.all([
+      prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } }),
+      prisma.task.count({ where: { tenantId } }), prisma.activity.count({ where: { tenantId } }),
+      prisma.auditLog.count({ where: { tenantId } }), prisma.workflowExecutionRun.count({ where: { tenantId } }),
+    ]));
+    expect(after).toEqual(before);
+    await scope(() => fireWorkflowTrigger({ tenantId, actorId, entityType: 'deal', entityId: deal.id,
+      triggerType: 'deal.created', eventId: randomUUID(), context: {},
+    }));
+    const runs = await scope(() => workflows.getWorkflowExecutions(workflow.id, tenantId));
+    expect(runs).toMatchObject([{ status: 'completed', steps: [{ status: 'success' }] }]);
+    expect(await scope(() => prisma.task.count({ where: { tenantId, title } }))).toBe(1);
+  });
 
   it('validates Contacted → Qualified → Won against earlier projected moves without writing CRM evidence', async () => {
     const deal = await sample();

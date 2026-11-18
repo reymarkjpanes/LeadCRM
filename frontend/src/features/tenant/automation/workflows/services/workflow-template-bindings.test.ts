@@ -19,6 +19,15 @@ const options: WorkflowOptions = {
 };
 
 describe('linked workflow template setup', () => {
+  it.each([18, 19, 20, 21, 30, 31])('binds outcome template %s to a stage change with the correct terminal stage', index => {
+    const won = [18, 19, 30].includes(index);
+    const draft = bindWorkflowTemplate(WORKFLOW_RECIPES[index], index, options, { pipelineId: 'p1', targetStageId: won ? 'won1' : 'lost1' });
+    expect(draft.trigger).toBe('deal.stage_changed');
+    expect(draft.conditions?.conditions).toContainEqual({ field: 'event.newStageId', operator: 'equals', value: won ? 'won1' : 'lost1' });
+    expect(workflowTemplateSetupIssues(draft, index, options)).toEqual([]);
+    const wrong = bindWorkflowTemplate(draft, index, options, { targetStageId: won ? 'lost1' : 'won1' });
+    expect(workflowTemplateSetupIssues(wrong, index, options).join(' ')).toContain(won ? 'only as Won' : 'only as Lost');
+  });
   it('resolves stable ids and numeric URLs independently of editable display names', () => {
     expect(workflowTemplateDescriptor('17')).toEqual(workflowTemplateDescriptor('pipeline-stage-routing'));
     expect(workflowTemplateDescriptor('017')).toBeUndefined();

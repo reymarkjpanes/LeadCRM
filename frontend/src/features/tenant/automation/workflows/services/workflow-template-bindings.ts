@@ -18,8 +18,10 @@ export const WORKFLOW_TEMPLATE_DESCRIPTORS: WorkflowTemplateDescriptor[] = [
   { id: 'at-risk-contact-follow-up', index: 10, trigger: 'contact.status_changed', setup: 'none' },
   { id: 'qualified-deal-follow-up', index: 22, trigger: 'deal.stage_changed', setup: 'qualified-entry' },
   { id: 'high-value-deal-review', index: 13, trigger: 'deal.created', setup: 'none' },
-  { id: 'won-deal-handoff', index: 18, trigger: 'deal.closed_won', setup: 'none' },
-  { id: 'lost-deal-analysis', index: 20, trigger: 'deal.closed_lost', setup: 'none' },
+  { id: 'won-deal-handoff', index: 18, trigger: 'deal.stage_changed', setup: 'won-entry' },
+  { id: 'major-won-deal-kickoff', index: 19, trigger: 'deal.stage_changed', setup: 'won-entry' },
+  { id: 'lost-deal-analysis', index: 20, trigger: 'deal.stage_changed', setup: 'lost-entry' },
+  { id: 'high-value-lost-deal-review', index: 21, trigger: 'deal.stage_changed', setup: 'lost-entry' },
   { id: 'website-inbound-lead-triage', index: 2, trigger: 'lead.created', setup: 'none' },
   { id: 'warm-lead-discovery-preparation', index: 3, trigger: 'lead.status_changed', setup: 'none' },
   { id: 'pipeline-stage-routing', index: 17, trigger: 'deal.created', setup: 'pipeline-routing' },
@@ -30,8 +32,8 @@ export const WORKFLOW_TEMPLATE_DESCRIPTORS: WorkflowTemplateDescriptor[] = [
   { id: 'new-deal-created', index: 27, trigger: 'deal.created', setup: 'none' },
   { id: 'deal-assignment-follow-up', index: 28, trigger: 'deal.updated', setup: 'none' },
   { id: 'deal-follow-up-email', index: 29, trigger: 'deal.stage_changed', setup: 'stage-entry' },
-  { id: 'won-deal-thank-you-email', index: 30, trigger: 'deal.closed_won', setup: 'none' },
-  { id: 'lost-deal-follow-up', index: 31, trigger: 'deal.closed_lost', setup: 'none' },
+  { id: 'won-deal-thank-you-email', index: 30, trigger: 'deal.stage_changed', setup: 'won-entry' },
+  { id: 'lost-deal-follow-up', index: 31, trigger: 'deal.stage_changed', setup: 'lost-entry' },
   { id: 'new-lead-sms-acknowledgment', index: 32, trigger: 'lead.created', setup: 'none' },
   { id: 'contact-welcome-email-template', index: 33, trigger: 'contact.created', setup: 'none' },
   { id: 'deal-stage-changed', index: 16, trigger: 'deal.stage_changed', setup: 'none' },
@@ -51,8 +53,8 @@ export function workflowTemplateDescriptor(identity: number | string | undefined
     created: { index: 25, trigger: 'deal.created', setup: 'initial-entry' },
     entry: { index: 25, trigger: 'deal.stage_changed', setup: 'open-entry' },
     assign: { index: 25, trigger: 'deal.stage_changed', setup: 'open-entry' },
-    won: { index: 18, trigger: 'deal.closed_won', setup: 'won-entry' },
-    lost: { index: 20, trigger: 'deal.closed_lost', setup: 'lost-entry' },
+    won: { index: 18, trigger: 'deal.stage_changed', setup: 'won-entry' },
+    lost: { index: 20, trigger: 'deal.stage_changed', setup: 'lost-entry' },
     reopen: { index: 22, trigger: 'deal.stage_changed', setup: 'reopen-entry' },
   };
   return Object.prototype.hasOwnProperty.call(definitions, scenario) ? { id: identity, ...definitions[scenario] } : undefined;
@@ -85,7 +87,7 @@ function bindingDescriptor(draft: WorkflowDraft, identity: number | string | und
 }
 
 function entryField(setup: WorkflowTemplateSetup): string {
-  return ['initial-entry', 'won-entry', 'lost-entry'].includes(setup) ? 'deal.stageId' : 'event.newStageId';
+  return setup === 'initial-entry' ? 'deal.stageId' : 'event.newStageId';
 }
 
 /** Terminal flags are authoritative; missing flags remain compatible with older options. */

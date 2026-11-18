@@ -96,4 +96,31 @@ describe('type-aware Workflow condition controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add condition' }));
     expect(rule()).toEqual({ field: 'deal.value', operator: 'equals', value: '' });
   });
+
+  it('selects Changed fields by canonical keys, preserves unavailable saved values, and clears operands for presence operators', () => {
+    const metadata: TriggerDefinition = { ...trigger, fields: [{ field: 'event.changedFields', label: 'Changed fields', type: 'list', options: ['title', 'customFieldValues.score'], optionLabels: { title: 'Title', 'customFieldValues.score': 'Score' } }] };
+    render(<Harness metadata={metadata} conditions={{ operator: 'OR', conditions: [{ field: 'event.changedFields', operator: 'not_contains', value: 'oldField' }] }} />);
+    const value = screen.getByLabelText('Condition 1 value') as HTMLSelectElement;
+    expect(value.tagName).toBe('SELECT');
+    expect(value.value).toBe('oldField');
+    expect(screen.getByRole('option', { name: 'Unavailable selection' })).toBeTruthy();
+    expect(screen.getByText('Choose an available value.')).toBeTruthy();
+    fireEvent.change(value, { target: { value: 'customFieldValues.score' } });
+    expect(rule().value).toBe('customFieldValues.score');
+    expect(screen.queryByText('Choose an available value.')).toBeNull();
+    expect(screen.getByText('Empty values do not match this comparison. Use Is empty to match missing values.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Condition 1 operator'), { target: { value: 'is_empty' } });
+    expect(rule().value).toBeNull();
+    expect(screen.queryByLabelText('Condition 1 value')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Condition 1 operator'), { target: { value: 'contains' } });
+    expect(rule().value).toBe('');
+  });
+
+  it.each([false, 0])('does not hide a mistyped saved choice value %s', value => {
+    render(<Harness conditions={{ operator: 'AND', conditions: [{ field: 'deal.priority', operator: 'equals', value }] }} />);
+    expect((screen.getByLabelText('Condition 1 value') as HTMLSelectElement).value).toBe(String(value));
+    expect(screen.getByRole('option', { name: 'Unavailable selection' })).toBeTruthy();
+    expect(screen.getByText('Enter a text value.')).toBeTruthy();
+    expect(rule().value).toBe(value);
+  });
 });

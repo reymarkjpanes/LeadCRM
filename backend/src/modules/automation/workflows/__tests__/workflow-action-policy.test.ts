@@ -37,18 +37,20 @@ describe('Workflow trigger action policy', () => {
     expect(workflowActionAllowed(draft.trigger, 'send_email')).toBe(true);
     expect(workflowActionPolicyIssues({ ...draft, actions: [{ ...draft.actions[0], enabled: false }] })).toEqual([]);
   });
-  it('requires Deal Updated stage moves to declare their source stage', () => {
+  it('allows field-only conditions and mixed OR alternatives for Deal Updated moves', () => {
     const draft: WorkflowDraft = { name: 'Quotation to Qualified', trigger: 'deal.updated', isActive: true,
       conditions: { operator: 'AND', conditions: [{ field: 'deal.quotationSent', operator: 'is_not_empty', value: null }] },
       actions: [{ type: 'move_deal_stage', config: { stageId: 'target-stage' } }] };
-    expect(workflowDefinitionIssues(draft)[0]).toContain('explicit Deal Stage Equals condition');
+    expect(workflowDefinitionIssues(draft)).toEqual([]);
+    expect(workflowDefinitionIssues({ ...draft, conditions: null })).toEqual([]);
     expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'AND', conditions: [
       { field: 'deal.stageId', operator: 'equals', value: 'source-stage' }, ...draft.conditions!.conditions,
     ] } })).toEqual([]);
     expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'OR', conditions: [
       { field: 'deal.stageId', operator: 'equals', value: 'source-stage' },
       { field: 'deal.quotationSent', operator: 'is_not_empty', value: null },
-    ] } })[0]).toContain('For OR conditions, every option');
+      { field: 'deal.lostReason', operator: 'is_not_empty', value: null },
+    ] } })).toEqual([]);
     expect(workflowDefinitionIssues({ ...draft, conditions: { operator: 'OR', conditions: [
       { field: 'deal.stageId', operator: 'equals', value: 'source-a' },
       { field: 'deal.stageId', operator: 'equals', value: 'source-b' },

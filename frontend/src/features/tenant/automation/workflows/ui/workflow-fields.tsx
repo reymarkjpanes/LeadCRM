@@ -59,7 +59,7 @@ export function WorkflowTemplateFields({ draft, templateIndex, templateIdentity,
   };
   return <fieldset className="space-y-3 rounded-xl border border-[var(--border)] p-3 text-sm">
     <legend className="px-1 font-semibold">Template stage setup</legend>
-    <p className="text-xs text-[var(--muted-foreground)]">{routing ? 'Choose different open stages in the same pipeline.' : descriptor?.setup === 'initial-entry' ? 'Runs when a Deal is created in this pipeline’s open Lead stage.' : descriptor?.setup === 'reopen-entry' ? 'Only never-Won Deals with verified history can reopen from Lost to an open Qualified stage.' : descriptor?.setup === 'won-entry' || descriptor?.setup === 'lost-entry' ? 'Creates a task after the Deal closes in this stage.' : 'Creates a task per matching stage entry. Outdated entries are skipped.'}</p>
+    <p className="text-xs text-[var(--muted-foreground)]">{routing ? 'Choose different open stages in the same pipeline.' : descriptor?.setup === 'initial-entry' ? 'Runs when a Deal is created in this pipeline’s open Lead stage.' : descriptor?.setup === 'reopen-entry' ? 'Only never-Won Deals with verified history can reopen from Lost to an open Qualified stage.' : descriptor?.setup === 'won-entry' || descriptor?.setup === 'lost-entry' ? 'Runs configured actions after the Deal closes in this stage.' : 'Runs configured actions per matching stage entry. Outdated entries are skipped.'}</p>
     <div className="space-y-1"><p className="text-xs text-muted-foreground">Pipeline</p><p>{options.pipelines.find(pipeline => pipeline.id === binding.pipelineId)?.name ?? 'Sales Pipeline unavailable'}</p></div>
     {(routing || descriptor?.setup === 'reopen-entry') && stageSelect('sourceStageId', 'Template source stage')}
     {stageSelect('targetStageId', routing ? 'Template target stage' : 'Template entry stage')}
@@ -155,6 +155,8 @@ export function ConditionFields({
         Match conditions
         <select
           className={workflowControl}
+          aria-label="Match conditions"
+          aria-describedby={`${id}-match-help`}
           value={value.operator}
           onChange={(event) =>
             onChange({ ...value, operator: event.target.value as 'AND' | 'OR' })
@@ -164,6 +166,11 @@ export function ConditionFields({
           <option value="OR">Any condition (OR)</option>
         </select>
       </label>
+      <p id={`${id}-match-help`} className="text-xs text-[var(--muted-foreground)]">
+        {value.operator === 'OR'
+          ? 'Actions run once when any one of these conditions matches.'
+          : 'Actions run once only when every condition matches.'}
+      </p>
       {value.conditions.map((rule, index) => {
         const field = trigger?.fields.find(
           (field) => field.field === rule.field,
@@ -238,7 +245,7 @@ export function ConditionFields({
                     onChange={(event) => update({ value: event.target.value })}
                   >
                     <option value="">Select {field?.label.toLowerCase() ?? 'a value'}</option>
-                    {rule.value && !choices.some(choice => choice.id === rule.value) ? <option value={String(rule.value)}>Unavailable selection</option> : null}
+                    {rule.value !== null && rule.value !== '' && !choices.some(choice => choice.id === rule.value) ? <option value={String(rule.value)}>Unavailable selection</option> : null}
                     {choices.map((choice) => (
                       <option key={choice.id} value={choice.id}>
                         {choice.name}
@@ -250,6 +257,8 @@ export function ConditionFields({
                 )}
               </label>
             )}
+            {field?.type === 'string' && conditionOperatorValueShape(rule.operator) !== 'none' && <p className="text-xs text-[var(--muted-foreground)]">Text comparisons ignore letter case.</p>}
+            {supported && ['not_equals', 'not_contains'].includes(rule.operator) && <p className="text-xs text-[var(--muted-foreground)]">Empty values do not match this comparison. Use Is empty to match missing values.</p>}
             {issue && <p id={issueId} role="status" className="text-sm text-destructive">{issue}</p>}
           </div>
         );

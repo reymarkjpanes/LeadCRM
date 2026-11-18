@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AsyncResource } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
-import { accountWorkflowRetirementReferences, compatibleWorkflow } from './workflow-fields';
+import { accountWorkflowRetirementReferences, compatibleWorkflow, conditionFields } from './workflow-fields';
 import { ACCOUNT_RETIREMENT_REASON, WorkflowConditionSchema, StoredWorkflowDraftSchema, workflowDefinitionIssues } from '@leadcrm/shared';
 import { Prisma, type Workflow } from '@prisma/client';
 import prisma from '../../../config/database.config';
@@ -98,14 +98,15 @@ export async function enqueueStageConditionContinuations(tx: Prisma.TransactionC
     const draft = await compatibleWorkflow({ trigger: workflow.trigger, conditions: workflow.conditions, actions: workflow.actions }, params.tenantId, tx);
     const conditions = WorkflowConditionSchema.safeParse(draft.conditions);
     if (!conditions.success || !conditions.data.conditions.some(rule => rule.field.startsWith('deal.') && (params.context['event.changedFields'] as unknown[]).includes(rule.field.slice(5)))) continue;
+    const fields = await conditionFields({ ...draft, conditions: conditions.data }, params.tenantId, tx);
     const dispatch = execution.dispatchContext as { eventContext?: Record<string, unknown> } | null;
-    if (!dispatch?.eventContext || evaluateCondition(conditions.data, dispatch.eventContext)) continue;
+    if (!dispatch?.eventContext || evaluateCondition(conditions.data, dispatch.eventContext, fields)) continue;
     if (!currentContext) {
       const savedContext = await crmActor.exit(() => entityContext('deal', params.entityId, params.tenantId, tx));
       if (!savedContext || savedContext['internal.stageHistoryId'] !== stageHistoryId) return;
       currentContext = { ...savedContext, ...recorded.context };
     }
-    if (!evaluateCondition(conditions.data, currentContext)) continue;
+    if (!evaluateCondition(conditions.data, currentContext, fields)) continue;
     await enqueueWorkflowTrigger(tx, { ...params, triggerType: 'deal.stage_changed', eventId: `${recorded.eventId}:updated:${params.eventId}`,
       context: { ...recorded.context, 'event.continuationSourceId': source.id, 'event.continuationUpdateId': params.eventId } }, workflow.id);
   }
