@@ -18,6 +18,9 @@ import {
   retiredAccountWorkflowReferences,
   ACCOUNT_RETIREMENT_REASON,
   workflowActionAllowed,
+  findTrigger,
+  getWorkflowConditionFields,
+  WORKFLOW_MODULES,
   type Workflow,
   type WorkflowDraft,
   type ActionDefinition,
@@ -163,9 +166,13 @@ export default function WorkflowBuilder({
   }, [selected, wide]);
   const { present: document } = history,
     { draft } = document;
-  const trigger = triggers.find((entry) => entry.type === draft.trigger);
+  const savedLegacyTrigger = savedId && triggers.length > 0 && saved.trigger === draft.trigger && ['deal.closed_won', 'deal.closed_lost'].includes(draft.trigger)
+    ? findTrigger(draft.trigger) : undefined;
+  const legacyTrigger = savedLegacyTrigger && { ...savedLegacyTrigger, fields: getWorkflowConditionFields(savedLegacyTrigger.entity, savedLegacyTrigger.type, options.customFields, options.fieldLayouts?.[WORKFLOW_MODULES[savedLegacyTrigger.entity]]) };
+  const trigger = triggers.find((entry) => entry.type === draft.trigger) ?? legacyTrigger;
+  const editorTriggers = legacyTrigger ? [...triggers, legacyTrigger] : triggers;
   const template = !templateDetached ? workflowTemplateDescriptor(templateIdentity ?? templateIndex) : undefined;
-  const linkedTemplate = template?.trigger === draft.trigger && template.setup !== 'none' ? template : undefined;
+  const linkedTemplate = template?.trigger === draft.trigger && template.setup !== 'none' && draft.conditions?.operator !== 'OR' ? template : undefined;
   const dirty = JSON.stringify(toDraft(draft)) !== JSON.stringify(saved);
   const guardState = useRef({ dirty, readOnly });
   guardState.current = { dirty, readOnly };
@@ -177,7 +184,7 @@ export default function WorkflowBuilder({
   const nameIssue = workflowNameIssue(draft.name, existingWorkflows, savedId) ||
     (nameCheck?.name === draft.name && nameCheck.available === false ? 'A workflow with this name already exists. Choose another name.' : '');
   const issues = [
-    ...editorIssues(document, triggers, definitions, options, false, savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined, savedId ? saved.actions : undefined),
+    ...editorIssues(document, editorTriggers, definitions, options, false, savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined, savedId ? saved.actions : undefined),
     ...workflowTemplateSetupIssues(draft, linkedTemplate?.id, options).map(message => ({ step: 'conditions' as const, message })),
     ...(nameIssue && draft.name.trim() ? [{ step: 'details' as const, message: nameIssue }] : []),
   ];
@@ -363,7 +370,7 @@ export default function WorkflowBuilder({
         trigger: type,
         ...(changedEntity
           ? {
-              conditions: { operator: 'AND', conditions: [] },
+              conditions: { operator: 'OR', conditions: [] },
               actions: indices.map((index) => draft.actions[index]),
             }
           : {}),
@@ -376,7 +383,7 @@ export default function WorkflowBuilder({
     select('trigger');
   }
   function place(item: DragItem, target: Placement) {
-    if (locked || !canPlace(item, target, document, triggers, definitions))
+    if (locked || !canPlace(item, target, document, editorTriggers, definitions))
       return;
     setPending(null);
     setInsertAt(null);
@@ -398,7 +405,7 @@ export default function WorkflowBuilder({
       updateDraft({
         ...draft,
         conditions: {
-          operator: draft.conditions?.operator ?? 'AND',
+          operator: draft.conditions?.operator ?? 'OR',
           conditions: [
             ...(draft.conditions?.conditions ?? []),
             newWorkflowCondition(field),
@@ -455,7 +462,7 @@ export default function WorkflowBuilder({
     }
     const local = [...editorIssues(
       document,
-      triggers,
+      editorTriggers,
       definitions,
       options,
       !activate && !validateOnly,
@@ -640,6 +647,7 @@ export default function WorkflowBuilder({
                 }
               >
                 <option value="">Choose a trigger</option>
+                {legacyTrigger && <option value={legacyTrigger.type} disabled>{legacyTrigger.label} (saved legacy trigger)</option>}
                 {triggers.map((entry) => (
                   <option key={entry.type} value={entry.type}>
                     {entry.label}
@@ -653,7 +661,7 @@ export default function WorkflowBuilder({
           <>
             {linkedTemplate && <WorkflowTemplateFields draft={draft} templateIdentity={linkedTemplate.id} options={options} onChange={patch => updateDraft(bindWorkflowTemplate(draft, linkedTemplate.id, options, patch))} onDetach={() => setTemplateDetached(true)} />}
             <ConditionFields
-              value={draft.conditions ?? { operator: 'AND', conditions: [] }}
+              value={draft.conditions ?? { operator: 'OR', conditions: [] }}
               trigger={trigger}
               options={options}
               previousConditions={savedId && savedStatus !== 'DRAFT' ? saved.conditions : undefined}
@@ -970,7 +978,7 @@ export default function WorkflowBuilder({
             )}
             <WorkflowCanvas
               document={document}
-              triggers={triggers}
+              triggers={editorTriggers}
               actions={definitions}
               options={options}
               selected={selected}

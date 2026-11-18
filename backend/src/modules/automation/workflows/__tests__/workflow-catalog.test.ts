@@ -5,6 +5,14 @@ import type { ClosingField } from '@leadcrm/shared';
 const compiled = createRequire(import.meta.url)('../../../../../../shared/src/contracts/workflow-catalog.js');
 
 describe('canonical Workflow catalog compatibility', () => {
+  it('offers general Deal events and keeps retired outcomes available only for saved definitions', () => {
+    expect(source.WORKFLOW_TRIGGERS.filter(trigger => trigger.entity === 'deal').map(trigger => trigger.type))
+      .toEqual(['deal.created', 'deal.updated', 'deal.stage_changed']);
+    for (const type of ['deal.closed_won', 'deal.closed_lost']) {
+      expect(source.WORKFLOW_TRIGGERS.find(trigger => trigger.type === type)).toBeUndefined();
+      expect(source.findTrigger(type)?.entity).toBe('deal');
+    }
+  });
   it('keeps the runtime CommonJS companion in parity with the TypeScript catalog', () => {
     expect(compiled.WORKFLOW_TRIGGERS).toEqual(source.WORKFLOW_TRIGGERS);
     expect(compiled.getAvailableActions()).toEqual(source.getAvailableActions());
@@ -28,5 +36,18 @@ describe('canonical Workflow catalog compatibility', () => {
     const definitions = [base, { ...base, id: 'hidden', visibleInForm: false }, { ...base, id: 'inactive', active: false }, { ...base, id: 'other', module: 'contacts' }, { ...base, id: 'file', type: 'File Upload' }] as ClosingField[];
     expect(source.getWorkflowCustomFields('lead', definitions)).toEqual([expect.objectContaining({ field: 'customFieldValues.custom', type: 'enum', options: base.options })]);
     expect(source.getWorkflowCustomFields('deal', [{ ...base, module: 'deals', group: 'Closed Won Requirements' }])).toEqual([]);
+  });
+  it.each(['lead', 'contact', 'account', 'deal'] as const)('offers canonical Changed fields choices for %s standard and active custom fields', entity => {
+    const modules = { lead: 'leads', contact: 'contacts', account: 'accounts', deal: 'deals' } as const;
+    const custom = { id: 'custom-field', name: 'Inspection date', module: modules[entity], group: 'Additional Information', type: 'Date', active: true, visibleInForm: false } as ClosingField;
+    const fields = source.getWorkflowConditionFields(entity, `${entity}.updated`, [custom, { ...custom, id: 'inactive', active: false }]);
+    const changed = fields.find(field => field.field === 'event.changedFields')!;
+    expect(changed.type).toBe('list');
+    expect(changed.options).toContain(entity === 'account' ? 'name' : entity === 'deal' ? 'title' : 'firstName');
+    expect(changed.options).toContain('customFieldValues.custom-field');
+    expect(changed.optionLabels?.['customFieldValues.custom-field']).toBe('Inspection date');
+    expect(changed.options).not.toContain('customFieldValues.inactive');
+    expect(changed.options?.some(key => key.startsWith('event.') || key.startsWith(entity + '.'))).toBe(false);
+    expect(new Set(changed.options).size).toBe(changed.options?.length);
   });
 });

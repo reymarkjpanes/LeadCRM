@@ -106,17 +106,24 @@ function getWorkflowConditionFields(entity, trigger, customFields = [], layout) 
         definitions.push({ field: 'event.previousStageId', label: 'Previous Stage', type: 'stage' }, { field: 'event.newStageId', label: 'New Stage', type: 'stage' });
     if (trigger === 'lead.status_changed' || trigger === 'contact.status_changed')
         definitions.push(choice('event.previousStatus', 'Previous Status', record_experience_1.CRM_STATUSES), choice('event.newStatus', 'New Status', record_experience_1.CRM_STATUSES));
-    if (trigger?.endsWith('.updated'))
-        definitions.push({ field: 'event.changedFields', label: 'Changed fields', type: 'list', maxLength: 160 });
+    if (trigger?.endsWith('.updated')) {
+        const changedFields = new Map(definitions.map(field => [field.field.slice(entity.length + 1), field.label]));
+        definitions.push({ field: 'event.changedFields', label: 'Changed fields', type: 'list', maxLength: 160,
+            options: [...changedFields.keys()], optionLabels: Object.fromEntries(changedFields) });
+    }
     return definitions;
 }
 exports.WORKFLOW_TRIGGERS = [
     ['lead.created', 'Lead Created', 'lead'], ['lead.updated', 'Lead Updated', 'lead'], ['lead.status_changed', 'Lead Status Changed', 'lead'],
     ['contact.created', 'Contact Created', 'contact'], ['contact.updated', 'Contact Updated', 'contact'], ['contact.status_changed', 'Contact Status Changed', 'contact'],
     ['deal.created', 'Deal Created', 'deal'], ['deal.updated', 'Deal Updated', 'deal'], ['deal.stage_changed', 'Deal Stage Changed', 'deal'],
-    ['deal.closed_won', 'Deal Closed Deal', 'deal'], ['deal.closed_lost', 'Deal Cancelled', 'deal'], ['account.updated', 'Account Updated', 'account'],
+    ['account.updated', 'Account Updated', 'account'],
 ].map(([type, label, entity]) => ({ type, label, entity: entity, fields: getWorkflowConditionFields(entity, type) }));
-const findTrigger = (type) => exports.WORKFLOW_TRIGGERS.find(trigger => trigger.type === type);
+// Keep published definitions executable without offering retired events in the chooser.
+const legacyDealTriggers = [
+    ['deal.closed_won', 'Deal Closed Deal'], ['deal.closed_lost', 'Deal Cancelled'],
+].map(([type, label]) => ({ type, label, entity: 'deal', fields: getWorkflowConditionFields('deal', type) }));
+const findTrigger = (type) => exports.WORKFLOW_TRIGGERS.find(trigger => trigger.type === type) ?? legacyDealTriggers.find(trigger => trigger.type === type);
 exports.findTrigger = findTrigger;
 const isWorkflowStatusField = (field) => ['lead.status', 'contact.status', 'deal.engagementStatus', 'event.previousStatus', 'event.newStatus'].includes(field);
 exports.isWorkflowStatusField = isWorkflowStatusField;
@@ -245,20 +252,5 @@ function workflowActionPolicyIssues(draft) {
 }
 /** Definition-time guardrails. Runtime keeps honoring immutable published snapshots. */
 function workflowDefinitionIssues(draft) {
-    const policyIssues = workflowActionPolicyIssues(draft);
-    if (policyIssues.length)
-        return policyIssues;
-    if (draft.trigger !== 'deal.updated')
-        return [];
-    const rules = draft.conditions?.conditions ?? [];
-    const stageEqualsRules = rules.filter(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' &&
-        typeof rule.value === 'string' && !!rule.value.trim());
-    const sourceStageIsRequired = draft.conditions?.operator === 'AND'
-        ? stageEqualsRules.length > 0
-        : draft.conditions?.operator === 'OR' && rules.length > 0 && rules.every(rule => rule.field === 'deal.stageId' && rule.operator === 'equals' && typeof rule.value === 'string' && !!rule.value.trim());
-    if (sourceStageIsRequired)
-        return [];
-    return draft.actions.flatMap((action, index) => action.enabled !== false && action.type === 'move_deal_stage'
-        ? [`Action ${index + 1}: A Deal Updated stage move needs an explicit Deal Stage Equals condition in an AND group. For OR conditions, every option must be a Deal Stage Equals condition. This prevents moving Deals from unintended stages.`]
-        : []);
+    return workflowActionPolicyIssues(draft);
 }

@@ -113,8 +113,8 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
           try { await assertCurrentStageEntry(params.tenantId, params.entityId, stageHistoryId); }
           catch (error) { if (!isSupersededStageEntry(error)) throw error; status = 'skipped'; errorMessage = error.message; }
         }
-        await validateConditionReferences(draft, params.tenantId);
-        if (status === 'completed' && draft.conditions && !evaluateCondition(draft.conditions, context)) {
+        const fields = await validateConditionReferences(draft, params.tenantId);
+        if (status === 'completed' && draft.conditions && !evaluateCondition(draft.conditions, context, fields)) {
           status = 'skipped';
           errorMessage = 'Workflow conditions did not match the triggering event.';
         }
@@ -146,7 +146,7 @@ async function executeWorkflowTrigger(params: WorkflowFireParams, prepared?: Pre
           }
           const expectedPredicates = baseline && { ...baseline, ...ownChanges };
           if (draft.conditions && (!expectedPredicates || [...predicateKeys].some(key => !isDeepStrictEqual(expectedPredicates[key], fresh[key]))) &&
-              !evaluateCondition(draft.conditions, fresh)) skipStaleWorkflowAction('Current record values no longer match the workflow conditions.');
+              !evaluateCondition(draft.conditions, fresh, fields)) skipStaleWorkflowAction('Current record values no longer match the workflow conditions.');
         };
         const readSource = async (tx: Prisma.TransactionClient) => {
           await assertCrmRecordRead(tx, module, params.entityId);

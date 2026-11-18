@@ -167,15 +167,48 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
     expect(advanced.stageHistory).toMatchObject({ previousStageId: initialId, newStageId: qualifiedId });
   });
 
-  const legacyStageMove = () => scope(() => prisma.workflow.create({ data: {
+  it.each(['first', 'second', 'third', 'multiple', 'none', 'all-required'] as const)('executes a saved three-condition workflow for %s matches', async scenario => {
+    const deal = await newDeal();
+    if (scenario === 'first' || scenario === 'multiple' || scenario === 'all-required') await move(deal.id, qualifiedId);
+    if (scenario === 'second') await move(deal.id, contactedId);
+    // Exercise a persisted cancellation reason independently of the two stage alternatives.
+    if (scenario === 'third' || scenario === 'multiple') await prisma.deal.update({ where: { id: deal.id }, data: { lostReason: 'Customer requested cancellation' } });
+    await flushWorkflowQueue(tenantId);
+    const conditions = { operator: scenario === 'all-required' ? 'AND' as const : 'OR' as const, conditions: [
+      { field: 'deal.stageId', operator: 'equals' as const, value: qualifiedId },
+      { field: 'deal.stageId', operator: 'equals' as const, value: contactedId },
+      { field: 'deal.lostReason', operator: 'is_not_empty' as const, value: null },
+    ] };
+    const title = `Any condition follow-up ${randomUUID()}`;
+    const workflow = await scope(() => workflows.createWorkflow(tenantId, actorId, {
+      name: randomUUID(), trigger: 'deal.updated', isActive: false, conditions,
+      actions: [
+        { type: 'move_deal_stage', config: { stageId: lostId } },
+        { type: 'create_task', config: { title, assignedUserId: ownerId } },
+      ],
+    }));
+    expect((await scope(() => workflows.getWorkflowById(workflow.id, tenantId))).conditions).toEqual(conditions);
+    await scope(() => workflows.toggleWorkflow(workflow.id, tenantId, actorId, true));
+    await scope(() => updateDeal(deal.id, tenantId, actorId, { title: `Changed for ${scenario}` }));
+    await flushWorkflowQueue(tenantId);
+    const matched = !['none', 'all-required'].includes(scenario);
+    const history = await runs(workflow.id);
+    expect(history).toHaveLength(1);
+    expect(history[0].status, JSON.stringify(history[0])).toBe(matched ? 'completed' : 'skipped');
+    expect(await prisma.task.count({ where: { tenantId, title } })).toBe(matched ? 1 : 0);
+    expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stageId).toBe(matched ? lostId : scenario === 'all-required' ? qualifiedId : initialId);
+    expect(await prisma.dealStageHistory.count({ where: { dealId: deal.id, newStageId: lostId } })).toBe(matched ? 1 : 0);
+  });
+
+  const legacyInvalidOwnershipWrite = () => scope(() => prisma.workflow.create({ data: {
     tenantId, name: randomUUID(), trigger: 'deal.updated', isActive: true, status: 'ACTIVE', activatedById: actorId,
     conditions: { operator: 'AND', conditions: [{ field: 'deal.title', operator: 'equals', value: 'Only a different Deal' }] },
-    actions: [{ type: 'move_deal_stage', config: { stageId: qualifiedId } }],
+    actions: [{ type: 'update_field', config: { field: 'assignedUserId', value: ownerId } }],
   } }));
 
-  it('pauses a legacy stage move before dispatch even when its conditions do not match', async () => {
+  it('pauses an invalid legacy ownership write before dispatch even when its conditions do not match', async () => {
     const deal = await newDeal();
-    const workflow = await legacyStageMove();
+    const workflow = await legacyInvalidOwnershipWrite();
     await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Another title' }));
     await flushWorkflowQueue(tenantId);
 
@@ -183,13 +216,13 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
       status: 'PAUSED', isActive: false, version: workflow.version, conditions: workflow.conditions, actions: workflow.actions,
     });
     expect(await scope(() => workflows.getWorkflowById(workflow.id, tenantId))).toMatchObject({
-      repairReason: expect.stringContaining('explicit Deal Stage Equals condition'),
+      repairReason: expect.stringContaining('Use Assign Agent'),
     });
     expect(await prisma.workflowExecutionRun.findFirstOrThrow({ where: { tenantId, workflowId: workflow.id }, include: { steps: true } })).toMatchObject({
-      status: 'failed', dispatchStartedAt: null, errorMessage: expect.stringContaining('explicit Deal Stage Equals condition'),
+      status: 'failed', dispatchStartedAt: null, errorMessage: expect.stringContaining('Use Assign Agent'),
       steps: [{ actionType: 'validation', status: 'failed' }],
     });
-    await expect(scope(() => workflows.toggleWorkflow(workflow.id, tenantId, actorId, true))).rejects.toThrow('explicit Deal Stage Equals condition');
+    await expect(scope(() => workflows.toggleWorkflow(workflow.id, tenantId, actorId, true))).rejects.toThrow('Use Assign Agent');
     await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Still editable' }));
     await flushWorkflowQueue(tenantId);
     expect(await runs(workflow.id)).toHaveLength(1);
@@ -197,7 +230,7 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
 
   it('does not pause a repaired first publication while rejecting the old queued snapshot', async () => {
     const deal = await newDeal();
-    const workflow = await legacyStageMove();
+    const workflow = await legacyInvalidOwnershipWrite();
     await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Queued before repair' }));
 
     let validationStarted!: () => void;
@@ -218,7 +251,7 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
         expectedVersion: workflow.version, expectedDraftRevision: workflow.draftRevision,
         draft: { name: workflow.name, trigger: 'deal.updated', isActive: true,
           conditions: { operator: 'AND', conditions: [{ field: 'deal.stageId', operator: 'equals', value: initialId }] },
-          actions: workflow.actions },
+          actions: [{ type: 'move_deal_stage', config: { stageId: qualifiedId } }] },
       }));
       expect(repaired.version).toBe(workflow.version);
     } finally {
@@ -226,7 +259,7 @@ describe.skipIf(!disposable)('persisted Workflow stage entry identity and Task p
       await dispatch;
     }
     expect(await prisma.workflow.findUniqueOrThrow({ where: { id: workflow.id } })).toMatchObject({ isActive: true, status: 'ACTIVE' });
-    expect(await runs(workflow.id)).toMatchObject([{ status: 'failed', errorMessage: expect.stringContaining('explicit Deal Stage Equals condition') }]);
+    expect(await runs(workflow.id)).toMatchObject([{ status: 'failed', errorMessage: expect.stringContaining('Use Assign Agent') }]);
     await scope(() => updateDeal(deal.id, tenantId, actorId, { title: 'Queued after repair' }));
     await flushWorkflowQueue(tenantId);
     expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ stageId: qualifiedId });

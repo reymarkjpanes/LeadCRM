@@ -54,6 +54,7 @@ export function templateSetup(recipe: WorkflowDraft, trigger: TriggerDefinition 
       notes.push('The default moves one matching persisted related open Deal. No matches produce no movement or task; multiple matches require review. All matching moves sequentially and can partially complete.');
     }
     if (descriptor.setup === 'stage-entry' || descriptor.setup === 'qualified-entry') notes.push('Choose the pipeline and entry stage in linked setup. An actual entry runs the configured actions; a later distinct entry can run them again.');
+    if (descriptor.setup === 'won-entry' || descriptor.setup === 'lost-entry') notes.push(`Choose the pipeline and a stage configured as ${descriptor.setup === 'won-entry' ? 'Won' : 'Lost'}. Actions run when the Deal enters that stage.`);
   }
   for (const action of recipe.actions) {
     const definition = actions.find(entry => entry.type === action.type);

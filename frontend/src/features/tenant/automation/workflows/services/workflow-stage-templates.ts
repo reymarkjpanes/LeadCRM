@@ -75,7 +75,7 @@ function stageEntry(pipeline: Pipeline, stage: Stage, scenario: WorkflowStageSce
   recipe.name = `${pipeline.name} / ${stage.name}: ${label}`.slice(0, 255);
   recipe.description = purpose.description;
   recipe.isActive = false;
-  // Outcome/initial templates bind the current stage; transition templates bind event evidence.
+  // Creation binds the current stage; all stage changes bind transition evidence.
   recipe.conditions = { operator: 'AND', conditions: [] };
   if (!stage.isWon && !stage.isLost && stage.name.trim().toLowerCase() === 'qualified') {
     recipe.conditions.conditions.push({ field: 'deal.hasEverBeenWon', operator: 'equals', value: false }, { field: 'deal.wonHistoryVerified', operator: 'equals', value: true });

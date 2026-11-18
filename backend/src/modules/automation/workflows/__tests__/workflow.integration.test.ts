@@ -62,6 +62,12 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     return { status: response.status, body: payload };
   }
   const closingValues = { 'confirmation-type': 'Approved Quotation', 'confirmation-date': '2026-10-01' };
+  it('serves the current Deal trigger choices through authenticated HTTP', async () => {
+    const response = await call('/automation/triggers');
+    expect(response.status).toBe(200);
+    expect(response.body.data.filter((trigger: { entity: string }) => trigger.entity === 'deal').map((trigger: { type: string }) => trigger.type))
+      .toEqual(['deal.created', 'deal.updated', 'deal.stage_changed']);
+  });
   it('resolves template retirement by tenant and actual message overrides while preserving saved content', async () => {
     const template = await prisma.template.create({ data: { tenantId, name: `Old Account token ${randomUUID()}`, type: 'Email', subject: 'Original', content: 'Purchased {{account.activeProductIds}}' } });
     const actions = [{ type:'send_email',config:{templateId:template.id,senderUserId:owner.id} }];
@@ -299,7 +305,8 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     const descriptor = workflowTemplateDescriptor(index);
     if (descriptor && descriptor.setup !== 'none') draft = bindWorkflowTemplate(draft, index, options, {
       pipelineId: deal.pipelineId, sourceStageId: deal.stageId,
-      targetStageId: ['pipeline-routing', 'related-deal-routing'].includes(descriptor?.setup ?? '') ? contacted.id : required.id,
+      targetStageId: descriptor.setup === 'won-entry' ? won.id : descriptor.setup === 'lost-entry' ? lost.id
+        : ['pipeline-routing', 'related-deal-routing'].includes(descriptor.setup) ? contacted.id : required.id,
     });
     for (const action of draft.actions) {
       if (action.type === 'assign_owner') action.config.userId = owner.id;
@@ -316,7 +323,7 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
     }
     const entity = draft.trigger.split('.')[0];
     const status = draft.conditions?.conditions.find(rule => rule.field === `${entity}.status` || rule.field === 'event.newStatus')?.value;
-    const stageId = draft.trigger === 'deal.closed_won' ? won.id : draft.trigger === 'deal.closed_lost' ? lost.id
+    const stageId = descriptor?.setup === 'won-entry' ? won.id : descriptor?.setup === 'lost-entry' ? lost.id
       : draft.trigger === 'deal.stage_changed' ? required.id : deal.stageId;
     const recipeContact = entity === 'deal' && draft.actions.some(action => action.type === 'send_email')
       ? await prisma.contact.create({ data: { tenantId, firstName: 'Recipe', lastName: 'Contact', email: `${randomUUID()}@example.test`, assignedUserId: owner.id } }) : undefined;
@@ -334,9 +341,9 @@ describe.skipIf(!disposable)('workflow acceptance on disposable PostgreSQL and a
         ...(entity === 'lead' ? { leadDeals: { create: { leadId: record.id, position: 0 } } } : entity === 'contact' ? { contactDeals: { create: { contactId: record.id, position: 0 } } } : { accountId: record.id }),
       } }) : undefined;
     if (isStageEvent(draft.trigger)) {
-      if (draft.trigger !== 'deal.closed_lost') await prepareQualified(record.id);
-      if (draft.trigger !== 'deal.stage_changed') {
-        const moved = await call(`/crm/deals/${record.id}/stage`, 'PATCH', { stageId, ...(draft.trigger === 'deal.closed_lost' ? { lostReason: 'Recorded template fixture' } : {}) });
+      if (descriptor?.setup !== 'lost-entry') await prepareQualified(record.id);
+      if (descriptor?.setup === 'won-entry' || descriptor?.setup === 'lost-entry') {
+        const moved = await call(`/crm/deals/${record.id}/stage`, 'PATCH', { stageId, ...(descriptor.setup === 'lost-entry' ? { lostReason: 'Recorded template fixture' } : {}) });
         expect(moved.status, JSON.stringify(moved.body)).toBe(200);
       }
     }

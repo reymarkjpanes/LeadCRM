@@ -31,13 +31,20 @@ function canonicalChangedField(entity: WorkflowEntity, key: string, definitions:
   const field = resolveCustomFieldReference(WORKFLOW_MODULES[entity], key, definitions);
   return field ? `customFieldValues.${field.id}` : key;
 }
-export async function conditionFields(draft: WorkflowDraft, tenantId: string) {
+export async function conditionFields(draft: Pick<WorkflowDraft, 'trigger' | 'conditions'>, tenantId: string, db: import('@prisma/client').Prisma.TransactionClient = prisma) {
   const trigger = findTrigger(draft.trigger);
-  const custom = draft.conditions?.conditions.some(rule => rule.field.includes('.customFieldValues.'));
+  const custom = draft.conditions?.conditions.some(rule => rule.field.includes('.customFieldValues.') ||
+    rule.field === 'event.changedFields' && typeof rule.value === 'string' && rule.value.startsWith('customFieldValues.'));
   if (!trigger) return [];
-  const definitions = custom ? await workflowCustomFields(tenantId) : [];
+  const definitions = custom ? await workflowCustomFields(tenantId, db) : [];
   const fields = getWorkflowConditionFields(trigger.entity, draft.trigger, definitions);
   return fields.flatMap(field => {
+    if (field.field === 'event.changedFields') {
+      // Accept proven saved aliases; read adapters expose their canonical choices.
+      const aliases = ['productInterest', 'productInterests', 'productInterestId', 'activeProducts', ...definitions.map(customFieldTechnicalKey)]
+        .filter(key => field.options?.includes(canonicalChangedField(trigger.entity, key, definitions)));
+      return [{ ...field, options: [...new Set([...(field.options ?? []), ...aliases])] }];
+    }
     const definition = definitions.find(item => item.id === field.customFieldId);
     const alias = definition && `${trigger.entity}.${customFieldTechnicalKey(definition)}`;
     return alias && alias !== field.field ? [field, { ...field, field: alias }] : [field];
