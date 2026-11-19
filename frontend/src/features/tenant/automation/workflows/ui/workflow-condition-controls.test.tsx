@@ -22,6 +22,19 @@ const rule = () => JSON.parse(screen.getByTestId('rules').textContent!)[0];
 afterEach(cleanup);
 
 describe('type-aware Workflow condition controls', () => {
+  it('drops a saved cancellation reason from the choices after switching fields', () => {
+    const metadata: TriggerDefinition = { ...trigger, fields: [
+      ...trigger.fields,
+      { field: 'deal.lostReason', label: 'Cancellation Reason', type: 'string' },
+    ] };
+    render(<Harness metadata={metadata} conditions={{ ...initial, conditions: [{ ...initial.conditions[0], field: 'deal.lostReason' }] }} />);
+    const field = screen.getByLabelText('Condition 1 field');
+    expect(screen.getByRole('option', { name: 'Cancellation Reason' })).toHaveProperty('disabled', true);
+    fireEvent.change(field, { target: { value: 'deal.customFieldValues.quantity' } });
+    expect(screen.queryByRole('option', { name: 'Cancellation Reason' })).toBeNull();
+    expect(rule()).toEqual({ field: 'deal.customFieldValues.quantity', operator: 'equals', value: '' });
+  });
+
   it.each(['deal.value', 'deal.customFieldValues.quantity'])('shows the six Number operators in order for %s and requires an explicit operand', field => {
     render(<Harness />);
     fireEvent.change(screen.getByLabelText('Condition 1 field'), { target: { value: field } });

@@ -6,7 +6,7 @@ import type { ActionDefinition, TriggerDefinition } from '@leadcrm/shared';
 import { workflowActionAllowed } from '@leadcrm/shared';
 import { Input } from '@/shared/components/ui/input';
 import { matchesSearch } from '@/shared/utils/search';
-import type { LibraryItem } from '../services/workflow-editor';
+import { isSelectableWorkflowConditionField, type LibraryItem } from '../services/workflow-editor';
 
 export const stepIcons = { trigger: Zap, condition: GitBranch, action: Play };
 export const stepColors = {
@@ -108,7 +108,7 @@ export function WorkflowLibrary({
           }))
       : category === 'condition'
         ? (trigger?.fields ?? [])
-            .filter((entry) => match(entry.label))
+            .filter((entry) => isSelectableWorkflowConditionField(entry) && match(entry.label))
             .map((entry) => ({
               item: { kind: 'condition', field: entry.field },
               title: entry.label,

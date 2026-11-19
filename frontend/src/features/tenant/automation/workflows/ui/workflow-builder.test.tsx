@@ -118,7 +118,7 @@ it('does not mount Activity history without the run-history grant', () => {
   expect(workflowsApi.getExecutions).not.toHaveBeenCalled();
 });
 
-it('does not use activation permission to grant pause control', () => {
+it('uses pause permission when opening and confirming a pause', async () => {
   const props = { initial: { ...structuredClone(initial), isActive: true }, workflowId: 'active-rbac-workflow', initialStatus: 'ACTIVE' as const,
     triggers: WORKFLOW_TRIGGERS, actions: getAvailableActions(), canActivate: true, canPause: false, canExecute: false,
     onPause: vi.fn().mockResolvedValue({ ...initial, id: 'active-rbac-workflow', isActive: false, status: 'PAUSED' }), onSave: vi.fn(), onClose: vi.fn() };
@@ -126,12 +126,40 @@ it('does not use activation permission to grant pause control', () => {
   expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
   view.rerender(<WorkflowBuilder {...props} canActivate={false} canPause readOnly />);
   fireEvent.click(button('Pause'));
+  const confirm = within(screen.getByRole('alertdialog', { name: 'Pause workflow?' })).getByRole('button', { name: 'Pause workflow' });
+  expect(props.onPause).not.toHaveBeenCalled();
+  view.rerender(<WorkflowBuilder {...props} canActivate={false} readOnly />);
+  expect(confirm).toHaveProperty('disabled', true);
+  fireEvent.click(confirm);
+  expect(props.onPause).not.toHaveBeenCalled();
+  view.rerender(<WorkflowBuilder {...props} canActivate={false} canPause readOnly />);
+  fireEvent.click(confirm);
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   expect(props.onPause).toHaveBeenCalledOnce();
 });
 function editTask(title = 'Unsaved task') {
   fireEvent.click(button(/Configure action: 1. Create Task/));
   fireEvent.change(screen.getByLabelText('Task title'), { target: { value: title } });
 }
+it('keeps unsaved builder edits when an active workflow is paused', async () => {
+  const id = 'active-workflow';
+  const pause = vi.fn().mockResolvedValue({ ...initial, id, isActive: false, status: 'PAUSED' });
+  const save = vi.fn();
+  render(<WorkflowBuilder initial={{ ...initial, isActive: true }} workflowId={id} initialStatus="ACTIVE"
+    triggers={WORKFLOW_TRIGGERS} actions={getAvailableActions()} canActivate={false} canPause onPause={pause} onSave={save} onClose={vi.fn()} />);
+  editTask();
+  fireEvent.click(button('Pause'));
+  const dialog = () => within(screen.getByRole('alertdialog', { name: 'Pause workflow?' }));
+  fireEvent.click(dialog().getByRole('button', { name: 'Close confirmation' }));
+  expect(pause).not.toHaveBeenCalled();
+  fireEvent.click(button('Pause'));
+  fireEvent.click(dialog().getByRole('button', { name: 'Pause workflow' }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(pause).toHaveBeenCalledOnce();
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Task title')).toHaveProperty('value', 'Unsaved task');
+  expect(screen.getByText('Paused', { exact: true })).toBeTruthy();
+});
 function ModuleNavigation({ label, module }: { label: string; module: string }) {
   const { navigate } = useLayout();
   return <nav aria-label="Modules"><button onClick={() => requestNavigation(() => navigate(module))}>{label}</button></nav>;
@@ -161,7 +189,7 @@ describe('visual workflow editor', () => {
     expect(screen.queryByRole('option', { name: /saved legacy trigger/ })).toBeNull();
     expect(button('Configure trigger: Deal Stage Changed')).toBeTruthy();
   });
-  it('adds, publishes and reloads three alternative Deal conditions with one action sequence', async () => {
+  it('adds Deal stage conditions and publishes and reloads them alongside a saved cancellation reason', async () => {
     const pipeline = '40000000-0000-4000-8000-000000000001';
     const qualified = '40000000-0000-4000-8000-000000000002';
     const contacted = '40000000-0000-4000-8000-000000000003';
@@ -170,6 +198,7 @@ describe('visual workflow editor', () => {
       { id: qualified, name: 'Qualified' }, { id: contacted, name: 'Contacted' }, { id: cancelled, name: 'Cancelled', isLost: true },
     ] }] };
     const draft: WorkflowDraft = { name: 'Cancel matching Deals', trigger: 'deal.updated', isActive: false,
+      conditions: { operator: 'OR', conditions: [{ field: 'deal.lostReason', operator: 'contains', value: 'legacy' }] },
       actions: [{ type: 'move_deal_stage', config: { stageId: cancelled } }] };
     const save = vi.fn().mockResolvedValue(undefined);
     const { view } = setup({ initial: draft, metadata, save });
@@ -177,33 +206,36 @@ describe('visual workflow editor', () => {
     expect(screen.queryByRole('button', { name: /Add Deal Closed|Add Deal Cancelled/ })).toBeNull();
     expect(button('Add Deal Updated')).toBeTruthy(); expect(button('Add Deal Stage Changed')).toBeTruthy();
     fireEvent.click(button('Conditions'));
+    expect(screen.queryByRole('button', { name: 'Add Cancellation Reason' })).toBeNull();
     fireEvent.click(button('Add Stage'));
     expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('OR');
-    fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: qualified } });
+    const legacyField = within(screen.getByLabelText('Condition 1 field')).getByRole('option', { name: 'Cancellation Reason' });
+    expect(legacyField).toHaveProperty('disabled', true);
+    expect(legacyField).toHaveProperty('selected', true);
+    expect(within(screen.getByLabelText('Condition 2 field')).queryByRole('option', { name: 'Cancellation Reason' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Condition 1 operator'), { target: { value: 'equals' } });
+    fireEvent.change(screen.getByLabelText('Condition 1 value'), { target: { value: 'Existing cancellation' } });
+    fireEvent.change(screen.getByLabelText('Condition 2 value'), { target: { value: qualified } });
     fireEvent.click(button('Add condition'));
-    fireEvent.change(screen.getByLabelText('Condition 2 field'), { target: { value: 'deal.stageId' } });
-    fireEvent.change(screen.getByLabelText('Condition 2 value'), { target: { value: contacted } });
-    fireEvent.click(button('Add condition'));
-    fireEvent.change(screen.getByLabelText('Condition 3 field'), { target: { value: 'deal.lostReason' } });
-    fireEvent.change(screen.getByLabelText('Condition 3 operator'), { target: { value: 'is_not_empty' } });
-    expect(screen.queryByLabelText('Condition 3 value')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Condition 3 field'), { target: { value: 'deal.stageId' } });
+    fireEvent.change(screen.getByLabelText('Condition 3 value'), { target: { value: contacted } });
     expect(button(/ANY conditions match/)).toBeTruthy();
     fireEvent.click(button('Publish workflow'));
     fireEvent.click(button(/Activate workflow|Publish changes/));
     const conditions = { operator: 'OR', conditions: [
+      { field: 'deal.lostReason', operator: 'equals', value: 'Existing cancellation' },
       { field: 'deal.stageId', operator: 'equals', value: qualified },
       { field: 'deal.stageId', operator: 'equals', value: contacted },
-      { field: 'deal.lostReason', operator: 'is_not_empty', value: null },
     ] };
     await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith({ ...draft, conditions, isActive: true }));
     view.unmount();
     setup({ initial: save.mock.calls[0][0], metadata });
     fireEvent.click(button(/ANY conditions match/));
     expect((screen.getByLabelText('Match conditions') as HTMLSelectElement).value).toBe('OR');
-    expect((screen.getByLabelText('Condition 2 value') as HTMLSelectElement).value).toBe(contacted);
-    expect((screen.getByLabelText('Condition 3 operator') as HTMLSelectElement).value).toBe('is_not_empty');
+    expect(screen.getByLabelText('Condition 1 value')).toHaveProperty('value', 'Existing cancellation');
+    expect(screen.getByLabelText('Condition 3 value')).toHaveProperty('value', contacted);
     fireEvent.click(button('Remove condition 2'));
-    expect((screen.getByLabelText('Condition 2 operator') as HTMLSelectElement).value).toBe('is_not_empty');
+    expect(screen.getByLabelText('Condition 2 value')).toHaveProperty('value', contacted);
     expect(screen.queryByLabelText('Condition 3 field')).toBeNull();
   });
   it('saves literal Unicode names and multiline descriptions from shared details fields', async () => {

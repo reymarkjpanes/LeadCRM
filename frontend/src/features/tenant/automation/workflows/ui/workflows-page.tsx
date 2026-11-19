@@ -32,6 +32,7 @@ import { LeadsPagination } from '@/shared/components/crm/leads-pagination';
 import { useCachedPage } from '@/shared/hooks/use-cached-page';
 import { WorkflowExecutionLogModal } from './workflow-execution-log-modal';
 import { WorkflowCreateDialog } from './workflow-create-dialog';
+import { WorkflowPauseDialog } from './workflow-pause-dialog';
 export function toWorkflowDraft(workflow: Workflow): WorkflowDraft {
   return { name: workflow.name, description: workflow.description, trigger: workflow.trigger, conditions: workflow.conditions,
     actions: workflow.actions, isActive: workflow.isActive };
@@ -58,8 +59,9 @@ export default function WorkflowsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [runs, setRuns] = useState<Workflow | null>(null);
   const [archiving, setArchiving] = useState<Workflow | null>(null);
+  const [pausingId, setPausingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  useEffect(() => { setSelected(new Set()); setArchiving(null); setRuns(null); }, [tenant?.id, page, pageSize, search, statuses, triggers]);
+  useEffect(() => { setSelected(new Set()); setArchiving(null); setPausingId(null); setRuns(null); }, [tenant?.id, page, pageSize, search, statuses, triggers]);
   useNotificationRecordLink('workflowId', (tenant?.id ?? '') + ':' + (user?.id ?? ''), canView && canViewRuns,
     async id => (await workflowsApi.get(id)).data, setRuns);
   const [busy, setBusy] = useState(false);
@@ -85,6 +87,7 @@ export default function WorkflowsPage() {
     },
   });
   const workflows = data?.data ?? [];
+  const pausing = workflows.find(workflow => workflow.id === pausingId && workflow.isActive);
   const total = data?.meta.total ?? 0;
   const workflowsLoading = isInitialLoad || isRefreshing;
   const correctingPage = Boolean(data && page > Math.max(1, Math.ceil(total / pageSize)));
@@ -121,7 +124,11 @@ export default function WorkflowsPage() {
     await workflowsApi.duplicate(workflow.id);
   }, 'Workflow duplicated as a draft.');
   const [activating, setActivating] = useState<Workflow | null>(null);
-  const toggleWorkflow = (workflow: Workflow) => { if (!userCan('workflows', workflowStateAction(workflow, !workflow.isActive))) return; if (workflow.isActive) void mutate(() => workflowsApi.toggle(workflow.id, false), 'Workflow paused.'); else setActivating(workflow); };
+  const toggleWorkflow = (workflow: Workflow) => {
+    if (!userCan('workflows', workflowStateAction(workflow, !workflow.isActive))) return;
+    if (workflow.isActive) setPausingId(workflow.id);
+    else setActivating(workflow);
+  };
   if (!canView) return <p className="p-6 text-[var(--text-primary)]">You do not have permission to view workflows.</p>;
   return <div className="px-4 pb-4 sm:px-6 sm:pb-6 space-y-6 text-[var(--text-primary)]">
     <PageHeader title="Workflows" subtitle="Automate CRM actions based on triggers and conditions." actions={canCreate && <CreateButton label="Create Workflow" disabled={!metadata || busy} onClick={() => setCreateOpen(true)} />} />
@@ -170,6 +177,12 @@ export default function WorkflowsPage() {
       ]} />
     {createOpen && canCreate && metadata && <WorkflowCreateDialog key={`${tenant?.id}:${user?.id}`} triggers={metadata.triggers} actions={metadata.actions} loadOptions={async () => (await withWorkflowTimeout(workflowsApi.options())).data} onClose={() => setCreateOpen(false)} onChoose={identity => { router.push(identity === undefined ? '/automation/workflows/new' : `/automation/workflows/new?template=${encodeURIComponent(identity)}`); setCreateOpen(false); }} />}
     {runs && <WorkflowExecutionLogModal key={runs.id} workflowId={runs.id} name={runs.name} status={runs.status === 'DRAFT' ? 'Draft' : runs.isActive ? 'Active' : 'Paused'} onUpdated={refreshWorkflows} onClose={() => setRuns(null)} />}
+    <WorkflowPauseDialog open={pausingId !== null} onOpenChange={open => { if (!open) setPausingId(null); }}
+      isLoading={busy} confirmDisabled={!pausing || !canPause}
+      onConfirm={async () => {
+        if (!pausing || !userCan('workflows', 'canPause') || mutationLock.current) return false;
+        await mutate(() => workflowsApi.toggle(pausing.id, false), 'Workflow paused.', true);
+      }} />
     <ConfirmActionDialog open={!!activating} onOpenChange={open => { if (!open) setActivating(null); }}
       title="Activate workflow?" description="This workflow will run when its trigger and conditions match. Its enabled actions may update records, create tasks, or send messages."
       warning="Already dispatched actions cannot be recalled." confirmLabel="Activate workflow" isLoading={busy} confirmDisabled={!activating || !userCan('workflows', workflowStateAction(activating, true))}

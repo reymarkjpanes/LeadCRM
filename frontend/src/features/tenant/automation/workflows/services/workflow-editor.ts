@@ -103,6 +103,10 @@ export function editorDocument(draft: WorkflowDraft): EditorDocument {
     actionIds: draft.actions.map(() => crypto.randomUUID()),
   };
 }
+export function isSelectableWorkflowConditionField(field: WorkflowField): boolean {
+  return field.field !== 'deal.lostReason';
+}
+
 export function canPlace(
   item: DragItem,
   target: Placement,
@@ -123,7 +127,7 @@ export function canPlace(
       target.kind === 'condition' &&
       !!trigger &&
       (!item.field ||
-        trigger.fields.some((field) => field.field === item.field)) &&
+        trigger.fields.some((field) => field.field === item.field && isSelectableWorkflowConditionField(field))) &&
       (document.draft.conditions?.conditions.length ?? 0) < 30
     );
   if (
