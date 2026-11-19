@@ -198,6 +198,7 @@ try {
   check('Draft save, publication, role-assigned Task execution, dry-run and activity connection');
   await page.getByRole('button', { name: 'Builder', exact: true }).click();
   await clearToasts(); await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Pause workflow?' }).getByRole('button', { name: 'Pause workflow', exact: true }).click();
   await oneToast('Workflow paused.');
   check('Pause displays one notification');
   await page.getByRole('button', { name: 'Version history', exact: true }).click();

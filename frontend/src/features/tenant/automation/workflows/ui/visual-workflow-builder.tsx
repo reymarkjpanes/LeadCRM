@@ -43,6 +43,7 @@ import { Input } from '@/shared/components/ui/input';
 import { workflowsApi } from '@/shared/services/workflows.api';
 import { ConfirmActionDialog } from '@/shared/components/crm/confirm-action-dialog';
 import { WorkflowDialog } from './workflow-dialog';
+import { WorkflowPauseDialog } from './workflow-pause-dialog';
 import {
   ActionFields,
   ConditionFields,
@@ -60,6 +61,7 @@ import {
   editorDocument,
   editorIssues,
   newWorkflowCondition,
+  isSelectableWorkflowConditionField,
   insertAction,
   moveAction,
   toDraft,
@@ -151,6 +153,7 @@ export default function WorkflowBuilder({
   const [changeTrigger, setChangeTrigger] = useState<string | null>(null),
     [exit, setExit] = useState<NavigationAction | null>(null);
   const [confirmActivation, setConfirmActivation] = useState(false);
+  const [confirmPause, setConfirmPause] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [templateDetached, setTemplateDetached] = useState(false);
   const operation = useRef(false),
@@ -401,7 +404,7 @@ export default function WorkflowBuilder({
     } else if (item.kind === 'condition') {
       const field =
         trigger?.fields.find((entry) => entry.field === item.field) ??
-        trigger?.fields[0];
+        trigger?.fields.find(isSelectableWorkflowConditionField);
       updateDraft({
         ...draft,
         conditions: {
@@ -531,7 +534,7 @@ export default function WorkflowBuilder({
     }
   }
   async function pause() {
-    if (!onPause || operation.current || !canPause) return;
+    if (!onPause || operation.current || !canPause || !saved.isActive) return false;
     operation.current = true;
     setBusy(true);
     setError('');
@@ -551,12 +554,6 @@ export default function WorkflowBuilder({
         'Workflow paused. Remaining actions will be skipped; an already dispatched action cannot be recalled.',
       );
       toast.success('Workflow paused.');
-    } catch (failure) {
-      reportError(
-        failure instanceof Error
-          ? failure.message
-          : 'Unable to pause workflow.',
-      );
     } finally {
       operation.current = false;
       setBusy(false);
@@ -793,7 +790,7 @@ export default function WorkflowBuilder({
                   size="sm"
                   className="order-last col-span-2 sm:order-none"
                   disabled={busy}
-                  onClick={() => void pause()}
+                  onClick={() => setConfirmPause(true)}
                 >
                   Pause
                 </Button>
@@ -1083,6 +1080,8 @@ export default function WorkflowBuilder({
         warning="Review recipients, assigned agents, and field changes before activating. Already dispatched actions cannot be recalled."
         variant="success" confirmLabel={saved.isActive ? "Publish changes" : "Activate workflow"} cancelLabel="Keep editing" isLoading={busy}
         confirmDisabled={readOnly || !canActivate} onConfirm={() => submit(true, false, true)} />
+      <WorkflowPauseDialog open={confirmPause} onOpenChange={setConfirmPause} isLoading={busy}
+        confirmDisabled={!canPause || !saved.isActive || !onPause} onConfirm={pause} />
       <ConfirmActionDialog open={!!exit} onOpenChange={open => { if (!open) { exitPending.current = false; setExit(null); } }}
         title="Discard unsaved changes?" description="Your last saved workflow will be kept."
         variant="warning" confirmLabel="Discard changes" cancelLabel="Keep editing"

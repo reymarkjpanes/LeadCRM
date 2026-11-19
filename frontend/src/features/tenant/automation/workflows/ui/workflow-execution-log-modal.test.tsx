@@ -58,6 +58,7 @@ it('reports one refresh warning after a successful mutation instead of a false f
   mount(vi.fn(), updated); await settled();
   fireEvent.click(screen.getByLabelText('Workflow actions'));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' }));
+  fireEvent.click(within(screen.getByRole('alertdialog', { name: 'Pause workflow?' })).getByRole('button', { name: 'Pause workflow' }));
   await waitFor(() => expect(updated).toHaveBeenCalledOnce());
   await waitFor(() => expect(toast.warning).toHaveBeenCalledExactlyOnceWith('Workflow paused. Refresh the list to see the changes.'));
   expect(toast.error).not.toHaveBeenCalled();
@@ -66,14 +67,24 @@ it('reports one refresh warning after a successful mutation instead of a false f
   await waitFor(() => expect(workflowsApi.get).toHaveBeenCalledTimes(2));
 });
 
-it('shows one error for a rejected mutation and does not refresh or announce success', async () => {
-  vi.mocked(workflowsApi.toggle).mockRejectedValue(new Error('Assignment target unavailable.'));
+it('keeps a failed pause open for retry and submits each confirmation once', async () => {
+  vi.mocked(workflowsApi.toggle).mockRejectedValueOnce(new Error('Unable to pause right now.'));
   const updated = vi.fn(); mount(vi.fn(), updated); await settled();
   fireEvent.click(screen.getByLabelText('Workflow actions'));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' }));
-  await waitFor(() => expect(toast.error).toHaveBeenCalledExactlyOnceWith('Assignment target unavailable.'));
-  expect(toast.warning).not.toHaveBeenCalled(); expect(toast.success).not.toHaveBeenCalled();
+  const dialog = within(screen.getByRole('alertdialog', { name: 'Pause workflow?' }));
+  const confirm = dialog.getByRole('button', { name: 'Pause workflow' });
+  expect(workflowsApi.toggle).not.toHaveBeenCalled();
+  fireEvent.click(confirm); fireEvent.click(confirm);
+  expect((await dialog.findByRole('alert')).textContent).toBe('Unable to pause right now.');
+  expect(workflowsApi.toggle).toHaveBeenCalledExactlyOnceWith('wf', false);
+  expect(toast.error).not.toHaveBeenCalled(); expect(toast.success).not.toHaveBeenCalled();
   expect(updated).not.toHaveBeenCalled(); expect(workflowsApi.get).toHaveBeenCalledOnce();
+  fireEvent.click(confirm);
+  await waitFor(() => expect(screen.queryByRole('alertdialog', { name: 'Pause workflow?' })).toBeNull());
+  expect(workflowsApi.toggle).toHaveBeenCalledTimes(2);
+  expect(workflowsApi.toggle).toHaveBeenLastCalledWith('wf', false);
+  expect(updated).toHaveBeenCalledOnce();
 });
 it('shows the executed version, snapshot and resolved assignee independently of the current definition', async () => {
   vi.mocked(workflowsApi.get).mockResolvedValue({ data: { ...workflow, version: 4 } } as never);
@@ -140,7 +151,12 @@ it('orders header actions and toggles, dismisses and executes the existing workf
   menu(); fireEvent.keyDown(document, { key: 'Escape' }); expect(screen.queryByRole('menu')).toBeNull(); expect(close).not.toHaveBeenCalled();
   menu(); fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' })); expect(push).toHaveBeenCalledWith('/automation/workflows/wf/edit');
   vi.mocked(workflowsApi.get).mockResolvedValue({ data: { ...workflow, isActive: false, status: 'PAUSED' } } as never);
-  menu(); fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' })); await settled();
+  menu(); fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' }));
+  const pauseDialog = () => within(screen.getByRole('alertdialog', { name: 'Pause workflow?' }));
+  fireEvent.click(pauseDialog().getByRole('button', { name: 'Cancel' }));
+  expect(workflowsApi.toggle).not.toHaveBeenCalled();
+  menu(); fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' }));
+  fireEvent.click(pauseDialog().getByRole('button', { name: 'Pause workflow' })); await settled();
   expect(workflowsApi.toggle).toHaveBeenCalledWith('wf', false); await waitFor(() => expect(screen.getByText(/Workflow details/).textContent).toBe('Workflow details · Paused'));
   menu(); expect(screen.queryByRole('menuitem', { name: 'Pause' })).toBeNull(); fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' })); await settled();
   expect(workflowsApi.toggle).toHaveBeenCalledWith('wf', true);

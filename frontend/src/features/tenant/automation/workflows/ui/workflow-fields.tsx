@@ -18,7 +18,7 @@ import { Button } from '@/shared/components/ui/button';
 import { ConditionFieldSelect, ConditionOperatorSelect, ConditionScalarInput } from '@/shared/components/condition-controls';
 import { Input, textFieldClassName } from '@/shared/components/ui/input';
 import { cn } from '@/lib/utils';
-import { conditionRuleIssue, newWorkflowCondition, references, retiredActionLabels } from '../services/workflow-editor';
+import { conditionRuleIssue, isSelectableWorkflowConditionField, newWorkflowCondition, references, retiredActionLabels } from '../services/workflow-editor';
 import { WorkflowAssignmentFields } from './workflow-assignment-fields';
 import { WorkflowEmailOverride } from './workflow-email-override';
 import { WorkflowTaskAssociations } from './workflow-task-associations';
@@ -149,6 +149,7 @@ export function ConditionFields({
 }) {
   const id = useId();
   const missingValues = missingWorkflowConditionValues(value, previousConditions);
+  const fields = trigger?.fields ?? [];
   return (
     <div className="space-y-4 text-sm">
       <label className="block space-y-1">
@@ -172,9 +173,14 @@ export function ConditionFields({
           : 'Actions run once only when every condition matches.'}
       </p>
       {value.conditions.map((rule, index) => {
-        const field = trigger?.fields.find(
-          (field) => field.field === rule.field,
-        );
+        const field = fields.find((field) => field.field === rule.field);
+        const fieldChoices = fields.filter((candidate) => isSelectableWorkflowConditionField(candidate) || candidate === field)
+          .map((candidate) => ({
+            key: candidate.field,
+            label: candidate.label,
+            group: candidate.group === 'custom' ? 'Custom Fields' : 'Standard Fields',
+            disabled: !isSelectableWorkflowConditionField(candidate),
+          }));
         const rawChoices =
           field?.options?.map((option) => ({ id: option, name: field?.optionLabels?.[option] ?? option })) ??
           references(field?.type ?? '', options);
@@ -203,8 +209,8 @@ export function ConditionFields({
             </div>
             <label className="block">
               <span>Field <span className="text-red-500" aria-hidden="true">*</span></span>
-              <ConditionFieldSelect required label={`Condition ${index + 1} field`} aria-required="true" aria-invalid={!field} aria-describedby={issue ? issueId : undefined} className={workflowControl} value={rule.field} fields={(trigger?.fields ?? []).map(field => ({ key: field.field, label: field.label, group: field.group === 'custom' ? 'Custom Fields' : 'Standard Fields' }))} onChange={key => {
-                const next = trigger?.fields.find(field => field.field === key);
+              <ConditionFieldSelect required label={`Condition ${index + 1} field`} aria-required="true" aria-invalid={!field} aria-describedby={issue ? issueId : undefined} className={workflowControl} value={rule.field} fields={fieldChoices} onChange={key => {
+                const next = fields.find(field => field.field === key);
                 const changed = transitionConditionField(rule, next && { key: next.field, type: next.type }, next ? workflowOperators(next.type) : [], 'workflow');
                 update({ ...changed, operator: (changed.operator || 'equals') as typeof rule.operator, incompleteValue: undefined });
               }} />
@@ -271,7 +277,7 @@ export function ConditionFields({
             ...value,
             conditions: [
               ...value.conditions,
-              newWorkflowCondition(trigger?.fields[0]),
+              newWorkflowCondition(fields.find(isSelectableWorkflowConditionField)),
             ],
           })
         }

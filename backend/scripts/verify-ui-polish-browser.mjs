@@ -187,8 +187,14 @@ try {
   assert.ok(await activeRow.getByText('Active', { exact: true }).locator('span').evaluate(el => el.classList.contains('bg-emerald-500')));
   assert.ok(await pausedRow.getByText('Paused', { exact: true }).locator('span').evaluate(el => el.classList.contains('bg-amber-500')));
   await activeRow.getByRole('button', { name: 'Pause workflow' }).click();
+  const pauseDialog = page.getByRole('alertdialog', { name: 'Pause workflow?' });
+  await pauseDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await activeRow.getByText('Active', { exact: true }).waitFor();
+  await activeRow.getByRole('button', { name: 'Pause workflow' }).click();
+  await pauseDialog.getByRole('button', { name: 'Pause workflow', exact: true }).click();
   await activeRow.getByText('Paused', { exact: true }).waitFor();
   await activeRow.getByRole('button', { name: 'Resume workflow' }).click();
+  await page.getByRole('alertdialog', { name: 'Activate workflow?' }).getByRole('button', { name: 'Activate workflow', exact: true }).click();
   await activeRow.getByText('Active', { exact: true }).waitFor();
   record('Workflow status dots and pause/resume follow persisted state');
   await responsive('workflows');
