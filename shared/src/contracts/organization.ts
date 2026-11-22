@@ -10,6 +10,10 @@ export const COMPANY_NAME_MAX_ERROR = maxLengthMessage('Company name', COMPANY_N
 export const CRM_ADDRESS_MAX_ERROR = maxLengthMessage('Address', CRM_ADDRESS_MAX_LENGTH);
 export const CrmCompanyNameSchema = cleanText(COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR);
 
+export function companyNameMatchKey(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 export const CrmAddressSchema = z.string()
   .refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
   .transform(value => value.trim()).pipe(z.string().max(CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR));

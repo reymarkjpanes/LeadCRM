@@ -116,6 +116,99 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     const denied = await call(`/crm/${module}`, 'POST', { ...input, email: `${randomUUID()}@example.test`, requestId: randomUUID(), assignedUserId: otherAgentId }, agentToken);
     expect(denied.status, JSON.stringify(denied.body)).toBe(403);
   });
+
+  it('suggests Lead company names and shares one Account across two Closed Won deals', async () => {
+    const companyName = 'ABC Trading';
+    const companyOptions = (name: string) => call('/crm/leads/company-options?' + new URLSearchParams({ search: name }));
+    const count = () => prisma.account.count({ where: { tenantId, name: companyName } });
+    const product = await prisma.productInterest.create({
+      data: { tenantId, category: 'Security', name: 'Company picker CCTV', dealValue: 1000 },
+    });
+    const dealIds: string[] = [];
+    for (const [firstName, lastName] of [['Ana', 'Reyes'], ['Marco', 'Santos']]) {
+      const lead = await call('/crm/leads', 'POST', {
+        firstName, lastName, email: `${randomUUID()}@example.test`, assignedUserId: agentId,
+        companyName: firstName === 'Ana' ? companyName : 'abc  trading', accountId: null, requestId: randomUUID(),
+      });
+      expect(lead.status, JSON.stringify(lead.body)).toBe(201);
+      expect(lead.body.data.accountId).toBeNull();
+      const options = await companyOptions(' abc   trading ');
+      expect(options.status, JSON.stringify(options.body)).toBe(200);
+      expect(options.body.data.accounts).toEqual([]);
+      expect(options.body.data.leadCompanies.map((name: string) => name.toLowerCase())).toEqual(['abc trading']);
+      const deal = await call('/crm/deals', 'POST', {
+        title: `${firstName} CCTV`, pipelineId, stageId: stages.Qualified, value: 1000,
+        leadIds: [lead.body.data.id], productInterestId: product.id,
+      });
+      expect(deal.status, JSON.stringify(deal.body)).toBe(201);
+      const qualified = await call(`/crm/deals/${deal.body.data.id}/stage`, 'PATCH', { stageId: stages.Qualified });
+      expect(qualified.status, JSON.stringify(qualified.body)).toBe(200);
+      dealIds.push(deal.body.data.id);
+    }
+    expect(await count()).toBe(0);
+    for (const id of dealIds) {
+      const won = await call(`/crm/deals/${id}/stage`, 'PATCH', {
+        stageId: stages['Closed Deal'],
+        confirmation: { type: 'Approved Quotation', date: new Date().toISOString().slice(0, 10) },
+      });
+      expect(won.status, JSON.stringify(won.body)).toBe(200);
+      expect(await count()).toBe(1);
+      expect((await companyOptions(companyName)).body.data).toEqual({
+        accounts: [expect.objectContaining({ name: companyName })], leadCompanies: [],
+      });
+    }
+    const deals = await prisma.deal.findMany({ where: { tenantId, id: { in: dealIds } } });
+    expect(deals).toHaveLength(2);
+    expect(deals[0].accountId).toBeTruthy();
+    expect(deals[0].accountId).toBe(deals[1].accountId);
+    expect(deals.every(deal => deal.stageId === stages['Closed Deal'] && deal.wonConfirmedAt)).toBe(true);
+  }, 40000);
+
+  it('scopes company picker suggestions by tenant, record permissions and source', async () => {
+    const own = 'Picker Own Company';
+    const restricted = 'Picker Restricted Company';
+    const foreign = await prisma.user.findUniqueOrThrow({ where: { id: foreignId }, select: { tenantId: true } });
+    await prisma.lead.createMany({ data: [
+      { tenantId, firstName: 'Own', lastName: 'Lead', companyName: own, assignedUserId: agentId },
+      { tenantId, firstName: 'Other', lastName: 'Lead', companyName: restricted, assignedUserId: otherAgentId },
+      { tenantId, firstName: 'Archived', lastName: 'Lead', companyName: 'Picker Archived Company', isArchived: true },
+      { tenantId, firstName: 'Converted', lastName: 'Lead', companyName: 'Picker Converted Company', convertedAt: new Date() },
+      { tenantId, firstName: 'Deleted', lastName: 'Lead', companyName: 'Picker Deleted Company', deletedAt: new Date() },
+      { tenantId: foreign.tenantId, firstName: 'Foreign', lastName: 'Lead', companyName: 'Picker Foreign Company' },
+    ] });
+    const accounts = await Promise.all([
+      prisma.account.create({ data: { tenantId, name: own, address: 'Makati' } }),
+      prisma.account.create({ data: { tenantId, name: own, address: 'Pasig' } }),
+      prisma.account.create({ data: { tenantId: foreign.tenantId, name: 'Picker Foreign Account' } }),
+    ]);
+    const path = '/crm/leads/company-options?search=picker';
+    const admin = await call(path);
+    expect(admin.status, JSON.stringify(admin.body)).toBe(200);
+    expect(admin.body.data.leadCompanies).toEqual([restricted]);
+    expect(admin.body.data.accounts.map((account: { id: string }) => account.id).sort()).toEqual([accounts[0].id, accounts[1].id].sort());
+    const agent = await call(path, 'GET', undefined, agentToken);
+    expect(agent.status, JSON.stringify(agent.body)).toBe(200);
+    expect(agent.body.data).toEqual({ accounts: [], leadCompanies: [own] });
+    const onlyAccounts = await call(path + '&source=accounts');
+    expect(onlyAccounts.body.data).toEqual({ accounts: admin.body.data.accounts, leadCompanies: [] });
+    const onlyLeads = await call(path + '&source=leads');
+    expect(onlyLeads.body.data).toEqual({ accounts: [], leadCompanies: [own, restricted] });
+  });
+
+  it('keeps an explicitly entered company name when a same-name Account is unlinked', async () => {
+    const companyName = 'Unlinked picker company';
+    const account = await prisma.account.create({ data: { tenantId, name: companyName } });
+    const lead = await call('/crm/leads', 'POST', {
+      firstName: 'Link', lastName: 'Change', email: `${randomUUID()}@example.test`, assignedUserId: agentId,
+      accountId: account.id, requestId: randomUUID(),
+    });
+    expect(lead.status, JSON.stringify(lead.body)).toBe(201);
+    const changed = await call(`/crm/leads/${lead.body.data.id}`, 'PUT', { accountId: null, companyName });
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(await prisma.lead.findUniqueOrThrow({ where: { id: lead.body.data.id } })).toMatchObject({
+      accountId: null, companyName, companyFromAccount: false,
+    });
+  });
   it('converts Closed transactionally, hides the Lead, preserves all Deals and exposes source activity', async () => {
     const { lead, deals } = await customer();
     const activity = await prisma.activity.create({ data: { tenantId, leadId: lead.id, createdById: adminId, type: 'note', title: 'Original audit history' } });

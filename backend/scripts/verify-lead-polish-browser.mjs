@@ -119,14 +119,16 @@ try {
   await form.getByRole('button', { name: 'Create Lead', exact: true }).click();
   assert.equal(await prisma.lead.count({ where: { email: 'browser-lead@example.test' } }), 0);
   await phone.fill('9123456789');
-  await form.getByRole('button', { name: 'Create new account', exact: true }).click();
-  await form.getByLabel('Company Name *', { exact: true }).fill('Browser Company');
+  await form.getByRole('combobox', { name: 'Company', exact: true }).click();
+  await form.getByRole('combobox', { name: 'Company', exact: true }).fill('Browser Company');
+  await page.getByRole('option', { name: /Add company.*Browser Company/ }).click();
   await form.getByLabel('Full Address', { exact: true }).last().fill('First line\nSecond line');
   await responsive('lead-create', form);
   await form.getByRole('button', { name: 'Create Lead', exact: true }).click();
   await page.getByText('Browser Acceptance', { exact: true }).first().waitFor();
   const saved = await prisma.lead.findFirstOrThrow({ where: { email: 'browser-lead@example.test' } });
   assert.equal(saved.phone, '+639123456789'); assert.equal(saved.address, 'First line\nSecond line');
+  assert.equal(saved.companyName, 'Browser Company'); assert.equal(saved.accountId, null);
   assert.equal(saved.assignedUserId, replacement.id); record('Lead form validation and SQL persistence');
   await navigate('/settings?tab=users');
   await page.getByRole('button', { name: 'Deactivate Departure Agent', exact: true }).click();

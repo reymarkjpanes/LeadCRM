@@ -31,7 +31,7 @@ export function toBackendCreateContact(data: Record<string, any>): Record<string
     status: toBackendStatus(data.status),
     source: data.source ?? data.leadSource ?? undefined,
     ...('sourceDetail' in data ? { sourceDetail: (data as { sourceDetail?: string }).sourceDetail ?? '' } : {}),
-    accountId: data.accountId || undefined,
+    accountId: data.accountId === null ? null : data.accountId || undefined,
     assignedUserId: data.assignedUserId || undefined,
     productInterest: data.productInterestIds ?? data.productInterest,
     address: data.address || undefined,

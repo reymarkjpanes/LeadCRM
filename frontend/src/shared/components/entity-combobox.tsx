@@ -18,10 +18,19 @@ import { Input } from '@/shared/components/ui/input';
 
 export type EntityType = 'accounts' | 'contacts' | 'leads' | 'users' | 'pipelines' | 'stages';
 
-interface EntityOption {
+export interface EntityOption {
   id: string;
   label: string;
   sublabel?: string;
+  group?: string;
+}
+
+interface EntityOptionSource {
+  load: (search: string, signal: AbortSignal) => Promise<EntityOption[]>;
+  selected?: EntityOption;
+  addOption?: (search: string, options: EntityOption[]) => EntityOption | undefined;
+  label: string;
+  maxSearchLength?: number;
 }
 
 interface EntityComboboxBaseProps {
@@ -53,7 +62,8 @@ interface SingleSelectProps extends EntityComboboxBaseProps {
   /** Current selected value (ID) */
   value: string | null;
   /** Change handler */
-  onChange: (id: string | null) => void;
+  onChange: (id: string | null, option?: EntityOption) => void;
+  optionSource?: EntityOptionSource;
   values?: never;
   onMultiChange?: never;
 }
@@ -66,6 +76,7 @@ interface MultiSelectProps extends EntityComboboxBaseProps {
   onMultiChange: (ids: string[]) => void;
   value?: never;
   onChange?: never;
+  optionSource?: never;
 }
 
 export type EntityComboboxProps = SingleSelectProps | MultiSelectProps;
@@ -158,18 +169,21 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
     assignmentModules,
     className,
     multiple = false,
+    optionSource,
   } = props;
+  const loadOptions = optionSource?.load;
 
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [settledSearch, setSettledSearch] = useState<string | null>(null);
   const [remoteOptions, setRemoteOptions] = useState<EntityOption[]>([]);
   const [knownOptions, setKnownOptions] = useState<Record<string, EntityOption>>({});
   const requestVersion = useRef(0);
   const { user } = useAuth();
-  const useServer = !USE_MOCK_DATA && ['accounts', 'contacts', 'leads'].includes(entityType);
+  const useServer = !!loadOptions || !USE_MOCK_DATA && ['accounts', 'contacts', 'leads'].includes(entityType);
   const selectedIds: string[] = props.multiple ? props.values : props.value ? [props.value] : [];
   const selectionKey = JSON.stringify(selectedIds);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -184,11 +198,13 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
   // Retry mechanism for data load errors
   const handleRetry = useCallback((): void => {
     setLoadError(null);
+    setSettledSearch(null);
     setRetry(value => value + 1);
   }, []);
 
   // Get the raw entity list from DataContext
   const rawEntities = useMemo((): EntityOption[] => {
+    if (loadOptions) return [];
     try {
       let entities: Array<Organization | Contact | User | Pipeline | Stage> = [];
 
@@ -229,12 +245,13 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
       setLoadError('Failed to load data. Please try again.');
       return [];
     }
-  }, [dataContext, entityType, pipelineId, assignmentModules]);
+  }, [dataContext, entityType, pipelineId, assignmentModules, loadOptions]);
 
   useEffect(() => {
     setRemoteOptions([]); setKnownOptions({}); setLoadError(null);
+    setSettledSearch(null);
     return () => { requestVersion.current++; };
-  }, [user?.id, user?.tenantId, entityType]);
+  }, [user?.id, user?.tenantId, entityType, loadOptions]);
 
   useEffect(() => {
     if (!useServer || !isOpen || searchTerm.trim() !== debouncedSearch.trim()) return;
@@ -242,26 +259,31 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
     const term = debouncedSearch.trim();
     setLoading(true); setLoadError(null);
     const query = { search: term.length >= minSearchChars ? term : '', limit: MAX_RESULTS };
-    const request = entityType === 'leads' ? leadsService.getAll(query, controller.signal)
+    const entityRequest = () => entityType === 'leads' ? leadsService.getAll(query, controller.signal)
       : entityType === 'contacts' ? contactsV2Api.list(query, controller.signal)
       : accountsService.getAll(query, controller.signal);
-    void request.then(response => {
-      if (version !== requestVersion.current || controller.signal.aborted) return;
-      const options = response.data.filter(entity => !entity.isArchived).map(entity => ({
+    const request = loadOptions ? loadOptions(query.search, controller.signal)
+      : entityRequest().then(response => response.data.filter(entity => !entity.isArchived).map(entity => ({
         id: entity.id, label: getDisplayName(entity, entityType), sublabel: getSublabel(entity, entityType),
-      }));
+      })));
+    void request.then(options => {
+      if (version !== requestVersion.current || controller.signal.aborted) return;
       setRemoteOptions(options);
-      setKnownOptions(previous => ({ ...previous, ...Object.fromEntries(options.map(option => [option.id, option])) }));
+      if (!loadOptions) setKnownOptions(previous => ({ ...previous, ...Object.fromEntries(options.map(option => [option.id, option])) }));
     }).catch(error => {
       if (version !== requestVersion.current || controller.signal.aborted) return;
       setRemoteOptions([]); setLoadError(error instanceof Error ? error.message : 'Unable to load options.');
-    }).finally(() => { if (version === requestVersion.current) setLoading(false); });
+    }).finally(() => {
+      if (version !== requestVersion.current) return;
+      setLoading(false);
+      if (loadOptions) setSettledSearch(term);
+    });
     return () => { controller.abort(); requestVersion.current++; };
-  }, [useServer, isOpen, debouncedSearch, searchTerm, minSearchChars, entityType, user?.id, user?.tenantId, retry]);
+  }, [useServer, loadOptions, isOpen, debouncedSearch, searchTerm, minSearchChars, entityType, user?.id, user?.tenantId, retry]);
 
   // A saved association may be beyond the first page and must retain its label.
   useEffect(() => {
-    if (!useServer) return;
+    if (!useServer || loadOptions) return;
     let active = true;
     const ids: string[] = JSON.parse(selectionKey);
     void Promise.allSettled(ids.map(async id => {
@@ -273,7 +295,7 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
       setKnownOptions(previous => ({ ...previous, ...Object.fromEntries(results.flatMap(result => result.status === 'fulfilled' ? [[result.value.id, result.value]] : [])) }));
     });
     return () => { active = false; };
-  }, [useServer, selectionKey, entityType, user?.id, user?.tenantId]);
+  }, [useServer, loadOptions, selectionKey, entityType, user?.id, user?.tenantId]);
 
   // Filter entities based on debounced search
   const filteredOptions = useMemo((): EntityOption[] => {
@@ -289,12 +311,22 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
   }, [rawEntities, debouncedSearch, minSearchChars, entityType, useServer, remoteOptions]);
 
   // Determine if "No results found" should show
-  const showNoResults = filteredOptions.length === 0 && !loadError && !loading;
+  const searchPending = loading || (!!loadOptions && settledSearch !== searchTerm.trim());
+  const addOption = searchPending ? undefined : optionSource?.addOption?.(searchTerm, filteredOptions);
+  const canAdd = !!addOption;
+  const showNoResults = filteredOptions.length === 0 && !addOption && !loadError && !searchPending;
+  const groups = new Map<string | undefined, EntityOption[]>();
+  for (const option of filteredOptions) {
+    const group = groups.get(option.group);
+    if (group) group.push(option);
+    else groups.set(option.group, [option]);
+  }
 
   const selectedOptions = useMemo((): EntityOption[] => {
     const options = new Map([...(useServer ? [] : rawEntities), ...Object.values(knownOptions)].map(option => [option.id, option]));
+    if (optionSource?.selected) options.set(optionSource.selected.id, optionSource.selected);
     return selectedIds.flatMap(id => options.get(id) ? [options.get(id)!] : []);
-  }, [rawEntities, knownOptions, selectionKey, useServer]);
+  }, [rawEntities, knownOptions, selectionKey, useServer, optionSource?.selected]);
 
   // Close on outside click
   useEffect(() => {
@@ -341,7 +373,7 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
       window.removeEventListener('resize', resize); window.removeEventListener('scroll', align, true);
       window.visualViewport?.removeEventListener('resize', resize); window.visualViewport?.removeEventListener('scroll', align);
     };
-  }, [isOpen, filteredOptions.length, loadError]);
+  }, [isOpen, filteredOptions.length, loadError, searchPending, canAdd]);
   const returnFocus = () => requestAnimationFrame(() => wrapperRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true }));
 
   // Focus search input on open
@@ -351,11 +383,13 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
     }
     if (!isOpen) {
       setSearchTerm('');
+      if (loadOptions) { setSettledSearch(null); setRemoteOptions([]); setLoadError(null); }
     }
-  }, [isOpen]);
+  }, [isOpen, loadOptions]);
 
   // Event handlers
-  const handleSelect = useCallback((optionId: string): void => {
+  const handleSelect = useCallback((option: EntityOption): void => {
+    const optionId = option.id;
     if (props.multiple) {
       const currentValues = props.values;
       if (currentValues.includes(optionId)) {
@@ -364,7 +398,8 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
         props.onMultiChange([...currentValues, optionId]);
       }
     } else {
-      props.onChange(optionId);
+      if (props.optionSource) props.onChange(optionId, option);
+      else props.onChange(optionId);
       setIsOpen(false); returnFocus();
     }
   }, [props]);
@@ -394,6 +429,11 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
 
   const handleSearchKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setIsOpen(false); returnFocus(); return; }
+    if (optionSource && e.key === 'Enter' && e.target === inputRef.current) {
+      e.preventDefault();
+      listRef.current?.querySelector<HTMLButtonElement>('[role="option"]')?.focus();
+      return;
+    }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
     if ((e.key === 'Home' || e.key === 'End') && e.target === inputRef.current) return;
     e.preventDefault(); e.stopPropagation();
@@ -512,8 +552,14 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
             aria-invalid={!!error}
             aria-describedby={error ? errorId : undefined}
             className="w-full pl-9 pr-10 border-2 rounded-lg py-2 text-sm shadow-sm transition-all"
+            maxLength={optionSource?.maxSearchLength}
             value={searchTerm}
-            onChange={(e) => { requestVersion.current++; setRemoteOptions([]); setSearchTerm(e.target.value); }}
+            onChange={(e) => {
+              requestVersion.current++;
+              setRemoteOptions([]);
+              setSearchTerm(e.target.value);
+              if (loadOptions) { setSettledSearch(null); setLoadError(null); }
+            }}
             onKeyDown={handleSearchKeyDown}
             placeholder={displayPlaceholder}
           />
@@ -537,11 +583,11 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
           style={position}
           role="listbox"
           aria-multiselectable={multiple}
-          aria-label={`${entityType} options`}
+          aria-label={optionSource?.label ?? `${entityType} options`}
           className="fixed z-[300] bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg overflow-y-auto overscroll-contain py-1"
         >
           {/* Error state with retry */}
-          {loading && <p role="status" className="px-4 py-3 text-center text-sm text-muted-foreground">Loading options…</p>}
+          {searchPending && <p role="status" className="px-4 py-3 text-center text-sm text-muted-foreground">Loading options…</p>}
           {loadError && (
             <div className="px-4 py-5 text-center">
               <AlertCircle size={20} className="mx-auto mb-2 text-rose-500" />
@@ -565,16 +611,17 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
           )}
 
           {/* Search hint when below threshold */}
-          {!loadError && !showNoResults && debouncedSearch.length > 0 && debouncedSearch.length < minSearchChars && (
+          {!loadOptions && !loadError && !showNoResults && debouncedSearch.length > 0 && debouncedSearch.length < minSearchChars && (
             <div className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500 text-center">
               Type at least {minSearchChars} characters to search
             </div>
           )}
 
           {/* Results list */}
-          {!loadError && filteredOptions.length > 0 && (
-            <div className="divide-y divide-slate-50 dark:divide-white/5">
-              {filteredOptions.map((option) => {
+          {!loadError && [...groups].map(([group, options]) => (
+            <div key={group ?? 'ungrouped'} role={group ? 'group' : undefined} aria-label={group} className="divide-y divide-slate-50 dark:divide-white/5">
+              {group && <div aria-hidden="true" className="px-4 pb-1 pt-2 text-xs font-semibold text-muted-foreground">{group}</div>}
+              {options.map((option) => {
                 const isSelected = selectedIds.includes(option.id);
                 return (
                   <button
@@ -588,7 +635,7 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
                         ? 'bg-blue-50/50 text-blue-600 dark:bg-blue-900/10 dark:text-blue-400 font-medium'
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 focus:bg-slate-50 dark:focus:bg-slate-800/50',
                     )}
-                    onClick={() => handleSelect(option.id)}
+                    onClick={() => handleSelect(option)}
                   >
                     <div className="flex flex-col items-start gap-0.5 min-w-0">
                       <span className={cn('truncate', isSelected && 'font-medium')}>
@@ -605,7 +652,14 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
                 );
               })}
             </div>
-          )}
+          ))}
+          {addOption && <button
+            type="button"
+            role="option"
+            aria-selected={false}
+            className="w-full break-words border-t border-border px-4 py-2.5 text-left text-sm font-medium text-primary outline-none hover:bg-primary/5 focus:bg-primary/10"
+            onClick={() => handleSelect(addOption)}
+          >Add company “{addOption.label}”</button>}
         </div></ThemedPortal>
       )}
 

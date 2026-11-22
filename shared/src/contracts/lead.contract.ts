@@ -3,7 +3,7 @@ import { cleanText, AdministrationPhoneSchema } from '../validation/administrati
 import { CrmEmailSchema } from '../validation/crm-email';
 import { LeadStatusSchema, LeadSourceSchema } from './record-experience';
 import { CustomFieldValuesSchema } from './closing-requirements';
-import { NewAccountSchema, exclusiveAccountInput, CrmCompanyNameSchema, CrmAddressSchema, COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR } from './organization';
+import { NewAccountSchema, companyNameMatchKey, exclusiveAccountInput, CrmCompanyNameSchema, CrmAddressSchema, COMPANY_NAME_MAX_LENGTH, COMPANY_NAME_MAX_ERROR } from './organization';
 import { personNameSchema } from './profile.contract';
 
 export const LeadNameSchema = cleanText(100).pipe(z.string().min(1, 'Name is required'));
@@ -36,6 +36,45 @@ export const UpdateLeadSchema = LeadFieldsSchema.partial().extend({ expectedUpda
   .refine(exclusiveAccountInput, { path: ['newAccount'], message: 'Select an Account or create a new one, not both.' });
 export type CreateLeadInput = z.infer<typeof CreateLeadSchema>;
 export type UpdateLeadInput = z.infer<typeof UpdateLeadSchema>;
+
+export const LeadCompanyOptionsQuerySchema = z.object({
+  search: CrmCompanyNameSchema.optional().default(''),
+  source: z.enum(['both', 'accounts', 'leads']).default('both'),
+}).strict();
+export type LeadCompanyOptionsQuery = z.input<typeof LeadCompanyOptionsQuerySchema>;
+
+export interface LeadCompanyOptions {
+  accounts: Array<{ id: string; name: string; industry: string | null; address: string | null }>;
+  leadCompanies: string[];
+}
+
+/** Apply the same matching and grouping rules to live and mock Lead suggestions. */
+export function matchLeadCompanyOptions(
+  accounts: LeadCompanyOptions['accounts'],
+  leadNames: string[],
+  search: string,
+): LeadCompanyOptions {
+  const limit = 50;
+  const term = companyNameMatchKey(search);
+  const matchingAccounts = accounts.filter(account => companyNameMatchKey(account.name).includes(term));
+  const seen = new Set(matchingAccounts.map(account => companyNameMatchKey(account.name)));
+  const normalizedNames = leadNames.flatMap(value => {
+    const result = CrmCompanyNameSchema.safeParse(value);
+    return result.success ? [result.data.replace(/\s+/g, ' ')] : [];
+  });
+  const leadCompanies: string[] = [];
+  for (const name of normalizedNames.sort((a, b) => a.localeCompare(b))) {
+    const key = companyNameMatchKey(name);
+    if (!key || seen.has(key) || !key.includes(term)) continue;
+    seen.add(key);
+    leadCompanies.push(name);
+    if (leadCompanies.length === limit) break;
+  }
+  return {
+    accounts: matchingAccounts.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).slice(0, limit),
+    leadCompanies,
+  };
+}
 
 /** New Account details use the same contract as standalone and linked creation. */
 export const ConvertLeadSchema = z.object({

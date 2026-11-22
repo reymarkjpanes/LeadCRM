@@ -835,8 +835,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const linkedAccount = organizations.find(account => account.id === leadData.accountId && account.tenantId === tenant.id && !account.isArchived);
     const newLead: Contact = {
       ...leadData,
+      ...(linkedAccount ? { companyName: linkedAccount.name, organizationId: linkedAccount.id } : {}),
       status: leadData.status ?? "Inquiry",
       id: uuid(),
       tenantId: tenant.id,
@@ -869,7 +871,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const original = contacts.find((l) => l.id === id);
     const newLeads = contacts.map((l) => {
       if (l.id === id) {
-        const updated = { ...l, ...updates };
+        const linkedAccount = organizations.find(account => account.id === updates.accountId && account.tenantId === l.tenantId && !account.isArchived);
+        const updated = {
+          ...l, ...updates,
+          ...(linkedAccount ? { companyName: linkedAccount.name, organizationId: linkedAccount.id } : {}),
+          ...(updates.accountId === null ? { organizationId: undefined } : {}),
+        };
         if (updates.status) (updated as Contact & Pick<Lead, "score">).score = calculateScore(updates.status);
         return updated;
       }
