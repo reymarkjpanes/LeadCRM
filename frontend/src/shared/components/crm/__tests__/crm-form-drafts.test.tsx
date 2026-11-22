@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { LeadFormSheet } from '@/features/tenant/crm/leads/ui/lead-form';
 import { ContactFormSheet as ContactForm } from '@/features/tenant/crm/contacts/ui/contact-form';
 import type { Lead } from '@/store/types';
+import type { EntityOption } from '@/shared/components/entity-combobox';
 import { AccountFormSheet } from '@/features/tenant/crm/accounts/ui/account-form';
 import { INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '@leadcrm/shared';
 import { toast } from '@/shared/utils/toast';
@@ -20,7 +21,18 @@ vi.mock('@/shared/hooks/use-cached-page', () => ({ useCachedPage: () => ({ data:
 vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [{ id: 'product', name: 'Camera', category: 'Security', dealValue: 100 }], loading: false }) }));
 vi.mock('@/shared/hooks/use-scroll-to-error', () => ({ useScrollToError: () => {} }));
 vi.mock('@/shared/hooks/use-duplicate-check', () => ({ useDuplicateCheck: () => ({ matches: [], hasDuplicates: false, isChecking: false, dismiss: vi.fn() }) }));
-vi.mock('@/shared/components/entity-combobox', () => ({ EntityCombobox: ({ onChange }: { onChange: (id: string) => void }) => <button type="button" onClick={() => onChange('account')}>Choose account</button> }));
+vi.mock('@/shared/components/entity-combobox', () => ({
+  EntityCombobox: ({ onChange, optionSource }: {
+    onChange: (id: string, option?: EntityOption) => void;
+    optionSource?: { addOption?: (search: string, options: EntityOption[]) => EntityOption | undefined };
+  }) => <>
+    <button type="button" onClick={() => onChange('account', { id: 'account', label: 'Selected Account' })}>Choose account</button>
+    {optionSource && <button type="button" onClick={() => {
+      const option = optionSource.addOption?.('Draft company', []);
+      if (option) onChange(option.id, option);
+    }}>Add company</button>}
+  </>,
+}));
 vi.mock('@/shared/components/crm/record-custom-fields', () => ({ useRecordCustomFields: () => ({ fields: [], blocked: false, dirty: false, uploadCount: 0, validate: () => true, payload: () => ({}), query: {} }), CustomFieldGroup: () => null, CustomFieldExtraGroups: () => null, CustomFieldInput: () => null }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -124,16 +136,20 @@ const changeDraft = {
     fireEvent.keyDown(screen.getByRole('group', { name: 'Product interests' }), { key: 'Escape' });
   },
   account: () => fireEvent.click(screen.getByRole('button', { name: 'Choose account' })),
-  companyName: () => {
+  companyName: (name: 'Lead' | 'Contact') => {
+    if (name === 'Lead') {
+      fireEvent.click(screen.getByRole('button', { name: 'Add company' }));
+      return;
+    }
     fireEvent.click(screen.getByRole('button', { name: 'Create new account' }));
     fireEvent.change(screen.getByLabelText(/^Company(?: Name)? \*$/), { target: { value: 'Draft company' } });
   },
 };
 
-it.each(forms.flatMap(form => Object.entries(changeDraft).map(([field, change]) => ({ ...form, field, change }))))('$name protects changes to $field and preserves them after Keep editing', async ({ Form, change }) => {
+it.each(forms.flatMap(form => Object.entries(changeDraft).map(([field, change]) => ({ ...form, field, change }))))('$name protects changes to $field and preserves them after Keep editing', async ({ Form, name, change }) => {
   const closed = vi.fn();
   render(<Form isOpen onClose={closed} onSave={vi.fn()} />);
-  change();
+  change(name);
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await screen.findByRole('alertdialog', { name: 'Discard unsaved changes?' });
   expect(closed).not.toHaveBeenCalled();

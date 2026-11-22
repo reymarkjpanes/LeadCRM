@@ -2,7 +2,7 @@ import { productRelationData } from './product-relations';
 import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
 import { isDeepStrictEqual } from 'node:util';
 import type { ContactStatus, Deal, Prisma } from '@prisma/client';
-import { aggregateDealEngagement, normalizeCrmStatus, type NewAccountInput } from '@leadcrm/shared';
+import { aggregateDealEngagement, companyNameMatchKey, normalizeCrmStatus, type NewAccountInput } from '@leadcrm/shared';
 import { classifyCustomerRecord } from '../customer-classification.service';
 import { createCompany } from '../companies/companies.service';
 import { createLinkedAccount } from '../companies/organization-creation';
@@ -13,7 +13,6 @@ import { fireContactCreated, fireContactStatusChanged, fireContactUpdated, fireD
 import { recordChanges } from '../record-updates';
 import { salesContext } from './sales-context';
 
-const companyIdentity = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
 async function conversionWrite<T>(operation: string, work: () => Promise<T>): Promise<T> {
   try { return await work(); }
   catch (error) {
@@ -97,7 +96,7 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   if (!accountId && accountName && !events.skipAccountCreation) {
     const name = accountName.replace(/\s+/g, ' ');
     const matches = (await tx.account.findMany({ where: { tenantId, name: { contains: name.split(' ')[0], mode: 'insensitive' } } }))
-      .filter(row => companyIdentity(row.name) === companyIdentity(name));
+      .filter(row => companyNameMatchKey(row.name) === companyNameMatchKey(name));
     if (matches.length > 1 || matches[0]?.isArchived || matches[0]?.deletedAt) throw conflict();
     // Shared Account creation must join even callers using a raw Prisma transaction.
     accountId = matches[0]?.id ?? (await salesContext.run(tx, () => events.newAccount

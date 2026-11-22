@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DeactivateUserSchema = exports.ConvertLeadSchema = exports.UpdateLeadSchema = exports.ManualCreateLeadSchema = exports.CreateLeadSchema = exports.LeadFieldsSchema = exports.OptionalLeadSourceSchema = exports.LeadPhoneSchema = exports.LeadNameSchema = void 0;
+exports.DeactivateUserSchema = exports.ConvertLeadSchema = exports.LeadCompanyOptionsQuerySchema = exports.UpdateLeadSchema = exports.ManualCreateLeadSchema = exports.CreateLeadSchema = exports.LeadFieldsSchema = exports.OptionalLeadSourceSchema = exports.LeadPhoneSchema = exports.LeadNameSchema = void 0;
+exports.matchLeadCompanyOptions = matchLeadCompanyOptions;
 const zod_1 = require("zod");
 const administration_user_schema_1 = require("../validation/administration-user.schema");
 const crm_email_1 = require("../validation/crm-email");
@@ -36,6 +37,35 @@ exports.ManualCreateLeadSchema = exports.CreateLeadSchema.refine(data => data.st
 });
 exports.UpdateLeadSchema = exports.LeadFieldsSchema.partial().extend({ expectedUpdatedAt: zod_1.z.string().datetime().optional() })
     .refine(organization_1.exclusiveAccountInput, { path: ['newAccount'], message: 'Select an Account or create a new one, not both.' });
+exports.LeadCompanyOptionsQuerySchema = zod_1.z.object({
+    search: organization_1.CrmCompanyNameSchema.optional().default(''),
+    source: zod_1.z.enum(['both', 'accounts', 'leads']).default('both'),
+}).strict();
+/** Apply the same matching and grouping rules to live and mock Lead suggestions. */
+function matchLeadCompanyOptions(accounts, leadNames, search) {
+    const limit = 50;
+    const term = (0, organization_1.companyNameMatchKey)(search);
+    const matchingAccounts = accounts.filter(account => (0, organization_1.companyNameMatchKey)(account.name).includes(term));
+    const seen = new Set(matchingAccounts.map(account => (0, organization_1.companyNameMatchKey)(account.name)));
+    const normalizedNames = leadNames.flatMap(value => {
+        const result = organization_1.CrmCompanyNameSchema.safeParse(value);
+        return result.success ? [result.data.replace(/\s+/g, ' ')] : [];
+    });
+    const leadCompanies = [];
+    for (const name of normalizedNames.sort((a, b) => a.localeCompare(b))) {
+        const key = (0, organization_1.companyNameMatchKey)(name);
+        if (!key || seen.has(key) || !key.includes(term))
+            continue;
+        seen.add(key);
+        leadCompanies.push(name);
+        if (leadCompanies.length === limit)
+            break;
+    }
+    return {
+        accounts: matchingAccounts.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).slice(0, limit),
+        leadCompanies,
+    };
+}
 /** New Account details use the same contract as standalone and linked creation. */
 exports.ConvertLeadSchema = zod_1.z.object({
     accountId: zod_1.z.string().uuid().optional(),

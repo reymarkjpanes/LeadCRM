@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NewAccountSchema = exports.AccountUpdateFieldsSchema = exports.AccountFieldsSchema = exports.CrmAddressSchema = exports.CrmCompanyNameSchema = exports.CRM_ADDRESS_MAX_ERROR = exports.COMPANY_NAME_MAX_ERROR = exports.CRM_ADDRESS_MAX_LENGTH = exports.COMPANY_NAME_MAX_LENGTH = void 0;
+exports.companyNameMatchKey = companyNameMatchKey;
 exports.exclusiveAccountInput = exclusiveAccountInput;
 const zod_1 = require("zod");
 const administration_user_schema_1 = require("../validation/administration-user.schema");
@@ -12,6 +13,9 @@ exports.CRM_ADDRESS_MAX_LENGTH = 500;
 exports.COMPANY_NAME_MAX_ERROR = (0, text_length_1.maxLengthMessage)('Company name', exports.COMPANY_NAME_MAX_LENGTH);
 exports.CRM_ADDRESS_MAX_ERROR = (0, text_length_1.maxLengthMessage)('Address', exports.CRM_ADDRESS_MAX_LENGTH);
 exports.CrmCompanyNameSchema = (0, administration_user_schema_1.cleanText)(exports.COMPANY_NAME_MAX_LENGTH, exports.COMPANY_NAME_MAX_ERROR);
+function companyNameMatchKey(name) {
+    return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
 exports.CrmAddressSchema = zod_1.z.string()
     .refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
     .transform(value => value.trim()).pipe(zod_1.z.string().max(exports.CRM_ADDRESS_MAX_LENGTH, exports.CRM_ADDRESS_MAX_ERROR));

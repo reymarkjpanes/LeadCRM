@@ -100,7 +100,7 @@ export function TaskRecordCreator({
       </div>
       <fieldset disabled={busy} className="min-h-0 flex-1 flex flex-col">
         {kind === "lead" && (
-          <LeadForm onSave={(data) => submit(data)} onCancel={onCancel} />
+          <LeadForm useGroupedCompanyPicker={false} onSave={(data) => submit(data)} onCancel={onCancel} />
         )}
         {kind === "contact" && (
           <ContactFormInner

@@ -5,8 +5,18 @@ import * as service from './contacts.service';
 import { serializeLead } from '../leads/lead-serializer';
 import { withCustomerStatusPolicy } from '../customer-classification.service';
 import prisma from '../../../config/database.config';
+import { getLeadCompanyOptions } from '../leads/lead-company-options.service';
 
 // Controller — HTTP handlers only. No business logic here.
+
+export async function listCompanyOptions(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getLeadCompanyOptions(req.user!.tenantId, req.query);
+    res.set('Cache-Control', 'no-store').json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function getContacts(req: Request, res: Response, next: NextFunction) {
   try {

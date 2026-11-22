@@ -11,6 +11,7 @@ import { LeadPhoneSchema, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '
 
 import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, OptionalLeadSourceSchema } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
+import { LeadCompanyField, useLeadCompanyDraft } from './lead-company-field';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
 import { ProductInterestField, ProductInterestSelect } from '@/shared/components/crm/product-interest-select';
@@ -51,11 +52,9 @@ const LeadFormSchema = z.object({
   lastName: LeadFieldsSchema.shape.lastName,
   email: CrmEmailSchema,
   phone: LeadPhoneSchema.optional(),
-  companyName: z.string().optional(),
   status: LeadStatusSchema,
   source: OptionalLeadSourceSchema.optional(),
   sourceDetail: LeadFieldsSchema.shape.sourceDetail,
-  accountId: z.string().optional(),
   assignedUserId: z.string().optional(),
   productInterest: LeadFieldsSchema.shape.productInterest,
   address: LeadFieldsSchema.shape.address,
@@ -79,15 +78,20 @@ interface LeadFormProps {
 interface AddLeadFormProps {
   prefill?: Partial<Lead>;
   initialData?: Lead;
+  useGroupedCompanyPicker?: boolean;
   onSave: (data: Partial<Lead>) => void | Promise<void>;
   onCancel: () => void;
 }
 
-export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadFormProps) {
+export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = true, onSave, onCancel }: AddLeadFormProps) {
   const recordAccess = useCrmRecordAccess('leads');
   const actionAllowed = useHasPermission(initialData ? 'leads.edit' : 'leads.create');
   const canSubmit = actionAllowed && !!recordAccess.policy && (!initialData || recordAccess.canMutate(initialData));
   const customFields = useRecordCustomFields('leads', initialData?.id);
+  const companyField = customFields.layout?.fields.companyName;
+  const showCompany = companyField?.visibleInForm !== false;
+  const showAccount = customFields.layout?.fields.accountId?.visibleInForm !== false;
+  const company = useLeadCompanyDraft(initialData, showCompany, showAccount);
   const organization = useOrganizationForm(initialData);
   const { users } = useData();
   const isEdit = !!initialData;
@@ -122,23 +126,19 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
       lastName: '',
       email: '',
       phone: '',
-      companyName: '',
       status: 'Inquiry',
       source: '',
       sourceDetail: '',
-      accountId: '',
       assignedUserId: '',
       productInterest: [],
       address: '',
     },
   });
   const isSubmitting = isValidatingSubmission || isSaving;
-  const requestClose = usePanelDraft({ dirty: isDirty || customFields.dirty || organization.dirty, busy: isSubmitting || customFields.uploadCount > 0 });
-
-  useEffect(() => {
-    setValue('companyName', organization.fields.companyName);
-    setValue('accountId', organization.mode === 'existing' ? organization.accountId : '');
-  }, [organization.fields.companyName, organization.mode, organization.accountId, setValue]);
+  const requestClose = usePanelDraft({
+    dirty: isDirty || customFields.dirty || (useGroupedCompanyPicker ? company.dirty : organization.dirty),
+    busy: isSubmitting || customFields.uploadCount > 0,
+  });
 
   // Product interest state (for custom dropdown UX)
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
@@ -190,11 +190,9 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         lastName: initialData.lastName || '',
         email: initialData.email || '',
         phone: normalizePhInput(phone) ? toE164(normalizePhInput(phone)) : '',
-        companyName: initialData.companyName || '',
         status: normalizeCrmStatus(initialData.status),
         source: OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').data ?? '',
         sourceDetail: initialData.sourceDetail ?? '',
-        accountId: initialData.accountId || initialData.organizationId || '',
         assignedUserId: initialData.assignedUserId || '',
         productInterest: initialData.productInterestIds ?? [],
         address: initialData.address || '',
@@ -209,11 +207,9 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         lastName: prefill?.lastName ?? '',
         email: prefill?.email ?? '',
         phone: '',
-        companyName: '',
         status: 'Inquiry',
         source: isDirectMailSource(prefill?.source) ? '' : OptionalLeadSourceSchema.safeParse(prefill?.source ?? '').data ?? '',
         sourceDetail: prefill?.sourceDetail ?? '',
-        accountId: '',
         assignedUserId: '',
         productInterest: [],
         address: '',
@@ -226,7 +222,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email)) return;
     setPhoneTouched(true);
-    if (validatePhMobile(phoneLocal) || !customFields.validate() || !organization.validate()) return;
+    if (validatePhMobile(phoneLocal) || !customFields.validate() || (!useGroupedCompanyPicker && !organization.validate())) return;
     // Build phone in E.164 format from local 10-digit number
     const fullPhone = phoneLocal ? toE164(phoneLocal) : '';
 
@@ -243,7 +239,7 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
       ...(lastNameChanged ? { lastName: data.lastName } : {}),
       email: data.email || undefined,
       phone: fullPhone,
-      ...organization.payload(),
+      ...(useGroupedCompanyPicker ? company.payload() : organization.payload()),
       status: isEdit && data.status === normalizeCrmStatus(statusVersion.current?.status) ? undefined : data.status || 'Inquiry',
       ...(isEdit && data.status !== normalizeCrmStatus(statusVersion.current?.status) ? { expectedUpdatedAt: statusVersion.current?.updatedAt } : {}),
       ...(!isDirectMailSource(data.source) && (data.source || !initialData || OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').success) ? {
@@ -270,7 +266,12 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         return;
       }
       applyCrmFieldErrors(error, setError, ['firstName', 'lastName', 'email', 'phone', 'status', 'source', 'assignedUserId', 'address']);
-      organization.applyServerErrors(error);
+      if (useGroupedCompanyPicker) {
+        const fields = (error as { fieldErrors?: Record<string, string[]> }).fieldErrors;
+        company.setError(fields?.companyName?.[0] ?? fields?.accountId?.[0]);
+      } else {
+        organization.applyServerErrors(error);
+      }
       showCrmMutationError(error, 'Unable to save Lead.');
       setSubmitError(error instanceof Error ? error.message : 'Unable to save lead. Please try again.');
     } finally { saving.current = false; setIsSaving(false); }
@@ -381,7 +382,11 @@ export function AddLeadForm({ initialData, prefill, onSave, onCancel }: AddLeadF
         {/* Section 3: Organization */}
         <div className="space-y-4">
           <SectionHeader num={3} title="Organization" />
-          <div data-crm-field-key="companyName" data-crm-secondary-field-key="accountId" className="sm:col-span-2"><OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={customFields.layout?.fields.companyName?.label ?? 'Company Name'} showCompany={customFields.layout?.fields.companyName?.visibleInForm !== false} showAccount={customFields.layout?.fields.accountId?.visibleInForm !== false} /></div>
+          <div data-crm-field-key="companyName" data-crm-secondary-field-key="accountId" className="sm:col-span-2">
+            {useGroupedCompanyPicker
+              ? <LeadCompanyField draft={company} label={companyField?.label === 'Company Name' ? 'Company' : companyField?.label} disabled={isSubmitting} />
+              : <OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={companyField?.label} showCompany={showCompany} showAccount={showAccount} />}
+          </div>
           <CustomFieldGroup form={customFields} group="Organization" />
         </div>
 

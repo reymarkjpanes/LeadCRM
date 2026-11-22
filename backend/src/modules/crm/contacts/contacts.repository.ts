@@ -227,7 +227,7 @@ export async function updateContact(
         if (!account) throw new NotFoundError('Active Account');
         data.companyName = account.name;
         data.companyFromAccount = true;
-      } else if (dto.companyName !== undefined && dto.companyName !== current.companyName) {
+      } else if (dto.companyName !== undefined && (dto.companyName !== current.companyName || dto.accountId === null)) {
         data.companyFromAccount = false;
       }
       const previousCustom = dto.customFieldValues === undefined ? undefined : await readRecordValues(tx, tenantId, 'leads', id);

@@ -89,6 +89,7 @@ router.post(  '/merge',              validate(MergeExecuteSchema), (req, res, ne
 
 // ── Leads (legacy contacts implementation path; distinct from the Contact API) ──
 router.get(   '/leads',              authorize('leads.view'),   leadController.getContacts);
+router.get(   '/leads/company-options', authorizeAny('leads.create', 'leads.edit'), leadController.listCompanyOptions);
 router.get(   '/leads/imports',      authorize('leads.view'),   leadImportController.listImports);
 router.get(   '/leads/imports/:importId',         authorize('leads.view'),   leadImportController.getImport);
 router.get(   '/leads/imports/:importId/results', authorize('leads.view'),   leadImportController.getImportResults);

@@ -1,7 +1,7 @@
 'use client';
 
 import { apiClient } from '@/lib/api/client';
-import type { PaginatedResponse, ApiResponse, LeadRead } from '@leadcrm/shared';
+import type { PaginatedResponse, ApiResponse, LeadRead, LeadCompanyOptions, LeadCompanyOptionsQuery } from '@leadcrm/shared';
 import type { CreateLeadRequest, UpdateLeadRequest } from '@/store/types/lead.types';
 
 export interface LeadQueryParams {
@@ -36,6 +36,11 @@ export const leadsService = {
 
   getById: (id: string): Promise<ApiResponse<LeadRead>> =>
     apiClient.get<ApiResponse<LeadRead>>(`/crm/leads/${id}`),
+
+  getCompanyOptions: ({ search = '', source = 'both' }: LeadCompanyOptionsQuery, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ search, source });
+    return apiClient.get<ApiResponse<LeadCompanyOptions>>(`/crm/leads/company-options?${query}`, { signal });
+  },
 
   create: (data: CreateLeadRequest): Promise<ApiResponse<LeadRead>> =>
     apiClient.post<ApiResponse<LeadRead>>('/crm/leads', data),

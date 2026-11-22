@@ -104,23 +104,25 @@ try {
   await leadDialog.getByLabel('First Name', { exact: false }).fill('Address');
   await leadDialog.getByLabel('Last Name', { exact: false }).fill('Fixture');
   await leadDialog.getByLabel('Email', { exact: false }).fill(leadEmail);
-  await leadDialog.getByRole('button', { name: 'Create new account', exact: true }).click();
-  await leadDialog.getByLabel('Company Name', { exact: false }).fill('Separate address company');
-  await leadDialog.getByLabel('Company Address', { exact: true }).fill('Company street\nMakati');
+  await leadDialog.getByRole('combobox', { name: 'Company', exact: true }).click();
+  await leadDialog.getByRole('combobox', { name: 'Company', exact: true }).fill('Separate address company');
+  await page.getByRole('option', { name: /Add company.*Separate address company/ }).click();
   await leadDialog.getByLabel('Lead Address', { exact: true }).fill('Personal street\nPasig');
   for (const width of [320, 375, 768, 1440]) {
     await page.setViewportSize({ width, height: 960 });
-    assert.ok(await leadDialog.getByLabel('Company Address', { exact: true }).isVisible());
+    assert.ok(await leadDialog.getByRole('combobox', { name: 'Company', exact: true }).isVisible());
     assert.ok(await leadDialog.getByLabel('Lead Address', { exact: true }).isVisible());
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   }
-  await page.screenshot({ path: resolve(output, 'separate-addresses.png') });
+  await page.screenshot({ path: resolve(output, 'lead-company-and-address.png') });
   await leadDialog.getByRole('button', { name: 'Create Lead', exact: true }).click();
   await leadDialog.waitFor({ state: 'hidden' });
-  const addressLead = await prisma.lead.findFirstOrThrow({ where: { tenantId: tenant.id, email: leadEmail }, include: { account: true } });
+  const addressLead = await prisma.lead.findFirstOrThrow({ where: { tenantId: tenant.id, email: leadEmail } });
   assert.equal(addressLead.address, 'Personal street\nPasig');
-  assert.equal(addressLead.account?.address, 'Company street\nMakati');
-  checks.push('Company and Lead Address remain separately editable and persist to their existing records at responsive widths');
+  assert.equal(addressLead.companyName, 'Separate address company');
+  assert.equal(addressLead.accountId, null);
+  assert.equal(await prisma.account.count({ where: { tenantId: tenant.id, name: 'Separate address company' } }), 0);
+  checks.push('Lead company and Lead Address save together without creating an Account at responsive widths');
 
   await page.goto(`${base}/automation/workflows/${workflow.id}/edit`);
   await page.getByRole('button', { name: 'Workflow details', exact: true }).click();
