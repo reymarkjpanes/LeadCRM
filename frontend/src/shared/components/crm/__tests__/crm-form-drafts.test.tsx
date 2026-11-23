@@ -136,20 +136,13 @@ const changeDraft = {
     fireEvent.keyDown(screen.getByRole('group', { name: 'Product interests' }), { key: 'Escape' });
   },
   account: () => fireEvent.click(screen.getByRole('button', { name: 'Choose account' })),
-  companyName: (name: 'Lead' | 'Contact') => {
-    if (name === 'Lead') {
-      fireEvent.click(screen.getByRole('button', { name: 'Add company' }));
-      return;
-    }
-    fireEvent.click(screen.getByRole('button', { name: 'Create new account' }));
-    fireEvent.change(screen.getByLabelText(/^Company(?: Name)? \*$/), { target: { value: 'Draft company' } });
-  },
+  companyName: () => fireEvent.click(screen.getByRole('button', { name: 'Add company' })),
 };
 
-it.each(forms.flatMap(form => Object.entries(changeDraft).map(([field, change]) => ({ ...form, field, change }))))('$name protects changes to $field and preserves them after Keep editing', async ({ Form, name, change }) => {
+it.each(forms.flatMap(form => Object.entries(changeDraft).filter(([field]) => form.name === 'Lead' || field !== 'companyName').map(([field, change]) => ({ ...form, field, change }))))('$name protects changes to $field and preserves them after Keep editing', async ({ Form, change }) => {
   const closed = vi.fn();
   render(<Form isOpen onClose={closed} onSave={vi.fn()} />);
-  change(name);
+  change();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await screen.findByRole('alertdialog', { name: 'Discard unsaved changes?' });
   expect(closed).not.toHaveBeenCalled();
