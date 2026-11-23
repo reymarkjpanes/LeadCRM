@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
+import { ROLE_TEMPLATES } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { issueAuthSession } from '../../../core/auth/auth-session';
@@ -164,35 +165,69 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     expect(deals.every(deal => deal.stageId === stages['Closed Deal'] && deal.wonConfirmedAt)).toBe(true);
   }, 40000);
 
-  it('scopes company picker suggestions by tenant, record permissions and source', async () => {
-    const own = 'Picker Own Company';
-    const restricted = 'Picker Restricted Company';
+  it('shares company names across Sales Associates within the workspace', async () => {
+    const template = ROLE_TEMPLATES.find(role => role.key === 'sales-associate')!;
+    const role = await prisma.roleDefinition.create({ data: { tenantId, name: template.name } });
+    await prisma.rolePermission.createMany({ data: Object.entries(template.permissions).map(([module, grants]) => ({
+      tenantId, roleId: role.id, module, ...grants,
+    })) });
+    const associates = await Promise.all(['Ana', 'Marco'].map(firstName => prisma.user.create({ data: {
+      tenantId, role: role.name, firstName, lastName: 'Picker', email: `${randomUUID()}@camxian.com`,
+      status: 'ACTIVE', mustChangePassword: false, onboardingCompletedAt: new Date(),
+      userRoles: { create: { roleId: role.id } },
+    } })));
+    const [owner, peer] = await Promise.all(associates.map(user => issueAuthSession(user)));
+    const companyName = 'Picker Trading';
+    const createLead = (name: string, assignedUserId: string, auth: string) => call('/crm/leads', 'POST', {
+      firstName: 'New', lastName: 'Lead', email: `${randomUUID()}@example.test`,
+      companyName: name, accountId: null, assignedUserId, requestId: randomUUID(),
+    }, auth);
+    const first = await createLead(companyName, associates[0].id, owner.token);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body.data.assignedUserId).toBe(associates[0].id);
+
+    const accountName = 'Picker Existing Company';
+    const unassigned = 'Picker Unassigned Company';
     const foreign = await prisma.user.findUniqueOrThrow({ where: { id: foreignId }, select: { tenantId: true } });
     await prisma.lead.createMany({ data: [
-      { tenantId, firstName: 'Own', lastName: 'Lead', companyName: own, assignedUserId: agentId },
-      { tenantId, firstName: 'Other', lastName: 'Lead', companyName: restricted, assignedUserId: otherAgentId },
+      { tenantId, firstName: 'Existing', lastName: 'Lead', companyName: accountName, assignedUserId: otherAgentId },
+      { tenantId, firstName: 'Unassigned', lastName: 'Lead', companyName: unassigned },
       { tenantId, firstName: 'Archived', lastName: 'Lead', companyName: 'Picker Archived Company', isArchived: true },
       { tenantId, firstName: 'Converted', lastName: 'Lead', companyName: 'Picker Converted Company', convertedAt: new Date() },
       { tenantId, firstName: 'Deleted', lastName: 'Lead', companyName: 'Picker Deleted Company', deletedAt: new Date() },
+      { tenantId, firstName: 'Merged', lastName: 'Lead', companyName: 'Picker Merged Company', status: 'Merged' },
       { tenantId: foreign.tenantId, firstName: 'Foreign', lastName: 'Lead', companyName: 'Picker Foreign Company' },
     ] });
     const accounts = await Promise.all([
-      prisma.account.create({ data: { tenantId, name: own, address: 'Makati' } }),
-      prisma.account.create({ data: { tenantId, name: own, address: 'Pasig' } }),
+      prisma.account.create({ data: { tenantId, name: accountName, address: 'Makati' } }),
+      prisma.account.create({ data: { tenantId, name: accountName, address: 'Pasig' } }),
       prisma.account.create({ data: { tenantId: foreign.tenantId, name: 'Picker Foreign Account' } }),
     ]);
     const path = '/crm/leads/company-options?search=picker';
-    const admin = await call(path);
-    expect(admin.status, JSON.stringify(admin.body)).toBe(200);
-    expect(admin.body.data.leadCompanies).toEqual([restricted]);
-    expect(admin.body.data.accounts.map((account: { id: string }) => account.id).sort()).toEqual([accounts[0].id, accounts[1].id].sort());
-    const agent = await call(path, 'GET', undefined, agentToken);
-    expect(agent.status, JSON.stringify(agent.body)).toBe(200);
-    expect(agent.body.data).toEqual({ accounts: [], leadCompanies: [own] });
-    const onlyAccounts = await call(path + '&source=accounts');
-    expect(onlyAccounts.body.data).toEqual({ accounts: admin.body.data.accounts, leadCompanies: [] });
-    const onlyLeads = await call(path + '&source=leads');
-    expect(onlyLeads.body.data).toEqual({ accounts: [], leadCompanies: [own, restricted] });
+    const options = (query = path) => call(query, 'GET', undefined, peer.token);
+    const both = await options();
+    expect(both.status, JSON.stringify(both.body)).toBe(200);
+    expect(both.body.data.leadCompanies).toEqual([companyName, unassigned]);
+    expect(both.body.data.accounts.map((account: { id: string }) => account.id).sort()).toEqual([accounts[0].id, accounts[1].id].sort());
+    expect((await options(path + '&source=accounts')).body.data).toEqual({ accounts: both.body.data.accounts, leadCompanies: [] });
+    expect((await options(path + '&source=leads')).body.data).toEqual({ accounts: [], leadCompanies: [accountName, companyName, unassigned] });
+    const withoutAccountView = await call(path, 'GET', undefined, agentToken);
+    expect(withoutAccountView.body.data).toEqual({ accounts: [], leadCompanies: [accountName, companyName, unassigned] });
+
+    const searchPath = '/crm/leads/company-options?' + new URLSearchParams({ search: ' picker   trading ' });
+    const match = await options(searchPath);
+    expect(match.body.data).toEqual({ accounts: [], leadCompanies: [companyName] });
+    const second = await createLead(match.body.data.leadCompanies[0], associates[1].id, peer.token);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.data).toMatchObject({ assignedUserId: associates[1].id, companyName, accountId: null });
+    expect((await options(searchPath)).body.data.leadCompanies).toEqual([companyName]);
+    expect(await prisma.account.count({ where: { tenantId, name: companyName } })).toBe(0);
+
+    const leadPath = `/crm/leads/${first.body.data.id}`;
+    const list = await call('/crm/leads?search=Picker+Trading', 'GET', undefined, peer.token);
+    expect(list.body.data.map((lead: { id: string }) => lead.id)).toEqual([second.body.data.id]);
+    expect((await call(leadPath, 'GET', undefined, peer.token)).status).toBe(404);
+    expect((await call(leadPath, 'PUT', { firstName: 'Changed' }, peer.token)).status).toBe(404);
   });
 
   it('keeps an explicitly entered company name when a same-name Account is unlinked', async () => {

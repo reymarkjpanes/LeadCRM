@@ -1,16 +1,19 @@
-const access = vi.hoisted(() => ({ restricted: false, accountsAllowed: true, getCompanyOptions: vi.fn() }));
+const access = vi.hoisted(() => ({ restricted: false, accountsAllowed: true, mockData: false, leads: [] as Lead[], getCompanyOptions: vi.fn() }));
 vi.mock('@/shared/hooks/use-email-availability', () => ({ useEmailAvailability: (email: string) => ({ available: true, blocked: false, confirm: () => true, email: email.trim(), retry: vi.fn(), reject: vi.fn() }) }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'agent', firstName: 'My', lastName: 'Agent', email: 'my@camxian.com' } }) }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 'workspace' }, user: { id: 'agent', firstName: 'My', lastName: 'Agent', email: 'my@camxian.com' } }) }));
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { AddLeadForm } from './lead-form';
 import type { Lead } from '@/store/types';
-vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
+vi.mock('@/lib/config', () => ({ get USE_MOCK_DATA() { return access.mockData; } }));
 vi.mock('../services/leads.service', () => ({ leadsService: { getCompanyOptions: access.getCompanyOptions } }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: (key: string) => key !== 'accounts.view' || access.accountsAllowed }));
-vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () => ({ canMutate: () => true, policy: { clientAdmin: !access.restricted, assignmentRestricted: access.restricted, userId: 'agent' } }) }));
-vi.mock('@/store/DataContext', () => ({ useData: () => ({ users: [], organizations: [], contacts: [] }) }));
+vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () => ({
+  canMutate: (record?: Lead) => !access.restricted || record?.assignedUserId === 'agent',
+  policy: { clientAdmin: !access.restricted, assignmentRestricted: access.restricted, userId: 'agent' },
+}) }));
+vi.mock('@/store/DataContext', () => ({ useData: () => ({ users: [], organizations: [], contacts: access.leads }) }));
 vi.mock('@/shared/hooks/use-cached-page', () => ({ useCachedPage: () => ({ data: undefined, isInitialLoad: false, refetch: vi.fn() }) }));
 vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [], loading: false }) }));
 vi.mock('@/shared/hooks/use-scroll-to-error', () => ({ useScrollToError: () => {} }));
@@ -25,6 +28,8 @@ afterEach(() => {
   cleanup();
   access.restricted = false;
   access.accountsAllowed = true;
+  access.mockData = false;
+  access.leads = [];
   access.getCompanyOptions.mockReset();
 });
 function fillRequiredLead() {
@@ -90,6 +95,30 @@ it('shows headings inside the open picker and saves a Lead suggestion as a name'
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
   expect(save.mock.calls[0][0]).toMatchObject({ companyName: 'ABC Trading', accountId: null });
   expect(save.mock.calls[0][0]).not.toHaveProperty('newAccount');
+});
+
+it('offers a peer’s company from the same workspace when editing a mock Lead', async () => {
+  access.mockData = true;
+  access.restricted = true;
+  const own = { id: 'own', tenantId: 'workspace', assignedUserId: 'agent', firstName: 'Lina', lastName: 'Reyes', email: 'lina@example.test', status: 'Inquiry' } as Lead;
+  access.leads = [
+    own,
+    { ...own, id: 'peer', assignedUserId: 'another-agent', companyName: 'ABC Trading' },
+    { ...own, id: 'other-workspace', tenantId: 'foreign', companyName: 'ABC Trading Foreign' },
+    { ...own, id: 'archived', isArchived: true, companyName: 'ABC Trading Archived' },
+  ];
+  const save = vi.fn();
+  render(<AddLeadForm initialData={own} onSave={save} onCancel={vi.fn()} />);
+  const picker = screen.getByRole('combobox', { name: 'Company' });
+  fireEvent.click(picker);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'abc   trading' } });
+  const list = screen.getByRole('listbox', { name: 'Company options' });
+  const company = await within(list).findByRole('option', { name: /^ABC Trading$/ });
+  expect(within(list).getAllByRole('option')).toEqual([company]);
+  fireEvent.click(company);
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).toMatchObject({ companyName: 'ABC Trading', accountId: null });
 });
 
 it('adds a company name after a failed lookup even without Account access', async () => {

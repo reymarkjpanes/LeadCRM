@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { hasModulePermission, hasCrmRecordAssignmentAccess, canReassignCrmRecord, isWorkspaceAccessible, permittedCrmScopes, CRM_SCOPE_ACTIONS, type CrmReadScope, type CrmRecordAccessPolicy, type ResolvedPermissions } from '@leadcrm/shared';
 import { resolveEffectivePermissions } from '../../administration/roles/roles.repository';
 import { AppError } from '../../../shared/errors/app-error';
+import { buildSearchClauses } from '../../../shared/helpers/search';
 import { assertEligibleAssignedAgent, crmAssignmentRequirements, eligibleAssignedAgents, TASK_ASSIGNEE_REQUIREMENTS } from './assigned-agent-eligibility';
 import { weightedLeadScores } from '../leads/lead-workload';
 
@@ -177,6 +178,21 @@ export async function mayReadCrmModule(db: Tx, tenantId: string, module: CrmModu
   if (actor.tenantId !== tenantId) throw new AppError('Access denied', 403);
   const policy = await resolveCrmActor(db, actor);
   return policy.clientAdmin || permittedCrmScopes(policy.permissions, module).length > 0;
+}
+
+/** The Company picker shares company names across agents within the authenticated workspace. */
+export async function readLeadCompanyNames(db: Tx, tenantId: string, search: string): Promise<string[]> {
+  if (!await mayReadCrmModule(db, tenantId, 'leads')) return [];
+
+  const rows = await internal.run(true, async () => await db.lead.groupBy({
+    by: ['companyName'],
+    where: {
+      tenantId, isArchived: false, deletedAt: null, convertedAt: null, status: { not: 'Merged' },
+      accountId: null, companyFromAccount: false, companyName: { not: null },
+      AND: buildSearchClauses(search, ['companyName']),
+    },
+  }));
+  return rows.flatMap(({ companyName }) => companyName ? [companyName] : []);
 }
 
 function readWhere(policy: ReadPolicy, module: CrmModule, requested?: CrmReadScope, legacyWorkflow = true): Args {
