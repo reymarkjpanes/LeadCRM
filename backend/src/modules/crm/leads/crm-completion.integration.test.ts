@@ -486,6 +486,8 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     });
     expect(required.status, JSON.stringify(required.body)).toBe(200);
     const evidence = { values: { [required.body.data.id]: 'Approved order reference' } };
+    const history = () => prisma.dealStageHistory.findMany({ where: { tenantId, dealId: deal.id }, orderBy: { id: 'asc' } });
+    const originalHistory = await history();
     try {
       const blocked = await call(path, 'PATCH', evidence);
       expect(blocked.status, JSON.stringify(blocked.body)).toBe(409);
@@ -493,7 +495,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
       expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({
         stageId: deal.stageId, closingValues: deal.closingValues, wonConfirmedAt: null, accountId: null,
       });
-      expect(await prisma.dealStageHistory.count({ where: { tenantId, dealId: deal.id } })).toBe(0);
+      expect(await history()).toEqual(originalHistory);
       expect(await prisma.activity.count({ where: { tenantId, dealId: deal.id, title: 'Closed Won requirements updated' } })).toBe(0);
       expect(await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).toMatchObject({ convertedAt: null, contactId: null });
       expect(await prisma.account.count({ where: { tenantId, name: companyName } })).toBe(0);
