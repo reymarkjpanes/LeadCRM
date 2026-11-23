@@ -53,7 +53,7 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
   lockWhileEditing?: boolean;
   onEditStateChange?: (state: InlineEditState) => void;
   onEscape?: () => void;
-  onSave: (field: string, value: string | string[]) => Promise<void>;
+  onSave: (field: string, value: string | string[]) => Promise<void | false>;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string | string[]>('');
@@ -108,7 +108,10 @@ export function InlineEditRows({ rows, canEdit, onSave, disabled = false, onEdit
       if (!result.success) { setFieldError(result.error.issues[0].message); return; }
     }
     setIsSaving(true);
-    try { await onSave(apiField, typeof editValue === 'string' && !row?.preserveWhitespace ? editValue.trim() : editValue); setEditingKey(null); }
+    try {
+      const saved = await onSave(apiField, typeof editValue === 'string' && !row?.preserveWhitespace ? editValue.trim() : editValue);
+      if (saved !== false) setEditingKey(null);
+    }
     catch (error) {
       setFieldError(feedbackError(error, 'Unable to save this field. Please try again.'));
       if (error instanceof Error && error.message === INTERNAL_EMPLOYEE_CUSTOMER_EMAIL_ERROR) showCrmMutationError(error, 'Unable to save this field. Please try again.');

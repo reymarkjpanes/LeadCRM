@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Archive, Building, ChevronDown, ChevronRight, ExternalLink, Globe, Inbox, Mail, MapPin, MoreHorizontal, Pencil, Phone, Plus, User, UserPlus, X } from 'lucide-react';
 import { toast } from '@/shared/utils/toast';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, type ApiRequestError } from '@/lib/api/client';
 import { USE_MOCK_DATA } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/store/AuthContext';
@@ -43,12 +43,13 @@ import { getPageCache, getPageCacheGeneration, invalidatePageCache, requestPageC
 import { subscribeMailboxEvents } from '@/shared/services/mailbox-events';
 import { RecordFilesTab } from './record-files-tab';
 import { ConfirmActionDialog } from './confirm-action-dialog';
+import { AccountDuplicateReviewDialog } from './account-duplicate-review-dialog';
 import { RecordSection } from './record-section';
 export { RecordSection } from './record-section';
 import { InlineDealForm } from './inline-deal-form';
 import { RelatedTasks } from '@/features/tenant/operations/tasks/ui/related-tasks';
 import type { Account } from '@/features/tenant/crm/accounts/types/account.types';
-import { CrmEmailSchema } from '@leadcrm/shared';
+import { CrmEmailSchema, type AccountDuplicateReview } from '@leadcrm/shared';
 import { DealCardMenu } from './deal-card-menu';
 import { RecordBackButton } from './record-back-button';
 import { ConvertLeadDialog } from '@/features/tenant/crm/leads/ui/convert-lead-dialog';
@@ -111,6 +112,12 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   const [lostReason, setLostReason] = useState('');
   const [taskCount, setTaskCount] = useState<number>();
   const [savingField, setSavingField] = useState<string | null>(null);
+  const [renameReview, setRenameReview] = useState<AccountDuplicateReview | null>(null);
+  const pendingRenameReview = useRef<((token?: string) => void) | null>(null);
+  useEffect(() => () => {
+    pendingRenameReview.current?.();
+    pendingRenameReview.current = null;
+  }, []);
   const recordQuery = useCachedPage<RecordData>({ module, params: { recordId: id }, revalidateOnInvalidation: true,
     fetchFn: async signal => (await apiClient.get<{ data: RecordData }>(`/crm/${module}/${encodeURIComponent(id)}`, { signal })).data });
   const [activityFilters, setActivityFilters] = useState<RecordActivityFilters>({});
@@ -230,7 +237,13 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
     await save({ engagementStatus: status });
   };
 
-  const saveField = async (apiField: string, value: string | string[]): Promise<void> => {
+  const finishRenameReview = (token?: string) => {
+    pendingRenameReview.current?.(token);
+    pendingRenameReview.current = null;
+    setRenameReview(null);
+  };
+
+  const saveField = async (apiField: string, value: string | string[]): Promise<void | false> => {
     if (savingField || statusReadOnly && ['status', 'engagementStatus'].includes(apiField)) return;
     setSavingField(apiField);
     try {
@@ -244,13 +257,28 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
         const normalized = apiField === 'website' && module === 'accounts' && typeof trimmed === 'string' && trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
         const addressOption = apiField === 'addressSource' ? addressContext.options.find(option => dealAddressKey(option) === normalized) : undefined;
         const sourceValue = addressOption ? { type: addressOption.type, id: addressOption.id } : null;
-        const response = await apiClient.put<{ data: RecordData }>(`/crm/${module}/${encodeURIComponent(id)}`, { [apiField]: apiField === 'addressSource' ? sourceValue : module === 'deals' && ['accountId', 'assignedUserId', 'expectedCloseDate'].includes(apiField) && normalized === '' ? null : apiField === 'expectedCloseDate' && normalized ? new Date(String(normalized)).toISOString() : normalized });
-        if (module === 'deals') await recordQuery.refetchSilently();
-        else if (response.data) recordQuery.setData(response.data);
+        const clearField = normalized === '' && (module === 'contacts' && apiField === 'accountId' || module === 'deals' && ['accountId', 'assignedUserId', 'expectedCloseDate'].includes(apiField));
+        const payload = { [apiField]: apiField === 'addressSource' ? sourceValue : clearField ? null : apiField === 'expectedCloseDate' && normalized ? new Date(String(normalized)).toISOString() : normalized };
+        let duplicateReviewToken: string | undefined;
+        for (;;) {
+          try {
+            const response = await apiClient.put<{ data: RecordData }>(`/crm/${module}/${encodeURIComponent(id)}`,
+              { ...payload, ...(duplicateReviewToken ? { duplicateReviewToken } : {}) });
+            if (module === 'deals') await recordQuery.refetchSilently();
+            else if (response.data) recordQuery.setData(response.data);
+            break;
+          } catch (error) {
+            const review = (error as ApiRequestError)?.duplicateReview;
+            if (module !== 'accounts' || apiField !== 'name' || !review) throw error;
+            duplicateReviewToken = await new Promise<string | undefined>(resolve => {
+              pendingRenameReview.current = resolve;
+              setRenameReview(review);
+            });
+            if (!duplicateReviewToken) return false;
+          }
+        }
       }
       toast.success('Field updated.');
-    } catch (error) {
-      throw error;
     } finally {
       setSavingField(null);
     }
@@ -334,11 +362,13 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
       { label: 'Phone', value: record.phone, apiField: 'phone', type: 'tel' as const, customEditorActions: true,
         validate: (value: string) => { const parsed = LeadPhoneSchema.safeParse(value); return parsed.success ? undefined : parsed.error.issues[0].message; },
         renderEditor: props => <PhoneInlineEditor {...props} module={module as 'leads' | 'contacts'} recordId={id} /> },
-      { label: 'Company', value: record.companyName, apiField: 'companyName', validateText: value => textFieldError(CrmCompanyNameSchema, value),
-        editorFullWidth: module === 'leads',
-        renderEditor: module === 'leads' ? ({ value, onChange, disabled }) =>
-          <LeadCompanyNameEditor value={value} onChange={onChange} disabled={disabled} /> : undefined },
-      ...(canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: object(record.account)?.name ?? object(record.organization)?.name }] : []),
+      ...(module === 'leads' ? [{ label: 'Company', value: record.companyName, apiField: 'companyName', validateText: (value: string) => textFieldError(CrmCompanyNameSchema, value),
+        editorFullWidth: true,
+        renderEditor: ({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled: boolean }) =>
+          <LeadCompanyNameEditor value={value} onChange={onChange} disabled={disabled} /> }]
+        : record.accountId ? [] : [{ technicalKey: 'companyName', label: 'Company', value: record.companyName }]),
+      ...(module === 'contacts' && canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: record.accountId,
+        displayValue: text(object(record.account)?.name ?? object(record.organization)?.name), apiField: 'accountId', type: 'accounts' as const }] : []),
       { label: 'Source', value: source, apiField: 'source' },
     ]),
     { label: 'Address', value: record.address, apiField: 'address', validateText: value => textFieldError(CrmAddressSchema, value) },
@@ -352,8 +382,9 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
   const catalog = getCrmFieldCatalog(module, customFields.fields.map(field => ({ ...field, deletedAt: undefined })), detailLayout);
   const accountField = catalog.find(field => field.technicalKey === 'accountId');
   const showAccount = canReadAccounts && accountField?.visibleInDetails !== false;
-  const linkedAccount = showAccount ? object(record.account) ?? object(record.organization) ?? relationships?.account : null;
-  const configuredRows = aboutRows.filter(row => row.technicalKey !== 'accountId')
+  const relationshipAccount = module !== 'contacts' || relationships?.account?.id === record.accountId ? relationships?.account : null;
+  const linkedAccount = showAccount ? object(record.account) ?? object(record.organization) ?? relationshipAccount : null;
+  const configuredRows = aboutRows.filter(row => row.technicalKey !== 'accountId' || module === 'contacts')
     .map(row => ({ row, field: catalog.find(field => field.technicalKey === (row.technicalKey ?? row.apiField)) })).filter(item => item.field?.visibleInDetails !== false);
   const relationshipGroupId = accountField?.groupId ?? `${module}:section:${module === 'deals' ? 1 : 2}`;
   const relationshipContent = module === 'deals' ? <div className="divide-y divide-border">
@@ -543,6 +574,8 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
       </DialogContent>
     </Dialog>
     {converting && <ConvertLeadDialog isOpen lead={formRecord as unknown as Lead} onClose={() => setConverting(false)} onSuccess={() => setConverting(false)} />}
+    <AccountDuplicateReviewDialog review={renameReview} busy={false} operation="rename"
+      onBack={() => finishRenameReview()} onCreateAnyway={finishRenameReview} />
     <ConfirmActionDialog open={archiving} onOpenChange={setArchiving} title={`Archive ${label}`} description={`${title} will be moved to Archived Data.`} warning="You can restore this record later from Settings → Archived Data." confirmLabel="Archive" variant="destructive" onConfirm={async () => {
       try { await apiClient.patch(`/crm/${module}/${encodeURIComponent(id)}/archive`); toast.success(`${label} archived`); setArchiving(false); if (onClose) onClose(); else router.push(`/crm/${module}`); }
       catch (error) { throw error instanceof Error ? error : new Error('Failed to archive record'); }

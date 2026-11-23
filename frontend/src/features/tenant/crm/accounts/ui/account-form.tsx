@@ -69,14 +69,14 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     try {
       if (!isEdit) requestId.current ??= crypto.randomUUID();
       await onSave({ ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), ...(nameChanged ? { name: data.name } : {}),
-        ...(!isEdit && duplicateReviewToken ? { duplicateReviewToken } : {}),
+        ...(duplicateReviewToken ? { duplicateReviewToken } : {}),
         industry: data.industry || (isEdit ? '' : undefined), size: data.size || (isEdit ? null : undefined),
         website: data.website || (isEdit ? '' : undefined),
         ...(addressChanged ? { address: data.address || (isEdit ? '' : undefined) } : {}) });
       setDuplicateReview(null);
     } catch (error) {
       const review = (error as ApiRequestError)?.duplicateReview;
-      if (!isEdit && review) {
+      if (review) {
         setDuplicateReview(review);
         return;
       }
@@ -108,6 +108,7 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
     <AccountDuplicateReviewDialog
       review={duplicateReview}
       busy={isSubmitting}
+      operation={isEdit ? 'rename' : 'create'}
       onBack={() => setDuplicateReview(null)}
       onCreateAnyway={token => { void handleSubmit(data => onSubmit(data, token))(); }}
     />

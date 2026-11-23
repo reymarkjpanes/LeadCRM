@@ -117,13 +117,21 @@ export function useAccounts(params?: UseAccountsParams) {
   const handleUpdate = useCallback(async (id: string, formData: AccountMutationInput) => {
     try {
       if (USE_MOCK_DATA) {
+        if (!tenant) throw new Error('Your workspace is unavailable. Refresh and try again.');
+        const { duplicateReviewToken, ...draft } = formData;
+        const all = readMockAccounts<Account>();
+        const target = all.find(account => account.tenantId === tenant.id && account.id === id);
+        if (!target) throw new Error('Account not found.');
+        if (draft.name !== undefined && draft.name !== target.name && userCan('accounts', 'canView')) {
+          await requireMockAccountReview(all, tenant.id, user?.id, draft.name, duplicateReviewToken, id);
+        }
         for (const key of [mockAccountsKey, mockOrganizationsKey]) {
           const rows = readMockAccountRows<Account>(key);
-          if (rows.some(account => account.id === id)) {
-            localStorage.setItem(key, JSON.stringify(rows.map(account => account.id === id ? { ...account, ...formData } : account)));
+          if (rows.some(account => account.tenantId === tenant.id && account.id === id)) {
+            localStorage.setItem(key, JSON.stringify(rows.map(account => account.tenantId === tenant.id && account.id === id ? { ...account, ...draft } : account)));
           }
         }
-        setDisplayAccounts((prev) => prev.map((c) => c.id === id ? { ...c, ...formData } : c));
+        setDisplayAccounts((prev) => prev.map((c) => c.id === id ? { ...c, ...draft } : c));
       } else {
         await accountsService.update(id, formData as unknown as Record<string, unknown>);
       }
@@ -133,7 +141,7 @@ export function useAccounts(params?: UseAccountsParams) {
     } catch (err) {
       throw err;
     }
-  }, [tenant]);
+  }, [tenant, user?.id, userCan]);
 
   const handleArchive = useCallback(async (id: string) => {
     await accountsService.archive(id);

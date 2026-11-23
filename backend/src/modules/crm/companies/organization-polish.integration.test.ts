@@ -48,6 +48,30 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
     expect(CreateClientContactSchema.safeParse({ ...person(), accountId: randomUUID(), newAccount }).success).toBe(false);
   });
 
+  it('reviews actual Account renames, excludes the target and rechecks stale confirmation', async () => {
+    const original = await scope(() => prisma.account.create({ data: { tenantId, name: 'Rename Business Ltd.' } }));
+    const path = `/crm/accounts/${original.id}`;
+    const update = (body: unknown) => call(path, 'PUT', body);
+    const alone = await update({ name: 'Rename Business LLC' });
+    expect(alone.status, JSON.stringify(alone.body)).toBe(200);
+    const existing = await scope(() => prisma.account.create({ data: { tenantId, name: 'Rename Business Inc.' } }));
+    expect((await update({ name: 'Rename Business LLC', address: 'Same-name update' })).status).toBe(200);
+    const draft = { name: 'Rename Business Corp.', address: 'Preserved rename draft' };
+    const first = await update(draft);
+    expect(first.status).toBe(409);
+    expect(first.body.error.duplicateReview.matches).toMatchObject([{ id: existing.id }]);
+    const token = first.body.error.duplicateReview.token;
+    await scope(() => prisma.account.update({ where: { id: existing.id, tenantId }, data: { address: 'Updated matching address' } }));
+    const stale = await update({ ...draft, duplicateReviewToken: token });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.duplicateReview.token).not.toBe(token);
+    expect(await scope(() => prisma.account.findUniqueOrThrow({ where: { id: original.id, tenantId } })))
+      .toMatchObject({ name: 'Rename Business LLC', address: 'Same-name update' });
+    const approved = await update({ ...draft, duplicateReviewToken: stale.body.error.duplicateReview.token });
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(approved.body.data).toMatchObject(draft);
+  });
+
   it.each(['/crm/accounts', '/crm/leads'])('reviews Account spelling variants before writing through %s', async path => {
     const existing = await scope(() => prisma.account.create({
       data: { tenantId, name: path.endsWith('/leads') ? 'PLDT INC' : 'Globe Inc.', website: 'https://company.test', address: 'Makati' },

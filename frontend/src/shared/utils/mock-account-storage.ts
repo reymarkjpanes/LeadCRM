@@ -23,15 +23,15 @@ export function readMockAccounts<T extends { id: string }>(): T[] {
 
 export async function requireMockAccountReview(
   accounts: Array<AccountDuplicateMatch & { tenantId: string; isArchived?: boolean }>,
-  tenantId: string, actorId: string | undefined, name: string, reviewedToken?: string,
+  tenantId: string, actorId: string | undefined, name: string, reviewedToken?: string, renameId?: string,
 ) {
   const key = accountNameReviewKey(name);
   if (!key) return;
-  const matches = accounts.filter(account => account.tenantId === tenantId && !account.isArchived && accountNameReviewKey(account.name) === key)
+  const matches = accounts.filter(account => account.tenantId === tenantId && account.id !== renameId && !account.isArchived && accountNameReviewKey(account.name) === key)
     .map(({ id, name, website, address }) => ({ id, name, website, address }))
     .sort((a, b) => a.id.localeCompare(b.id));
   if (!matches.length) return;
-  const bytes = new TextEncoder().encode(JSON.stringify([tenantId, actorId, name, matches]));
+  const bytes = new TextEncoder().encode(JSON.stringify([tenantId, actorId, name, matches, renameId]));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   const token = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
   if (reviewedToken === token) return;

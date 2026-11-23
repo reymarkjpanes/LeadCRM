@@ -52,6 +52,7 @@ exports.AccountFieldsSchema = zod_1.z.object({
 /** Omitted fields stay unchanged; null explicitly clears an optional Company Size. */
 exports.AccountUpdateFieldsSchema = exports.AccountFieldsSchema.partial().extend({
     size: exports.AccountFieldsSchema.shape.size.nullable(),
+    duplicateReviewToken: exports.AccountDuplicateReviewTokenSchema.optional(),
 });
 /** A retry identity belongs to this Account creation, including saves from edit forms. */
 exports.NewAccountSchema = exports.AccountFieldsSchema.extend({

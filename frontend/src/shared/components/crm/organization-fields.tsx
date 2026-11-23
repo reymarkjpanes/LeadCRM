@@ -90,9 +90,10 @@ function CompanyCustomFields({ draft }: { draft: OrganizationForm }) {
 }
 
 /** Company attributes are owned by Account; the person keeps only its canonical link. */
-export function OrganizationFields({ draft, companyLabel = 'Company Name', showAccount = true, showCompany = true, disabled = false, companyPicker }: {
+export function OrganizationFields({ draft, companyLabel = 'Company Name', showAccount = true, showCompany = true, disabled = false, companyPicker, hideUnavailableCreate = false }: {
   draft: OrganizationForm; companyLabel?: string; showAccount?: boolean; showCompany?: boolean; disabled?: boolean;
   companyPicker?: ReactNode;
+  hideUnavailableCreate?: boolean;
 }) {
   const id = useId();
   usePanelDraft({ dirty: draft.dirty, busy: disabled });
@@ -106,7 +107,7 @@ export function OrganizationFields({ draft, companyLabel = 'Company Name', showA
   return <div className="min-w-0 space-y-4 sm:col-span-2">
     <div className="flex flex-wrap gap-2" role="group" aria-label={companyPicker ? 'Company options' : 'Account options'}>
       {([['existing', companyPicker ? 'Choose company' : 'Link existing account'], ['new', companyPicker ? 'Create account' : 'Create new account']] as const).map(([mode, label]) =>
-        <button key={mode} type="button" aria-pressed={draft.mode === mode} disabled={disabled || (mode === 'existing' ? !companyPicker && (!canView || !showAccount) : !canCreateAccount)}
+        mode === 'new' && hideUnavailableCreate && !canCreateAccount ? null : <button key={mode} type="button" aria-pressed={draft.mode === mode} disabled={disabled || (mode === 'existing' ? !companyPicker && (!canView || !showAccount) : !canCreateAccount)}
           className="min-h-9 rounded-lg border border-border px-3 py-1.5 text-xs aria-pressed:bg-primary/10 aria-pressed:text-primary disabled:opacity-50"
           onClick={() => { if (mode === 'new') setAccountDraftOpened(true); draft.setMode(mode); }}>{label}</button>)}
     </div>
