@@ -9,7 +9,6 @@ import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 
 import { SELECTABLE_LEAD_SOURCES, isDirectMailSource, defaultFieldLayout, getCrmFieldCatalog } from '@leadcrm/shared';
-import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
 import { PanelSectionHeading, panelBodyClass, panelFooterClass, panelInputClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
@@ -76,9 +75,9 @@ interface ContactFormInnerProps {
 export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormInnerProps): React.ReactElement {
   const recordAccess = useCrmRecordAccess('contacts');
   const actionAllowed = useHasPermission(initialData ? 'contacts.edit' : 'contacts.create');
+  const canViewAccounts = useHasPermission('accounts.view');
   const canSubmit = actionAllowed && !!recordAccess.policy && (!initialData || recordAccess.canMutate(initialData));
   const customFields = useRecordCustomFields('contacts', initialData?.id);
-  const organization = useOrganizationForm(initialData);
   const { products: productRecords, categories, loading: productsLoading, error: productError } = useProductInterests();
   const { users } = useData();
   const isEdit = !!initialData;
@@ -103,6 +102,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     }
     return { ...customFields, layout: { ...saved, groups, fields } };
   }, [customFields, isEdit]);
+  const canSelectAccount = canViewAccounts && configuredFields.layout?.fields.accountId?.visibleInForm !== false;
 
   // Map initialData to form values that match the backend schema
   const defaultValues = useMemo((): CreateContactFormValues => ({
@@ -110,7 +110,6 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     lastName: initialData?.lastName || '',
     email: initialData?.email || '',
     phone: initialData?.phone ? toE164(normalizePhInput(initialData.phone)) : '',
-    companyName: initialData?.companyName || '',
     notes: initialData?.notes || '',
     status: initialData?.status ? normalizeCrmStatus(initialData.status) : 'Inquiry',
     source: initialData?.leadSource || '',
@@ -128,7 +127,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     register,
     handleSubmit,
     control,
-    formState: { errors, isSubmitting: isValidatingSubmission, isDirty },
+    formState: { errors, isSubmitting: isValidatingSubmission, isDirty, dirtyFields },
     setValue,
     watch,
     setFocus,
@@ -143,12 +142,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     mode: 'onBlur',
   });
   const isSubmitting = isValidatingSubmission || isSaving;
-  const requestClose = usePanelDraft({ dirty: isDirty || customFields.dirty || organization.dirty, busy: isSubmitting || customFields.uploadCount > 0 });
-
-  useEffect(() => {
-    setValue('companyName', organization.fields.companyName);
-    setValue('accountId', organization.mode === 'existing' ? organization.accountId : '');
-  }, [organization.fields.companyName, organization.mode, organization.accountId, setValue]);
+  const requestClose = usePanelDraft({ dirty: isDirty || customFields.dirty, busy: isSubmitting || customFields.uploadCount > 0 });
 
   // Scroll to first error on submit
   const fieldId = React.useId();
@@ -187,7 +181,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email!)) return;
     setPhoneTouched(true);
-    if (validatePhMobile(phoneLocal) || !customFields.validate() || !organization.validate()) return;
+    if (validatePhMobile(phoneLocal) || !customFields.validate()) return;
     setSaveError('');
     // contactsV2Api translates the display aliases to Contact API columns.
     const cleaned: Partial<Contact> = {
@@ -197,7 +191,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
       ...(lastNameChanged ? { lastName: data.lastName } : {}),
       email: data.email || undefined,
       phone: phoneLocal ? toE164(phoneLocal) : isEdit ? '' : undefined,
-      ...organization.payload(),
+      ...(!isEdit || (canSelectAccount && dirtyFields.accountId) ? { accountId: canSelectAccount ? data.accountId || null : null } : {}),
       ...(isEdit ? { notes: data.notes || '' } : {}),
       status: isEdit && data.status === normalizeCrmStatus(statusVersion.current?.status) ? undefined : data.status || 'Inquiry',
       ...(isEdit && data.status !== normalizeCrmStatus(statusVersion.current?.status) ? { expectedUpdatedAt: statusVersion.current?.updatedAt } : {}),
@@ -223,8 +217,7 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
         setSaveError('');
         return;
       }
-      applyCrmFieldErrors(error, setError, ['firstName', 'lastName', 'email', 'phone', 'status', 'source', 'assignedUserId', 'address']);
-      organization.applyServerErrors(error);
+      applyCrmFieldErrors(error, setError, ['firstName', 'lastName', 'email', 'phone', 'status', 'source', 'accountId', 'assignedUserId', 'address']);
       showCrmMutationError(error, 'Unable to save Contact.');
       setSaveError(error instanceof Error ? error.message : 'Unable to save Contact. Please try again.');
     } finally { saving.current = false; setIsSaving(false); }
@@ -338,8 +331,14 @@ export function ContactFormInner({ initialData, onSave, onCancel }: ContactFormI
         <div className="space-y-4">
           <SectionHeader num={3} title="Organization" />
 
-          {/* Account (organization) selector */}
-          <div data-crm-field-key="companyName" data-crm-secondary-field-key="accountId" className="sm:col-span-2"><OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={customFields.layout?.fields.companyName?.label ?? 'Company'} showCompany={customFields.layout?.fields.companyName?.visibleInForm !== false} showAccount={configuredFields.layout?.fields.accountId?.visibleInForm !== false} /></div>
+          <div data-crm-field-key="accountId" className="space-y-2 sm:col-span-2">
+            <label id={`${fieldId}-account-label`} htmlFor={`${fieldId}-account`} className="block text-xs font-semibold text-muted-foreground">Account</label>
+            <Controller name="accountId" control={control} render={({ field, fieldState }) => (
+              <EntityCombobox id={`${fieldId}-account`} aria-labelledby={`${fieldId}-account-label`}
+                entityType="accounts" value={field.value || null} onChange={id => { field.onChange(id ?? ''); clearErrors('accountId'); }}
+                disabled={isSubmitting || !canSelectAccount} placeholder="Search accounts..." error={fieldState.error?.message} />
+            )} />
+          </div>
 
           <CustomFieldGroup form={customFields} group="Organization" />
         </div>
@@ -449,7 +448,7 @@ export function ContactFormSheet({ initialData, isOpen, onClose, onSave }: Conta
       title={initialData ? 'Edit Contact' : 'New Contact'}
       subtitle="Complete the contact details below."
     >
-      <ContactFormInner initialData={initialData} onSave={onSave} onCancel={onClose} />
+      <ContactFormInner key={initialData?.id ?? 'new'} initialData={initialData} onSave={onSave} onCancel={onClose} />
     </SlidingDrawer>
   );
 }
