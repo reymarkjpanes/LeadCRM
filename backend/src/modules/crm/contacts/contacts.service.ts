@@ -7,7 +7,7 @@ import { salesContext } from '../leads/sales-context';
 async function presentLead<T extends { account?: unknown; accountId?: string | null; companyName?: string | null; companyFromAccount?: boolean }>(tenantId: string, lead: T) {
   return presentContactAccount(lead, await mayReadContactAccount(salesContext.getStore() ?? prisma, tenantId, lead.accountId));
 }
-import { assertCrmRecordMutation } from '../access/crm-record-access.service';
+import { assertCrmRecordMutation, crmReadWhere } from '../access/crm-record-access.service';
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { NotFoundError, ValidationError } from '../../../shared/errors/http-error';
 import { CreateContactSchema, UpdateContactSchema, ConvertContactSchema, CreateContactDto, UpdateContactDto, ConvertContactDto } from './contacts.dto';
@@ -79,7 +79,9 @@ export async function convertContact(id: string, tenantId: string, userId: strin
       leadDeals: { some: { tenantId, leadId: id } } } })) throw new ValidationError('Choose a Deal already associated with this Lead.');
     // Never replace the identity of a previously converted customer on a retry.
     if (!lead.convertedAt) {
-      if (dto.accountId && !await tx.account.findFirst({ where: { tenantId, id: dto.accountId, isArchived: false, deletedAt: null } })) throw new NotFoundError('Active Account');
+      if (dto.accountId && !await tx.account.findFirst({
+        where: { tenantId, id: dto.accountId, isArchived: false, deletedAt: null, AND: [await crmReadWhere(tx, tenantId, 'accounts')] },
+      })) throw new NotFoundError('Active Account');
       if (dto.contactId && !await tx.contact.findFirst({ where: { tenantId, id: dto.contactId, isArchived: false, deletedAt: null } })) throw new NotFoundError('Active Contact');
       if ((dto.contactId && dto.contactId !== lead.contactId) || (dto.accountId && dto.accountId !== lead.accountId)) {
         await tx.lead.update({ where: { tenantId, id }, data: {

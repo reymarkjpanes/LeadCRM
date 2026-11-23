@@ -4,11 +4,12 @@ import { ACCOUNT_DUPLICATE_REVIEW_MESSAGE, type AccountDuplicateMatch, type Acco
 import { Button } from '@/shared/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog';
 
-export function AccountDuplicateReviewDialog({ review, busy, onBack, onCreateAnyway, onUseExisting }: {
+export function AccountDuplicateReviewDialog({ review, busy, operation = 'create', onBack, onCreateAnyway, onUseExisting }: {
   review: AccountDuplicateReview | null;
   busy: boolean;
+  operation?: 'create' | 'rename';
   onBack: () => void;
-  onCreateAnyway: (token: string) => void;
+  onCreateAnyway?: (token: string) => void;
   onUseExisting?: (account: AccountDuplicateMatch) => void;
 }) {
   if (!review) return null;
@@ -16,7 +17,7 @@ export function AccountDuplicateReviewDialog({ review, busy, onBack, onCreateAny
     <DialogContent showClose={false} className="max-w-lg gap-4">
       <DialogHeader>
         <DialogTitle>{ACCOUNT_DUPLICATE_REVIEW_MESSAGE}</DialogTitle>
-        <DialogDescription>Review the matches before creating a separate Account.</DialogDescription>
+        <DialogDescription>{operation === 'rename' ? 'Confirm the proposed name belongs to a distinct Account.' : 'Review the matches before creating a separate Account.'}</DialogDescription>
       </DialogHeader>
       <ul className="max-h-60 space-y-2 overflow-y-auto">
         {review.matches.map(account => <li key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
@@ -31,8 +32,10 @@ export function AccountDuplicateReviewDialog({ review, busy, onBack, onCreateAny
         </li>)}
       </ul>
       <DialogFooter>
-        <Button type="button" variant="ghost" disabled={busy} onClick={onBack}>Back to form</Button>
-        <Button type="button" variant="outline" disabled={busy} onClick={() => onCreateAnyway(review.token)}>Create anyway</Button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={onBack}>{operation === 'rename' ? 'Back to edit' : 'Back to form'}</Button>
+        {onCreateAnyway && <Button type="button" variant="outline" disabled={busy} onClick={() => onCreateAnyway(review.token)}>
+          {operation === 'rename' ? 'Save rename anyway' : 'Create anyway'}
+        </Button>}
       </DialogFooter>
     </DialogContent>
   </Dialog>;

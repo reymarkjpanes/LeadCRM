@@ -11,11 +11,11 @@ import { fireContactStatusChanged, fireContactUpdated } from '../../automation/t
 import { writeAuditLog } from '../../../core/audit/audit.service';
 import { recordChanges, customFieldChangeTracker } from '../record-updates';
 import { salesTransaction } from '../leads/lead-automation.service';
-import { assertContactAccountSelection, mayReadContactAccount, presentContactAccount } from './contact-account-access';
+import { assertContactAccountSelection, mayReadContactAccount, presentContactCompany } from './contact-account-access';
 
 async function presentContact<T extends { id: string; status: string; account: unknown; accountId?: string | null; companyFromAccount?: boolean; companyName?: string | null }>(tenantId: string, contact: T) {
   const [presented] = await withCustomerStatusPolicy(salesContext.getStore() ?? prisma, tenantId, 'contact', [contact]);
-  return presentContactAccount({ ...presented, status: normalizeCrmStatus(contact.status) }, await mayReadContactAccount(salesContext.getStore() ?? prisma, tenantId, contact.accountId));
+  return presentContactCompany({ ...presented, status: normalizeCrmStatus(contact.status) }, await mayReadContactAccount(salesContext.getStore() ?? prisma, tenantId, contact.accountId));
 }
 
 export async function getContacts(tenantId: string, query: Record<string, unknown>) {

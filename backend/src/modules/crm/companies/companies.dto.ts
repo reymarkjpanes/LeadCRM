@@ -34,7 +34,9 @@ export const CreateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.extend
   duplicateReviewToken: AccountDuplicateReviewTokenSchema.optional(),
 })).transform(fullAddress)
   .refine(data => (data.address?.length ?? 0) <= CRM_ADDRESS_MAX_LENGTH, { path: ['address'], message: CRM_ADDRESS_MAX_ERROR });
-export const UpdateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.partial().extend({ size: AccountUpdateFieldsSchema.shape.size })).transform(fullAddress)
+export const UpdateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.partial().extend({ size: AccountUpdateFieldsSchema.shape.size,
+  duplicateReviewToken: AccountUpdateFieldsSchema.shape.duplicateReviewToken,
+})).transform(fullAddress)
   .refine(data => (data.address?.length ?? 0) <= CRM_ADDRESS_MAX_LENGTH, { path: ['address'], message: CRM_ADDRESS_MAX_ERROR });
 
 export type CreateCompanyDto = z.infer<typeof CreateCompanySchema>;

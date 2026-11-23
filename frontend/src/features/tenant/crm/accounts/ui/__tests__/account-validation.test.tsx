@@ -31,6 +31,21 @@ it('keeps the Account draft during duplicate review and retries only after Creat
   });
 });
 
+it('submits the original rename draft with the matching review token', async () => {
+  const token = 'd'.repeat(64);
+  const save = vi.fn().mockRejectedValueOnce(Object.assign(new Error('Possible duplicate'), {
+    duplicateReview: { token, matches: [{ id: 'similar', name: 'North Inc.' }] },
+  })).mockResolvedValue(undefined);
+  render(<AccountFormInner initialData={{ id: 'account', tenantId: 'tenant', name: 'South', createdAt: '2026-09-24T00:00:00Z' }} onSave={save} onCancel={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText(/Account Name/), { target: { value: 'North Corp.' } });
+  fireEvent.change(screen.getByLabelText('Company Address'), { target: { value: 'Address saved with rename' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Save rename anyway' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save.mock.calls[1][0]).toEqual({ ...save.mock.calls[0][0], duplicateReviewToken: token });
+  expect(save.mock.calls[1][0]).not.toHaveProperty('requestId');
+});
+
 it.each([false, true])('submits an Account without obsolete fields (edit=%s)', async edit => {
   const save = vi.fn();
   render(<AccountFormInner initialData={edit ? { id: 'account', tenantId: 'tenant', name: 'Account', createdAt: '2026-09-24T00:00:00Z' } : undefined} onSave={save} onCancel={vi.fn()} />);

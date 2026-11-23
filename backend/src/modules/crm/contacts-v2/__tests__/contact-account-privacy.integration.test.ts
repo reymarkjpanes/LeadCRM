@@ -9,7 +9,7 @@ vi.mock('../../../../shared/services/email.service', () => ({ sendMail: vi.fn().
 const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/');
 const disposable = ['localhost', '127.0.0.1'].includes(url.hostname) && (url.pathname === '/leadcrm_forms_test_2' || /^\/leadcrm_sales_test_\d+$/.test(url.pathname));
 describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated HTTP', { timeout: 30000 }, () => {
-  let tenantId: string, token: string, roleId: string, base: string, server: Server;
+  let tenantId: string, token: string, roleId: string, actorId: string, base: string, server: Server;
   async function request(path: string, method = 'GET', body?: unknown) {
     const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -19,9 +19,10 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
     tenantId = (await prisma.tenant.create({ data: { name: 'Contact Account privacy', slug: randomUUID(), status: 'ACTIVE', onboardingStep: 3, onboardingCompletedAt: new Date() } })).id;
     const role = await prisma.roleDefinition.create({ data: { tenantId, name: 'Contact intake only' } });
     roleId = role.id;
-    await prisma.rolePermission.createMany({ data: ['contacts', 'leads'].map(module => ({ tenantId, roleId, module, canView: true, canViewAll: true, canCreate: true, canEdit: true })) });
+    await prisma.rolePermission.createMany({ data: ['contacts', 'leads', 'deals'].map(module => ({ tenantId, roleId, module, canView: true, canViewAll: true, canCreate: true, canEdit: true })) });
     const actor = await prisma.user.create({ data: { tenantId, firstName: 'Intake', lastName: 'Employee', email: `${randomUUID()}@camxian.com`, role: role.name,
       mustChangePassword: false, onboardingCompletedAt: new Date(), emailVerified: new Date(), userRoles: { create: { roleId } } } });
+    actorId = actor.id;
     token = (await issueAuthSession(actor)).token;
     server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1`;
@@ -29,7 +30,7 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
   afterAll(async () => { if (server) await new Promise<void>(resolve => server.close(() => resolve())); await prisma.$disconnect(); });
 
   it('persists companyName through authenticated create/edit/list/detail and rejects legacy company writes', async () => {
-    const input = {requestId:randomUUID(),firstName:'Rename',lastName:'Contact',email:`${randomUUID()}@example.test`,companyName:`Company ${randomUUID()}`};
+    const input = {requestId:randomUUID(),firstName:'Rename',lastName:'Contact',email:`${randomUUID()}@example.test`,companyName:`Company ${randomUUID()}`,assignedUserId:actorId};
     for (const extra of [{company:'Legacy'}, {company:'Legacy',companyName:'New'}]) {
       expect((await request('/crm/contacts','POST',{...input,...extra})).status).toBe(400);
     }
@@ -67,14 +68,14 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
     expect.soft(await prisma.contactCreationReceipt.count({ where: { tenantId, requestId: rejectedInput.requestId } })).toBe(0);
 
     const accountsGrant = await prisma.rolePermission.create({ data: { tenantId, roleId, module: 'accounts', canView: true, canViewAll: true } });
-    const input = { requestId: randomUUID(), firstName: `Retained-${randomUUID()}`, lastName: 'Contact', email: `${randomUUID()}@example.test`, companyName: 'Public Contact company', accountId: account.id };
+    const input = { requestId: randomUUID(), firstName: 'Retained', lastName: 'Contact', email: `${randomUUID()}@example.test`, companyName: 'Public Contact company', accountId: account.id, assignedUserId: actorId };
     const created = await request('/crm/contacts', 'POST', input);
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const id = created.body.data.id;
     expect(created.body.data.account).toMatchObject({ id: account.id, name: secret });
     expect(created.body.data.companyName).toBe(secret);
     expect(created.body.data).not.toHaveProperty('companyFromAccount');
-    const lead = await request('/crm/leads', 'POST', { requestId: randomUUID(), firstName: 'Linked', lastName: 'Lead', email: `${randomUUID()}@example.test`, accountId: account.id });
+    const lead = await request('/crm/leads', 'POST', { requestId: randomUUID(), firstName: 'Linked', lastName: 'Lead', email: `${randomUUID()}@example.test`, accountId: account.id, assignedUserId: actorId });
     expect(lead.status, JSON.stringify(lead.body)).toBe(201);
     expect(lead.body.data.companyName).toBe(secret);
     const allowedSearch = await request(`/crm/contacts?search=${encodeURIComponent(secret)}`);
@@ -95,7 +96,7 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
     expect(await prisma.lead.findUniqueOrThrow({ where: { id: lead.body.data.id } })).toMatchObject({ convertedAt: null, contactId: null });
     expect(await prisma.contact.count({ where: { tenantId, email: lead.body.data.email } })).toBe(0);
     expect.soft(detail.body.data.account).toBeNull();
-    await prisma.rolePermission.createMany({ data: ['campaigns', 'deals'].map(module => ({ tenantId, roleId, module, canView: true, ...(module === 'deals' ? { canViewAll: true } : {}) })) });
+    await prisma.rolePermission.create({ data: { tenantId, roleId, module: 'campaigns', canView: true } });
     const companies = await request('/marketing/audiences/companies?source=CONTACTS');
     expect(companies.status, JSON.stringify(companies.body)).toBe(200);
     expect(companies.body.data).not.toContain(secret);
@@ -104,7 +105,7 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
     expect(JSON.stringify(preview.body)).not.toContain(secret);
     const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Private Account relationships' } });
     const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Open', order: 0, requiredFields: [] } });
-    const deal = await prisma.deal.create({ data: { tenantId, title: 'Public opportunity', pipelineId: pipeline.id, stageId: stage.id, accountId: account.id,
+    const deal = await prisma.deal.create({ data: { tenantId, title: 'Public opportunity', pipelineId: pipeline.id, stageId: stage.id, accountId: account.id, assignedUserId: actorId,
       productInterests: [], tags: [] } });
     await prisma.contactDeal.create({ data: { tenantId, contactId: id, dealId: deal.id } });
     const dealDetail = await request(`/crm/deals/${deal.id}`);
@@ -147,5 +148,42 @@ describe.skipIf(!disposable)('Contact Account metadata privacy on authenticated 
     expect(authorizedChange.status, JSON.stringify(authorizedChange.body)).toBe(200);
     expect(authorizedChange.body.data.account).toMatchObject({ id: replacement.id, name: replacement.name });
     expect((await request(`/crm/contacts/${id}`, 'PUT', { accountId: null })).status).toBe(200);
+  });
+
+  it('sorts by the current Account name before pagination and preserves historical Deal links', async () => {
+    const prefix = 'Linked sorting';
+    const original = await prisma.account.create({ data: { tenantId, name: 'Zulu Company' } });
+    const middle = await prisma.account.create({ data: { tenantId, name: 'Middle Company' } });
+    const archived = await prisma.account.create({ data: { tenantId, name: 'Archived Company', isArchived: true } });
+    const foreign = await prisma.tenant.create({ data: { name: 'Foreign Account', slug: randomUUID() } });
+    const foreignAccount = await prisma.account.create({ data: { tenantId: foreign.id, name: 'Foreign Company' } });
+    const create = (accountId: string) => request('/crm/contacts', 'POST',
+      { requestId: randomUUID(), firstName: 'Linked', lastName: 'Sorting', email: `${randomUUID()}@example.test`, accountId, assignedUserId: actorId });
+    const first = await create(original.id);
+    const second = await create(middle.id);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    const { id } = first.body.data;
+    const pipeline = await prisma.pipeline.create({ data: { tenantId, name: 'Historical Account links' } });
+    const stage = await prisma.stage.create({ data: { tenantId, pipelineId: pipeline.id, name: 'Open', order: 0 } });
+    const deal = await prisma.deal.create({ data: { tenantId, stageId: stage.id, pipelineId: pipeline.id, accountId: original.id,
+      title: 'Historical Deal', contactDeals: { create: { contactId: id } } } });
+    await prisma.account.update({ where: { id: original.id }, data: { name: 'Alpha Company' } });
+    for (const [page, expectedId, name] of [[1, id, 'Alpha Company'], [2, second.body.data.id, 'Middle Company']] as const) {
+      const result = await request(`/crm/contacts?search=${encodeURIComponent(prefix)}&sort=companyName:asc&limit=1&page=${page}`);
+      expect(result.body.data).toMatchObject([{ id: expectedId, companyName: name }]);
+    }
+    expect((await request(`/crm/contacts/${id}`)).body.data.companyName).toBe('Alpha Company');
+    const oldNameSearch = await request('/crm/contacts?search=Zulu');
+    expect(oldNameSearch.body.data).toMatchObject([{ id, companyName: 'Alpha Company' }]);
+    for (const input of [{ accountId: archived.id }, { accountId: foreignAccount.id }, { companyName: 'Independent edit' }]) {
+      expect((await request(`/crm/contacts/${id}`, 'PUT', input)).status).toBe(400);
+    }
+    const relink = await request(`/crm/contacts/${id}`, 'PUT', { accountId: middle.id });
+    expect(relink.body.data).toMatchObject({ accountId: middle.id, companyName: middle.name });
+    const clear = await request(`/crm/contacts/${id}`, 'PUT', { accountId: null });
+    expect(clear.body.data).toMatchObject({ accountId: null, companyName: null });
+    expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({ accountId: original.id });
+    expect(await prisma.contactDeal.count({ where: { tenantId, dealId: deal.id, contactId: id } })).toBe(1);
   });
 });

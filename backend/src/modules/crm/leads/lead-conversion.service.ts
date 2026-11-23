@@ -2,10 +2,9 @@ import { productRelationData } from './product-relations';
 import { assertExternalCustomerEmail, assertExternalCustomerPhone } from '../record-validation';
 import { isDeepStrictEqual } from 'node:util';
 import type { ContactStatus, Deal, Prisma } from '@prisma/client';
-import { aggregateDealEngagement, companyNameMatchKey, normalizeCrmStatus, type NewAccountInput } from '@leadcrm/shared';
+import { aggregateDealEngagement, normalizeCrmStatus, type NewAccountInput } from '@leadcrm/shared';
 import { classifyCustomerRecord } from '../customer-classification.service';
-import { createCompany } from '../companies/companies.service';
-import { createLinkedAccount } from '../companies/organization-creation';
+import { resolveAccountForCompany } from '../companies/account-resolution';
 import { AppError } from '../../../shared/errors/app-error';
 import { ConflictError, NotFoundError } from '../../../shared/errors/http-error';
 import { assertCrmRecordMutation } from '../access/crm-record-access.service';
@@ -31,6 +30,8 @@ export interface LeadConversionEvents {
   accountName?: string;
   newAccount?: NewAccountInput;
   skipAccountCreation?: boolean;
+  /** Established Account of the Deal being closed. */
+  closingAccountId?: string;
 }
 
 /** Runs in the caller's serializable sales transaction. Original records and FKs are retained. */
@@ -86,7 +87,8 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   }
   const previousContact = contact;
   if (lead.accountId && contact?.accountId && lead.accountId !== contact.accountId) throw conflict();
-  let accountId = lead.accountId ?? contact?.accountId ?? null;
+  let accountId = lead.accountId ?? contact?.accountId ?? events.closingAccountId ?? null;
+  if (events.closingAccountId && accountId !== events.closingAccountId) throw conflict();
   if (!accountId) {
     const relatedAccounts = [...new Set(deals.map(deal => deal.accountId).filter((id): id is string => !!id))];
     if (relatedAccounts.length > 1) throw conflict();
@@ -94,16 +96,11 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   }
   const accountName = events.newAccount?.name || events.accountName?.trim() || lead.companyName?.trim();
   if (!accountId && accountName && !events.skipAccountCreation) {
-    const name = accountName.replace(/\s+/g, ' ');
-    const matches = (await tx.account.findMany({ where: { tenantId, name: { contains: name.split(' ')[0], mode: 'insensitive' } } }))
-      .filter(row => companyNameMatchKey(row.name) === companyNameMatchKey(name));
-    if (matches.length > 1 || matches[0]?.isArchived || matches[0]?.deletedAt) throw conflict();
-    // Shared Account creation must join even callers using a raw Prisma transaction.
-    accountId = matches[0]?.id ?? (await salesContext.run(tx, () => events.newAccount
-      ? createLinkedAccount(tx, tenantId, events.newAccount, actorId)
-      : createCompany(tenantId, actorId, { name }))).id;
+    accountId = (await resolveAccountForCompany(tx, { tenantId, actorId, companyName: accountName, newAccount: events.newAccount,
+      operation: completedSale ? 'close-won' : 'convert-lead', recordId: events.dealEventHandledByCaller ?? leadId })).id;
   }
-  if (accountId && !await tx.account.findFirst({ where: { tenantId, id: accountId, isArchived: false, deletedAt: null } })) throw conflict();
+  const linkedAccount = accountId ? await tx.account.findFirst({ where: { tenantId, id: accountId, isArchived: false, deletedAt: null }, select: { name: true } }) : null;
+  if (accountId && !linkedAccount) throw conflict();
   if (accountId && deals.some(deal => deal.accountId && deal.accountId !== accountId)) throw conflict();
   // Linking an existing Account does not authorize editing its fields or Products.
   const legacyDescription = await tx.customFieldValue.findFirst({ where: { tenantId, leadId, fieldId: 'retired-lead-description', module: 'leads' } });
@@ -113,7 +110,7 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   const aggregate = aggregateDealEngagement(deals.filter(deal => !deal.deletedAt).map(deal => ({ ...deal, pipelineArchived: deal.pipeline.isArchived, isWon: deal.stage.isWon, isLost: deal.stage.isLost, confirmedWon: !!deal.wonConfirmedAt })));
   const status = (lead.manualCancellation ? 'CANCELLED' : (aggregate ?? normalizeCrmStatus(lead.status)).toUpperCase().replace(' ', '_')) as ContactStatus;
   if (!contact) contact = await tx.contact.create({ data: { tenantId, firstName: lead.firstName, lastName: lead.lastName,
-    email: lead.email?.trim().toLowerCase(), phone: lead.phone, companyName: lead.companyName, companyFromAccount: lead.companyFromAccount, address: lead.address,
+    email: lead.email?.trim().toLowerCase(), phone: lead.phone, companyName: linkedAccount?.name ?? lead.companyName, companyFromAccount: !!linkedAccount, address: lead.address,
     source: lead.source, ...(lead.attribution ? { attribution: lead.attribution as Prisma.InputJsonObject } : {}), notes: typeof legacyDescription?.value === 'string' ? legacyDescription.value : undefined, assignedUserId: lead.assignedUserId, accountId,
     ...await productRelationData(tx, 'contact', tenantId, initialInterests, lead), status: !firstWon && status === 'CLOSED_DEAL' ? 'WARM' : status, lifecycleStage: firstWon ? 'CUSTOMER' : 'CONTACT',
     lastCustomerReplyAt: lead.lastCustomerReplyAt, firstUnansweredOutboundAt: lead.firstUnansweredOutboundAt, firstStaffOutreachAt: lead.firstStaffOutreachAt,
@@ -121,6 +118,7 @@ export async function convertLead(tx: Prisma.TransactionClient, tenantId: string
   else {
     const current = contact;
     const data = { accountId,
+      ...(linkedAccount && accountId !== current.accountId ? { companyName: linkedAccount.name, companyFromAccount: true } : {}),
       ...(!current.attribution && lead.attribution ? { attribution: lead.attribution as Prisma.InputJsonObject } : {}),
       ...(firstWon ? { lifecycleStage: 'CUSTOMER' as const, customerSince: current.customerSince && current.customerSince <= firstWon ? current.customerSince : firstWon,
         lastStatusChangedAt: current.status === 'CLOSED_DEAL' ? current.lastStatusChangedAt : now } : {}),

@@ -55,6 +55,7 @@ export const AccountFieldsSchema = z.object({
 /** Omitted fields stay unchanged; null explicitly clears an optional Company Size. */
 export const AccountUpdateFieldsSchema = AccountFieldsSchema.partial().extend({
   size: AccountFieldsSchema.shape.size.nullable(),
+  duplicateReviewToken: AccountDuplicateReviewTokenSchema.optional(),
 });
 
 /** A retry identity belongs to this Account creation, including saves from edit forms. */

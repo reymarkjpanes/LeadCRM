@@ -94,6 +94,68 @@ describe.skipIf(!disposable)('Lead conversion Account linking with authenticated
     expect(result.body.data.contact.accountId).toBe(existing.id);
     expect(await prisma.account.findUniqueOrThrow({ where: { id: existing.id } })).toEqual(before);
   });
+  it('allows selecting and skipping without Accounts Create and denies an actual insert', async () => {
+    const existing = await account();
+    const [explicit, exact, skip, denied] = await Promise.all([
+      lead(), lead({ companyName: existing.name }), lead({ companyName: 'Skip Account Company' }), lead({ companyName: 'Denied Account Company' }),
+    ]);
+    const permissions = { tenantId, roleId: a.roleId, module: 'accounts' };
+    await prisma.rolePermission.updateMany({ where: permissions, data: { canCreate: false } });
+    try {
+      for (const [id, payload, expected] of [
+        [explicit.id, { accountId: existing.id }, existing.id],
+        [exact.id, {}, existing.id],
+        [skip.id, { skipAccountCreation: true }, null],
+      ] as const) {
+        const result = await convert(id, payload);
+        expect(result.status, JSON.stringify(result.body)).toBe(200);
+        expect(result.body.data.contact.accountId).toBe(expected);
+      }
+      expect((await convert(denied.id)).status).toBe(403);
+      expect(await prisma.lead.findUniqueOrThrow({ where: { id: denied.id } })).toMatchObject({ convertedAt: null, contactId: null });
+    } finally { await prisma.rolePermission.updateMany({ where: permissions, data: { canCreate: true } }); }
+  });
+  it('reviews similar Accounts, refreshes stale approval and safely retries a confirmed distinct creation', async () => {
+    const existing = await account({ name: 'Conversion Trading Inc.' });
+    const source = await lead({ companyName: 'Conversion Trading' });
+    const alternate = await lead({ companyName: 'Conversion Trading' });
+    const draft = { name: 'Conversion Trading', requestId: randomUUID() };
+    const first = await convert(source.id, { newAccount: draft });
+    expect(first.status).toBe(409);
+    expect(first.body.error).toMatchObject({ code: 'POSSIBLE_DUPLICATE_ACCOUNT', duplicateReview: { matches: [{ id: existing.id }] } });
+    const token = first.body.error.duplicateReview.token;
+    const otherLead = await convert(alternate.id, { newAccount: { ...draft, requestId: randomUUID(), duplicateReviewToken: token } });
+    expect(otherLead.status).toBe(409);
+    const explicit = await convert(alternate.id, { accountId: existing.id });
+    expect(explicit.status, JSON.stringify(explicit.body)).toBe(200);
+    expect(explicit.body.data.contact.accountId).toBe(existing.id);
+    await account({ name: 'Conversion Trading Corp.' });
+    const stale = await convert(source.id, { newAccount: { ...draft, duplicateReviewToken: token } });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.duplicateReview.token).not.toBe(token);
+    expect(stale.body.error.duplicateReview.matches).toHaveLength(2);
+    expect(await prisma.lead.findUniqueOrThrow({ where: { id: source.id } })).toMatchObject({ convertedAt: null, contactId: null });
+    const confirmed = { newAccount: { ...draft, duplicateReviewToken: stale.body.error.duplicateReview.token } };
+    const retries = await Promise.all([convert(source.id, confirmed), convert(source.id, confirmed)]);
+    for (const result of retries) expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(retries[0].body.data.account.id).toBe(retries[1].body.data.account.id);
+    expect(await prisma.account.count({ where: { tenantId, name: draft.name } })).toBe(1);
+  });
+  it('requires an explicit active selection when an archived or ambiguous exact name matches', async () => {
+    const active = await account({ name: 'Ambiguous Company' });
+    await account({ name: 'ambiguous   company', isArchived: true });
+    const source = await lead({ companyName: 'Ambiguous Company' });
+    expect((await convert(source.id)).status).toBe(409);
+    const explicit = await convert(source.id, { accountId: active.id });
+    expect(explicit.status, JSON.stringify(explicit.body)).toBe(200);
+    expect(explicit.body.data.contact.accountId).toBe(active.id);
+  });
+  it('protects the Account link on another Sales Associate’s Contact', async () => {
+    const existing = await account();
+    const otherContact = await contact(null, { assignedUserId: b.id });
+    expect((await call(`/contacts/${otherContact.id}`, { accountId: existing.id }, a, 'PUT')).status).toBe(404);
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: otherContact.id } })).toMatchObject({ accountId: null });
+  });
   it('creates an Account without assignment or products and retains the Lead assignment and canonical Product ID on its Contact', async () => {
     const retired = await prisma.productInterest.create({ data: { tenantId, name: 'Retired conversion product', active: false, dealValue: 50 } });
     await prisma.productInterest.create({ data: { tenantId, name: retired.name, active: true, dealValue: 75 } });

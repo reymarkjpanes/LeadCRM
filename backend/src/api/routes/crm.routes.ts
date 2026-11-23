@@ -101,7 +101,7 @@ router.post(  '/leads',              authorize('leads.create'), validate(ManualC
 router.put(   '/leads/:id',          authorize('leads.edit'),   validate(UpdateContactSchema), (req, res, next) => req.body.status === 'Closed Deal' ? authorizeAll('contacts.create', 'contacts.view', 'accounts.create', 'accounts.view', 'deals.view')(req, res, next) : next(), leadController.updateContact);
 router.patch( '/leads/:id/archive',  authorize('leads.archive'), leadController.archiveContact);
 router.patch( '/leads/:id/restore',  authorizeAll('archived_data.restore', 'leads.view'), leadController.restoreContact);
-router.post(  '/leads/:id/convert', authorizeAll('leads.edit', 'contacts.create', 'contacts.view', 'accounts.create', 'accounts.view', 'deals.view'), validate(ConvertContactSchema), leadController.convertContact);
+router.post(  '/leads/:id/convert', authorizeAll('leads.edit', 'contacts.create', 'contacts.view', 'accounts.view', 'deals.view'), validate(ConvertContactSchema), leadController.convertContact);
 router.get(   '/leads/:id/relationships', authorize('leads.view'), relationshipsController.getLeadRelationships);
 
 // ── Contacts (reads from Contact table, separate from Leads) ─────────────────

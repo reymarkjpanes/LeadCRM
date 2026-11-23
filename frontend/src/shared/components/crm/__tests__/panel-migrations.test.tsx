@@ -15,10 +15,10 @@ vi.mock('motion/react', async importOriginal => {
     get: (target, property) => property === 'div' ? StaticDiv : Reflect.get(target, property),
   }), useReducedMotion: () => true };
 });
-const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), upload: vi.fn(), permissions: ['*'], push: vi.fn(), move: vi.fn(), userId: 'user', role: 'Client Admin', authenticated: true, canMutate: true }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), patch: vi.fn(), post: vi.fn(), upload: vi.fn(), permissions: ['*'], push: vi.fn(), move: vi.fn(), userId: 'user', role: 'Client Admin', authenticated: true, canMutate: true }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('@/lib/config', () => ({ USE_MOCK_DATA: false }));
-vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get, put: mocks.put, post: mocks.post, upload: mocks.upload } }));
+vi.mock('@/lib/api/client', () => ({ apiClient: { get: mocks.get, put: mocks.put, patch: mocks.patch, post: mocks.post, upload: mocks.upload } }));
 vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ tenant: { id: 'tenant' }, user: mocks.authenticated ? { id: mocks.userId, tenantId: 'tenant', role: mocks.role } : undefined }) }));
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ contacts: [], organizations: [], activities: [], users: [], deals: [], refreshDeals: vi.fn().mockResolvedValue(undefined), moveDealStage: mocks.move, pipelines: [{ id: 'sales', stages: [{ id: 'lead', name: 'Lead' }, { id: 'won', name: 'Won', isWon: true }, { id: 'lost', name: 'Lost', isLost: true }] }] }) }));
 vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: (permission: string) => mocks.permissions.includes('*') || mocks.permissions.includes(permission) }));
@@ -269,6 +269,7 @@ it.each(dealEmailCases.flatMap(testCase => ['', 'broken'].map(email => ({ ...tes
 
 beforeEach(() => {
   clearPageCache(); vi.clearAllMocks(); mocks.permissions = ['*'];
+  mocks.put.mockReset().mockResolvedValue({ success: true });
   mocks.userId = 'user'; mocks.role = 'Client Admin'; mocks.authenticated = true; mocks.canMutate = true;
   vi.spyOn(toast, 'error').mockReturnValue(0);
   mocks.post.mockResolvedValue({ data: { id: 'created' } });
@@ -598,16 +599,72 @@ it('supports arrow-key tab navigation', async () => {
   await waitFor(() => expect(screen.getByRole('tab', { name: /Details/ }).getAttribute('aria-selected')).toBe('true'));
 });
 
-it('edits Contact details inline using canonical API fields', async () => {
-  mocks.put.mockResolvedValue({ success: true });
+it('relinks and clears a Contact Account through the inline dropdown', async () => {
+  const account = { id: 'new-account', name: 'Updated Company' };
+  const get = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation((path: string, ...args: unknown[]) => {
+    if (path.startsWith('/crm/accounts?')) return Promise.resolve({ data: [account] });
+    if (path === '/crm/accounts/new-account') return Promise.resolve({ data: account });
+    return get(path, ...args);
+  });
+  mocks.put.mockResolvedValueOnce({ data: { ...records.contacts, accountId: account.id, account, companyName: account.name } })
+    .mockResolvedValueOnce({ data: { ...records.contacts, accountId: null, account: null, companyName: null } });
   render(<CrmRecordView module="contacts" id="one" />);
   await screen.findByRole('heading', { name: 'Nora Lim' });
   fireEvent.click(screen.getByRole('tab', { name: /Details/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Company' }));
-  fireEvent.change(screen.getByRole('textbox', { name: 'Company' }), { target: { value: 'Updated Company' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Account' }));
+  fireEvent.click(screen.getByRole('combobox'));
+  fireEvent.click(await screen.findByRole('option', { name: 'Updated Company' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith('/crm/contacts/one', { companyName: 'Updated Company' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith('/crm/contacts/one', { accountId: account.id }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenLastCalledWith('/crm/contacts/one', { accountId: null }));
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('keeps an inline Account rename draft when backing out of duplicate review', async () => {
+  const token = 'a'.repeat(64);
+  const draft = 'North Company Inc.';
+  const review = Object.assign(new Error('An Account with a similar name already exists.'), {
+    duplicateReview: { token, matches: [{ id: 'similar', name: 'North Company Corp.' }] },
+  });
+  mocks.put.mockRejectedValueOnce(review).mockRejectedValueOnce(review)
+    .mockResolvedValueOnce({ data: { ...records.accounts, name: draft } });
+  render(<CrmRecordView module="accounts" id="one" />);
+  fireEvent.click(await screen.findByRole('tab', { name: /Details/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Edit Account Name/i }));
+  fireEvent.change(screen.getByRole('textbox', { name: /Account Name/i }), { target: { value: draft } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Back to edit' }));
+  expect((screen.getByRole('textbox', { name: /Account Name/i }) as HTMLInputElement).value).toBe(draft);
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Save rename anyway' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenLastCalledWith('/crm/accounts/one', { name: draft, duplicateReviewToken: token }));
+  expect(await screen.findByRole('heading', { name: draft })).toBeTruthy();
+});
+
+it('keeps the final closing draft available after the Account needs review', async () => {
+  const reference = { ...DEFAULT_CLOSING_FIELDS.find(field => field.id === 'reference-number')!, required: true };
+  const state = { fields: [reference], values: {}, errors: {}, files: [], locked: false };
+  const message = 'A similar Account already exists. Link the intended Account in Contact Details, then retry Closed Won.';
+  const get = mocks.get.getMockImplementation()!;
+  const path = '/crm/deals/one/closing-requirements';
+  mocks.get.mockImplementation((requested: string) => requested === path ? Promise.resolve({ data: state }) : get(requested));
+  mocks.patch.mockRejectedValueOnce(new Error(message)).mockResolvedValueOnce({
+    data: { ...state, locked: true, values: { [reference.id]: 'Closing draft' } },
+  });
+  render(<CrmRecordView module="deals" id="one" />);
+  fireEvent.click(await screen.findByRole('tab', { name: /Details/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Reference Number' }));
+  fireEvent.change(screen.getByRole('textbox', { name: /Reference Number/ }), { target: { value: 'Closing draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect((await screen.findByRole('alert')).textContent).toBe(message);
+  expect((screen.getByRole('textbox', { name: /Reference Number/ }) as HTMLInputElement).value).toBe('Closing draft');
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+  expect(await screen.findByText('Locked')).toBeTruthy();
+  expect(mocks.patch).toHaveBeenNthCalledWith(2, path, { values: { [reference.id]: 'Closing draft' } });
 });
 
 it('cancels inline Lead edits without submitting or changing the loaded value', async () => {
@@ -869,7 +926,8 @@ it.each((['leads', 'contacts'] as const).flatMap(module => ['panel', 'page'].map
   expect(organization.closest('section')?.textContent?.match(/Technology/g)).toHaveLength(1);
   expect(organization.closest('section')?.textContent).toContain('11-50');
   expect(screen.queryByRole('button', { name: /Company \/ Organization|Account \/ Company/ })).toBeNull();
-  expect(within(organization.closest('section')!).getByRole('button', { name: module === 'contacts' ? 'Edit Company' : 'Edit Company Name' }).textContent).toContain('Old company');
+  expect(within(organization.closest('section')!).getByRole('button', { name: module === 'contacts' ? 'Edit Account' : 'Edit Company Name' }).textContent)
+    .toContain(module === 'contacts' ? 'Canonical company' : 'Old company');
 });
 
 it('lets a Sales Associate select and save a company name from the inline Lead editor', async () => {
@@ -942,7 +1000,8 @@ it.each((['leads', 'contacts'] as const).flatMap(module => ['panel', 'page'].map
     'Basic Information', 'Status & Interest', 'Organization', 'Additional Information', 'Assigned Agent', 'Relationships',
   ]);
   const organization = within(screen.getByRole('button', { name: 'Organization' }).closest('section')!);
-  expect(organization.getByRole('button', { name: 'Edit Company Name' }).textContent).toContain('Stored company');
+  expect(organization.getByRole('button', { name: module === 'contacts' ? 'Edit Account' : 'Edit Company Name' }).textContent)
+    .toContain(module === 'contacts' ? 'Linked Account' : 'Stored company');
   expect(organization.getByRole('link', { name: 'Linked Account' }).getAttribute('href')).toBe('/crm/accounts/account');
   for (const value of ['Technology', '11-50', 'https://account.test']) expect(organization.getByText(value)).toBeTruthy();
   expect(organization.getByRole('heading', { name: 'Deals1' })).toBeTruthy();

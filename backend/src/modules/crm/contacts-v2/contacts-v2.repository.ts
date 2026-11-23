@@ -21,7 +21,7 @@ import { assertCustomerEmail } from '../../administration/users/user-email';
 import { getPaginationParams } from '../../../shared/helpers/pagination';
 import { buildSearchClauses } from '../../../shared/helpers/search';
 import { createAssignedContact } from './contact-creation';
-import { mayReadContactAccount, presentContactAccount } from './contact-account-access';
+import { mayReadContactAccount, presentContactCompany } from './contact-account-access';
 import { parseFilterParams, buildPrismaFilters, type FilterFields } from '../../../shared/helpers/filter-parser';
 
 const CONTACT_FILTER_FIELDS: FilterFields = {
@@ -113,9 +113,10 @@ async function findContactsPage(tenantId: string, query: Record<string, unknown>
   let activity: Map<string, Date> | undefined;
   const ids = await sortedPageIds(sort === 'createdAt:desc' ? undefined : sort, ['firstName', 'lastName', 'email', 'phone', 'companyName', 'status', 'source', 'createdAt', 'lastSalesActivityAt'], skip, limit,
     async () => {
-      const keys = await db.contact.findMany({ where, select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, companyFromAccount: true, status: true, source: true, createdAt: true } });
+      const keys = await db.contact.findMany({ where, select: { id: true, firstName: true, lastName: true, email: true, phone: true, companyName: true, companyFromAccount: true, status: true, source: true, createdAt: true,
+        account: canReadAccount && String(sort).split(':')[0] === 'companyName' ? { select: { name: true } } : false } });
       if (String(sort).startsWith('lastSalesActivityAt:')) activity = await salesActivityDates(db, tenantId, 'contacts', keys);
-      return keys.map(row => ({ ...presentContactAccount(row, canReadAccount), lastSalesActivityAt: activity?.get(row.id), status: normalizeCrmStatus(row.status) }));
+      return keys.map(row => ({ ...presentContactCompany(row, canReadAccount), lastSalesActivityAt: activity?.get(row.id), status: normalizeCrmStatus(row.status) }));
     },
     direction => (salesContext.getStore() ?? prisma).contact.findMany({ where, skip, take: limit, orderBy: [{ createdAt: direction }, { id: 'asc' }], select: { id: true } }));
   const [data, total] = await Promise.all([
@@ -139,7 +140,7 @@ async function findContactsPage(tenantId: string, query: Record<string, unknown>
   for (const row of statuses) facets['status:' + normalizeCrmStatus(row.status)] = row._count;
   for (const row of agents) if (row.assignedUserId) facets['owner:' + row.assignedUserId] = row._count;
   activity ??= await salesActivityDates(db, tenantId, 'contacts', data);
-  return { data: orderPage(data.map(contact => presentContactAccount({ ...contact, lastSalesActivityAt: activity!.get(contact.id) ?? contact.createdAt, account: contact.account ?? null }, canReadAccount)), ids), total, page, limit, facets };
+  return { data: orderPage(data.map(contact => presentContactCompany({ ...contact, lastSalesActivityAt: activity!.get(contact.id) ?? contact.createdAt, account: contact.account ?? null }, canReadAccount)), ids), total, page, limit, facets };
 }
 
 export async function findContactById(id: string, tenantId: string) {
@@ -198,7 +199,11 @@ export async function updateContact(id: string, tenantId: string, dto: Record<st
       if (!account) throw new NotFoundError('Account');
       data.companyName = account.name;
       data.companyFromAccount = true;
+    } else if (data.accountId === null) {
+      if (current.companyFromAccount) data.companyName = null;
+      data.companyFromAccount = false;
     } else if (data.companyName !== undefined && data.companyName !== current.companyName) {
+      if (current.accountId) throw new ValidationError('Select a different Account to change the company on a linked Contact.');
       data.companyFromAccount = false;
     }
     await saveRecordValues(tx, tenantId, 'contacts', id, customFieldValues, actorId);

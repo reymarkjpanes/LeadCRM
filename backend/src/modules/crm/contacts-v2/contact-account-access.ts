@@ -15,6 +15,13 @@ export function presentContactAccount<T extends { companyName?: string | null; c
     ...('account' in record ? { account: permitted ? record.account : null } : {}) } as Omit<T, 'companyFromAccount' | 'manualStatusContext'>;
 }
 
+export function presentContactCompany<T extends { companyName?: string | null; companyFromAccount?: boolean; account?: unknown; manualStatusContext?: unknown }>(contact: T, permitted: boolean) {
+  const record = presentContactAccount(contact, permitted);
+  const account = permitted ? contact.account : undefined;
+  return account && typeof account === 'object' && 'name' in account && typeof account.name === 'string'
+    ? { ...record, companyName: account.name } : record;
+}
+
 export async function assertContactAccountSelection(db: Prisma.TransactionClient, tenantId: string, accountId: unknown, previousId?: string | null): Promise<void> {
   // Keeping a historical FK or removing it reveals no new Account information.
   if (accountId == null || accountId === previousId) return;

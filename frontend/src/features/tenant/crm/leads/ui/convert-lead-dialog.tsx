@@ -2,14 +2,16 @@
 import { showCrmMutationError } from '@/shared/utils/crm-mutation-error';
 import { panelBodyClass, panelFooterClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 
-import React, { useState, useCallback, useRef } from 'react';
-import type { ConvertLeadInput } from '@leadcrm/shared';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import type { AccountDuplicateReview, ConvertLeadInput } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
+import { AccountDuplicateReviewDialog } from '@/shared/components/crm/account-duplicate-review-dialog';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
 import { usePanelDraft } from '@/shared/hooks/use-panel-close-guard';
+import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { EntityCombobox } from '@/shared/components/entity-combobox';
 import { useData } from '@/store/DataContext';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, type ApiRequestError } from '@/lib/api/client';
 import { toast } from '@/shared/utils/toast';
 import { cn } from '@/lib/utils';
 import {
@@ -57,9 +59,16 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitting = useRef(false);
   const [saveError, setSaveError] = useState('');
+  const [duplicateReview, setDuplicateReview] = useState<AccountDuplicateReview | null>(null);
+  const canViewAccount = useHasPermission('accounts.view');
+  const canCreateAccount = useHasPermission('accounts.create') && canViewAccount;
   const organization = useOrganizationForm(lead, {
-    initialMode: !(lead.accountId || lead.organizationId) && lead.companyName?.trim() ? 'new' : 'existing',
+    initialMode: canCreateAccount && !(lead.accountId || lead.organizationId) && lead.companyName?.trim() ? 'new' : 'existing',
   });
+  const { mode, setMode } = organization;
+  useEffect(() => {
+    if (!canCreateAccount && mode === 'new') setMode('existing');
+  }, [canCreateAccount, mode, setMode]);
 
   const [form, setForm] = useState<ConvertFormState>({
     contactMode: 'create',
@@ -89,16 +98,20 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
   const goBack = (): void => { if (step > 1) setStep((s) => (s - 1) as Step); };
 
   // ── Submit ────────────────────────────────────────────────────────────────
-  const handleConvert = async (): Promise<void> => {
+  const handleConvert = async (resolution?: { accountId: string } | { duplicateReviewToken: string }): Promise<void> => {
     if (submitting.current) return;
-    if (!organization.validate()) { setStep(2); return; }
+    const accountId = resolution && 'accountId' in resolution ? resolution.accountId : undefined;
+    if (!accountId && !organization.validate()) { setDuplicateReview(null); setStep(2); return; }
     submitting.current = true;
     setSaveError('');
     setIsSubmitting(true);
     try {
       const payload: ConvertLeadInput = { createContact: true, createDeal: false };
-      const account = organization.payload();
-      if (account.newAccount) payload.newAccount = account.newAccount;
+      const account = accountId ? { accountId } : organization.payload();
+      if (account.newAccount) {
+        const token = resolution && 'duplicateReviewToken' in resolution ? resolution.duplicateReviewToken : undefined;
+        payload.newAccount = { ...account.newAccount, ...(token ? { duplicateReviewToken: token } : {}) };
+      }
       else if (account.accountId) payload.accountId = account.accountId;
       else payload.skipAccountCreation = true;
       if (form.contactMode === 'existing' && form.contactId) payload.contactId = form.contactId;
@@ -117,6 +130,9 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
       onSuccess?.();
       onClose();
     } catch (err) {
+      const review = (err as ApiRequestError)?.duplicateReview;
+      setDuplicateReview(review ?? null);
+      if (review) return;
       const message = err instanceof Error ? err.message : 'Failed to convert lead';
       organization.applyServerErrors(err);
       setSaveError(message);
@@ -157,8 +173,8 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
       <h3 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
         <Building size={18} className="text-blue-500" /> Account
       </h3>
-      <p className="text-sm text-slate-500 dark:text-slate-400">Create or link an account. Leave the existing-account selection empty to retain current relationships without creating an account.</p>
-      <OrganizationFields draft={organization} companyLabel="Account Name" disabled={isSubmitting} />
+      <p className="text-sm text-slate-500 dark:text-slate-400">{canCreateAccount ? 'Create or link an Account.' : 'Select an existing Account.'} Leave the selection empty to continue without creating an Account.</p>
+      <OrganizationFields draft={organization} companyLabel="Account Name" disabled={isSubmitting} hideUnavailableCreate />
     </div>
   );
 
@@ -309,7 +325,7 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
           ) : (
             <button
               type="button"
-              onClick={handleConvert}
+              onClick={() => void handleConvert()}
               disabled={isSubmitting}
               className="min-h-[42px] px-5 py-2.5 text-sm font-semibold rounded-xl bg-green-600 text-white hover:bg-green-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -318,6 +334,17 @@ function ConvertLeadForm({ onClose, lead, onSuccess }: Omit<ConvertLeadDialogPro
             </button>
           )}
         </div>
+        <AccountDuplicateReviewDialog
+          review={duplicateReview}
+          busy={isSubmitting}
+          onBack={() => { setDuplicateReview(null); setStep(2); }}
+          onUseExisting={account => {
+            organization.setMode('existing');
+            organization.setAccountId(account.id);
+            void handleConvert({ accountId: account.id });
+          }}
+          onCreateAnyway={canCreateAccount ? token => { void handleConvert({ duplicateReviewToken: token }); } : undefined}
+        />
       </div>
   );
 }

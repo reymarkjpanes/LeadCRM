@@ -374,7 +374,7 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     const count = await prisma.notification.count({ where: { tenantId } }); expect(count).toBeGreaterThan(0);
     await scope(() => dispatchTenantNotifications(tenantId));
     expect(await prisma.notification.count({ where: { tenantId } })).toBe(count);
-    expect(await prisma.notification.count({ where: { tenantId, userId: otherAgentId } })).toBe(0);
+    expect(await prisma.notification.count({ where: { tenantId, userId: otherAgentId, type: 'deal_won' } })).toBe(0);
     expect(await prisma.notification.count({ where: { tenantId, userId: agentId, type: 'deal_won' } })).toBeGreaterThan(0);
     expect(await prisma.notification.count({ where: { tenantId, userId: adminId, type: 'deal_won' } })).toBe(0);
     for (const type of ['closing_requirements_completed', 'customer_hot', 'record_restored']) expect(await prisma.notification.count({ where: { tenantId, userId: adminId, type } })).toBe(0);
@@ -468,6 +468,48 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     const count = await prisma.notification.count({ where: { tenantId } });
     await scope(() => dispatchTenantNotifications(tenantId, new Date(Date.now() + 16 * 60000)));
     expect(await prisma.notification.count({ where: { tenantId } })).toBe(count);
+  });
+  it.each(['Lead', 'Contact'] as const)('rolls back the final Won requirement until the related %s’s Account is resolved', async participant => {
+    const companyName = `Closing ${participant} Trading`;
+    const existing = await prisma.account.create({ data: { tenantId, name: `${companyName} Inc.` } });
+    const { lead, deals: [deal] } = await customer(companyName, 1);
+    const contact = participant === 'Contact' ? await prisma.contact.create({ data: {
+      tenantId, firstName: 'Closing', lastName: 'Contact', email: `${randomUUID()}@example.test`, companyName, assignedUserId: agentId,
+    } }) : null;
+    if (contact) {
+      await prisma.leadDeal.deleteMany({ where: { tenantId, dealId: deal.id } });
+      await prisma.contactDeal.create({ data: { tenantId, dealId: deal.id, contactId: contact.id } });
+    }
+    const path = `/crm/deals/${deal.id}/closing-requirements`;
+    const required = await call('/administration/closing-requirements', 'POST', {
+      name: `${participant} closing reference`, type: 'Text', appliesTo: 'Closed Won Requirements', required: true, active: true, options: [], description: '',
+    });
+    expect(required.status, JSON.stringify(required.body)).toBe(200);
+    const evidence = { values: { [required.body.data.id]: 'Approved order reference' } };
+    try {
+      const blocked = await call(path, 'PATCH', evidence);
+      expect(blocked.status, JSON.stringify(blocked.body)).toBe(409);
+      expect(blocked.body.error).toMatchObject({ code: 'POSSIBLE_DUPLICATE_ACCOUNT', message: expect.stringContaining('retry Closed Won') });
+      expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({
+        stageId: deal.stageId, closingValues: deal.closingValues, wonConfirmedAt: null, accountId: null,
+      });
+      expect(await prisma.dealStageHistory.count({ where: { tenantId, dealId: deal.id } })).toBe(0);
+      expect(await prisma.activity.count({ where: { tenantId, dealId: deal.id, title: 'Closed Won requirements updated' } })).toBe(0);
+      expect(await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).toMatchObject({ convertedAt: null, contactId: null });
+      expect(await prisma.account.count({ where: { tenantId, name: companyName } })).toBe(0);
+      const link = contact
+        ? await call(`/crm/contacts/${contact.id}`, 'PUT', { accountId: existing.id })
+        : await call(`/crm/leads/${lead.id}/convert`, 'POST', { accountId: existing.id });
+      expect(link.status, JSON.stringify(link.body)).toBe(200);
+      const closed = await call(path, 'PATCH', evidence);
+      expect(closed.status, JSON.stringify(closed.body)).toBe(200);
+      expect(closed.body.data.locked).toBe(true);
+      expect(await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).toMatchObject({
+        stageId: stages['Closed Deal'], accountId: existing.id, wonConfirmedAt: expect.any(Date),
+      });
+    } finally {
+      await call(`/administration/closing-requirements/${required.body.data.id}`, 'DELETE');
+    }
   });
   it('retries failed notification delivery without changing the CRM event or duplicating successful recipients', async () => {
     const at = new Date(Date.now() + 17 * 60000);
