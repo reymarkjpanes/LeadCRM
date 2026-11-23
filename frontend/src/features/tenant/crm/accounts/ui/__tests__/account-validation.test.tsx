@@ -2,13 +2,35 @@ vi.mock('@/shared/hooks/use-permissions', () => ({ useHasPermission: () => true 
 vi.mock('@/shared/hooks/use-crm-record-access', () => ({ useCrmRecordAccess: () => ({ canMutate: () => true, canReassign: true, policy: { userId: 'agent', tenantId: 'tenant', assignmentRestricted: false, clientAdmin: false } }) }));
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 vi.mock('@/store/DataContext', () => ({ useData: () => ({ users: [] }) }));
 vi.mock('@/shared/hooks/use-product-interests', () => ({ useProductInterests: () => ({ products: [] }) }));
 vi.mock('@/shared/hooks/use-scroll-to-error', () => ({ useScrollToError: vi.fn() }));
 vi.mock('@/shared/hooks/use-cached-page', () => ({ useCachedPage: () => ({ data: { fields: [], values: {}, files: [] }, error: null, isInitialLoad: false }) }));
 import { AccountFormInner } from '../account-form';
 afterEach(cleanup);
+
+it('keeps the Account draft during duplicate review and retries only after Create anyway', async () => {
+  const token = 'c'.repeat(64);
+  const save = vi.fn().mockRejectedValueOnce(Object.assign(new Error('Possible duplicate'), {
+    duplicateReview: { token, matches: [{ id: 'pldt-account', name: 'PLDT INC', website: 'https://pldt.test' }] },
+  })).mockResolvedValue(undefined);
+  render(<AccountFormInner onSave={save} onCancel={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText(/Account Name/), { target: { value: 'pldt_INC' } });
+  fireEvent.change(screen.getByLabelText('Company Address'), { target: { value: 'Draft address' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Account' }));
+  const dialog = await screen.findByRole('dialog', { name: 'An Account with a similar name already exists.' });
+  const view = within(dialog).getByRole('link', { name: 'View existing Account' });
+  expect(view.getAttribute('href')).toBe('/crm/accounts/pldt-account');
+  expect(view.getAttribute('target')).toBe('_blank');
+  expect(save).toHaveBeenCalledOnce();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create anyway' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save.mock.calls[1][0]).toEqual({
+    ...save.mock.calls[0][0], name: 'pldt_INC', address: 'Draft address', duplicateReviewToken: token,
+  });
+});
+
 it.each([false, true])('submits an Account without obsolete fields (edit=%s)', async edit => {
   const save = vi.fn();
   render(<AccountFormInner initialData={edit ? { id: 'account', tenantId: 'tenant', name: 'Account', createdAt: '2026-09-24T00:00:00Z' } : undefined} onSave={save} onCancel={vi.fn()} />);

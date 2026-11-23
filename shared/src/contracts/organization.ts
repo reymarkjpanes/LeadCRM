@@ -14,6 +14,31 @@ export function companyNameMatchKey(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+const legalSuffixes = new Set(['inc', 'incorporated', 'corp', 'corporation', 'ltd', 'limited', 'llc', 'co', 'company']);
+
+/** A possible-duplicate key. Keep stored names and relationship matching intact. */
+export function accountNameReviewKey(name: string): string {
+  const words = name.normalize('NFKC').toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+  while (words.length > 1 && legalSuffixes.has(words[words.length - 1])) words.pop();
+  return words.join(' ');
+}
+
+export const ACCOUNT_DUPLICATE_REVIEW_CODE = 'POSSIBLE_DUPLICATE_ACCOUNT';
+export const ACCOUNT_DUPLICATE_REVIEW_MESSAGE = 'An Account with a similar name already exists.';
+export const AccountDuplicateReviewTokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const AccountDuplicateMatchSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  website: z.string().nullish(),
+  address: z.string().nullish(),
+});
+export const AccountDuplicateReviewSchema = z.object({
+  token: AccountDuplicateReviewTokenSchema,
+  matches: z.array(AccountDuplicateMatchSchema).min(1),
+});
+export type AccountDuplicateMatch = z.infer<typeof AccountDuplicateMatchSchema>;
+export type AccountDuplicateReview = z.infer<typeof AccountDuplicateReviewSchema>;
+
 export const CrmAddressSchema = z.string()
   .refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value), 'Control characters are not allowed.')
   .transform(value => value.trim()).pipe(z.string().max(CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR));
@@ -35,6 +60,7 @@ export const AccountUpdateFieldsSchema = AccountFieldsSchema.partial().extend({
 /** A retry identity belongs to this Account creation, including saves from edit forms. */
 export const NewAccountSchema = AccountFieldsSchema.extend({
   requestId: z.string().uuid(),
+  duplicateReviewToken: AccountDuplicateReviewTokenSchema.optional(),
   customFieldValues: CustomFieldValuesSchema.optional(),
 }).strict();
 export type NewAccountInput = z.infer<typeof NewAccountSchema>;

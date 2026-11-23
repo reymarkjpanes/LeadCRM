@@ -18,6 +18,7 @@ import { accountsService } from '../services/accounts.service';
 import { USE_MOCK_DATA } from '@/lib/config';
 import { useAuth } from '@/store/AuthContext';
 import { uuid } from '@/lib/utils';
+import { mockAccountsKey, mockOrganizationsKey, readMockAccountRows, readMockAccounts, requireMockAccountReview } from '@/shared/utils/mock-account-storage';
 import type { Account, AccountFilters, AccountMutationInput } from '../types/account.types';
 import type { SortPreference } from '@/shared/services/table-preferences.api';
 import type { FilterCondition } from '@leadcrm/shared';
@@ -42,7 +43,7 @@ const EMPTY_FILTERS: AccountFilters = {
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAccounts(params?: UseAccountsParams) {
-  const { tenant } = useAuth();
+  const { tenant, user, userCan } = useAuth();
 
   const { data, meta, facets, isInitialLoad, isRefreshing, isManualRefreshing, error, refetch } = useModuleData({
     moduleId: 'accounts',
@@ -64,8 +65,7 @@ export function useAccounts(params?: UseAccountsParams) {
   // ── Mock mode (localStorage) ─────────────────────────────────────────────
   useEffect(() => {
     if (!USE_MOCK_DATA || !tenant) return;
-    const raw = localStorage.getItem('leadcrm_accounts');
-    const all: Account[] = raw ? JSON.parse(raw) : [];
+    const all = readMockAccounts<Account>();
     setDisplayAccounts(all.filter((c) => c.tenantId === tenant.id && !c.isArchived));
   }, [tenant]);
 
@@ -88,17 +88,22 @@ export function useAccounts(params?: UseAccountsParams) {
     if (!tenant) throw new Error('Your workspace is unavailable. Refresh and try again.');
     try {
       if (USE_MOCK_DATA) {
-        const raw = localStorage.getItem('leadcrm_accounts');
-        const all: Account[] = raw ? JSON.parse(raw) : [];
-        const newAccount: Account = {
-          ...formData,
-          name: formData.name ?? '',
+        const { duplicateReviewToken, ...draft } = formData;
+        const all = readMockAccounts<Account & { requestId?: string }>();
+        const saved = all.find(account => account.tenantId === tenant.id && draft.requestId && account.requestId === draft.requestId);
+        if (!saved && userCan('accounts', 'canView')) await requireMockAccountReview(all, tenant.id, user?.id, draft.name ?? '', duplicateReviewToken);
+        const newAccount = saved ?? {
+          ...draft,
+          name: draft.name ?? '',
           id: uuid(),
           tenantId: tenant.id,
           createdAt: new Date().toISOString(),
         };
-        localStorage.setItem('leadcrm_accounts', JSON.stringify([...all, newAccount]));
-        setDisplayAccounts((prev) => [...prev, newAccount]);
+        if (!saved) {
+          const accounts = readMockAccountRows<Account>(mockAccountsKey);
+          localStorage.setItem(mockAccountsKey, JSON.stringify([...accounts, newAccount]));
+          setDisplayAccounts((prev) => [...prev, newAccount]);
+        }
       } else {
         await accountsService.create({ ...formData, tenantId: tenant.id });
       }
@@ -107,16 +112,17 @@ export function useAccounts(params?: UseAccountsParams) {
     } catch (err) {
       throw err;
     }
-  }, [tenant]);
+  }, [tenant, user?.id, userCan]);
 
   const handleUpdate = useCallback(async (id: string, formData: AccountMutationInput) => {
     try {
       if (USE_MOCK_DATA) {
-        const raw = localStorage.getItem('leadcrm_accounts');
-        const all: Account[] = raw ? JSON.parse(raw) : [];
-        localStorage.setItem('leadcrm_accounts', JSON.stringify(
-          all.map((c) => c.id === id ? { ...c, ...formData } : c),
-        ));
+        for (const key of [mockAccountsKey, mockOrganizationsKey]) {
+          const rows = readMockAccountRows<Account>(key);
+          if (rows.some(account => account.id === id)) {
+            localStorage.setItem(key, JSON.stringify(rows.map(account => account.id === id ? { ...account, ...formData } : account)));
+          }
+        }
         setDisplayAccounts((prev) => prev.map((c) => c.id === id ? { ...c, ...formData } : c));
       } else {
         await accountsService.update(id, formData as unknown as Record<string, unknown>);

@@ -6,9 +6,10 @@ import { USE_MOCK_DATA } from '@/lib/config';
 import { EntityCombobox, type EntityOption } from '@/shared/components/entity-combobox';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
+import { readMockAccounts } from '@/shared/utils/mock-account-storage';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
-import type { Lead } from '@/store/types';
+import type { Lead, Organization } from '@/store/types';
 import { leadsService } from '../services/leads.service';
 
 const leadNamePrefix = 'company:';
@@ -61,7 +62,7 @@ export function LeadCompanyField({ draft, label = 'Company', disabled }: {
 }) {
   const id = useId();
   const { tenant } = useAuth();
-  const { contacts, organizations } = useData();
+  const { contacts } = useData();
   const { canMutate } = useCrmRecordAccess('leads');
   const mayViewLeads = useHasPermission('leads.view');
   const { showAccounts, showCompany, readOnly } = draft;
@@ -70,7 +71,7 @@ export function LeadCompanyField({ draft, label = 'Company', disabled }: {
     const parsed = CrmCompanyNameSchema.safeParse(search);
     if (!parsed.success) return [];
     const results = USE_MOCK_DATA ? matchLeadCompanyOptions(
-      showAccounts ? organizations.filter(account => account.tenantId === tenant?.id && !account.isArchived)
+      showAccounts ? readMockAccounts<Organization>().filter(account => account.tenantId === tenant?.id && !account.isArchived)
         .map(({ id, name, industry, address }) => ({ id, name, industry: industry ?? null, address: address ?? null })) : [],
       showCompany && mayViewLeads ? contacts.flatMap(lead =>
         !lead.isArchived && !lead.deletedAt && !lead.convertedAt && lead.status !== 'Merged' &&
@@ -87,7 +88,7 @@ export function LeadCompanyField({ draft, label = 'Company', disabled }: {
       })),
       ...results.leadCompanies.map(companyOption),
     ];
-  }, [showAccounts, organizations, tenant?.id, showCompany, mayViewLeads, contacts, canMutate, source]);
+  }, [showAccounts, tenant?.id, showCompany, mayViewLeads, contacts, canMutate, source]);
 
   if (readOnly || (!showCompany && !showAccounts)) return null;
   return <>

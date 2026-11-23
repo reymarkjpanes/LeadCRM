@@ -1,6 +1,7 @@
 'use client';
 import { omitUnchangedText, textFieldError } from '@/shared/utils/text-field-validation';
-import { CrmAddressSchema } from '@leadcrm/shared';
+import { CrmAddressSchema, type AccountDuplicateReview } from '@leadcrm/shared';
+import type { ApiRequestError } from '@/lib/api/client';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
@@ -11,6 +12,7 @@ import { LeadPhoneSchema, STAFF_PHONE_CONFLICT, CUSTOMER_PHONE_CONFLICT } from '
 
 import { LeadFieldsSchema, SELECTABLE_LEAD_SOURCES, isDirectMailSource, OptionalLeadSourceSchema } from '@leadcrm/shared';
 import { OrganizationFields, useOrganizationForm } from '@/shared/components/crm/organization-fields';
+import { AccountDuplicateReviewDialog } from '@/shared/components/crm/account-duplicate-review-dialog';
 import { LeadCompanyField, useLeadCompanyDraft } from './lead-company-field';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { useRecordCustomFields, CustomFieldGroup, CustomFieldExtraGroups } from '@/shared/components/crm/record-custom-fields';
@@ -92,7 +94,10 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
   const showCompany = companyField?.visibleInForm !== false;
   const showAccount = customFields.layout?.fields.accountId?.visibleInForm !== false;
   const company = useLeadCompanyDraft(initialData, showCompany, showAccount);
-  const organization = useOrganizationForm(initialData);
+  const organization = useOrganizationForm(useGroupedCompanyPicker && initialData ? { id: initialData.id } : initialData);
+  const canCreateAccount = useHasPermission('accounts.create');
+  const showCompanyPicker = !company.readOnly && (showCompany || company.showAccounts);
+  const creatingAccount = organization.mode === 'new';
   const { users } = useData();
   const isEdit = !!initialData;
   const { user } = useAuth();
@@ -101,6 +106,7 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
   const requestId = useRef<string | undefined>(undefined);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [duplicateReview, setDuplicateReview] = useState<AccountDuplicateReview | null>(null);
   const statusVersion = useRef(initialData);
   useEffect(() => { statusVersion.current = initialData; }, [initialData?.id]);
   const { products: productRecords, categories, error: productError, loading: productsLoading } = useProductInterests();
@@ -136,7 +142,7 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
   });
   const isSubmitting = isValidatingSubmission || isSaving;
   const requestClose = usePanelDraft({
-    dirty: isDirty || customFields.dirty || (useGroupedCompanyPicker ? company.dirty : organization.dirty),
+    dirty: isDirty || customFields.dirty || organization.dirty || (useGroupedCompanyPicker && company.dirty),
     busy: isSubmitting || customFields.uploadCount > 0,
   });
 
@@ -180,6 +186,7 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
 
   useEffect(() => {
     setSubmitError(null);
+    setDuplicateReview(null);
     if (initialData) {
       const phone = initialData.phone || '';
       setPhoneLocal(normalizePhInput(phone));
@@ -217,18 +224,23 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
     }
   }, [initialData?.id, reset]); // Refreshes of the same record must not overwrite an unfinished draft.
 
-  const onFormSubmit = async (data: LeadFormData): Promise<void> => {
+  const onFormSubmit = async (data: LeadFormData, duplicateReviewToken?: string): Promise<void> => {
     if (!canSubmit || saving.current) return;
     if (!phoneCheck.confirm(data.phone ?? '')) return;
     if (!isEdit && !emailCheck.confirm(data.email)) return;
     setPhoneTouched(true);
-    if (validatePhMobile(phoneLocal) || !customFields.validate() || (!useGroupedCompanyPicker && !organization.validate())) return;
+    if (validatePhMobile(phoneLocal) || !customFields.validate()) return;
+    if (creatingAccount && useGroupedCompanyPicker && (!showCompany || !company.showAccounts || !canCreateAccount)) return;
+    if (creatingAccount && organization.custom.current && organization.custom.current.uploadCount > 0) return;
+    if ((!useGroupedCompanyPicker || creatingAccount) && !organization.validate()) return;
     // Build phone in E.164 format from local 10-digit number
     const fullPhone = phoneLocal ? toE164(phoneLocal) : '';
 
     const productInterest = selectedProducts;
     if (productsLoading || productError) return;
     if (!isEdit) requestId.current ??= crypto.randomUUID();
+    const organizationPayload: Pick<Partial<Lead>, 'accountId' | 'companyName' | 'newAccount'> =
+      useGroupedCompanyPicker && !creatingAccount ? company.payload() : organization.payload();
     // Build payload matching backend CreateContactSchema field names exactly.
     // No phantom fields — adapter handles any remaining mapping.
     const payload: Partial<Lead> = {
@@ -239,7 +251,9 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
       ...(lastNameChanged ? { lastName: data.lastName } : {}),
       email: data.email || undefined,
       phone: fullPhone,
-      ...(useGroupedCompanyPicker ? company.payload() : organization.payload()),
+      ...organizationPayload,
+      ...(organizationPayload.newAccount && duplicateReviewToken
+        ? { newAccount: { ...organizationPayload.newAccount, duplicateReviewToken } } : {}),
       status: isEdit && data.status === normalizeCrmStatus(statusVersion.current?.status) ? undefined : data.status || 'Inquiry',
       ...(isEdit && data.status !== normalizeCrmStatus(statusVersion.current?.status) ? { expectedUpdatedAt: statusVersion.current?.updatedAt } : {}),
       ...(!isDirectMailSource(data.source) && (data.source || !initialData || OptionalLeadSourceSchema.safeParse(initialData.leadSource || initialData.source || '').success) ? {
@@ -253,8 +267,14 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
     setSubmitError(null);
     saving.current = true;
     setIsSaving(true);
-    try { await onSave(payload); }
+    try { await onSave(payload); setDuplicateReview(null); }
     catch (error: unknown) {
+      const review = (error as ApiRequestError)?.duplicateReview;
+      if (creatingAccount && review) {
+        setDuplicateReview(review);
+        return;
+      }
+      setDuplicateReview(null);
       const phoneConflict = (error as { fieldErrors?: { phone?: string[] } }).fieldErrors?.phone?.find(message => message === STAFF_PHONE_CONFLICT || message === CUSTOMER_PHONE_CONFLICT);
       if (phoneConflict) {
         if (phoneCheck.reject(phoneConflict === STAFF_PHONE_CONFLICT ? 'STAFF_PHONE_NOT_ALLOWED' : 'CUSTOMER_PHONE_CONFLICT')) setError('phone', { type: 'server', message: phoneConflict });
@@ -266,7 +286,7 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
         return;
       }
       applyCrmFieldErrors(error, setError, ['firstName', 'lastName', 'email', 'phone', 'status', 'source', 'assignedUserId', 'address']);
-      if (useGroupedCompanyPicker) {
+      if (useGroupedCompanyPicker && !creatingAccount) {
         const fields = (error as { fieldErrors?: Record<string, string[]> }).fieldErrors;
         company.setError(fields?.companyName?.[0] ?? fields?.accountId?.[0]);
       } else {
@@ -283,7 +303,7 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
   const errorInputCls = '!border-red-500 focus:!ring-red-500/20';
 
   return (
-    <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(onFormSubmit)(event); }} className="flex flex-col h-full" noValidate>
+    <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(data => onFormSubmit(data))(event); }} className="flex flex-col h-full" noValidate>
       {/* Scrollable Body */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
@@ -383,9 +403,15 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
         <div className="space-y-4">
           <SectionHeader num={3} title="Organization" />
           <div data-crm-field-key="companyName" data-crm-secondary-field-key="accountId" className="sm:col-span-2">
-            {useGroupedCompanyPicker
-              ? <LeadCompanyField draft={company} label={companyField?.label === 'Company Name' ? 'Company' : companyField?.label} disabled={isSubmitting} />
-              : <OrganizationFields draft={organization} disabled={isSubmitting} companyLabel={companyField?.label} showCompany={showCompany} showAccount={showAccount} />}
+            {(!useGroupedCompanyPicker || showCompanyPicker) && <OrganizationFields
+              draft={organization}
+              disabled={isSubmitting}
+              companyLabel={useGroupedCompanyPicker ? 'Account Name' : companyField?.label}
+              showCompany={showCompany}
+              showAccount={showAccount}
+              companyPicker={useGroupedCompanyPicker ? <LeadCompanyField draft={company}
+                label={companyField?.label === 'Company Name' ? 'Company' : companyField?.label} disabled={isSubmitting} /> : undefined}
+            />}
           </div>
           <CustomFieldGroup form={customFields} group="Organization" />
         </div>
@@ -482,6 +508,18 @@ export function AddLeadForm({ initialData, prefill, useGroupedCompanyPicker = tr
           {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Lead'}
         </button>
       </div>
+      <AccountDuplicateReviewDialog
+        review={duplicateReview}
+        busy={isSubmitting}
+        onBack={() => setDuplicateReview(null)}
+        onCreateAnyway={token => { void handleSubmit(data => onFormSubmit(data, token))(); }}
+        onUseExisting={account => {
+          if (useGroupedCompanyPicker) company.select({ id: account.id, label: account.name });
+          else organization.setAccountId(account.id);
+          organization.setMode('existing');
+          setDuplicateReview(null);
+        }}
+      />
     </form>
   );
 }

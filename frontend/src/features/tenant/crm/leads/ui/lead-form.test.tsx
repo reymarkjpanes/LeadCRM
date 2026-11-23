@@ -99,7 +99,7 @@ it('adds a company name after a failed lookup even without Account access', asyn
   render(<AddLeadForm onSave={save} onCancel={vi.fn()} />);
   fireEvent.click(screen.getByRole('combobox', { name: 'Company' }));
   fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: ' New   Company ' } });
-  fireEvent.click(await screen.findByRole('option', { name: /Add company.*New Company/ }));
+  fireEvent.click(await screen.findByRole('option', { name: /Use.*New Company.*for this Lead/ }));
   expect(access.getCompanyOptions).toHaveBeenCalledWith({ search: 'New   Company', source: 'leads' }, expect.any(AbortSignal));
   fillRequiredLead();
   fireEvent.click(screen.getByRole('button', { name: 'Create Lead' }));
@@ -135,12 +135,63 @@ it('preserves a linked Account on unrelated edits when the link is unavailable t
   const save = vi.fn();
   render(<AddLeadForm initialData={initialData} onSave={save} onCancel={vi.fn()} />);
   expect(screen.queryByRole('combobox', { name: 'Company' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Create account' })).toBeNull();
   fireEvent.change(screen.getByLabelText('First Name *'), { target: { value: 'Lina Marie' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
   expect(save.mock.calls[0][0]).toMatchObject({ firstName: 'Lina Marie' });
   expect(save.mock.calls[0][0]).not.toHaveProperty('accountId');
   expect(save.mock.calls[0][0]).not.toHaveProperty('companyName');
+});
+
+it('keeps both company drafts and submits only the selected mode', async () => {
+  access.getCompanyOptions.mockResolvedValue({ data: { accounts: [], leadCompanies: ['Lead Company'] } });
+  const save = vi.fn();
+  render(<AddLeadForm onSave={save} onCancel={vi.fn()} />);
+  fillRequiredLead();
+  fireEvent.click(screen.getByRole('combobox', { name: 'Company' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Lead Company' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+  fireEvent.change(screen.getByLabelText('Account Name *'), { target: { value: 'Account Draft' } });
+  fireEvent.change(screen.getByLabelText('Website'), { target: { value: 'https://draft.test' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose company' }));
+  expect(screen.getByRole('combobox', { name: 'Company' }).textContent).toContain('Lead Company');
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+  expect(screen.getByLabelText('Account Name *')).toHaveProperty('value', 'Account Draft');
+  expect(screen.getByLabelText('Website')).toHaveProperty('value', 'https://draft.test');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose company' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create Lead' }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).toMatchObject({ companyName: 'Lead Company', accountId: null });
+  expect(save.mock.calls[0][0]).not.toHaveProperty('newAccount');
+});
+
+it.each(['link', 'create'] as const)('reviews a Lead Account before the user chooses to %s', async action => {
+  const token = 'a'.repeat(64);
+  const save = vi.fn().mockRejectedValueOnce(Object.assign(new Error('Possible duplicate'), {
+    duplicateReview: { token, matches: [{ id: 'matching-account', name: 'PLDT INC', website: 'https://pldt.test', address: 'Makati' }] },
+  })).mockResolvedValue(undefined);
+  render(<AddLeadForm onSave={save} onCancel={vi.fn()} />);
+  fillRequiredLead();
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+  fireEvent.change(screen.getByLabelText('Account Name *'), { target: { value: 'PlDt-INC' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Lead' }));
+  const dialog = await screen.findByRole('dialog', { name: 'An Account with a similar name already exists.' });
+  expect(within(dialog).getByText('PLDT INC')).toBeTruthy();
+  expect(within(dialog).getByText('Makati')).toBeTruthy();
+  expect(save.mock.calls[0][0]).toMatchObject({ newAccount: { name: 'PlDt-INC' } });
+  if (action === 'link') {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use existing Account' }));
+    expect(screen.getByRole('combobox', { name: 'Company' }).textContent).toContain('PLDT INC');
+    fireEvent.click(screen.getByRole('button', { name: 'Create Lead' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][0]).toMatchObject({ accountId: 'matching-account' });
+    expect(save.mock.calls[1][0]).not.toHaveProperty('newAccount');
+  } else {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create anyway' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][0].newAccount).toEqual({ ...save.mock.calls[0][0].newAccount, duplicateReviewToken: token });
+  }
 });
 
 it('shows the current Sales agent read-only during manual creation and submits their identity', async () => {

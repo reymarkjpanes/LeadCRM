@@ -8,6 +8,7 @@ import { paginate } from '../../../shared/helpers/pagination';
 import { fireAccountUpdated } from '../../automation/triggers/triggers.service';
 import { recordChanges, customFieldChangeTracker } from '../record-updates';
 import { salesTransaction } from '../leads/lead-automation.service';
+import { requireAccountDuplicateReview } from './account-duplicate-review';
 
 export async function getCompanies(tenantId: string, query: Record<string, unknown>) {
   const result = await repo.findAllCompanies(tenantId, query);
@@ -28,8 +29,8 @@ function canonical(value: unknown): unknown {
 }
 
 /** Standalone, linked and conversion creation share validation, transaction and audit rules. */
-export async function createCompanyResult(tenantId: string, userId: string, input: CreateCompanyDto) {
-  const { requestId, ...dto } = CreateCompanySchema.parse(input);
+export async function createCompanyResult(tenantId: string, userId: string, input: CreateCompanyDto, reviewDuplicates = false) {
+  const { requestId, duplicateReviewToken, ...dto } = CreateCompanySchema.parse(input);
   // Existing receipts already omitted empty native tags from their canonical payload.
   const requestHash = createHash('sha256').update(JSON.stringify(canonical(dto))).digest('hex');
   return salesTransaction(async tx => {
@@ -42,6 +43,7 @@ export async function createCompanyResult(tenantId: string, userId: string, inpu
         return { company, replayed: true };
       }
     }
+    if (reviewDuplicates) await requireAccountDuplicateReview(tx, tenantId, userId, dto.name, duplicateReviewToken);
     const company = await repo.createCompany(tenantId, dto, userId);
     await writeAuditLog({ tenantId, userId, action: 'account.created', entityType: 'Account', entityId: company.id,
       after: { name: dto.name, industry: dto.industry } });
@@ -50,8 +52,8 @@ export async function createCompanyResult(tenantId: string, userId: string, inpu
   });
 }
 
-export async function createCompany(tenantId: string, userId: string, dto: CreateCompanyDto) {
-  return (await createCompanyResult(tenantId, userId, dto)).company;
+export async function createCompany(tenantId: string, userId: string, dto: CreateCompanyDto, reviewDuplicates = false) {
+  return (await createCompanyResult(tenantId, userId, dto, reviewDuplicates)).company;
 }
 
 export async function updateCompany(

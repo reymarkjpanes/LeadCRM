@@ -121,7 +121,7 @@ try {
   await phone.fill('9123456789');
   await form.getByRole('combobox', { name: 'Company', exact: true }).click();
   await form.getByRole('combobox', { name: 'Company', exact: true }).fill('Browser Company');
-  await page.getByRole('option', { name: /Add company.*Browser Company/ }).click();
+  await page.getByRole('option', { name: /Use.*Browser Company.*for this Lead/ }).click();
   await form.getByLabel('Full Address', { exact: true }).last().fill('First line\nSecond line');
   await responsive('lead-create', form);
   await form.getByRole('button', { name: 'Create Lead', exact: true }).click();

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AccountUpdateFieldsSchema, CustomFieldValuesSchema, COMPANY_SIZE_OPTIONS, RETIRED_ACCOUNT_FIELDS, CrmCompanyNameSchema, CrmAddressSchema, CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR } from '@leadcrm/shared';
+import { AccountDuplicateReviewTokenSchema, AccountUpdateFieldsSchema, CustomFieldValuesSchema, COMPANY_SIZE_OPTIONS, RETIRED_ACCOUNT_FIELDS, CrmCompanyNameSchema, CrmAddressSchema, CRM_ADDRESS_MAX_LENGTH, CRM_ADDRESS_MAX_ERROR } from '@leadcrm/shared';
 import { recordText } from '../record-validation';
 import { consolidateAccountAddress } from './account-address';
 
@@ -29,7 +29,10 @@ function fullAddress<T extends { address?: string; city?: string; province?: str
   return { ...data, ...(['address', 'city', 'province', 'country'].some(key => key in input)
     ? { address: consolidateAccountAddress(input) ?? undefined } : {}) };
 }
-export const CreateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.extend({ requestId: z.string().uuid().optional() })).transform(fullAddress)
+export const CreateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.extend({
+  requestId: z.string().uuid().optional(),
+  duplicateReviewToken: AccountDuplicateReviewTokenSchema.optional(),
+})).transform(fullAddress)
   .refine(data => (data.address?.length ?? 0) <= CRM_ADDRESS_MAX_LENGTH, { path: ['address'], message: CRM_ADDRESS_MAX_ERROR });
 export const UpdateCompanySchema = rejectRetired.pipe(CompanyFieldsSchema.partial().extend({ size: AccountUpdateFieldsSchema.shape.size })).transform(fullAddress)
   .refine(data => (data.address?.length ?? 0) <= CRM_ADDRESS_MAX_LENGTH, { path: ['address'], message: CRM_ADDRESS_MAX_ERROR });

@@ -10,6 +10,7 @@ export function toBackendCreateOrg(data: Record<string, any>): Record<string, an
   return {
     customFieldValues: data.customFieldValues,
     requestId: data.requestId,
+    ...(data.duplicateReviewToken !== undefined ? { duplicateReviewToken: data.duplicateReviewToken } : {}),
     name: data.name || 'Unnamed Organization',
     industry: data.industry || undefined,
     size: data.size || undefined,

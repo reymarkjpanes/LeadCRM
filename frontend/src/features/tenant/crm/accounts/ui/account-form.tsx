@@ -2,12 +2,15 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { AccountDuplicateReview } from '@leadcrm/shared';
+import type { ApiRequestError } from '@/lib/api/client';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { useScrollToError } from '@/shared/hooks/use-scroll-to-error';
 import { ConfiguredFormLayout } from '@/shared/components/crm/configured-form-layout';
 import { AccountNativeField } from '@/shared/components/crm/account-native-field';
+import { AccountDuplicateReviewDialog } from '@/shared/components/crm/account-duplicate-review-dialog';
 import { useRecordCustomFields } from '@/shared/components/crm/record-custom-fields';
 import { panelBodyClass, panelFooterClass, panelSecondaryActionClass } from '@/shared/components/side-panel-styles';
 import { SlidingDrawer } from '@/shared/components/sliding-drawer';
@@ -53,29 +56,38 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
   const saving = useRef(false);
   const requestId = useRef<string | undefined>(undefined);
   const [saveError, setSaveError] = useState('');
+  const [duplicateReview, setDuplicateReview] = useState<AccountDuplicateReview | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const isSubmitting = isValidatingSubmission || isSaving;
   const requestClose = usePanelDraft({ dirty: isDirty || !!customFields.dirty, busy: isSubmitting || customFields.uploadCount > 0 });
   useScrollToError({ errors, formRef, setFocus });
 
-  const onSubmit = async (data: AccountFormValues): Promise<void> => {
+  const onSubmit = async (data: AccountFormValues, duplicateReviewToken?: string): Promise<void> => {
     if (!canSubmit || saving.current || !customFields.validate()) return;
     saving.current = true; setSaveError('');
     setIsSaving(true);
     try {
       if (!isEdit) requestId.current ??= crypto.randomUUID();
       await onSave({ ...(!isEdit ? { requestId: requestId.current } : {}), customFieldValues: customFields.payload(), ...(nameChanged ? { name: data.name } : {}),
+        ...(!isEdit && duplicateReviewToken ? { duplicateReviewToken } : {}),
         industry: data.industry || (isEdit ? '' : undefined), size: data.size || (isEdit ? null : undefined),
         website: data.website || (isEdit ? '' : undefined),
         ...(addressChanged ? { address: data.address || (isEdit ? '' : undefined) } : {}) });
+      setDuplicateReview(null);
     } catch (error) {
+      const review = (error as ApiRequestError)?.duplicateReview;
+      if (!isEdit && review) {
+        setDuplicateReview(review);
+        return;
+      }
+      setDuplicateReview(null);
       applyCrmFieldErrors(error, setError, ['name', 'industry', 'size', 'website', 'address']);
       const message = error instanceof Error ? error.message : 'Unable to save Account. Please try again.';
       setSaveError(message); showCrmMutationError(error, message);
     } finally { saving.current = false; setIsSaving(false); }
   };
 
-  return <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(onSubmit)(event); }} className="flex h-full min-h-0 flex-col" noValidate>
+  return <form ref={formRef} onSubmit={event => { if (saving.current) event.preventDefault(); else void handleSubmit(data => onSubmit(data))(event); }} className="flex h-full min-h-0 flex-col" noValidate>
     <div className={`${panelBodyClass} space-y-6`}>
       {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
 
@@ -93,6 +105,12 @@ export function AccountFormInner({ initialData, onSave, onCancel }: AccountFormI
         {isSubmitting ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Account'}
       </button>
     </div>
+    <AccountDuplicateReviewDialog
+      review={duplicateReview}
+      busy={isSubmitting}
+      onBack={() => setDuplicateReview(null)}
+      onCreateAnyway={token => { void handleSubmit(data => onSubmit(data, token))(); }}
+    />
   </form>;
 }
 

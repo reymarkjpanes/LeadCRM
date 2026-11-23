@@ -242,7 +242,7 @@ try {
       await list.getByRole('group', { name: 'Existing Accounts' }).waitFor();
       assert.equal(await list.getByRole('option', { name: 'Existing Accounts', exact: true }).count(), 0);
       await company.fill(companyName);
-      await list.getByRole('option', { name: `Add company “${companyName}”`, exact: true }).click();
+      await list.getByRole('option', { name: `Use “${companyName}” for this Lead`, exact: true }).click();
       assert.ok((await company.locator('xpath=ancestor::section[1]').innerText()).includes('Organization'));
       await layout('leads-form', form.getByRole('heading', { name: 'Organization', exact: true }));
       await form.getByRole('button', { name: 'Create Lead', exact: true }).click();

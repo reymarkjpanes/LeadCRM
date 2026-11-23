@@ -5,6 +5,15 @@ import { SESSION_ENDED_EVENT, SESSION_METADATA_EVENT, advanceAuthEpoch } from '@
 import { clearPageCache, getPageCacheSize, setPageCache } from '@/shared/cache/page-cache';
 
 afterEach(() => vi.unstubAllGlobals());
+it('exposes the structured Account duplicate review when creation needs confirmation', async () => {
+  const duplicateReview = { token: 'c'.repeat(64), matches: [{ id: 'account', name: 'PLDT INC', address: 'Makati' }] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    error: { code: 'POSSIBLE_DUPLICATE_ACCOUNT', message: 'Review the matches.', duplicateReview },
+  }), { status: 409 })));
+  await expect(apiClient.post('/crm/accounts', { name: 'pldt_INC' }))
+    .rejects.toMatchObject({ status: 409, code: 'POSSIBLE_DUPLICATE_ACCOUNT', duplicateReview });
+});
+
 it('passes an optional POST cancellation signal to the credentialed transport', async () => {
   const controller = new AbortController();
   const fetchMock = vi.fn().mockImplementation((_url, init) => new Promise((_resolve, reject) => {

@@ -659,7 +659,7 @@ export function EntityCombobox(props: EntityComboboxProps): React.ReactElement {
             aria-selected={false}
             className="w-full break-words border-t border-border px-4 py-2.5 text-left text-sm font-medium text-primary outline-none hover:bg-primary/5 focus:bg-primary/10"
             onClick={() => handleSelect(addOption)}
-          >Add company “{addOption.label}”</button>}
+          >Use “{addOption.label}” for this Lead</button>}
         </div></ThemedPortal>
       )}
 

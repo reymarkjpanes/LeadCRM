@@ -2,10 +2,14 @@
 
 import { invalidateApiPageCache } from '@/shared/cache/invalidate-api-page-cache';
 import { invalidatePageCache } from '@/shared/cache/page-cache';
-import type { ApiError } from '@leadcrm/shared';
+import { ACCOUNT_DUPLICATE_REVIEW_CODE, AccountDuplicateReviewSchema, type AccountDuplicateReview, type ApiError } from '@leadcrm/shared';
 import { PASSWORD_CHANGE_REQUIRED_EVENT, SESSION_METADATA_EVENT, SESSION_ENDED_EVENT, SESSION_CHANGED_EVENT, getAuthEpoch } from '@/shared/auth/auth-events';
 
-export type ApiRequestError = Error & Partial<Pick<ApiError['error'], 'code' | 'retryAt' | 'serverNow'>> & { status?: number; fieldErrors?: Record<string, string[]> };
+export type ApiRequestError = Error & Partial<Pick<ApiError['error'], 'code' | 'retryAt' | 'serverNow'>> & {
+  status?: number;
+  fieldErrors?: Record<string, string[]>;
+  duplicateReview?: AccountDuplicateReview;
+};
 
 // LeadCRM API Client
 // Sends HttpOnly cookies (leadcrm_token) on every request via credentials: 'include'.
@@ -74,6 +78,10 @@ async function request<T>(
       error.code = (rawError as Record<string, unknown>).code as string;
       if (typeof rawError.retryAt === 'string' && Number.isFinite(Date.parse(rawError.retryAt))) error.retryAt = rawError.retryAt;
       if (typeof rawError.serverNow === 'string' && Number.isFinite(Date.parse(rawError.serverNow))) error.serverNow = rawError.serverNow;
+      if (res.status === 409 && error.code === ACCOUNT_DUPLICATE_REVIEW_CODE) {
+        const review = AccountDuplicateReviewSchema.safeParse(rawError.duplicateReview);
+        if (review.success) error.duplicateReview = review.data;
+      }
     }
     error.status = res.status;
     const publicAuth = /^\/auth\/(login|login-lockout|forgot-password|reset-password)$/.test(path);

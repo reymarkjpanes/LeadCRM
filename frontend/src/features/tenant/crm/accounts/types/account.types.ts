@@ -19,7 +19,7 @@ export interface Account {
   isArchived?: boolean;
 }
 
-export type AccountMutationInput = Partial<Account> & { requestId?: string };
+export type AccountMutationInput = Partial<Account> & { requestId?: string; duplicateReviewToken?: string };
 
 export interface AccountFilters {
   search: string;

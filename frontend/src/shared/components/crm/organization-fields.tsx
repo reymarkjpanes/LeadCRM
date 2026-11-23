@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccountFieldsSchema, CrmCompanyNameSchema, NewAccountSchema, type NewAccountInput } from '@leadcrm/shared';
 import { textFieldError } from '@/shared/utils/text-field-validation';
 import type { ApiRequestError } from '@/lib/api/client';
@@ -90,8 +90,9 @@ function CompanyCustomFields({ draft }: { draft: OrganizationForm }) {
 }
 
 /** Company attributes are owned by Account; the person keeps only its canonical link. */
-export function OrganizationFields({ draft, companyLabel = 'Company Name', showAccount = true, showCompany = true, disabled = false }: {
+export function OrganizationFields({ draft, companyLabel = 'Company Name', showAccount = true, showCompany = true, disabled = false, companyPicker }: {
   draft: OrganizationForm; companyLabel?: string; showAccount?: boolean; showCompany?: boolean; disabled?: boolean;
+  companyPicker?: ReactNode;
 }) {
   const id = useId();
   usePanelDraft({ dirty: draft.dirty, busy: disabled });
@@ -99,26 +100,30 @@ export function OrganizationFields({ draft, companyLabel = 'Company Name', showA
   const canCreate = useHasPermission('accounts.create');
   const [accountDraftOpened, setAccountDraftOpened] = useState(draft.mode === 'new');
   const change = draft.changeField;
+  const canCreateAccount = canView && canCreate && showCompany && (!companyPicker || showAccount);
+  if (companyPicker && !canCreateAccount && draft.mode === 'existing') return <>{companyPicker}</>;
   const keys: AccountNativeFieldKey[] = ['name', 'industry', 'size', 'website', 'address'];
   return <div className="min-w-0 space-y-4 sm:col-span-2">
-    <div className="flex flex-wrap gap-2" role="group" aria-label="Account options">
-      {([['existing', 'Link existing account'], ['new', 'Create new account']] as const).map(([mode, label]) =>
-        <button key={mode} type="button" aria-pressed={draft.mode === mode} disabled={disabled || (mode === 'existing' ? !canView || !showAccount : !canView || !canCreate || !showCompany)}
+    <div className="flex flex-wrap gap-2" role="group" aria-label={companyPicker ? 'Company options' : 'Account options'}>
+      {([['existing', companyPicker ? 'Choose company' : 'Link existing account'], ['new', companyPicker ? 'Create account' : 'Create new account']] as const).map(([mode, label]) =>
+        <button key={mode} type="button" aria-pressed={draft.mode === mode} disabled={disabled || (mode === 'existing' ? !companyPicker && (!canView || !showAccount) : !canCreateAccount)}
           className="min-h-9 rounded-lg border border-border px-3 py-1.5 text-xs aria-pressed:bg-primary/10 aria-pressed:text-primary disabled:opacity-50"
           onClick={() => { if (mode === 'new') setAccountDraftOpened(true); draft.setMode(mode); }}>{label}</button>)}
     </div>
-    {draft.mode === 'existing' && showAccount && <div className="space-y-2">
+    {draft.mode === 'existing' && (companyPicker ?? (showAccount && <div className="space-y-2">
       <span className="block text-xs font-semibold text-muted-foreground">Account</span>
       <EntityCombobox entityType="accounts" value={draft.accountId || null} onChange={value => draft.setAccountId(value || '')}
         disabled={disabled || !canView} placeholder="Search accounts..." error={draft.error || undefined} />
-    </div>}
+    </div>))}
     {draft.mode === 'new' && showCompany && <>
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
         {keys.map(key => <AccountNativeField key={key} fieldKey={key} id={`${id}-${key}`}
           label={key === 'name' ? `${companyLabel} *` : undefined} value={key === 'name' ? draft.fields.companyName : draft.fields[key]}
-          onChange={value => change(key === 'name' ? 'companyName' : key, value)} error={draft.fieldErrors[key]} disabled={disabled || !canView || !canCreate} />)}
+          onChange={value => change(key === 'name' ? 'companyName' : key, value)} error={draft.fieldErrors[key]} disabled={disabled || !canCreateAccount} />)}
       </div>
-      <p className="text-xs text-muted-foreground">The new account and this record will be saved together.</p>
+      <p className="text-xs text-muted-foreground">{companyPicker
+        ? 'Saving this Lead also creates and links the Account.'
+        : 'The new account and this record will be saved together.'}</p>
     </>}
     {showCompany && canView && canCreate && (draft.mode === 'new' || accountDraftOpened) && <div hidden={draft.mode !== 'new'}>
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2"><CompanyCustomFields draft={draft} /></div>
