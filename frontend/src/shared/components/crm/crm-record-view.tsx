@@ -28,6 +28,7 @@ import { useRecordActivities, type RecordActivityFilters, type TimelineActivity 
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { useReadRecordNotifications } from '@/features/tenant/notifications/hooks/use-record-notifications';
+import { LeadCompanyNameEditor } from '@/features/tenant/crm/leads/ui/lead-company-field';
 import { showCrmMutationError } from '@/shared/utils/crm-mutation-error';
 import { Button } from '@/shared/components/ui/button';
 import { Sheet, SheetContent } from '@/shared/components/ui/sheet';
@@ -333,7 +334,10 @@ export function CrmRecordView({ module, id, onClose, onEdit, focusClosing = fals
       { label: 'Phone', value: record.phone, apiField: 'phone', type: 'tel' as const, customEditorActions: true,
         validate: (value: string) => { const parsed = LeadPhoneSchema.safeParse(value); return parsed.success ? undefined : parsed.error.issues[0].message; },
         renderEditor: props => <PhoneInlineEditor {...props} module={module as 'leads' | 'contacts'} recordId={id} /> },
-      { label: 'Company', value: record.companyName, apiField: 'companyName', validateText: value => textFieldError(CrmCompanyNameSchema, value) },
+      { label: 'Company', value: record.companyName, apiField: 'companyName', validateText: value => textFieldError(CrmCompanyNameSchema, value),
+        editorFullWidth: module === 'leads',
+        renderEditor: module === 'leads' ? ({ value, onChange, disabled }) =>
+          <LeadCompanyNameEditor value={value} onChange={onChange} disabled={disabled} /> : undefined },
       ...(canReadAccounts ? [{ technicalKey: 'accountId', label: 'Account', value: object(record.account)?.name ?? object(record.organization)?.name }] : []),
       { label: 'Source', value: source, apiField: 'source' },
     ]),

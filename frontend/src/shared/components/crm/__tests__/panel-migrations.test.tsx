@@ -871,6 +871,27 @@ it.each((['leads', 'contacts'] as const).flatMap(module => ['panel', 'page'].map
   expect(screen.queryByRole('button', { name: /Company \/ Organization|Account \/ Company/ })).toBeNull();
   expect(within(organization.closest('section')!).getByRole('button', { name: module === 'contacts' ? 'Edit Company' : 'Edit Company Name' }).textContent).toContain('Old company');
 });
+
+it('lets a Sales Associate select and save a company name from the inline Lead editor', async () => {
+  mocks.role = 'Sales Associate';
+  mocks.permissions = ['leads.view', 'leads.edit'];
+  const companyName = 'ABC Trading';
+  const original = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation(async (path: string) => path.startsWith('/crm/leads/company-options?')
+    ? { data: { accounts: [], leadCompanies: [companyName] } } : original(path));
+  mocks.put.mockResolvedValueOnce({ data: { ...records.leads, companyName } });
+
+  render(<CrmRecordView module="leads" id="one" />);
+  fireEvent.click(await screen.findByRole('tab', { name: /Details/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Company Name' }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Company' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'abc trading' } });
+  fireEvent.click(await screen.findByRole('option', { name: /^ABC Trading$/ }));
+  expect(mocks.get).toHaveBeenCalledWith('/crm/leads/company-options?search=abc+trading&source=leads', { signal: expect.any(AbortSignal) });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocks.put).toHaveBeenCalledWith('/crm/leads/one', { companyName }));
+});
+
 it('groups Deal participants and Account under Relationships exactly once', async () => {
   const original = mocks.get.getMockImplementation()!;
   mocks.get.mockImplementation(async (path: string) => path === '/crm/deals/one' ? { data: { ...records.deals, organization: { id: 'company', name: 'Linked company' }, contactDeals: [{ contact: { id: 'contact', firstName: 'Linked', lastName: 'Contact' } }] } } : original(path));

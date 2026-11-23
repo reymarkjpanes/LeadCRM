@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { COMPANY_NAME_MAX_LENGTH, companyNameMatchKey, CrmCompanyNameSchema, matchLeadCompanyOptions } from '@leadcrm/shared';
 import { USE_MOCK_DATA } from '@/lib/config';
 import { EntityCombobox, type EntityOption } from '@/shared/components/entity-combobox';
-import { useCrmRecordAccess } from '@/shared/hooks/use-crm-record-access';
 import { useHasPermission } from '@/shared/hooks/use-permissions';
 import { readMockAccounts } from '@/shared/utils/mock-account-storage';
 import { useAuth } from '@/store/AuthContext';
@@ -60,23 +59,46 @@ export function LeadCompanyField({ draft, label = 'Company', disabled }: {
   label?: string;
   disabled?: boolean;
 }) {
+  if (draft.readOnly || (!draft.showCompany && !draft.showAccounts)) return null;
+  return <LeadCompanyPicker label={label} selected={draft.selected} onSelect={draft.select}
+    showCompany={draft.showCompany} showAccounts={draft.showAccounts} disabled={disabled} error={draft.error} />;
+}
+
+export function LeadCompanyNameEditor({ value, onChange, disabled }: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  return <LeadCompanyPicker label="Company" hideLabel selected={value ? companyOption(value) : undefined}
+    onSelect={option => onChange(option?.label ?? '')} showCompany showAccounts={false} disabled={disabled} />;
+}
+
+function LeadCompanyPicker({ label, hideLabel, selected, onSelect, showCompany, showAccounts, disabled, error }: {
+  label: string;
+  hideLabel?: boolean;
+  selected?: EntityOption;
+  onSelect: (option: EntityOption | null) => void;
+  showCompany: boolean;
+  showAccounts: boolean;
+  disabled?: boolean;
+  error?: string;
+}) {
   const id = useId();
   const { tenant } = useAuth();
   const { contacts } = useData();
-  const { canMutate } = useCrmRecordAccess('leads');
   const mayViewLeads = useHasPermission('leads.view');
-  const { showAccounts, showCompany, readOnly } = draft;
+  const tenantId = tenant?.id;
   const source = showAccounts && showCompany ? 'both' : showAccounts ? 'accounts' : 'leads';
   const load = useCallback(async (search: string, signal: AbortSignal) => {
     const parsed = CrmCompanyNameSchema.safeParse(search);
     if (!parsed.success) return [];
     const results = USE_MOCK_DATA ? matchLeadCompanyOptions(
-      showAccounts ? readMockAccounts<Organization>().filter(account => account.tenantId === tenant?.id && !account.isArchived)
+      showAccounts ? readMockAccounts<Organization>().filter(account => account.tenantId === tenantId && !account.isArchived)
         .map(({ id, name, industry, address }) => ({ id, name, industry: industry ?? null, address: address ?? null })) : [],
-      showCompany && mayViewLeads ? contacts.flatMap(lead =>
-        !lead.isArchived && !lead.deletedAt && !lead.convertedAt && lead.status !== 'Merged' &&
+      showCompany && mayViewLeads && tenantId ? contacts.flatMap(lead =>
+        lead.tenantId === tenantId && !lead.isArchived && !lead.deletedAt && !lead.convertedAt && lead.status !== 'Merged' &&
         !lead.accountId && (lead.accountId === null || !lead.organizationId) &&
-        lead.companyName && canMutate(lead, 'canView') ? [lead.companyName] : [],
+        lead.companyName ? [lead.companyName] : [],
       ) : [],
       parsed.data,
     ) : (await leadsService.getCompanyOptions({ search: parsed.data, source }, signal)).data;
@@ -88,26 +110,25 @@ export function LeadCompanyField({ draft, label = 'Company', disabled }: {
       })),
       ...results.leadCompanies.map(companyOption),
     ];
-  }, [showAccounts, tenant?.id, showCompany, mayViewLeads, contacts, canMutate, source]);
+  }, [showAccounts, tenantId, showCompany, mayViewLeads, contacts, source]);
 
-  if (readOnly || (!showCompany && !showAccounts)) return null;
   return <>
-    <label id={id + '-label'} htmlFor={id} className="mb-1 block text-xs font-semibold text-muted-foreground">{label}</label>
+    <label id={id + '-label'} htmlFor={id} className={hideLabel ? 'sr-only' : 'mb-1 block text-xs font-semibold text-muted-foreground'}>{label}</label>
     <EntityCombobox
       id={id}
       aria-labelledby={id + '-label'}
       entityType="accounts"
-      value={draft.selected?.id ?? null}
-      onChange={(_, option) => draft.select(option ?? null)}
+      value={selected?.id ?? null}
+      onChange={(_, option) => onSelect(option ?? null)}
       placeholder="Search companies..."
       minSearchChars={1}
       disabled={disabled}
-      error={draft.error}
+      error={error}
       optionSource={{
         label: 'Company options',
         maxSearchLength: COMPANY_NAME_MAX_LENGTH,
         load,
-        selected: draft.selected,
+        selected,
         addOption: showCompany ? (search, options) => {
           const result = CrmCompanyNameSchema.safeParse(search);
           if (!result.success || !result.data) return undefined;
