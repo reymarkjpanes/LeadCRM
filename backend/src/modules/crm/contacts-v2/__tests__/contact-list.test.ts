@@ -73,13 +73,14 @@ it('pages by latest sales activity by default, including converted Lead Deals', 
   expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'RepeatableRead' });
 });
 
-it('sorts the displayed Company instead of the linked Account name', async () => {
-  db.contact.findMany.mockResolvedValueOnce([
+it('sorts and displays the current Account name for linked Contacts', async () => {
+  const rows = [
     { id: 'b', companyName: 'Alpha', account: { name: 'Zebra' } },
     { id: 'a', companyName: 'Zebra', account: { name: 'Alpha' } },
-  ]).mockResolvedValueOnce([{ id: 'b' }, { id: 'a' }]);
+  ];
+  db.contact.findMany.mockResolvedValueOnce(rows).mockResolvedValueOnce(rows);
   const result = await findAllContacts('tenant', { sort: 'companyName:asc' });
-  expect(result.data.map(row => row.id)).toEqual(['b', 'a']);
+  expect(result.data).toMatchObject([{ id: 'a', companyName: 'Alpha' }, { id: 'b', companyName: 'Zebra' }]);
   for (const field of ['lastName', 'phone', 'status', 'source']) await expect(findAllContacts('tenant', { sort: `${field}:asc` })).resolves.toBeDefined();
 });
 it('sorts First Name alone, with record ID as the tie-breaker', async () => {

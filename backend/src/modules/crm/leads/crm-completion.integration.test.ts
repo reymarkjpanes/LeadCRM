@@ -454,7 +454,8 @@ describe.skipIf(url.hostname !== '127.0.0.1' || url.pathname !== '/leadcrm_compl
     const form = await prisma.marketingForm.create({ data: { tenantId, name: 'Failed form', createdById: adminId } });
     await writeAuditLog({ tenantId, userId: adminId, action: 'form.processing_failed', entityType: 'Form', entityId: form.id });
     const mailbox = await prisma.emailAccount.update({ where: { tenantId_userId_provider: { tenantId, userId: agentId, provider: 'gmail' } }, data: { isActive: false } });
-    await scope(() => dispatchTenantNotifications(tenantId));
+    // Include events committed in the same millisecond and any earlier fixture events.
+    await scope(() => dispatchTenantNotifications(tenantId, new Date(Date.now() + 1000), 100));
     expect(await prisma.notification.count({ where: { userId: otherAgentId, entityId: lead.id, type: 'lead_assigned' } })).toBe(1);
     for (const type of ['user_created', 'user_status_changed']) expect(await prisma.notification.count({ where: { tenantId, userId: adminId, type } }), type).toBeGreaterThan(0);
     expect(await prisma.notification.findMany({ where: { tenantId, entityId: deals[0].id, type: 'deal_lost' }, select: { userId: true } }))
