@@ -35,6 +35,7 @@ export interface Company {
  * Mirrors the backend `CreateCompanySchema` Zod DTO.
  */
 export interface CreateCompanyRequest {
+  duplicateReviewToken?: string;
   name: string;
   industry?: string;
   size?: CompanySize;

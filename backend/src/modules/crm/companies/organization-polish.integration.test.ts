@@ -48,6 +48,86 @@ describe.skipIf(!disposable)('Atomic organization creation over authenticated HT
     expect(CreateClientContactSchema.safeParse({ ...person(), accountId: randomUUID(), newAccount }).success).toBe(false);
   });
 
+  it.each(['/crm/accounts', '/crm/leads'])('reviews Account spelling variants before writing through %s', async path => {
+    const existing = await scope(() => prisma.account.create({
+      data: { tenantId, name: path.endsWith('/leads') ? 'PLDT INC' : 'Globe Inc.', website: 'https://company.test', address: 'Makati' },
+    }));
+    const draft = person();
+    const prefix = path.endsWith('/leads') ? 'pldt' : 'globe';
+    const submit = (newAccount: ReturnType<typeof company> & { duplicateReviewToken?: string }) =>
+      call(path, 'POST', path.endsWith('/leads') ? { ...draft, newAccount } : newAccount);
+    for (const name of [existing.name, `${prefix}_INC`, `${prefix}_INC/inc`, `${prefix}-INC`]) {
+      const response = await submit({ ...company(), name });
+      expect(response.status, JSON.stringify(response.body)).toBe(409);
+      expect(response.body.error).toMatchObject({
+        code: 'POSSIBLE_DUPLICATE_ACCOUNT',
+        duplicateReview: { token: expect.stringMatching(/^[a-f0-9]{64}$/), matches: [{
+          id: existing.id, name: existing.name, website: 'https://company.test', address: 'Makati',
+        }] },
+      });
+    }
+    expect(await scope(() => prisma.account.count({ where: { tenantId, name: { startsWith: prefix, mode: 'insensitive' } } }))).toBe(1);
+    expect(await scope(() => prisma.lead.count({ where: { tenantId, email: draft.email } }))).toBe(0);
+    if (path.endsWith('/leads')) {
+      const linked = await call(path, 'POST', { ...draft, accountId: existing.id });
+      expect(linked.status, JSON.stringify(linked.body)).toBe(201);
+      expect(linked.body.data.accountId).toBe(existing.id);
+      expect(await scope(() => prisma.account.count({ where: { tenantId, name: { startsWith: prefix, mode: 'insensitive' } } }))).toBe(1);
+    } else {
+      const different = await submit({ ...company(), name: 'Globe Enterprise' });
+      expect(different.status, JSON.stringify(different.body)).toBe(201);
+    }
+  });
+
+  it.each(['/crm/accounts', '/crm/leads'])('refreshes duplicate review and replays the approved save through %s', async path => {
+    const prefix = path.endsWith('/leads') ? 'Lead Recheck' : 'Account Recheck';
+    const existing = await scope(() => prisma.account.create({ data: { tenantId, name: `${prefix} Inc.` } }));
+    const draft = { ...company(), name: `${prefix}_INC` };
+    const lead = person();
+    const submit = (account: typeof draft & { duplicateReviewToken?: string }) =>
+      call(path, 'POST', path.endsWith('/leads') ? { ...lead, newAccount: account } : account);
+    const first = await submit(draft);
+    expect(first.status).toBe(409);
+    const { token } = first.body.error.duplicateReview;
+
+    const renamed = await submit({ ...draft, name: `${prefix} INC`, duplicateReviewToken: token });
+    expect(renamed.status).toBe(409);
+    expect(renamed.body.error.duplicateReview.token).not.toBe(token);
+    const late = await scope(() => prisma.account.create({ data: { tenantId, name: `${prefix} Corp.` } }));
+    const stale = await submit({ ...draft, duplicateReviewToken: token });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.duplicateReview.matches.map((match: { id: string }) => match.id).sort()).toEqual([existing.id, late.id].sort());
+
+    const created = await submit({ ...draft, duplicateReviewToken: stale.body.error.duplicateReview.token });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.data.account?.name ?? created.body.data.name).toBe(draft.name);
+    const retry = await submit(draft);
+    expect(path.endsWith('/leads') ? [200, 201] : [200]).toContain(retry.status);
+    expect(retry.body.data.id).toBe(created.body.data.id);
+    expect(await scope(() => prisma.account.count({ where: { tenantId, name: draft.name } }))).toBe(1);
+  });
+
+  it('keeps duplicate review tenant scoped and does not disclose unreadable Accounts', async () => {
+    const foreign = await prisma.tenant.create({ data: { name: 'Other workspace', slug: randomUUID() } });
+    await tenantContext.run({ tenantId: foreign.id }, () => prisma.account.create({
+      data: { tenantId: foreign.id, name: 'Isolated Inc.', website: 'https://private.test' },
+    }));
+    const isolated = await call('/crm/accounts', 'POST', { ...company(), name: 'Isolated-INC' });
+    expect(isolated.status, JSON.stringify(isolated.body)).toBe(201);
+
+    const createOnlyRole = await scope(() => prisma.roleDefinition.create({
+      data: { tenantId, name: 'Account Creator Without Record Scope', permissions: { create: { module: 'accounts', canView: true, canCreate: true } } },
+    }));
+    const creator = await scope(() => prisma.user.create({
+      data: { tenantId, firstName: 'Create', lastName: 'Only', role: createOnlyRole.name, email: `${randomUUID()}@camxian.com`,
+        mustChangePassword: false, onboardingCompletedAt: new Date(), userRoles: { create: { roleId: createOnlyRole.id } } },
+    }));
+    const creatorToken = (await issueAuthSession(creator)).token;
+    const created = await call('/crm/accounts', 'POST', { ...company(), name: 'Isolated_INC' }, creatorToken);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).not.toHaveProperty('error');
+  });
+
   it('runs Account CRUD, export and Activity with both retired columns physically absent', async () => {
     const columns = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Account' AND column_name IN ('tags','internalNotes')`);
     expect(columns).toEqual([]);

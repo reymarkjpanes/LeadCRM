@@ -19,7 +19,7 @@ require('../../scripts/qa-network-guard.cjs');
 mkdirSync(output, { recursive: true });
 let pg, prisma, api, frontend, browser, log, failure, currentPage, closing = false;
 const checks = [], pageErrors = [], serverErrors = [];
-const expectedChecks = 7;
+const expectedChecks = 9;
 const resultPath = resolve(output, 'results.json');
 writeFileSync(resultPath, JSON.stringify({ status: 'RUNNING', success: false, cleanup: 'pending', checks, pageErrors }, null, 2));
 const Module = require('node:module'), originalResolve = Module._resolveFilename;
@@ -106,7 +106,7 @@ try {
   await leadDialog.getByLabel('Email', { exact: false }).fill(leadEmail);
   await leadDialog.getByRole('combobox', { name: 'Company', exact: true }).click();
   await leadDialog.getByRole('combobox', { name: 'Company', exact: true }).fill('Separate address company');
-  await page.getByRole('option', { name: /Add company.*Separate address company/ }).click();
+  await page.getByRole('option', { name: /Use.*Separate address company.*for this Lead/ }).click();
   await leadDialog.getByLabel('Lead Address', { exact: true }).fill('Personal street\nPasig');
   for (const width of [320, 375, 768, 1440]) {
     await page.setViewportSize({ width, height: 960 });
@@ -123,6 +123,47 @@ try {
   assert.equal(addressLead.accountId, null);
   assert.equal(await prisma.account.count({ where: { tenantId: tenant.id, name: 'Separate address company' } }), 0);
   checks.push('Lead company and Lead Address save together without creating an Account at responsive widths');
+
+  const matchingAccount = await scope(() => prisma.account.create({
+    data: { tenantId: tenant.id, name: 'PLDT INC', website: 'https://pldt.test', address: 'Makati' },
+  }));
+  await page.getByRole('button', { name: 'Create Lead', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Create New', exact: true }).click();
+  const duplicateLeadEmail = `${randomUUID()}@example.test`;
+  await leadDialog.getByLabel('First Name', { exact: false }).fill('Company');
+  await leadDialog.getByLabel('Last Name', { exact: false }).fill('Reviewer');
+  await leadDialog.getByLabel('Email', { exact: false }).fill(duplicateLeadEmail);
+  await leadDialog.getByRole('button', { name: 'Create account', exact: true }).click();
+  await leadDialog.getByLabel('Account Name *', { exact: true }).fill('PlDt-INC');
+  await leadDialog.getByLabel('Company Address', { exact: true }).fill('Draft address');
+  await leadDialog.getByRole('button', { name: 'Choose company', exact: true }).click();
+  await leadDialog.getByRole('button', { name: 'Create account', exact: true }).click();
+  assert.equal(await leadDialog.getByLabel('Company Address', { exact: true }).inputValue(), 'Draft address');
+  await leadDialog.getByRole('button', { name: 'Create Lead', exact: true }).click();
+  const duplicateDialog = page.getByRole('dialog', { name: 'An Account with a similar name already exists.' });
+  await duplicateDialog.getByText('PLDT INC', { exact: true }).waitFor();
+  assert.equal(await prisma.lead.count({ where: { tenantId: tenant.id, email: duplicateLeadEmail } }), 0);
+  await duplicateDialog.getByRole('button', { name: 'Use existing Account', exact: true }).click();
+  await leadDialog.getByRole('button', { name: 'Create Lead', exact: true }).click();
+  await leadDialog.waitFor({ state: 'hidden' });
+  const linkedLead = await prisma.lead.findFirstOrThrow({ where: { tenantId: tenant.id, email: duplicateLeadEmail } });
+  assert.equal(linkedLead.accountId, matchingAccount.id);
+  assert.equal(await prisma.account.count({ where: { tenantId: tenant.id, name: 'PlDt-INC' } }), 0);
+  checks.push('The restored Lead Account form preserves drafts and links the selected Account after duplicate review');
+
+  await page.goto(`${base}/crm/accounts`);
+  await page.getByRole('button', { name: 'Add Account', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Create New', exact: true }).click();
+  const accountDialog = page.getByRole('dialog', { name: 'New Account', exact: true });
+  await accountDialog.getByLabel('Account Name *', { exact: true }).fill('pldt_INC/inc');
+  await accountDialog.getByRole('button', { name: 'Create Account', exact: true }).click();
+  const existingLink = duplicateDialog.getByRole('link', { name: 'View existing Account', exact: true });
+  assert.equal(await existingLink.getAttribute('href'), `/crm/accounts/${matchingAccount.id}`);
+  assert.equal(await prisma.account.count({ where: { tenantId: tenant.id, name: 'pldt_INC/inc' } }), 0);
+  await duplicateDialog.getByRole('button', { name: 'Create anyway', exact: true }).click();
+  await accountDialog.waitFor({ state: 'hidden' });
+  assert.equal(await prisma.account.count({ where: { tenantId: tenant.id, name: 'pldt_INC/inc' } }), 1);
+  checks.push('Standalone Account creation warns about spelling variants and preserves the entered spelling after confirmation');
 
   await page.goto(`${base}/automation/workflows/${workflow.id}/edit`);
   await page.getByRole('button', { name: 'Workflow details', exact: true }).click();

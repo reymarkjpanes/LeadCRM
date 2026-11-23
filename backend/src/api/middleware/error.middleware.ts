@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError, type ZodIssue } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../shared/errors/app-error';
+import { AccountDuplicateReviewError } from '../../shared/errors/account-duplicate-review-error';
 
 export function errorMiddleware(
   err: Error,
@@ -9,6 +10,14 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
+  if (err instanceof AccountDuplicateReviewError) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(err.statusCode).json({
+      success: false,
+      error: { code: err.code, message: err.message, duplicateReview: err.review },
+    });
+    return;
+  }
   if ('type' in err && err.type === 'entity.too.large') {
     res.status(413).json({ success: false, error: 'Request body is too large.' });
     return;

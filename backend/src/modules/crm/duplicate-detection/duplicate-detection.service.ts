@@ -1,4 +1,5 @@
 import prisma from '../../../config/database.config';
+import { findPossibleAccountMatches } from '../companies/account-duplicate-review';
 import type {
   DuplicateCheckParams,
   DuplicateCheckResult,
@@ -232,31 +233,15 @@ async function findAccountDuplicates(
   tenantId: string,
   criteria: { companyName: string; excludeId?: string },
 ): Promise<DuplicateMatch[]> {
-  const matches: DuplicateMatch[] = [];
-
-  const nameMatches = await prisma.account.findMany({
-    where: {
-      tenantId,
-      name: { equals: criteria.companyName, mode: 'insensitive' },
-      isArchived: false,
-      ...(criteria.excludeId ? { id: { not: criteria.excludeId } } : {}),
-    },
-    take: 5,
-    select: { id: true, name: true, industry: true, website: true },
-  });
-
-  for (const account of nameMatches) {
-    matches.push({
-      id: account.id,
-      entityType: 'account',
-      name: account.name,
-      companyName: account.name,
-      confidence: 'MEDIUM',
-      matchedFields: ['companyName'],
-    });
-  }
-
-  return matches;
+  const matches = await findPossibleAccountMatches(prisma, tenantId, criteria.companyName, criteria.excludeId);
+  return matches.slice(0, 5).map(account => ({
+    id: account.id,
+    entityType: 'account',
+    name: account.name,
+    companyName: account.name,
+    confidence: 'MEDIUM',
+    matchedFields: ['companyName'],
+  }));
 }
 
 // ── Match builders ────────────────────────────────────────────────────────────

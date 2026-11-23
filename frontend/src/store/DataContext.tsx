@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 const ClosingRecordPanel = dynamic(() => import('@/shared/components/crm/crm-record-view').then(module => module.CrmRecordPanel), { ssr: false });
 import {taskAssociationIds, taskAssociationPatch, CreateDealBatchSchema, ManualCreateDealBatchSchema, dealAssociationPatch, productDealTitle, type ProductInterest, type DealAssociationChange} from "@leadcrm/shared";
 import { getAssignableAgents } from '@/shared/utils/assigned-agents';
+import { mockOrganizationsKey, readMockAccountRows, readMockAccounts, requireMockAccountReview } from '@/shared/utils/mock-account-storage';
 
 import { isOnboardingComplete, permissionKeys, WorkflowDraftSchema, type WorkflowDraft } from "@leadcrm/shared";
 import React, {
@@ -835,10 +836,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const linkedAccount = organizations.find(account => account.id === leadData.accountId && account.tenantId === tenant.id && !account.isArchived);
+    const { newAccount, ...leadFields } = leadData;
+    const linkedAccount = newAccount ? await saveMockLeadAccount(newAccount, tenant.id)
+      : readMockAccounts<Organization>().find(account => account.id === leadFields.accountId && account.tenantId === tenant.id && !account.isArchived);
     const newLead: Contact = {
-      ...leadData,
-      ...(linkedAccount ? { companyName: linkedAccount.name, organizationId: linkedAccount.id } : {}),
+      ...leadFields,
+      ...(linkedAccount ? { companyName: linkedAccount.name, accountId: linkedAccount.id, organizationId: linkedAccount.id } : {}),
       status: leadData.status ?? "Inquiry",
       id: uuid(),
       tenantId: tenant.id,
@@ -853,6 +856,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
       newLead.id,
     );
   };
+
+  async function saveMockLeadAccount(input: NonNullable<Contact['newAccount']>, tenantId: string) {
+    type StoredAccount = Organization & { requestId?: string };
+    const accounts = readMockAccounts<StoredAccount>();
+    const existing = accounts.find(account => account.tenantId === tenantId && account.requestId === input.requestId);
+    if (existing) return existing;
+    if (userCan('accounts', 'canView')) await requireMockAccountReview(accounts, tenantId, user?.id, input.name, input.duplicateReviewToken);
+    const { duplicateReviewToken: _review, ...details } = input;
+    const account: StoredAccount = { ...details, tenantId, id: uuid(), createdAt: new Date().toISOString() };
+    const organizations = readMockAccountRows<StoredAccount>(mockOrganizationsKey);
+    saveAndSet(mockOrganizationsKey, [...organizations, account], setOrganizations);
+    return account;
+  }
 
   const updateContact = async (id: string, updates: Partial<Contact>): Promise<void> => {
     if (!USE_MOCK_DATA) {
@@ -869,13 +885,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     const original = contacts.find((l) => l.id === id);
+    const { newAccount, ...leadFields } = updates;
+    const linkedAccount = original && (newAccount ? await saveMockLeadAccount(newAccount, original.tenantId)
+      : readMockAccounts<Organization>().find(account => account.id === leadFields.accountId && account.tenantId === original.tenantId && !account.isArchived));
     const newLeads = contacts.map((l) => {
       if (l.id === id) {
-        const linkedAccount = organizations.find(account => account.id === updates.accountId && account.tenantId === l.tenantId && !account.isArchived);
         const updated = {
-          ...l, ...updates,
-          ...(linkedAccount ? { companyName: linkedAccount.name, organizationId: linkedAccount.id } : {}),
-          ...(updates.accountId === null ? { organizationId: undefined } : {}),
+          ...l, ...leadFields,
+          ...(linkedAccount ? { companyName: linkedAccount.name, accountId: linkedAccount.id, organizationId: linkedAccount.id }
+            : leadFields.accountId === null ? { organizationId: undefined } : {}),
         };
         if (updates.status) (updated as Contact & Pick<Lead, "score">).score = calculateScore(updates.status);
         return updated;
