@@ -29,6 +29,32 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('refreshes overdue summaries through existing revision events and Sync Metrics without another subscription', async () => {
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { activeDeals: 0 }, overdueForecast: { count: 2, value: 30000 } } });
+  const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
+  await waitFor(() => expect(hook.result.current.report?.overdueForecast).toEqual({ count: 2, value: 30000 }));
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { activeDeals: 0 }, overdueForecast: { count: 1, value: null } } });
+  act(() => Feed.instances[0].emit('dashboard-change', { access: '1', analytics: '2' }));
+  await waitFor(() => expect(hook.result.current.report?.overdueForecast).toEqual({ count: 1, value: null }));
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { activeDeals: 0 }, overdueForecast: { count: 0, value: 0 } } });
+  await act(async () => { await hook.result.current.refresh(); });
+  expect(hook.result.current.report?.overdueForecast).toEqual({ count: 0, value: 0 });
+  expect(Feed.instances).toHaveLength(1);
+});
+
+it('reconciles overdue classification after Manila midnight using the existing foreground timer', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-23T15:59:59Z'));
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { activeDeals: 0 }, overdueForecast: { count: 0, value: 0 } } });
+  const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
+  await act(async () => {});
+  expect(hook.result.current.report?.overdueForecast?.count).toBe(0);
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { activeDeals: 0 }, overdueForecast: { count: 1, value: 10000 } } });
+  await act(async () => { await vi.advanceTimersByTimeAsync(30150); });
+  expect(hook.result.current.report?.overdueForecast).toEqual({ count: 1, value: 10000 });
+  expect(mocks.get).toHaveBeenCalledTimes(2);
+  expect(Feed.instances).toHaveLength(1);
+});
+
 it('refreshes KPI and forecast buckets together through Deal invalidation, Sync Metrics and period changes', async () => {
   const snapshot = (total: number, dated: number) => ({ metrics: { forecastedRevenue: total }, salesForecast: {
     period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' }, buckets: [{ start: '2020-01-01', end: '2020-01-05', value: dated }],
@@ -53,19 +79,20 @@ it('refreshes KPI and forecast buckets together through Deal invalidation, Sync 
 });
 
 it('discards an earlier user forecast and pending response when authenticated identity changes', async () => {
-  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 900 }, salesForecast: { buckets: [{ value: 900 }] } } });
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 900 }, salesForecast: { buckets: [{ value: 900 }] }, overdueForecast: { count: 9, value: 900 } } });
   const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
   await waitFor(() => expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(900));
   let finishOld: (response: unknown) => void = () => {};
   mocks.get.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
   act(() => { void hook.result.current.refresh(); });
   mocks.auth.user = { id: 'b', tenantId: 'tenant-a', role: 'Sales Associate' };
-  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 20 }, salesForecast: { buckets: [{ value: 10 }] } } });
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 20 }, salesForecast: { buckets: [{ value: 10 }] }, overdueForecast: { count: 1, value: 10 } } });
   hook.rerender();
   expect(hook.result.current.report).toBeNull();
   await waitFor(() => expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(20));
-  await act(async () => finishOld({ data: { metrics: { forecastedRevenue: 999999 }, salesForecast: { buckets: [{ value: 999999 }] } } }));
+  await act(async () => finishOld({ data: { metrics: { forecastedRevenue: 999999 }, salesForecast: { buckets: [{ value: 999999 }] }, overdueForecast: { count: 999, value: 999999 } } }));
   expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(10);
+  expect(hook.result.current.report?.overdueForecast).toEqual({ count: 1, value: 10 });
 });
 
 it('loads backend analytics and batches duplicate notifications without local arithmetic', async () => {

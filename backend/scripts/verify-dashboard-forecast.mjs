@@ -69,9 +69,12 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
       assert.equal(report.metrics.forecastedRevenue, total);
       assert.equal(report.salesForecast.buckets.reduce((sum, bucket) => sum + bucket.value, 0), dated);
       await expectForecast(tab, total, dated);
+      assert.deepEqual(report.overdueForecast, { count: 0, value: 0 });
+      assert.equal(await chart(tab).getByLabel('Overdue Forecast', { exact: true }).count(), 0);
     }
     assert.equal((await read(managerPage)).metrics.activeDeals, 1);
     assert.equal((await read(deniedPage)).salesForecast, null);
+    assert.equal((await read(deniedPage)).overdueForecast, null);
     await chart(deniedPage).getByText('Deal reporting access is restricted.').waitFor();
     const injected = await aPage.request.get(`${base}/api/proxy/reporting/dashboard?assignedUserId=${associateB.id}`);
     assert.equal(injected.status(), 400);
@@ -125,6 +128,45 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
     }, 'Close-date changes update individual intervals even when the total is unchanged');
     await expectForecast(page, 61000, 51000);
     record('Within-period expected close date edits move values between bars without changing the current KPI or chart total');
+    const pages = [page, managerPage, aPage, bPage, customPage];
+    const beforeOverdue = await Promise.all(pages.map(async tab => (await read(tab)).overdueForecast));
+    const overdueText = summary => `Overdue Forecast: ${summary.count} ${summary.count === 1 ? 'Deal' : 'Deals'} · ${summary.value === null ? 'Unavailable' : money(summary.value)}`;
+    async function expectOverdue(tab, summary) {
+      await until(async () => {
+        const indicator = chart(tab).getByLabel('Overdue Forecast', { exact: true });
+        return summary.count === 0 ? await indicator.count() === 0
+          : await indicator.count() === 1 && await indicator.innerText() === overdueText(summary);
+      }, overdueText(summary));
+    }
+    // Outside every current chart window: the footer must still display this Deal.
+    const overdueDeal = await deal(10000, associateA.id, `${Number(today.slice(0, 4)) - 1}-12-31T00:00:00Z`);
+    const withExtra = (index, value) => ({ count: beforeOverdue[index].count + 1, value: beforeOverdue[index].value + value });
+    for (const index of [0, 1, 2, 4]) await expectOverdue(pages[index], withExtra(index, 10000));
+    await expectOverdue(bPage, beforeOverdue[3]);
+    await chart(aPage).getByText('No Qualified deal value with an expected close date in this period.').waitFor();
+    assert.equal((await read(aPage)).metrics.forecastedRevenue, 17000);
+    record('Overdue footer respects company/assigned/custom scopes and remains visible beneath an empty period chart');
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { expectedCloseDate: new Date(`${today}T00:00:00Z`) } });
+    await expectOverdue(aPage, beforeOverdue[2]);
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { expectedCloseDate: new Date(`${Number(today.slice(0, 4)) - 1}-12-31T00:00:00Z`) } });
+    await expectOverdue(aPage, withExtra(2, 10000));
+    await http(`/crm/deals/${overdueDeal.id}/stage`, 'PATCH', { stageId: stages[0].id });
+    await expectOverdue(aPage, beforeOverdue[2]);
+    await http(`/crm/deals/${overdueDeal.id}/stage`, 'PATCH', { stageId: stages[2].id });
+    await expectOverdue(aPage, withExtra(2, 10000));
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { value: 11000 } });
+    await expectOverdue(aPage, withExtra(2, 11000));
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { assignedUserId: associateB.id } });
+    await expectOverdue(aPage, beforeOverdue[2]); await expectOverdue(bPage, withExtra(3, 11000));
+    await managerPage.getByRole('button', { name: 'Sync Metrics', exact: true }).click();
+    await expectOverdue(managerPage, withExtra(1, 11000));
+    record('Overdue footer updates after close date, stage, value, reassignment and Sync Metrics through existing revisions');
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { value: null } });
+    await expectOverdue(bPage, { count: beforeOverdue[3].count + 1, value: null });
+    assert.equal((await read(bPage)).metrics.forecastedRevenue, null);
+    await prisma.deal.update({ where: { id: overdueDeal.id }, data: { value: 11000 } });
+    await expectOverdue(page, withExtra(0, 11000));
+    record('Invalid overdue amounts retain the count and show Unavailable rather than an incorrect total');
     assert.deepEqual(await page.locator('main h3').allTextContents(), ['Action Center', 'Revenue Trend', 'Sales Forecast', 'Pipeline Overview', 'Lead Source Performance', 'Sales Leaderboard']);
     for (const theme of ['Light', 'Dark']) {
       await setAcceptanceTheme(page, theme);
@@ -143,6 +185,11 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
         assert.ok(bounds.left >= 0 && bounds.right <= width + 1, JSON.stringify(bounds));
         assert.ok(Math.abs(bounds.width - bounds.previousWidth) < 2 && Math.abs(bounds.width - bounds.nextWidth) < 2, JSON.stringify(bounds));
         assert.ok(bounds.canvasWidth > 0); assert.equal(bounds.scrollStyle, 'auto'); assert.equal(bounds.parentOverflowY, 'visible');
+        const indicatorBounds = await chart(page).getByLabel('Overdue Forecast', { exact: true }).evaluate(element => {
+          const bounds = element.getBoundingClientRect(), card = element.closest('section').getBoundingClientRect();
+          return { left: bounds.left, right: bounds.right, bottom: bounds.bottom, cardBottom: card.bottom, width: bounds.width, color: getComputedStyle(element).color };
+        });
+        assert.ok(indicatorBounds.left >= 0 && indicatorBounds.right <= width + 1 && indicatorBounds.bottom <= indicatorBounds.cardBottom);
         await chart(page).screenshot({ path: resolve(output, `forecast-${theme}-${width}.png`) });
         record(`Sales Forecast ${theme} ${width}px: full-width row and contained chart overflow`, bounds);
       }
@@ -154,6 +201,8 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
     await prisma.rolePermission.updateMany({ where: { tenantId: tenant.id, roleId: managerRole.id, module: 'deals' }, data: { canView: false } });
     await until(async () => await chart(managerPage).getByText('Deal reporting access is restricted.').count() === 1, 'Live forecast permission revocation');
     assert.equal((await read(managerPage)).metrics.forecastedRevenue, null);
+    assert.equal((await read(managerPage)).overdueForecast, null);
+    assert.equal(await chart(managerPage).getByLabel('Overdue Forecast', { exact: true }).count(), 0);
     record('Live Deal permission revocation removes both forecast outputs');
   } finally {
     for (const opened of extraSessions) await opened.context.close();
