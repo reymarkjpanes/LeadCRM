@@ -4,8 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { LEAD_SOURCES, type DashboardReport, type DashboardQuery } from '@leadcrm/shared';
 import Dashboard from './dashboard';
 
-const mocks = vi.hoisted(() => ({ report: null as DashboardReport | null, query: null as DashboardQuery | null, error: null as string | null, loading: false, refresh: vi.fn(async () => true), charts: [] as any[], success: vi.fn(), failure: vi.fn() }));
-vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'agent', firstName: 'Sales' } }) }));
+const mocks = vi.hoisted(() => ({ report: null as DashboardReport | null, query: null as DashboardQuery | null, error: null as string | null, loading: false, role: 'Sales Associate', refresh: vi.fn(async () => true), charts: [] as any[], success: vi.fn(), failure: vi.fn() }));
+vi.mock('@/store/AuthContext', () => ({ useAuth: () => ({ user: { id: 'agent', firstName: 'Sales', role: mocks.role } }) }));
 vi.mock('../hooks/use-dashboard-report', () => ({ useDashboard: (query: DashboardQuery) => { mocks.query = query; return { report: mocks.report, error: mocks.error, loading: mocks.loading, refresh: mocks.refresh }; } }));
 vi.mock('@/shared/utils/toast', () => ({ toast: { success: mocks.success, error: mocks.failure } }));
 vi.mock('react-chartjs-2', () => ({
@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-11T04:00:00Z'));
   mocks.charts = [];
   mocks.loading = false; mocks.error = null;
+  mocks.role = 'Sales Associate';
   mocks.refresh.mockResolvedValue(true); mocks.success.mockClear(); mocks.failure.mockClear();
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const stages = ['Lead','Contacted','Qualified','Closed Deal','Cancelled'].map((name, order) => ({
@@ -33,6 +34,8 @@ beforeEach(() => {
       currentWon: 2, totalDeals: 25, winRate: 8, averageDealDays: 4, openPipelineValue: 225000,
       forecastMissing: 0, monetaryMissing: 0, currencyExcluded: 0, closingDateMissing: 0, unattributedWon: 1, unattributedRevenue: 1000 },
     trend: [{ name: '2020-01-01', revenue: 45000, won: 1, lost: 0 }],
+    salesForecast: { period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' },
+      buckets: [{ start: '2020-01-01', end: '2020-01-05', value: 10000 }, { start: '2020-01-06', end: '2020-01-12', value: 0 }, { start: '2020-01-13', end: '2020-01-15', value: 15000 }] },
     distribution: stages.slice(0, 3).map(stage => ({ id: stage.id, name: stage.name, color: stage.color,
       count: stage.id === 'lead' ? 3 : 0, value: stage.id === 'lead' ? 225000 : 0, percentage: stage.id === 'lead' ? 100 : 0 })),
     leadSourcePerformance: { period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila' }, sources: [{ name: 'Referral', won: 12 }, { name: 'Not specified', won: 2 }] },
@@ -44,6 +47,55 @@ beforeEach(() => {
   };
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); mocks.refresh.mockClear(); });
+
+it.each(['Client Admin', 'Sales Admin', 'Sales Associate', 'Forecast custom'])('renders a full-width Sales Forecast for %s without changing KPI values', role => {
+  mocks.role = role;
+  render(<Dashboard />);
+  const section = screen.getByRole('region', { name: 'Sales Forecast' });
+  expect(section.previousElementSibling?.querySelector('[aria-label="Revenue Trend"]')).toBeTruthy();
+  expect(section.nextElementSibling?.querySelector('[aria-label="Pipeline Overview"]')).toBeTruthy();
+  expect(section.parentElement?.className).not.toContain('grid-cols');
+  expect(within(section).getByText('Current Qualified Deals by Expected Close Date')).toBeTruthy();
+  expect(within(section).queryByRole('button')).toBeNull();
+  expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('₱37,000.00')).toBeTruthy();
+  expect(screen.queryByText('Current Forecast')).toBeNull();
+  expect(screen.queryByText('Qualified Deals')).toBeNull();
+});
+
+it('formats forecast currency labels, exact interval tooltips, zero bars and opt-in purple gradients', () => {
+  render(<Dashboard />);
+  const chart = mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Deal Value (PHP)');
+  expect(chart.options.indexAxis).toBe('x');
+  expect(chart.data.datasets[0].data).toEqual([10000, 0, 15000]);
+  expect(chart.options.scales.x.ticks.callback(0)).toMatch(/Jan 1.*5/);
+  expect(chart.options.plugins.tooltip.callbacks.title([{ label: '2020-01-01' }])).toMatch(/Jan 1.*5, 2020/);
+  expect(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Deal Value (PHP)' }, parsed: { y: 10000 } })).toBe('Deal Value (PHP): ₱10,000.00');
+  const context = { save: vi.fn(), restore: vi.fn(), fillText: vi.fn(), createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })) };
+  const fakeChart = { ctx: context, options: chart.options, data: chart.data, isDatasetVisible: () => true, getDatasetMeta: () => ({ data: [{ x: 40, y: 100 }, { x: 80, y: 200 }, { x: 120, y: 80 }] }) };
+  chart.plugins[0].afterDatasetsDraw(fakeChart);
+  expect(context.fillText.mock.calls.map(call => call[0])).toEqual(['₱10K', '₱15K']);
+  const gradient = chart.data.datasets[0].backgroundColor({ chart: { ctx: context, chartArea: { top: 24, bottom: 280 } } });
+  expect(gradient.addColorStop.mock.calls).toEqual([[0, '#9333EA'], [1, '#C084FC']]);
+  // The existing source chart keeps solid fills and its count labels.
+  const sources = mocks.charts.find(chart => chart.data.datasets[0].label === 'Won Deals');
+  expect(Array.isArray(sources.data.datasets[0].backgroundColor)).toBe(true);
+});
+
+it('keeps the forecast section visible for restricted, unavailable and zero periods', () => {
+  mocks.report!.access.deals = false;
+  mocks.report!.salesForecast = null;
+  const view = render(<Dashboard />);
+  expect(screen.getByText('Deal reporting access is restricted.')).toBeTruthy();
+  mocks.report!.access.deals = true;
+  view.rerender(<Dashboard />);
+  expect(screen.getByText('Forecast unavailable for this scope or incomplete data.')).toBeTruthy();
+  mocks.report!.salesForecast = { period: { start: '2020-01-13', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'day' }, buckets: [13, 14, 15].map(day => ({ start: `2020-01-${day}`, end: `2020-01-${day}`, value: 0 })) };
+  view.rerender(<Dashboard />);
+  expect(screen.getByText('No Qualified deal value with an expected close date in this period.')).toBeTruthy();
+  expect(within(screen.getByRole('list', { name: 'Sales Forecast interval values' })).getAllByRole('listitem')).toHaveLength(3);
+  view.rerender(<Dashboard presentation="reporting" />);
+  expect(screen.queryByRole('heading', { name: 'Sales Forecast' })).toBeNull();
+});
 
 it('preserves Reports current all-time KPI counts and exact backend forecast, with separate unattributed revenue', () => {
   render(<Dashboard presentation="reporting" />);
@@ -89,10 +141,10 @@ it('uses meaningful revenue and outcome empty states and unavailable monetary da
   expect(mocks.charts.filter(chart => chart.type === 'area' || chart.type === 'bar')).toHaveLength(0);
 });
 
-it('renders exactly five mapped KPIs and the five requested sections in sample order', () => {
+it('renders exactly five mapped KPIs and the six requested sections in sample order', () => {
   render(<Dashboard />);
   expect(within(screen.getByLabelText('Dashboard KPIs')).getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual(['Revenue', 'Forecast', 'Open Deals', 'Leads', 'Win Rate']);
-  expect(screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual(['Action Center', 'Revenue Trend', 'Pipeline Overview', 'Lead Source Performance', 'Sales Leaderboard']);
+  expect(screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual(['Action Center', 'Revenue Trend', 'Sales Forecast', 'Pipeline Overview', 'Lead Source Performance', 'Sales Leaderboard']);
   for (const removed of ['Avg Deal Velocity', 'Deals Won vs. Lost', 'Pipeline Distribution', 'Pipeline Value by Stage']) expect(screen.queryByText(removed)).toBeNull();
   expect(within(screen.getByRole('group', { name: 'Revenue' })).getByLabelText('₱45,000.00').textContent).toBe('₱45K');
   expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('₱37,000.00').textContent).toBe('₱37K');
@@ -207,7 +259,7 @@ it('shows every configured source in a vertical chart with stable colors, exact 
   expect(source.getByRole('list').textContent).toContain('Google Ads: 0 won deals');
   expect(source.getByRole('list').textContent).toContain('Referral: 12 won deals');
   expect(source.getByRole('list').textContent).toContain('Not specified: 2 won deals');
-  const chart = mocks.charts.find(chart => chart.type === 'bar');
+  const chart = mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Won Deals');
   expect(chart.options.indexAxis).toBe('x');
   expect(chart.data.labels).toEqual([...LEAD_SOURCES, 'Not specified']);
   expect(chart.data.datasets[0].data).toEqual([0, 12, 0, 0, 0, 0, 0, 0, 0, 2]);
@@ -232,13 +284,13 @@ it('shows every configured source in a vertical chart with stable colors, exact 
 it('keeps source identities and colors across reordered responses and preserves additional sources once', () => {
   mocks.report!.leadSourcePerformance!.sources = [{ name: 'Website', won: 1 }, { name: 'Partner Event', won: 4 }, { name: 'Others', won: 2 }];
   const view = render(<Dashboard />);
-  const original = mocks.charts.find(chart => chart.type === 'bar');
+  const original = mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Won Deals');
   expect(original.data.labels).toEqual([...LEAD_SOURCES, 'Partner Event']);
   expect(original.data.datasets[0].data).toEqual([0, 0, 0, 0, 1, 0, 0, 0, 2, 4]);
   mocks.charts = [];
   mocks.report!.leadSourcePerformance!.sources = [{ name: 'Partner Event', won: 9 }, { name: 'Others', won: 0 }, { name: 'Website', won: 3 }];
   view.rerender(<Dashboard />);
-  const refreshed = mocks.charts.find(chart => chart.type === 'bar');
+  const refreshed = mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Won Deals');
   expect(refreshed.data.labels).toEqual(original.data.labels);
   expect(refreshed.data.datasets[0].backgroundColor).toEqual(original.data.datasets[0].backgroundColor);
   expect(refreshed.data.datasets[0].data).toEqual([0, 0, 0, 0, 3, 0, 0, 0, 0, 9]);
@@ -248,8 +300,8 @@ it('distinguishes an empty source period from unavailable access', () => {
   const view = render(<Dashboard />);
   const source = within(screen.getByRole('region', { name: 'Lead Source Performance' }));
   expect(source.getByText('No won deals for this period.')).toBeTruthy();
-  expect(mocks.charts.find(chart => chart.type === 'bar').data.labels).toEqual(LEAD_SOURCES);
-  expect(mocks.charts.find(chart => chart.type === 'bar').data.datasets[0].data).toEqual(LEAD_SOURCES.map(() => 0));
+  expect(mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Won Deals').data.labels).toEqual(LEAD_SOURCES);
+  expect(mocks.charts.find(chart => chart.type === 'bar' && chart.data.datasets[0].label === 'Won Deals').data.datasets[0].data).toEqual(LEAD_SOURCES.map(() => 0));
   mocks.report!.leadSourcePerformance = null; mocks.report!.access.deals = false;
   view.rerender(<Dashboard />);
   expect(source.getByText('Deal reporting unavailable.')).toBeTruthy();
@@ -299,6 +351,7 @@ it('omits the leaderboard when the backend denies its Group-level access', () =>
 it('renders truthful empty states, zero current counts and unavailable rates', () => {
   mocks.report!.metrics.totalRevenue = 0;
   mocks.report!.metrics.forecastedRevenue = null;
+  mocks.report!.salesForecast = null;
   mocks.report!.distribution.forEach(stage => { stage.count = 0; });
   mocks.report!.metrics.currentWon = 0;
   mocks.report!.leaderboard = [];

@@ -147,6 +147,16 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
   const money = (value: number | null | undefined) => value == null ? 'Unavailable' : new Intl.NumberFormat('en-PH', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
   const axisMoney = (value: unknown) => new Intl.NumberFormat('en-PH', { style: 'currency', currency, notation: 'compact', ...(presentation === 'dashboard' ? { minimumFractionDigits: 0 } : {}), maximumFractionDigits: 1 }).format(Number(value));
   const metric = report?.metrics;
+  const forecast = report?.salesForecast;
+  const forecastData = forecast?.buckets.map(bucket => ({ name: bucket.start, end: bucket.end, value: bucket.value })) ?? [];
+  const forecastLabel = (value: unknown, exact = false) => {
+    const bucket = forecastData.find(row => row.name === String(value));
+    if (!bucket) return String(value);
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: DASHBOARD_TIMEZONE, month: 'short',
+      ...(exact || forecast?.period.interval !== 'month' ? { day: 'numeric' as const } : {}), ...(exact ? { year: 'numeric' as const } : {}) });
+    const start = new Date(`${bucket.name}T12:00:00+08:00`), end = new Date(`${bucket.end}T12:00:00+08:00`);
+    return exact || forecast?.period.interval === 'week' ? formatter.formatRange(start, end) : formatter.format(start);
+  };
   const { won, lost } = metric ?? {};
   const periodWinRate = won == null || lost == null ? null : won === 0 ? 0 : Math.round(won / (won + lost) * 1000) / 10;
   const reportingPeriodLabel = report ? new Intl.DateTimeFormat('en-US', { timeZone: DASHBOARD_TIMEZONE, month: 'short', day: 'numeric', year: 'numeric' })
@@ -306,6 +316,18 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
               {metric?.totalRevenue == null ? <Empty>Revenue unavailable for this scope or incomplete data.</Empty> : metric.totalRevenue === 0 ? <Empty>No won revenue in the selected period.</Empty> : <div className="relative min-h-[220px] flex-1" role="img" aria-label={`Revenue Trend by ${intervalLabel}: ${money(metric.totalRevenue)} for the selected period.`}><div className="absolute inset-0"><ResponsiveContainer width="100%" height="100%"><AreaChart data={report.trend}><CartesianGrid /><XAxis dataKey="name" tickFormatter={compactBucketLabel} /><YAxis domain={[0, 'auto']} tickFormatter={axisMoney} /><Tooltip labelFormatter={bucketLabel} formatter={value => money(Number(value))} /><Area dataKey="revenue" name={`Revenue (${currency})`} stroke="#3B82F6" dot /></AreaChart></ResponsiveContainer></div></div>}
             </section>
           </div>
+          <section aria-label="Sales Forecast" className={`${card} !p-4 sm:!p-5`}>
+            <div className="mb-4 min-w-0"><h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><TrendingUp size={21} className="shrink-0 text-purple-500" aria-hidden="true" />Sales Forecast</h3><p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">Current Qualified Deals by Expected Close Date</p></div>
+            {!report.access.deals ? <Empty>Deal reporting access is restricted.</Empty> : !forecast ? <Empty>Forecast unavailable for this scope or incomplete data.</Empty> : <>
+              <div role="region" aria-label="Scrollable sales forecast chart" tabIndex={0} className="min-w-0 max-w-full overflow-x-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500">
+                <div role="img" aria-label={`Qualified Deal Value (${currency}) by expected close date. Interval values follow.`} className="h-[280px] sm:h-[340px]" style={{ minWidth: 56 + forecastData.length * 76 }}>
+                  <ResponsiveContainer width="100%" height="100%"><BarChart data={forecastData} showValueLabels valueLabelFormatter={axisMoney}><CartesianGrid /><XAxis dataKey="name" interval={0} tickFormatter={value => forecastLabel(value)} /><YAxis tickFormatter={axisMoney} /><Tooltip labelFormatter={value => forecastLabel(value, true)} formatter={value => money(Number(value))} /><Bar dataKey="value" name={`Deal Value (${currency})`} fill="#9333EA" gradientTo="#C084FC" radius={8} /></BarChart></ResponsiveContainer>
+                </div>
+              </div>
+              {forecastData.every(bucket => bucket.value === 0) && <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No Qualified deal value with an expected close date in this period.</p>}
+              <ul className="sr-only" aria-label="Sales Forecast interval values">{forecastData.map(bucket => <li key={bucket.name}>{forecastLabel(bucket.name, true)}: {money(bucket.value)}</li>)}</ul>
+            </>}
+          </section>
           <div className="grid grid-cols-1 lg:grid-cols-12 items-start gap-5">
             <section aria-label="Pipeline Overview" className={`${card} !p-4 sm:!p-5 lg:col-span-5`}>
               <h3 className="mb-4 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Layers size={21} className="text-purple-500" aria-hidden="true" />Pipeline Overview</h3>

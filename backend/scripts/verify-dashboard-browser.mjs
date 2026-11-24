@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { replayCrmMigrations } from './replay-crm-migrations.mjs';
 const uiPolish = process.argv.includes('--ui-polish');
 const sourceOnly = process.argv.includes('--sources-only');
+const forecastOnly = process.argv.includes('--forecast-only');
 const metricsOnly = process.argv.includes('--metrics-only') || sourceOnly;
 const revenueSync = process.argv.includes('--revenue-sync');
 const root = resolve(import.meta.dirname, '../..'), output = process.env.LEADCRM_BROWSER_OUTPUT || (resolve(process.env.DASHBOARD_VERIFICATION_OUTPUT || (uiPolish ? process.env.UI_POLISH_OUTPUT || resolve(tmpdir(), 'leadcrm-dashboard-leads-ui') : resolve(root, 'data/outputs/dashboard-verification'))));
@@ -107,7 +108,7 @@ try {
         constructor(...args) { super(...args); this.addEventListener('dashboard-change', () => window.__dashboardEvents.push(Date.now())); }
       };
     });
-    if (uiPolish || metricsOnly) await context.addInitScript(() => {
+    if (uiPolish || metricsOnly || forecastOnly) await context.addInitScript(() => {
       const clear = CanvasRenderingContext2D.prototype.clearRect;
       const text = CanvasRenderingContext2D.prototype.fillText;
       const arc = CanvasRenderingContext2D.prototype.arc;
@@ -163,7 +164,11 @@ try {
   assert.equal(await page.getByText(/Revenue, outcomes and velocity use this period/).count(),0);
   assert.equal(await page.getByText(/eligible deals\. Counts are distinct recorded milestones/).count(),0);
   record('Live Manila clock advances with bold 24-hour time and requested notes removed');
-  if (staleDealsOnly) {
+  if (forecastOnly) {
+    const { verifyDashboardForecast } = await import('./verify-dashboard-forecast.mjs');
+    await verifyDashboardForecast({ page, session, prisma, http, tenant, agent, replacement, pipeline, stages, base, output,
+      issueAuthSession, setAcceptanceTheme, record, until, wait });
+  } else if (staleDealsOnly) {
     await page.bringToFront();
     await prisma.rolePermission.updateMany({ where: { tenantId: tenant.id, roleId: role.id, module: 'deals' }, data: { canViewAll: false, canViewMy: true } });
     await http(`/crm/stages/${stages[0].id}`, 'PUT', { rottenAfterDays: 1 });

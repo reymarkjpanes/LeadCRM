@@ -4,13 +4,19 @@ Dashboard, CSV and compatibility endpoints use `dashboard.service.ts` and the sh
 
 ## Authorization and population
 
-The authenticated session supplies workspace/user. `dashboard.view` is the existing organization analytics permission and is mandatory. Module `deals.view`, `leads.view`, `tasks.view` grants enable dependent report data. Client Admin and other authorized roles, including custom roles, receive organization-wide aggregates within that tenant, regardless of assignment/owner/creator. Missing module permissions yield unavailable metrics rather than personal substitutes or zero. CSV and streams enforce current authorization. No permissions are automatically granted by this change.
+The authenticated session supplies workspace/user. `dashboard.view` is mandatory. Module `deals.view`, `leads.view`, `tasks.view` grants enable dependent report data. Client Admin receives organization-wide aggregates within its tenant. Other authorized roles, including custom roles, retain existing CRM record reporting scope; only forecast reporting applies the specific role rules below. Missing module permissions yield unavailable metrics rather than personal substitutes or zero. CSV and streams enforce current authorization. No permissions are automatically granted by this change.
 
 Deals in sales metrics belong to the one active **Sales Pipeline**, are unarchived and not deleted. Authoritative Stage rows must have ordered names Lead, Contacted, Qualified, Closed Deal, Cancelled and matching terminal flags. IDs, order, configured probabilities and colors come from these rows. When configuration is invalid, Dashboard and its CSV mark affected metrics unavailable and keep actions from other valid pipelines. The legacy pipeline summary and deal velocity endpoints still return 409. Other pipelines are excluded from sales metrics.
 
 Eligible Leads are unconverted, unarchived and not deleted, separate from the Deals pipeline's Lead stage.
 
 ## Dates
+
+### Sales Forecast
+
+The Forecast KPI and Sales Forecast chart use the same server-authorized current Qualified Deal population. Client Admin sees the tenant company total. A verified primary Sales Admin with Dashboard and Deal reporting access also receives the company forecast, including unassigned Deals; this exception grants no additional CRM record access. A verified primary Sales Associate sees only Deals currently assigned to that authenticated user, even when heading Groups or holding secondary roles. Other custom roles keep their existing CRM Deal reporting scope. Sales role verification requires an exact primary role and matching nonarchived tenant role assignment; secondary roles and similar labels do not activate these exceptions.
+
+The chart follows the Dashboard date selector: Weekly groups daily, Monthly groups Monday-based calendar weeks, and Yearly groups monthly. First and last buckets are clipped to the selected Manila dates, and empty intervals remain zero. Saved Expected Close Dates determine bars; missing dates are never inferred. The KPI remains independent of the selected dates and includes undated and out-of-period Qualified Deals, so it can differ from the chart sum. Existing per-Deal monetary validation, two-decimal rounding and tenant currency exclusions apply to both. Invalid in-period Qualified amounts make the chart unavailable; invalid undated or out-of-period amounts affect only the current KPI. Missing Deal reporting access or invalid Sales Pipeline configuration produces an unavailable chart. Both outputs use the existing no-store response, authorization recheck, revision stream and refresh mechanisms.
 
 The Dashboard toolbar offers **Weekly**, **Monthly** (default), and **Yearly**. It controls the period for Revenue, Win Rate, Revenue Trend, Lead Source Performance, and the Sales Leaderboard. Inclusive dates use Asia/Manila, converted to half-open UTC `[start midnight, day after end midnight)`.
 

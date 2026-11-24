@@ -29,6 +29,45 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('refreshes KPI and forecast buckets together through Deal invalidation, Sync Metrics and period changes', async () => {
+  const snapshot = (total: number, dated: number) => ({ metrics: { forecastedRevenue: total }, salesForecast: {
+    period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' }, buckets: [{ start: '2020-01-01', end: '2020-01-05', value: dated }],
+  } });
+  mocks.get.mockResolvedValueOnce({ data: snapshot(100, 30) });
+  const hook = renderHook(({ range }: { range: 'thisMonth' | 'thisWeek' | 'thisYear' }) => useDashboard({ range }), { initialProps: { range: 'thisMonth' } });
+  await waitFor(() => expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(30));
+  mocks.get.mockResolvedValueOnce({ data: snapshot(200, 80) });
+  act(() => invalidateApiPageCache('/crm/deals/qualified-deal'));
+  await waitFor(() => expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(200));
+  expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(80);
+  mocks.get.mockResolvedValueOnce({ data: snapshot(300, 100) });
+  await act(async () => { await hook.result.current.refresh(); });
+  expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(100);
+  for (const range of ['thisWeek', 'thisYear'] as const) {
+    mocks.get.mockResolvedValueOnce({ data: snapshot(300, 0) });
+    hook.rerender({ range });
+    await waitFor(() => expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(0));
+    expect(mocks.get.mock.calls.at(-1)?.[0]).toContain(`range=${range}`);
+    expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(300);
+  }
+});
+
+it('discards an earlier user forecast and pending response when authenticated identity changes', async () => {
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 900 }, salesForecast: { buckets: [{ value: 900 }] } } });
+  const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
+  await waitFor(() => expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(900));
+  let finishOld: (response: unknown) => void = () => {};
+  mocks.get.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+  act(() => { void hook.result.current.refresh(); });
+  mocks.auth.user = { id: 'b', tenantId: 'tenant-a', role: 'Sales Associate' };
+  mocks.get.mockResolvedValueOnce({ data: { metrics: { forecastedRevenue: 20 }, salesForecast: { buckets: [{ value: 10 }] } } });
+  hook.rerender();
+  expect(hook.result.current.report).toBeNull();
+  await waitFor(() => expect(hook.result.current.report?.metrics.forecastedRevenue).toBe(20));
+  await act(async () => finishOld({ data: { metrics: { forecastedRevenue: 999999 }, salesForecast: { buckets: [{ value: 999999 }] } } }));
+  expect(hook.result.current.report?.salesForecast?.buckets[0].value).toBe(10);
+});
+
 it('loads backend analytics and batches duplicate notifications without local arithmetic', async () => {
   const hook = renderHook(() => useDashboard({ range: 'thisMonth' }));
   await waitFor(() => expect(hook.result.current.report?.metrics.totalRevenue).toBe(1));

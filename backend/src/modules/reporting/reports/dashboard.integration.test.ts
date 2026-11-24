@@ -327,6 +327,176 @@ describe('Qualified-only forecast', () => {
   });
 });
 
+describe('role-scoped Sales Forecast', () => {
+  const tenantId = 'forecast-roles', pipelineId = 'forecast-roles-sales';
+  const roles = ['Sales Admin', 'Sales Associate', 'Forecast custom', 'Senior Sales Admin'];
+  const roleId = (index: number) => `forecast-roles-role-${index}`;
+  const ids = ['company', 'manager', 'a', 'b', 'custom', 'similar'].map(id => `forecast-roles-${id}`);
+  const stageIds = ['lead', 'contacted', 'qualified', 'won', 'lost'].map(id => `forecast-roles-${id}`);
+  const selected = { range: 'thisMonth' };
+  const read = (index = 0, input: unknown = selected, at = now) => tenantContext.run({ tenantId }, () => dashboard({
+    userId: ids[index], tenantId, role: 'Untrusted frontend role', email: `${ids[index]}@camxian.com`,
+  }, input, at));
+  const chartTotal = (result: Awaited<ReturnType<typeof read>>) => result.salesForecast!.buckets.reduce((sum, bucket) => sum + bucket.value, 0);
+  beforeAll(async () => {
+    await db.tenant.create({ data: { id: tenantId, name: 'Forecast roles', slug: tenantId, onboardingStep: 3, onboardingCompletedAt: now } });
+    for (const [index, name] of roles.entries()) await db.roleDefinition.create({ data: {
+      id: roleId(index), tenantId, name, permissions: { create: ['dashboard', 'deals'].map(module => ({ module, canView: true, canViewAll: module === 'deals', canViewMy: module === 'deals' })) },
+    } });
+    for (const [index, id] of ids.entries()) {
+      const assignment = index === 0 ? undefined : index === 1 ? 0 : index < 4 ? 1 : index === 4 ? 2 : 3;
+      await db.user.create({ data: { id, tenantId, email: `${id}@camxian.com`, firstName: id, lastName: 'Forecast',
+        role: assignment === undefined ? 'Client Admin' : roles[assignment], mustChangePassword: false, onboardingCompletedAt: now,
+        ...(assignment === undefined ? {} : { userRoles: { create: { roleId: roleId(assignment) } } }),
+      } });
+    }
+    // Secondary Sales Admin grants must not elevate the primary Associate/custom forecast.
+    await db.userRole.createMany({ data: [2, 4].map(index => ({ tenantId, userId: ids[index], roleId: roleId(0) })) });
+    await db.tenantGroup.create({ data: { tenantId, name: 'Head of Sales', members: { create: [2, 3].map(index => ({ userId: ids[index], isHead: index === 2 })) } } });
+    await db.tenantGroup.create({ data: { tenantId, name: 'Custom forecast team', members: { create: [2, 3, 4].map(index => ({ userId: ids[index], isHead: index === 4 })) } } });
+    await db.pipeline.create({ data: { id: pipelineId, tenantId, name: 'Sales Pipeline' } });
+    await db.stage.createMany({ data: ['Lead', 'Contacted', 'Qualified', 'Closed Deal', 'Cancelled'].map((name, index) => ({
+      id: stageIds[index], tenantId, pipelineId, name, order: index + 1, isWon: index === 3, isLost: index === 4,
+    })) });
+    await db.deal.createMany({ data: [
+      [10, ids[2], '2020-01-10T00:00:00Z'], [20, ids[3], '2020-01-10T00:00:00Z'],
+      [30, ids[1], '2020-01-10T00:00:00Z'], [40, ids[0], '2020-01-10T00:00:00Z'],
+      [50, ids[4], '2020-01-10T00:00:00Z'], [60, null, '2020-01-10T00:00:00Z'],
+      [70, ids[2], null], [80, ids[3], '2020-02-01T00:00:00Z'], [90, ids[2], '2019-12-31T00:00:00Z'],
+    ].map(([value, assignedUserId, date], index) => ({ id: `forecast-roles-deal-${index}`, tenantId, pipelineId, stageId: stageIds[2],
+      title: `Forecast ${index}`, currency: 'PHP', value: value as number, assignedUserId: assignedUserId as string | null,
+      expectedCloseDate: date ? new Date(date as string) : null, createdAt: new Date('2019-12-01T00:00:00Z'),
+    })) });
+    await db.deal.createMany({ data: [
+      { stageId: stageIds[0] }, { stageId: stageIds[1] }, { stageId: stageIds[3] }, { stageId: stageIds[4] },
+      { stageId: stageIds[2], isArchived: true }, { stageId: stageIds[2], deletedAt: now },
+    ].map((extra, index) => ({ tenantId, pipelineId, title: `Excluded forecast ${index}`, value: 999999, currency: 'PHP',
+      expectedCloseDate: now, assignedUserId: ids[2], ...extra })) });
+  });
+  it('uses company scope for verified admins, own assignments for Associates, and existing custom scope', async () => {
+    for (const [index, total, dated] of [[0, 450, 210], [1, 450, 210], [2, 170, 10], [3, 100, 20], [4, 320, 80], [5, 0, 0]]) {
+      const result = await read(index);
+      expect(result.metrics.forecastedRevenue).toBe(total);
+      expect(chartTotal(result)).toBe(dated);
+      expect(dashboardCsv(result)).toContain(`"Forecasted Revenue","${total}"`);
+    }
+    // Sales Admin's company forecast does not widen their other Deal aggregates.
+    const manager = await read(1);
+    expect(manager.scope).toBe('authorized');
+    expect(manager.metrics.activeDeals).toBe(1);
+    expect(manager.distribution.find(row => row.id === stageIds[2])!.value).toBe(30);
+    expect(manager.access.leaderboard).toBe(false);
+  });
+  it('keeps every non-forecast chart and metric unchanged when forecast-specific identity changes', async () => {
+    await db.userRole.create({ data: { tenantId, userId: ids[1], roleId: roleId(2) } });
+    const before = await read(1);
+    try {
+      await db.user.update({ where: { id: ids[1] }, data: { role: roles[2] } });
+      const after = await read(1);
+      const { forecastedRevenue: _before, forecastMissing: _beforeMissing, ...beforeMetrics } = before.metrics;
+      const { forecastedRevenue: _after, forecastMissing: _afterMissing, ...afterMetrics } = after.metrics;
+      expect(after.metrics.forecastedRevenue).toBe(30);
+      expect(afterMetrics).toEqual(beforeMetrics);
+      for (const key of ['access', 'trend', 'distribution', 'leadSourcePerformance', 'conversion', 'leaderboard', 'actions'] as const) expect(after[key]).toEqual(before[key]);
+    } finally { await db.user.update({ where: { id: ids[1] }, data: { role: roles[0] } }); }
+  });
+  it('returns independently scoped no-store HTTP reports and rejects injected identity/scope parameters', async () => {
+    const { createAuthSessionToken } = await import('../../../core/auth/auth-session');
+    const tokens = await Promise.all(ids.slice(0, 4).map(async id => createAuthSessionToken(await db.user.findUniqueOrThrow({ where: { id } }))));
+    const path = '/reporting/dashboard?range=custom&start=2020-01-01&end=2020-01-15';
+    for (const [index, total, dated] of [[0, 450, 210], [1, 450, 210], [2, 170, 10], [3, 100, 20], [2, 170, 10]]) {
+      const response = await http(path, tokens[index]);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const body = await response.json();
+      expect(body.data.metrics.forecastedRevenue).toBe(total);
+      expect(chartTotal(body.data)).toBe(dated);
+    }
+    for (const parameter of ['userId', 'assignedUserId', 'tenantId', 'role', 'forecastScope']) expect((await http(`${path}&${parameter}=${ids[3]}`, tokens[2])).status).toBe(400);
+    expect((await read(2)).metrics.forecastedRevenue).toBe(170);
+    await expect(tenantContext.run({ tenantId: 'b' }, () => readWithoutTenant())).rejects.toMatchObject({ statusCode: 403 });
+    function readWithoutTenant() { return dashboard({ ...admin, userId: ids[2], tenantId }, selected, now); }
+  });
+  it('reassignment transfers dated and undated values only between the relevant forecast scopes', async () => {
+    try {
+      await db.deal.updateMany({ where: { id: { in: ['forecast-roles-deal-0', 'forecast-roles-deal-6'] } }, data: { assignedUserId: ids[3] } });
+      expect((await read(2)).metrics.forecastedRevenue).toBe(90);
+      expect(chartTotal(await read(2))).toBe(0);
+      expect((await read(3)).metrics.forecastedRevenue).toBe(180);
+      expect(chartTotal(await read(3))).toBe(30);
+      expect((await read(1)).metrics.forecastedRevenue).toBe(450);
+    } finally { await db.deal.updateMany({ where: { id: { in: ['forecast-roles-deal-0', 'forecast-roles-deal-6'] } }, data: { assignedUserId: ids[2] } }); }
+  });
+  it('uses half-open Manila boundaries, Monday buckets, zeros and whole-day reporting through today', async () => {
+    const dates = ['2019-12-31T15:59:59.999Z', '2019-12-31T16:00:00Z', '2020-01-12T15:59:59.999Z', '2020-01-12T16:00:00Z', '2020-01-15T15:59:59.999Z', '2020-01-15T16:00:00Z'];
+    const boundaryIds = dates.map((_, index) => `forecast-roles-boundary-${index}`);
+    try {
+      await db.deal.createMany({ data: dates.map((date, index) => ({ id: boundaryIds[index], tenantId, pipelineId, stageId: stageIds[2], title: 'Boundary', value: index + 1, currency: 'PHP', expectedCloseDate: new Date(date) })) });
+      const monthly = await read();
+      expect(monthly.salesForecast).toEqual({ period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' }, buckets: [
+        { start: '2020-01-01', end: '2020-01-05', value: 2 }, { start: '2020-01-06', end: '2020-01-12', value: 213 }, { start: '2020-01-13', end: '2020-01-15', value: 9 },
+      ] });
+      const weekly = await read(0, { range: 'thisWeek' });
+      expect(weekly.salesForecast!.buckets).toEqual([{ start: '2020-01-13', end: '2020-01-13', value: 4 }, { start: '2020-01-14', end: '2020-01-14', value: 0 }, { start: '2020-01-15', end: '2020-01-15', value: 5 }]);
+      const yearly = await read(0, { range: 'thisYear' });
+      expect(yearly.salesForecast!.buckets).toEqual([{ start: '2020-01-01', end: '2020-01-15', value: 224 }]);
+      expect([monthly, weekly, yearly].map(result => result.metrics.forecastedRevenue)).toEqual([471, 471, 471]);
+      const newYear = await read(0, { range: 'thisWeek' }, new Date('2021-01-01T00:00:00Z'));
+      expect(newYear.salesForecast!.buckets.map(bucket => bucket.start)).toEqual(['2020-12-28', '2020-12-29', '2020-12-30', '2020-12-31', '2021-01-01']);
+    } finally { await db.deal.deleteMany({ where: { id: { in: boundaryIds } } }); }
+  });
+  it('preserves rounding, currency exclusions and unavailable monetary states without inventing dates', async () => {
+    try {
+      await db.deal.update({ where: { id: 'forecast-roles-deal-0' }, data: { value: 10.125 } });
+      expect(chartTotal(await read(2))).toBe(10.13);
+      await db.deal.update({ where: { id: 'forecast-roles-deal-0' }, data: { currency: 'USD', value: 999999 } });
+      expect(chartTotal(await read(2))).toBe(0);
+      expect((await read(2)).metrics.forecastedRevenue).toBe(160);
+      await db.deal.update({ where: { id: 'forecast-roles-deal-0' }, data: { currency: 'PHP', value: null } });
+      expect((await read(2)).salesForecast).toBeNull();
+      expect((await read(2)).metrics).toMatchObject({ forecastedRevenue: null, forecastMissing: 1 });
+      await db.deal.update({ where: { id: 'forecast-roles-deal-0' }, data: { value: 10 } });
+      await db.deal.update({ where: { id: 'forecast-roles-deal-6' }, data: { value: null } });
+      expect(chartTotal(await read(2))).toBe(10);
+      expect((await read(2)).metrics).toMatchObject({ forecastedRevenue: null, forecastMissing: 1 });
+    } finally {
+      await db.deal.update({ where: { id: 'forecast-roles-deal-0' }, data: { value: 10, currency: 'PHP' } });
+      await db.deal.update({ where: { id: 'forecast-roles-deal-6' }, data: { value: 70 } });
+    }
+  });
+  it('honors revocation, archived assignments, active status and scope changes during aggregation', async () => {
+    try {
+      await db.rolePermission.updateMany({ where: { roleId: roleId(1), module: 'deals' }, data: { canView: false } });
+      // Remove the secondary Sales Admin too, so its independent view grant cannot mask revocation.
+      await db.userRole.deleteMany({ where: { tenantId, userId: ids[2], roleId: roleId(0) } });
+      expect((await read(2)).salesForecast).toBeNull();
+      expect((await read(2)).metrics.forecastedRevenue).toBeNull();
+      await db.rolePermission.updateMany({ where: { roleId: roleId(1), module: 'deals' }, data: { canView: true } });
+      await db.user.update({ where: { id: ids[5] }, data: { status: 'INACTIVE' } });
+      await expect(read(5)).rejects.toMatchObject({ statusCode: 401 });
+      await db.user.update({ where: { id: ids[5] }, data: { status: 'ACTIVE' } });
+      await db.roleDefinition.update({ where: { id: roleId(1) }, data: { isArchived: true } });
+      await expect(read(2)).rejects.toMatchObject({ statusCode: 403 });
+      await db.roleDefinition.update({ where: { id: roleId(1) }, data: { isArchived: false } });
+      const serviceDb = (await import('../../../config/database.config')).default;
+      const original = serviceDb.$transaction.bind(serviceDb);
+      const spy = vi.spyOn(serviceDb, '$transaction').mockImplementationOnce((async (work: any, options: any) => {
+        const result = await original(work, options);
+        await db.user.update({ where: { id: ids[1] }, data: { role: roles[2] } });
+        return result;
+      }) as typeof serviceDb.$transaction);
+      try { await expect(read(1)).rejects.toMatchObject({ statusCode: 403, message: 'Reporting access changed. Please retry.' }); }
+      finally { spy.mockRestore(); }
+    } finally {
+      await db.rolePermission.updateMany({ where: { roleId: roleId(1), module: 'deals' }, data: { canView: true } });
+      await db.roleDefinition.update({ where: { id: roleId(1) }, data: { isArchived: false } });
+      await db.user.update({ where: { id: ids[5] }, data: { status: 'ACTIVE' } });
+      await db.user.update({ where: { id: ids[1] }, data: { role: roles[0] } });
+      await db.userRole.upsert({ where: { userId_roleId_tenantId: { userId: ids[2], roleId: roleId(0), tenantId } }, create: { tenantId, userId: ids[2], roleId: roleId(0) }, update: {} });
+    }
+  });
+});
+
 describe('authoritative dashboard', () => {
   it('returns five zero cards for a new empty workspace before any pipeline has been configured', async () => {
     const tenantId = 'unconfigured-empty';

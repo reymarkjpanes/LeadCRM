@@ -68,10 +68,11 @@ interface BarChartProps {
   height?: number | string;
   layout?: 'horizontal' | 'vertical';
   showValueLabels?: boolean;
+  valueLabelFormatter?: (value: number) => string;
   wrapCategoryLabels?: boolean;
 }
 interface BarProps {
-  dataKey: string; name?: string; fill?: string;
+  dataKey: string; name?: string; fill?: string; gradientTo?: string;
   radius?: number | number[]; barSize?: number;
   data?: Array<{ color?: string }>;
   stackId?: string;
@@ -193,7 +194,7 @@ export function ResponsiveContainer({
 // ─────────────────────────────────────────────────────────────
 // BarChart
 // ─────────────────────────────────────────────────────────────
-export function BarChart({ data, children, layout, showValueLabels = false, wrapCategoryLabels = false }: BarChartProps) {
+export function BarChart({ data, children, layout, showValueLabels = false, valueLabelFormatter = String, wrapCategoryLabels = false }: BarChartProps) {
   const dark = useChartTheme();
   let xDataKey = 'name';
   let yTickFormatter: ((v: any) => string) | undefined;
@@ -222,7 +223,14 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
     return {
       label: bar.name || bar.dataKey,
       data: data.map((d) => Number(d[bar.dataKey] ?? 0)),
-      backgroundColor: perItemColors ?? (bar.fill || '#3B82F6'),
+      backgroundColor: bar.gradientTo ? (context: ScriptableContext<'bar'>) => {
+        const { ctx, chartArea } = context.chart;
+        if (!chartArea) return bar.fill || '#3B82F6';
+        const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+        gradient.addColorStop(0, bar.fill || '#3B82F6');
+        gradient.addColorStop(1, bar.gradientTo!);
+        return gradient;
+      } : perItemColors ?? (bar.fill || '#3B82F6'),
       borderRadius: Array.isArray(bar.radius) ? bar.radius[0] : (bar.radius ?? 6),
       barThickness: bar.barSize,
       borderSkipped: false as const,
@@ -298,7 +306,7 @@ export function BarChart({ data, children, layout, showValueLabels = false, wrap
         chart.getDatasetMeta(datasetIndex).data.forEach((element, index) => {
           const value = Number(dataset.data[index]);
           if (!horizontal && value === 0) return;
-          context.fillText(String(dataset.data[index]), horizontal ? element.x + 6 : element.x, horizontal ? element.y : element.y - 6);
+          context.fillText(valueLabelFormatter(value), horizontal ? element.x + 6 : element.x, horizontal ? element.y : element.y - 6);
         });
       });
       context.restore();
