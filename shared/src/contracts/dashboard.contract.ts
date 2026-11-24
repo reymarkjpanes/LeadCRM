@@ -102,6 +102,7 @@ export interface DashboardReport {
     openPipelineValue: number | null; forecastMissing: number; monetaryMissing: number; currencyExcluded: number; closingDateMissing: number;
   };
   trend: Array<{ name: string; revenue: number; won: number; lost: number }>;
+  overdueForecast: { count: number; value: number | null } | null;
   salesForecast: {
     period: { start: string; end: string; timezone: string; interval: 'day' | 'week' | 'month' };
     buckets: Array<{ start: string; end: string; value: number }>;

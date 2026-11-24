@@ -61,6 +61,7 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
   try { funnel = dashboardFunnelPeriod(query, now); } catch (error) { throw new AppError(error instanceof Error ? error.message : 'Choose a valid historical funnel period.', 400); }
   const interval = query.revenueInterval ?? 'month';
   const forecastPeriod = dashboardForecastPeriod(query, now);
+  const overdueBefore = dashboardPeriod({ range: 'today' }, now).from;
   const forecastInterval = query.range === 'thisWeek' ? 'day' : query.range === 'thisMonth' ? 'week'
     : query.range === 'thisYear' ? 'month' : period.interval;
   const forecast: NonNullable<DashboardReport['salesForecast']> = {
@@ -101,7 +102,7 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         winRate: null, currentWon: null, totalDeals: null, unattributedWon: null, unattributedRevenue: null,
         averageDealDays: null, openPipelineValue: null, forecastMissing: 0, monetaryMissing: 0,
         currencyExcluded: 0, closingDateMissing: 0 },
-      trend: [], salesForecast: null, distribution: [], leadSourcePerformance: null, conversion: null, leaderboard: [], actions: [], pendingActions: 0, warnings: [],
+      trend: [], salesForecast: null, overdueForecast: null, distribution: [], leadSourcePerformance: null, conversion: null, leaderboard: [], actions: [], pendingActions: 0, warnings: [],
     };
     const leadWhere = { ...access.leadScope, tenantId, isArchived: false, deletedAt: null, convertedAt: null };
     if (access.leads) result.metrics.totalLeads = await tx.lead.count({ where: leadWhere });
@@ -127,8 +128,10 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         result.warnings.push(configurationError.message);
       } else if (!pipelines.length) {
         Object.assign(result.metrics, { totalRevenue: 0, forecastedRevenue: 0, activeDeals: 0, won: 0, lost: 0, winRate: 0, currentWon: 0, totalDeals: 0, unattributedWon: 0, unattributedRevenue: 0, openPipelineValue: 0 });
-        if (access.forecastScope) result.salesForecast = forecast;
-        else result.metrics.forecastedRevenue = null;
+        if (access.forecastScope) {
+          result.salesForecast = forecast;
+          result.overdueForecast = { count: 0, value: 0 };
+        } else result.metrics.forecastedRevenue = null;
         result.leadSourcePerformance = { period: { start: sourcePeriod.start, end: sourcePeriod.end, timezone: sourcePeriod.timezone }, sources: [] };
       } else {
       const pipeline = pipelines[0];
@@ -207,8 +210,10 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
           : crmPolicySqlWhere(access.policy, 'deals', 'd');
         // One eligible population produces both the current KPI and dated buckets.
         // Undated/out-of-period rows remain in the overall grouping only.
-        const forecastRows = await raw<Array<{ bucket: string | null; overall: number; value: number; missing: number; excluded: number }>>(Prisma.sql`
+        const forecastRows = await raw<Array<{ bucket: string | null; overall: number; value: number; missing: number; excluded: number;
+          overdueCount: number; overdueValue: number; overdueMissing: number }>>(Prisma.sql`
           WITH eligible AS (SELECT d.value, d.currency,
+            isfinite(d."expectedCloseDate") AND d."expectedCloseDate" < ${utc(overdueBefore)} AS overdue,
             CASE WHEN d."expectedCloseDate" >= ${utc(forecastPeriod.from)} AND d."expectedCloseDate" < ${utc(forecastPeriod.until)}
               THEN to_char(date_trunc(${forecastInterval}, d."expectedCloseDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila'), 'YYYY-MM-DD') END AS bucket
             FROM "Deal" d WHERE d."tenantId" = ${tenantId} AND d."pipelineId" = ${pipeline.id} AND d."stageId" = ${qualified.id}
@@ -216,11 +221,15 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
           SELECT bucket, GROUPING(bucket)::int AS overall,
             COALESCE(round(SUM(round(d.value::numeric,2)) FILTER (WHERE ${validMoney}),2),0)::float8 AS value,
             COUNT(*) FILTER (WHERE d.currency = ${currency} AND NOT COALESCE((${validMoney}),false))::int AS missing,
-            COUNT(*) FILTER (WHERE d.currency IS DISTINCT FROM ${currency})::int AS excluded
+            COUNT(*) FILTER (WHERE d.currency IS DISTINCT FROM ${currency})::int AS excluded,
+            COUNT(*) FILTER (WHERE d.overdue)::int AS "overdueCount",
+            COALESCE(round(SUM(round(d.value::numeric,2)) FILTER (WHERE d.overdue AND ${validMoney}),2),0)::float8 AS "overdueValue",
+            COUNT(*) FILTER (WHERE d.overdue AND d.currency = ${currency} AND NOT COALESCE((${validMoney}),false))::int AS "overdueMissing"
           FROM eligible d GROUP BY GROUPING SETS ((), (bucket))`);
         const overall = forecastRows.find(row => row.overall === 1)!;
         result.metrics.forecastedRevenue = overall.missing ? null : overall.value;
         result.metrics.forecastMissing = overall.missing;
+        result.overdueForecast = { count: overall.overdueCount, value: overall.overdueMissing ? null : overall.overdueValue };
         if (!forecastRows.some(row => !row.overall && row.bucket !== null && row.missing)) {
           result.salesForecast = { ...forecast, buckets: forecast.buckets.map((bucket, index) => ({ ...bucket,
             value: forecastRows.find(row => !row.overall && row.bucket === bucketKeys[index])?.value ?? 0 })) };

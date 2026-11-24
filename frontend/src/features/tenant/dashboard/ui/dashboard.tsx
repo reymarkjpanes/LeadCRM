@@ -148,6 +148,7 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
   const axisMoney = (value: unknown) => new Intl.NumberFormat('en-PH', { style: 'currency', currency, notation: 'compact', ...(presentation === 'dashboard' ? { minimumFractionDigits: 0 } : {}), maximumFractionDigits: 1 }).format(Number(value));
   const metric = report?.metrics;
   const forecast = report?.salesForecast;
+  const overdueForecast = report?.overdueForecast;
   const forecastData = forecast?.buckets.map(bucket => ({ name: bucket.start, end: bucket.end, value: bucket.value })) ?? [];
   const forecastLabel = (value: unknown, exact = false) => {
     const bucket = forecastData.find(row => row.name === String(value));
@@ -327,6 +328,7 @@ export default function Dashboard({ heading, renderToolbarActions, presentation 
               {forecastData.every(bucket => bucket.value === 0) && <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No Qualified deal value with an expected close date in this period.</p>}
               <ul className="sr-only" aria-label="Sales Forecast interval values">{forecastData.map(bucket => <li key={bucket.name}>{forecastLabel(bucket.name, true)}: {money(bucket.value)}</li>)}</ul>
             </>}
+            {report.access.deals && overdueForecast && overdueForecast.count > 0 && <p aria-label="Overdue Forecast" className="mt-3 flex items-start gap-1.5 text-xs text-red-700 dark:text-red-400"><CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" /><span className="min-w-0 break-words">Overdue Forecast: {countLabel(overdueForecast.count, 'Deal')} · {money(overdueForecast.value)}</span></p>}
           </section>
           <div className="grid grid-cols-1 lg:grid-cols-12 items-start gap-5">
             <section aria-label="Pipeline Overview" className={`${card} !p-4 sm:!p-5 lg:col-span-5`}>

@@ -267,6 +267,7 @@ describe('Qualified-only forecast', () => {
     expect((await db.deal.findUniqueOrThrow({ where: { id: 'forecast-lead' } })).value).toBe(200000);
     const denied = await tenantContext.run({ tenantId }, () => dashboard({ ...identity, userId: 'forecast-viewer', role: 'Forecast viewer' }, query, now));
     expect(denied.metrics.forecastedRevenue).toBeNull();
+    expect(denied.overdueForecast).toBeNull();
     expect(denied.access.deals).toBe(false);
   });
   it('does not make Forecast unavailable when Lead or Contacted amounts are invalid', async () => {
@@ -371,11 +372,12 @@ describe('role-scoped Sales Forecast', () => {
       { stageId: stageIds[0] }, { stageId: stageIds[1] }, { stageId: stageIds[3] }, { stageId: stageIds[4] },
       { stageId: stageIds[2], isArchived: true }, { stageId: stageIds[2], deletedAt: now },
     ].map((extra, index) => ({ tenantId, pipelineId, title: `Excluded forecast ${index}`, value: 999999, currency: 'PHP',
-      expectedCloseDate: now, assignedUserId: ids[2], ...extra })) });
+      expectedCloseDate: new Date('2020-01-10T00:00:00Z'), assignedUserId: ids[2], ...extra })) });
   });
   it('uses company scope for verified admins, own assignments for Associates, and existing custom scope', async () => {
-    for (const [index, total, dated] of [[0, 450, 210], [1, 450, 210], [2, 170, 10], [3, 100, 20], [4, 320, 80], [5, 0, 0]]) {
+    for (const [index, total, dated, overdueCount, overdueValue] of [[0, 450, 210, 7, 300], [1, 450, 210, 7, 300], [2, 170, 10, 2, 100], [3, 100, 20, 1, 20], [4, 320, 80, 4, 170], [5, 0, 0, 0, 0]]) {
       const result = await read(index);
+      expect(result.overdueForecast).toEqual({ count: overdueCount, value: overdueValue });
       expect(result.metrics.forecastedRevenue).toBe(total);
       expect(chartTotal(result)).toBe(dated);
       expect(dashboardCsv(result)).toContain(`"Forecasted Revenue","${total}"`);
@@ -404,12 +406,14 @@ describe('role-scoped Sales Forecast', () => {
     const { createAuthSessionToken } = await import('../../../core/auth/auth-session');
     const tokens = await Promise.all(ids.slice(0, 4).map(async id => createAuthSessionToken(await db.user.findUniqueOrThrow({ where: { id } }))));
     const path = '/reporting/dashboard?range=custom&start=2020-01-01&end=2020-01-15';
-    for (const [index, total, dated] of [[0, 450, 210], [1, 450, 210], [2, 170, 10], [3, 100, 20], [2, 170, 10]]) {
+    // HTTP uses the current server clock, so the February 2020 fixture is overdue too.
+    for (const [index, total, dated, overdueCount, overdueValue] of [[0, 450, 210, 8, 380], [1, 450, 210, 8, 380], [2, 170, 10, 2, 100], [3, 100, 20, 2, 100], [2, 170, 10, 2, 100]]) {
       const response = await http(path, tokens[index]);
       expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe('no-store');
       const body = await response.json();
       expect(body.data.metrics.forecastedRevenue).toBe(total);
+      expect(body.data.overdueForecast).toEqual({ count: overdueCount, value: overdueValue });
       expect(chartTotal(body.data)).toBe(dated);
     }
     for (const parameter of ['userId', 'assignedUserId', 'tenantId', 'role', 'forecastScope']) expect((await http(`${path}&${parameter}=${ids[3]}`, tokens[2])).status).toBe(400);
@@ -421,8 +425,10 @@ describe('role-scoped Sales Forecast', () => {
     try {
       await db.deal.updateMany({ where: { id: { in: ['forecast-roles-deal-0', 'forecast-roles-deal-6'] } }, data: { assignedUserId: ids[3] } });
       expect((await read(2)).metrics.forecastedRevenue).toBe(90);
+      expect((await read(2)).overdueForecast).toEqual({ count: 1, value: 90 });
       expect(chartTotal(await read(2))).toBe(0);
       expect((await read(3)).metrics.forecastedRevenue).toBe(180);
+      expect((await read(3)).overdueForecast).toEqual({ count: 2, value: 30 });
       expect(chartTotal(await read(3))).toBe(30);
       expect((await read(1)).metrics.forecastedRevenue).toBe(450);
     } finally { await db.deal.updateMany({ where: { id: { in: ['forecast-roles-deal-0', 'forecast-roles-deal-6'] } }, data: { assignedUserId: ids[2] } }); }
@@ -475,6 +481,7 @@ describe('role-scoped Sales Forecast', () => {
       await db.userRole.deleteMany({ where: { tenantId, userId: ids[2], roleId: roleId(0) } });
       expect((await read(2)).salesForecast).toBeNull();
       expect((await read(2)).metrics.forecastedRevenue).toBeNull();
+      expect((await read(2)).overdueForecast).toBeNull();
       await db.rolePermission.updateMany({ where: { roleId: roleId(1), module: 'deals' }, data: { canView: true } });
       await db.user.update({ where: { id: ids[5] }, data: { status: 'INACTIVE' } });
       await expect(read(5)).rejects.toMatchObject({ statusCode: 401 });
@@ -506,9 +513,9 @@ describe('full-calendar Sales Forecast periods', () => {
   const tenantId = 'forecast-calendar', pipelineId = 'forecast-calendar-sales';
   const ids = ['admin', 'manager', 'a', 'b'].map(id => `forecast-calendar-${id}`);
   const stages = ['Lead', 'Contacted', 'Qualified', 'Closed Deal', 'Cancelled'];
-  const read = (index = 0, input: DashboardQuery = { range: 'thisMonth' }) => tenantContext.run({ tenantId }, () => dashboard({
+  const read = (index = 0, input: DashboardQuery = { range: 'thisMonth' }, at = observed) => tenantContext.run({ tenantId }, () => dashboard({
     ...admin, userId: ids[index], tenantId,
-  }, input, observed));
+  }, input, at));
   const sum = (result: Awaited<ReturnType<typeof read>>) => result.salesForecast!.buckets.reduce((total, bucket) => total + bucket.value, 0);
   beforeAll(async () => {
     await db.tenant.create({ data: { id: tenantId, name: 'Calendar forecast', slug: tenantId } });
@@ -587,6 +594,114 @@ describe('full-calendar Sales Forecast periods', () => {
       expect([yearly, monthly].map(result => result.metrics.forecastedRevenue)).toEqual([61534.56, 61534.56]);
     } finally { await db.deal.deleteMany({ where: { id: { in: yearIds } } }); }
   });
+  it('counts only past-dated open Qualified Deals and hides the summary when their dates move to today', async () => {
+    const otherPipeline = 'overdue-other-pipeline', otherStage = 'overdue-other-qualified';
+    const extra = [
+      { value: 10000, expectedCloseDate: new Date('2026-11-20T00:00:00Z'), assignedUserId: ids[2] },
+      { value: 20000, expectedCloseDate: new Date('2026-11-22T00:00:00Z'), assignedUserId: ids[3] },
+      { value: 5000, expectedCloseDate: new Date('2026-11-24T00:00:00Z') }, { value: 6000, expectedCloseDate: null },
+      { value: 999999, stageId: `${pipelineId}-3` }, { value: 999999, stageId: `${pipelineId}-4` },
+      { value: 999999, isArchived: true }, { value: 999999, deletedAt: observed },
+      { value: 999999, pipelineId: otherPipeline, stageId: otherStage },
+    ];
+    const fixtureIds = extra.map((_, index) => `overdue-eligible-${index}`);
+    try {
+      await db.pipeline.create({ data: { id: otherPipeline, tenantId, name: 'Other forecast' } });
+      await db.stage.create({ data: { id: otherStage, tenantId, pipelineId: otherPipeline, name: 'Qualified', order: 0 } });
+      await db.deal.createMany({ data: extra.map((data, index) => ({ id: fixtureIds[index], tenantId, pipelineId,
+        stageId: `${pipelineId}-2`, title: 'Overdue eligibility', currency: 'PHP', expectedCloseDate: new Date('2026-11-20T00:00:00Z'), ...data })) });
+      const result = await read();
+      expect(result.overdueForecast).toEqual({ count: 2, value: 30000 });
+      expect(result.metrics.forecastedRevenue).toBe(101000);
+      expect(sum(result)).toBe(95000);
+      await db.deal.updateMany({ where: { id: { in: fixtureIds.slice(0, 2) } }, data: { expectedCloseDate: new Date('2026-11-24T00:00:00Z') } });
+      expect((await read()).overdueForecast).toEqual({ count: 0, value: 0 });
+    } finally {
+      await db.deal.deleteMany({ where: { id: { in: fixtureIds } } });
+      await db.stage.deleteMany({ where: { id: otherStage } });
+      await db.pipeline.deleteMany({ where: { id: otherPipeline } });
+    }
+  });
+  it('includes prior weeks, months and years independently of the selected forecast period', async () => {
+    const dates = ['2026-11-20T00:00:00Z', '2026-10-31T00:00:00Z', '2025-12-31T00:00:00Z'];
+    const fixtureIds = dates.map((_, index) => `overdue-history-${index}`);
+    try {
+      await db.deal.createMany({ data: dates.map((date, index) => ({ id: fixtureIds[index], tenantId, pipelineId,
+        stageId: `${pipelineId}-2`, title: 'Historical overdue', currency: 'PHP', value: index + 1, expectedCloseDate: new Date(date) })) });
+      for (const range of ['thisWeek', 'thisMonth', 'thisYear'] as const) {
+        const result = await read(0, { range });
+        expect(result.overdueForecast).toEqual({ count: 3, value: 6 });
+        expect(result.metrics.forecastedRevenue).toBe(60006);
+      }
+    } finally { await db.deal.deleteMany({ where: { id: { in: fixtureIds } } }); }
+  });
+  it('changes overdue classification at Manila midnight without changing the Forecast KPI, chart or CSV forecast', async () => {
+    const dates = ['2026-11-23T15:59:59.999Z', '2026-11-23T16:00:00Z', '2026-11-24T15:59:59.999Z', '2026-11-24T16:00:00Z'];
+    const fixtureIds = dates.map((_, index) => `overdue-midnight-${index}`);
+    try {
+      await db.deal.createMany({ data: dates.map((date, index) => ({ id: fixtureIds[index], tenantId, pipelineId,
+        stageId: `${pipelineId}-2`, title: 'Midnight overdue', currency: 'PHP', value: (index + 1) * 10, expectedCloseDate: new Date(date) })) });
+      const before = await read(0, { range: 'thisMonth' }, new Date('2026-11-23T15:59:59.999Z'));
+      const atMidnight = await read(0, { range: 'thisMonth' }, new Date('2026-11-23T16:00:00Z'));
+      const nextDay = await read(0, { range: 'thisMonth' }, new Date('2026-11-24T16:00:00Z'));
+      expect([before.overdueForecast, atMidnight.overdueForecast, nextDay.overdueForecast]).toEqual([
+        { count: 0, value: 0 }, { count: 1, value: 10 }, { count: 3, value: 60 },
+      ]);
+      for (const result of [before, atMidnight, nextDay]) {
+        expect(result.metrics.forecastedRevenue).toBe(60100);
+        expect(result.salesForecast).toEqual(before.salesForecast);
+        expect(dashboardCsv(result)).toContain('"Forecasted Revenue","60100","Current Qualified deals / PHP"');
+      }
+    } finally { await db.deal.deleteMany({ where: { id: { in: fixtureIds } } }); }
+  });
+  it('does not treat infinite or missing Expected Close Dates as overdue or invent chart dates', async () => {
+    const fixtureIds = ['overdue-date-negative-infinity', 'overdue-date-infinity', 'overdue-date-null'];
+    try {
+      await db.deal.createMany({ data: fixtureIds.map(id => ({ id, tenantId, pipelineId, stageId: `${pipelineId}-2`,
+        title: 'Invalid overdue date', value: 10, currency: 'PHP', expectedCloseDate: null })) });
+      for (const [index, value] of ['-infinity', 'infinity'].entries()) await db.$executeRaw`UPDATE "Deal" SET "expectedCloseDate" = ${value}::timestamp WHERE id = ${fixtureIds[index]}`;
+      const result = await read();
+      expect(result.overdueForecast).toEqual({ count: 0, value: 0 });
+      expect(result.metrics.forecastedRevenue).toBe(60030);
+      expect(sum(result)).toBe(60000);
+    } finally { await db.deal.deleteMany({ where: { id: { in: fixtureIds } } }); }
+  });
+  it.each([null, -1, NaN, Infinity, -Infinity])('keeps overdue count but returns an unavailable amount for invalid money %s', async value => {
+    const id = 'overdue-invalid-money';
+    try {
+      await db.deal.create({ data: { id, tenantId, pipelineId, stageId: `${pipelineId}-2`, title: 'Invalid overdue amount',
+        currency: 'PHP', value: null, expectedCloseDate: new Date('2025-12-31T00:00:00Z') } });
+      if (value !== null) await db.$executeRaw`UPDATE "Deal" SET value = ${String(value)}::float8 WHERE id = ${id}`;
+      const result = await read();
+      expect(result.overdueForecast).toEqual({ count: 1, value: null });
+      expect(result.metrics.forecastedRevenue).toBeNull();
+      expect(sum(result)).toBe(60000);
+      await db.deal.update({ where: { id }, data: { expectedCloseDate: new Date('2026-11-20T00:00:00Z') }, select: { id: true } });
+      const incomplete = await read();
+      expect(incomplete.salesForecast).toBeNull();
+      expect(incomplete.overdueForecast).toEqual({ count: 1, value: null });
+    } finally { await db.deal.deleteMany({ where: { id } }); }
+  });
+  it('rounds overdue tenant-currency amounts and excludes other currencies without excluding their counts', async () => {
+    const id = 'overdue-currency';
+    try {
+      await db.deal.create({ data: { id, tenantId, pipelineId, stageId: `${pipelineId}-2`, title: 'Overdue currency',
+        currency: 'PHP', value: 10.125, expectedCloseDate: new Date('2025-12-31T00:00:00Z') } });
+      expect((await read()).overdueForecast).toEqual({ count: 1, value: 10.13 });
+      await db.deal.update({ where: { id }, data: { currency: 'USD' } });
+      const excluded = await read();
+      expect(excluded.overdueForecast).toEqual({ count: 1, value: 0 });
+      expect(excluded.metrics.forecastedRevenue).toBe(60000);
+      expect(excluded.warnings.join(' ')).toContain('excluded from forecast totals');
+      await db.tenant.update({ where: { id: tenantId }, data: { currency: 'USD' } });
+      const usd = await read();
+      expect(usd.currency).toBe('USD');
+      expect(usd.overdueForecast).toEqual({ count: 1, value: 10.13 });
+    } finally {
+      await db.tenant.update({ where: { id: tenantId }, data: { currency: 'PHP' } });
+      await db.deal.deleteMany({ where: { id } });
+    }
+  });
   it.each([
     ['thisWeek', '2026-11-24T05:47:00Z', '2026-11-23', '2026-11-29'],
     ['thisWeek', '2026-11-01T00:00:00Z', '2026-10-26', '2026-11-01'],
@@ -616,6 +731,7 @@ describe('authoritative dashboard', () => {
     await db.user.create({ data: { id: 'empty-admin', tenantId, role: 'Client Admin', firstName: 'Empty', lastName: 'Admin', email: 'empty@camxian.com' } });
     const result = await tenantContext.run({ tenantId }, () => dashboard({ ...admin, userId: 'empty-admin', tenantId }, query, now));
     expect(result.metrics).toMatchObject({ totalRevenue: 0, forecastedRevenue: 0, activeDeals: 0, totalLeads: 0, winRate: 0 });
+    expect(result.overdueForecast).toEqual({ count: 0, value: 0 });
     expect(result.pipeline).toBeNull(); expect(result.trend).toEqual([]); expect(result.distribution).toEqual([]); expect(result.leaderboard).toEqual([]);
     expect(await db.pipeline.count({ where: { tenantId } })).toBe(0);
   });
@@ -1293,6 +1409,7 @@ describe('authoritative dashboard', () => {
         expect(response.headers.get('cache-control')).toBe('no-store');
         const { data } = await response.json();
         expect(data).toMatchObject({ pipeline: null, metrics: { totalRevenue: null, activeDeals: null }, warnings: [expect.stringContaining('Sales Pipeline')] });
+        expect(data.overdueForecast).toBeNull();
         const expected = hide ? [id] : [id, salesDealId];
         expect(data.actions.filter((row: { id: string }) => [id, salesDealId].includes(row.id))).toEqual(
           expected.map(dealId => expect.objectContaining({ id: dealId, href: `/crm/deals/${dealId}`, kind: 'deal' })),
@@ -1329,6 +1446,7 @@ describe('authoritative dashboard', () => {
     const restricted = await scoped(() => dashboard(agent, query));
     expect(restricted.metrics.totalRevenue).toBeNull(); expect(restricted.trend).toEqual([]); expect(restricted.leaderboard).toEqual([]);
     expect(restricted.leadSourcePerformance).toBeNull();
+    expect(restricted.overdueForecast).toBeNull();
     expect((await http('/reporting/pipeline-summary', agentToken)).status).toBe(403);
     expect((await http('/crm/pipelines/events', agentToken)).status).toBe(403);
     await db.rolePermission.updateMany({ where: { roleId: 'sales-role', module: 'dashboard' }, data: { canView: false } });

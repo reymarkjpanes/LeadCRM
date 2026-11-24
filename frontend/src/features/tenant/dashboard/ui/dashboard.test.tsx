@@ -34,6 +34,7 @@ beforeEach(() => {
       currentWon: 2, totalDeals: 25, winRate: 8, averageDealDays: 4, openPipelineValue: 225000,
       forecastMissing: 0, monetaryMissing: 0, currencyExcluded: 0, closingDateMissing: 0, unattributedWon: 1, unattributedRevenue: 1000 },
     trend: [{ name: '2020-01-01', revenue: 45000, won: 1, lost: 0 }],
+    overdueForecast: null,
     salesForecast: { period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' },
       buckets: [{ start: '2020-01-01', end: '2020-01-05', value: 10000 }, { start: '2020-01-06', end: '2020-01-12', value: 0 }, { start: '2020-01-13', end: '2020-01-15', value: 15000 }] },
     distribution: stages.slice(0, 3).map(stage => ({ id: stage.id, name: stage.name, color: stage.color,
@@ -97,6 +98,42 @@ it('renders full-month future buckets independently from the historical Dashboar
   expect(chart.options.plugins.tooltip.callbacks.title([{ label: '2026-11-30' }])).toBe('Nov 30, 2026');
   expect(screen.queryByText('No Qualified deal value with an expected close date in this period.')).toBeNull();
   expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('₱60,000.00')).toBeTruthy();
+});
+
+it.each([[1, '1 Deal'], [2, '2 Deals']] as const)('renders %s overdue deals beneath the chart with singular/plural wording and tenant currency', (count, label) => {
+  mocks.report!.currency = 'EUR';
+  mocks.report!.overdueForecast = { count, value: 30000 };
+  render(<Dashboard />);
+  const indicator = screen.getByLabelText('Overdue Forecast');
+  expect(indicator.textContent).toBe(`Overdue Forecast: ${label} · €30,000.00`);
+  expect(screen.getByRole('region', { name: 'Sales Forecast' }).lastElementChild).toBe(indicator);
+  expect(indicator.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  expect(indicator.className).toContain('dark:text-red-400');
+  expect(indicator.querySelector('span')?.className).toContain('break-words');
+  expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('€37,000.00')).toBeTruthy();
+});
+
+it('keeps overdue information visible for empty and unavailable charts, then hides it for zero count or lost access', () => {
+  mocks.report!.overdueForecast = { count: 2, value: 30000 };
+  mocks.report!.salesForecast!.buckets.forEach(bucket => { bucket.value = 0; });
+  const view = render(<Dashboard />);
+  expect(screen.getByText('No Qualified deal value with an expected close date in this period.')).toBeTruthy();
+  expect(screen.getByLabelText('Overdue Forecast').textContent).toBe('Overdue Forecast: 2 Deals · ₱30,000.00');
+  mocks.report!.salesForecast = null;
+  mocks.report!.overdueForecast.value = null;
+  view.rerender(<Dashboard />);
+  expect(screen.getByText('Forecast unavailable for this scope or incomplete data.')).toBeTruthy();
+  expect(screen.getByLabelText('Overdue Forecast').textContent).toBe('Overdue Forecast: 2 Deals · Unavailable');
+  mocks.report!.overdueForecast = { count: 0, value: 0 };
+  view.rerender(<Dashboard />);
+  expect(screen.queryByLabelText('Overdue Forecast')).toBeNull();
+  mocks.report!.overdueForecast = { count: 2, value: 30000 };
+  mocks.report!.access.deals = false;
+  view.rerender(<Dashboard />);
+  expect(screen.queryByLabelText('Overdue Forecast')).toBeNull();
+  mocks.report!.overdueForecast = null;
+  view.rerender(<Dashboard />);
+  expect(screen.queryByLabelText('Overdue Forecast')).toBeNull();
 });
 
 it('keeps the forecast section visible for restricted, unavailable and zero periods', () => {
