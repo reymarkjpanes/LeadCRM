@@ -81,6 +81,24 @@ it('formats forecast currency labels, exact interval tooltips, zero bars and opt
   expect(Array.isArray(sources.data.datasets[0].backgroundColor)).toBe(true);
 });
 
+it('renders full-month future buckets independently from the historical Dashboard end date', () => {
+  mocks.report!.period = { start: '2026-11-01', end: '2026-11-24', interval: 'week', timezone: 'Asia/Manila' };
+  mocks.report!.metrics.forecastedRevenue = 60000;
+  mocks.report!.salesForecast = { period: { start: '2026-11-01', end: '2026-11-30', interval: 'week', timezone: 'Asia/Manila' }, buckets: [
+    { start: '2026-11-01', end: '2026-11-01', value: 0 }, { start: '2026-11-02', end: '2026-11-08', value: 0 },
+    { start: '2026-11-09', end: '2026-11-15', value: 0 }, { start: '2026-11-16', end: '2026-11-22', value: 0 },
+    { start: '2026-11-23', end: '2026-11-29', value: 55000 }, { start: '2026-11-30', end: '2026-11-30', value: 5000 },
+  ] };
+  render(<Dashboard />);
+  const chart = mocks.charts.find(chart => chart.data.datasets[0].label === 'Deal Value (PHP)');
+  expect(chart.data.datasets[0].data).toEqual([0, 0, 0, 0, 55000, 5000]);
+  expect(chart.options.scales.x.ticks.callback(4)).toMatch(/Nov 23.*29/);
+  expect(chart.options.scales.x.ticks.callback(5)).toBe('Nov 30');
+  expect(chart.options.plugins.tooltip.callbacks.title([{ label: '2026-11-30' }])).toBe('Nov 30, 2026');
+  expect(screen.queryByText('No Qualified deal value with an expected close date in this period.')).toBeNull();
+  expect(within(screen.getByRole('group', { name: 'Forecast' })).getByLabelText('₱60,000.00')).toBeTruthy();
+});
+
 it('keeps the forecast section visible for restricted, unavailable and zero periods', () => {
   mocks.report!.access.deals = false;
   mocks.report!.salesForecast = null;

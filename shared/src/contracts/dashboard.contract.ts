@@ -73,6 +73,20 @@ export function dashboardPeriod(query: DashboardQuery, now = new Date()) {
   return { start, end, from, until, timezone: DASHBOARD_TIMEZONE, interval: (+until - +from > 93 * 86400000 ? 'month' : 'day') as 'day' | 'month' };
 }
 
+/** Forecasts include the full current calendar period; historical reports remain to-date. */
+export function dashboardForecastPeriod(query: DashboardQuery, now = new Date()) {
+  const period = dashboardPeriod(query, now);
+  let end = period.end;
+  if (query.range === 'thisWeek') end = new Date(Date.parse(period.start) + 6 * 86400000).toISOString().slice(0, 10);
+  if (query.range === 'thisMonth') {
+    const lastDay = new Date(`${period.start}T00:00:00Z`);
+    lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+    end = lastDay.toISOString().slice(0, 10);
+  }
+  if (query.range === 'thisYear') end = `${period.start.slice(0, 4)}-12-31`;
+  return dashboardPeriod({ range: 'custom', start: period.start, end }, now);
+}
+
 export interface DashboardStage {
   id: string; name: string; order: number; color: string | null; probability: number | null; isWon: boolean; isLost: boolean;
 }

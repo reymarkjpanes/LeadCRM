@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, permittedCrmScopes, SALES_PIPELINE_STAGES, type DashboardQuery, type DashboardReport, type DashboardStage } from '@leadcrm/shared';
+import { DashboardQuerySchema, dashboardPeriod, dashboardForecastPeriod, dashboardFunnelPeriod, permittedCrmScopes, SALES_PIPELINE_STAGES, type DashboardQuery, type DashboardReport, type DashboardStage } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { findUserEffectivePermissions } from '../../administration/roles/roles.repository';
@@ -60,24 +60,25 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
   let funnel: ReturnType<typeof dashboardFunnelPeriod>;
   try { funnel = dashboardFunnelPeriod(query, now); } catch (error) { throw new AppError(error instanceof Error ? error.message : 'Choose a valid historical funnel period.', 400); }
   const interval = query.revenueInterval ?? 'month';
+  const forecastPeriod = dashboardForecastPeriod(query, now);
   const forecastInterval = query.range === 'thisWeek' ? 'day' : query.range === 'thisMonth' ? 'week'
     : query.range === 'thisYear' ? 'month' : period.interval;
   const forecast: NonNullable<DashboardReport['salesForecast']> = {
-    period: { start: period.start, end: period.end, timezone: period.timezone, interval: forecastInterval }, buckets: [],
+    period: { start: forecastPeriod.start, end: forecastPeriod.end, timezone: forecastPeriod.timezone, interval: forecastInterval }, buckets: [],
   };
   // Calendar arithmetic uses UTC dates as Manila day labels, never the host timezone.
-  const cursor = new Date(`${period.start}T00:00:00Z`);
+  const cursor = new Date(`${forecastPeriod.start}T00:00:00Z`);
   if (forecastInterval === 'week') cursor.setUTCDate(cursor.getUTCDate() - (cursor.getUTCDay() + 6) % 7);
   if (forecastInterval === 'month') cursor.setUTCDate(1);
   const bucketKeys: string[] = [];
-  while (cursor.toISOString().slice(0, 10) <= period.end) {
+  while (cursor.toISOString().slice(0, 10) <= forecastPeriod.end) {
     const key = cursor.toISOString().slice(0, 10), next = new Date(cursor);
     if (forecastInterval === 'month') next.setUTCMonth(next.getUTCMonth() + 1);
     else next.setUTCDate(next.getUTCDate() + (forecastInterval === 'week' ? 7 : 1));
     const end = new Date(+next - 86400000).toISOString().slice(0, 10);
     bucketKeys.push(key);
-    forecast.buckets.push({ start: key < period.start ? period.start : key,
-      end: end > period.end ? period.end : end, value: 0 });
+    forecast.buckets.push({ start: key < forecastPeriod.start ? forecastPeriod.start : key,
+      end: end > forecastPeriod.end ? forecastPeriod.end : end, value: 0 });
     cursor.setTime(+next);
   }
   const { tenantId, userId } = identity;
@@ -208,7 +209,7 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         // Undated/out-of-period rows remain in the overall grouping only.
         const forecastRows = await raw<Array<{ bucket: string | null; overall: number; value: number; missing: number; excluded: number }>>(Prisma.sql`
           WITH eligible AS (SELECT d.value, d.currency,
-            CASE WHEN d."expectedCloseDate" >= ${utc(period.from)} AND d."expectedCloseDate" < ${utc(period.until)}
+            CASE WHEN d."expectedCloseDate" >= ${utc(forecastPeriod.from)} AND d."expectedCloseDate" < ${utc(forecastPeriod.until)}
               THEN to_char(date_trunc(${forecastInterval}, d."expectedCloseDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila'), 'YYYY-MM-DD') END AS bucket
             FROM "Deal" d WHERE d."tenantId" = ${tenantId} AND d."pipelineId" = ${pipeline.id} AND d."stageId" = ${qualified.id}
               AND NOT d."isArchived" AND d."deletedAt" IS NULL AND ${forecastPolicy})
