@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, SALES_PIPELINE_STAGES, type DashboardQuery, type DashboardReport, type DashboardStage } from '@leadcrm/shared';
+import { DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, permittedCrmScopes, SALES_PIPELINE_STAGES, type DashboardQuery, type DashboardReport, type DashboardStage } from '@leadcrm/shared';
 import prisma from '../../../config/database.config';
 import { tenantContext } from '../../../core/tenant/tenant-context';
 import { findUserEffectivePermissions } from '../../administration/roles/roles.repository';
@@ -9,7 +9,11 @@ import { dealStalenessSelect, evaluateDealStaleness, staleDealCutoff } from '../
 import { resolveCrmActor, crmPolicyReadWhere, crmPolicySqlWhere, taskReadWhere } from '../../crm/access/crm-record-access.service';
 
 export async function dashboardAccess(identity: AuthenticatedUser) {
-  const user = await prisma.user.findFirst({ where: { id: identity.userId, tenantId: identity.tenantId, status: 'ACTIVE' }, select: { role: true, groupMemberships: { where: { tenantId: identity.tenantId }, select: { group: { select: { name: true, tenantId: true } } } } } });
+  const user = await prisma.user.findFirst({ where: { id: identity.userId, tenantId: identity.tenantId, status: 'ACTIVE' }, select: {
+    role: true,
+    userRoles: { where: { tenantId: identity.tenantId, role: { tenantId: identity.tenantId, isArchived: false, isSystemRole: false } }, select: { role: { select: { name: true } } } },
+    groupMemberships: { where: { tenantId: identity.tenantId }, select: { group: { select: { name: true, tenantId: true } } } },
+  } });
   if (!user) throw new AppError('Authentication required', 401);
   const admin = user.role === 'Client Admin';
   const permissions = admin ? {} : await findUserEffectivePermissions(identity.userId, identity.tenantId);
@@ -19,8 +23,13 @@ export async function dashboardAccess(identity: AuthenticatedUser) {
   const dealScope = crmPolicyReadWhere(policy, 'deals');
   const leadScope = crmPolicyReadWhere(policy, 'leads');
   const taskScope = taskReadWhere(policy);
+  const primaryRole = user.userRoles.find(({ role }) => role.name === user.role)?.role.name;
+  // This exception authorizes forecast aggregates only; all other Deal reads keep their CRM policy.
+  const forecastScope = !can('deals') || !admin && !permittedCrmScopes(policy.permissions, 'deals').length ? null
+    : admin || primaryRole === 'Sales Admin' ? 'organization'
+    : primaryRole === 'Sales Associate' ? 'assigned' : 'authorized';
   const leaderboard = can('deals') && (admin || user.groupMemberships.some(({ group }) => group.tenantId === identity.tenantId && ['top management', 'head of sales'].includes(group.name.trim().toLowerCase())));
-  return { admin, deals: can('deals'), leads: can('leads'), tasks: can('tasks'), leaderboard, dealScope, leadScope, taskScope, policy };
+  return { admin, deals: can('deals'), leads: can('leads'), tasks: can('tasks'), leaderboard, dealScope, leadScope, taskScope, policy, forecastScope };
 }
 
 export function verifyDashboardStages(stages: DashboardStage[]) {
@@ -51,6 +60,26 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
   let funnel: ReturnType<typeof dashboardFunnelPeriod>;
   try { funnel = dashboardFunnelPeriod(query, now); } catch (error) { throw new AppError(error instanceof Error ? error.message : 'Choose a valid historical funnel period.', 400); }
   const interval = query.revenueInterval ?? 'month';
+  const forecastInterval = query.range === 'thisWeek' ? 'day' : query.range === 'thisMonth' ? 'week'
+    : query.range === 'thisYear' ? 'month' : period.interval;
+  const forecast: NonNullable<DashboardReport['salesForecast']> = {
+    period: { start: period.start, end: period.end, timezone: period.timezone, interval: forecastInterval }, buckets: [],
+  };
+  // Calendar arithmetic uses UTC dates as Manila day labels, never the host timezone.
+  const cursor = new Date(`${period.start}T00:00:00Z`);
+  if (forecastInterval === 'week') cursor.setUTCDate(cursor.getUTCDate() - (cursor.getUTCDay() + 6) % 7);
+  if (forecastInterval === 'month') cursor.setUTCDate(1);
+  const bucketKeys: string[] = [];
+  while (cursor.toISOString().slice(0, 10) <= period.end) {
+    const key = cursor.toISOString().slice(0, 10), next = new Date(cursor);
+    if (forecastInterval === 'month') next.setUTCMonth(next.getUTCMonth() + 1);
+    else next.setUTCDate(next.getUTCDate() + (forecastInterval === 'week' ? 7 : 1));
+    const end = new Date(+next - 86400000).toISOString().slice(0, 10);
+    bucketKeys.push(key);
+    forecast.buckets.push({ start: key < period.start ? period.start : key,
+      end: end > period.end ? period.end : end, value: 0 });
+    cursor.setTime(+next);
+  }
   const { tenantId, userId } = identity;
   const context = tenantContext.getStore();
   if (context && context.tenantId !== tenantId) throw new AppError('Workspace mismatch', 403);
@@ -71,7 +100,7 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         winRate: null, currentWon: null, totalDeals: null, unattributedWon: null, unattributedRevenue: null,
         averageDealDays: null, openPipelineValue: null, forecastMissing: 0, monetaryMissing: 0,
         currencyExcluded: 0, closingDateMissing: 0 },
-      trend: [], distribution: [], leadSourcePerformance: null, conversion: null, leaderboard: [], actions: [], pendingActions: 0, warnings: [],
+      trend: [], salesForecast: null, distribution: [], leadSourcePerformance: null, conversion: null, leaderboard: [], actions: [], pendingActions: 0, warnings: [],
     };
     const leadWhere = { ...access.leadScope, tenantId, isArchived: false, deletedAt: null, convertedAt: null };
     if (access.leads) result.metrics.totalLeads = await tx.lead.count({ where: leadWhere });
@@ -97,6 +126,8 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
         result.warnings.push(configurationError.message);
       } else if (!pipelines.length) {
         Object.assign(result.metrics, { totalRevenue: 0, forecastedRevenue: 0, activeDeals: 0, won: 0, lost: 0, winRate: 0, currentWon: 0, totalDeals: 0, unattributedWon: 0, unattributedRevenue: 0, openPipelineValue: 0 });
+        if (access.forecastScope) result.salesForecast = forecast;
+        else result.metrics.forecastedRevenue = null;
         result.leadSourcePerformance = { period: { start: sourcePeriod.start, end: sourcePeriod.end, timezone: sourcePeriod.timezone }, sources: [] };
       } else {
       const pipeline = pipelines[0];
@@ -169,9 +200,33 @@ export async function getDashboard(identity: AuthenticatedUser, input: unknown, 
           COALESCE(round(SUM(round(d.value::numeric,2)) FILTER (WHERE ${validMoney}),2),0)::float8 AS value,
           COUNT(*) FILTER (WHERE d.currency = ${currency} AND NOT COALESCE((${validMoney}),false))::int AS missing
         FROM "Deal" d WHERE ${scope} AND d."stageId" IN (${lead.id}, ${contacted.id}, ${qualified.id}) GROUP BY d."stageId"`);
-      const qualifiedTotals = groups.find(group => group.id === qualified.id);
-      result.metrics.forecastedRevenue = qualifiedTotals?.missing ? null : qualifiedTotals?.value ?? 0;
-      result.metrics.forecastMissing = qualifiedTotals?.missing ?? 0;
+      if (access.forecastScope) {
+        const forecastPolicy = access.forecastScope === 'organization' ? Prisma.sql`true`
+          : access.forecastScope === 'assigned' ? Prisma.sql`d."assignedUserId" = ${userId}`
+          : crmPolicySqlWhere(access.policy, 'deals', 'd');
+        // One eligible population produces both the current KPI and dated buckets.
+        // Undated/out-of-period rows remain in the overall grouping only.
+        const forecastRows = await raw<Array<{ bucket: string | null; overall: number; value: number; missing: number; excluded: number }>>(Prisma.sql`
+          WITH eligible AS (SELECT d.value, d.currency,
+            CASE WHEN d."expectedCloseDate" >= ${utc(period.from)} AND d."expectedCloseDate" < ${utc(period.until)}
+              THEN to_char(date_trunc(${forecastInterval}, d."expectedCloseDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila'), 'YYYY-MM-DD') END AS bucket
+            FROM "Deal" d WHERE d."tenantId" = ${tenantId} AND d."pipelineId" = ${pipeline.id} AND d."stageId" = ${qualified.id}
+              AND NOT d."isArchived" AND d."deletedAt" IS NULL AND ${forecastPolicy})
+          SELECT bucket, GROUPING(bucket)::int AS overall,
+            COALESCE(round(SUM(round(d.value::numeric,2)) FILTER (WHERE ${validMoney}),2),0)::float8 AS value,
+            COUNT(*) FILTER (WHERE d.currency = ${currency} AND NOT COALESCE((${validMoney}),false))::int AS missing,
+            COUNT(*) FILTER (WHERE d.currency IS DISTINCT FROM ${currency})::int AS excluded
+          FROM eligible d GROUP BY GROUPING SETS ((), (bucket))`);
+        const overall = forecastRows.find(row => row.overall === 1)!;
+        result.metrics.forecastedRevenue = overall.missing ? null : overall.value;
+        result.metrics.forecastMissing = overall.missing;
+        if (!forecastRows.some(row => !row.overall && row.bucket !== null && row.missing)) {
+          result.salesForecast = { ...forecast, buckets: forecast.buckets.map((bucket, index) => ({ ...bucket,
+            value: forecastRows.find(row => !row.overall && row.bucket === bucketKeys[index])?.value ?? 0 })) };
+        }
+        if (overall.missing) result.warnings.push(`${overall.missing} Qualified deals have missing or invalid amounts; affected forecast totals are unavailable.`);
+        if (overall.excluded) result.warnings.push(`${overall.excluded} Qualified deals use other or unknown currencies and are excluded from forecast totals.`);
+      }
       result.distribution = pipeline.stages.slice(0, 3).map(stage => {
         const row = groups.find(group => group.id === stage.id);
         return { id: stage.id, name: stage.name, color: stage.color, count: row?.count ?? 0,

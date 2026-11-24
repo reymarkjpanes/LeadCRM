@@ -88,6 +88,10 @@ export interface DashboardReport {
     openPipelineValue: number | null; forecastMissing: number; monetaryMissing: number; currencyExcluded: number; closingDateMissing: number;
   };
   trend: Array<{ name: string; revenue: number; won: number; lost: number }>;
+  salesForecast: {
+    period: { start: string; end: string; timezone: string; interval: 'day' | 'week' | 'month' };
+    buckets: Array<{ start: string; end: string; value: number }>;
+  } | null;
   distribution: Array<{ id: string; name: string; color: string | null; count: number; value: number | null; percentage: number }>;
   leadSourcePerformance: {
     period: { start: string; end: string; timezone: string };
