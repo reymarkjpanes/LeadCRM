@@ -6,7 +6,7 @@ import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { replayCrmMigrations } from '../../../tests/replay-crm-migrations';
 import { tenantContext } from '../../../core/tenant/tenant-context';
-import { DashboardQuerySchema, dashboardPeriod, dashboardFunnelPeriod, dashboardToday, dashboardCsv } from '@leadcrm/shared';
+import { DashboardQuerySchema, dashboardPeriod, dashboardForecastPeriod, dashboardFunnelPeriod, dashboardToday, dashboardCsv, type DashboardQuery } from '@leadcrm/shared';
 
 vi.mock('../../../config/database.config', () => ({ default: new PrismaClient({ datasources: { db: { url: process.env.DASHBOARD_TEST_DATABASE_URL! } } }) }));
 const disposable = !!process.env.DATABASE_URL && /^postgres(?:ql)?:\/\/[^/]+@127\.0\.0\.1:\d+\/leadcrm_forms_test_2(?:\?|$)/.test(process.env.DATABASE_URL);
@@ -427,22 +427,26 @@ describe('role-scoped Sales Forecast', () => {
       expect((await read(1)).metrics.forecastedRevenue).toBe(450);
     } finally { await db.deal.updateMany({ where: { id: { in: ['forecast-roles-deal-0', 'forecast-roles-deal-6'] } }, data: { assignedUserId: ids[2] } }); }
   });
-  it('uses half-open Manila boundaries, Monday buckets, zeros and whole-day reporting through today', async () => {
+  it('uses half-open Manila boundaries, full calendar periods, Monday buckets and zeros', async () => {
     const dates = ['2019-12-31T15:59:59.999Z', '2019-12-31T16:00:00Z', '2020-01-12T15:59:59.999Z', '2020-01-12T16:00:00Z', '2020-01-15T15:59:59.999Z', '2020-01-15T16:00:00Z'];
     const boundaryIds = dates.map((_, index) => `forecast-roles-boundary-${index}`);
     try {
       await db.deal.createMany({ data: dates.map((date, index) => ({ id: boundaryIds[index], tenantId, pipelineId, stageId: stageIds[2], title: 'Boundary', value: index + 1, currency: 'PHP', expectedCloseDate: new Date(date) })) });
       const monthly = await read();
-      expect(monthly.salesForecast).toEqual({ period: { start: '2020-01-01', end: '2020-01-15', timezone: 'Asia/Manila', interval: 'week' }, buckets: [
-        { start: '2020-01-01', end: '2020-01-05', value: 2 }, { start: '2020-01-06', end: '2020-01-12', value: 213 }, { start: '2020-01-13', end: '2020-01-15', value: 9 },
+      expect(monthly.salesForecast).toEqual({ period: { start: '2020-01-01', end: '2020-01-31', timezone: 'Asia/Manila', interval: 'week' }, buckets: [
+        { start: '2020-01-01', end: '2020-01-05', value: 2 }, { start: '2020-01-06', end: '2020-01-12', value: 213 }, { start: '2020-01-13', end: '2020-01-19', value: 15 },
+        { start: '2020-01-20', end: '2020-01-26', value: 0 }, { start: '2020-01-27', end: '2020-01-31', value: 0 },
       ] });
       const weekly = await read(0, { range: 'thisWeek' });
-      expect(weekly.salesForecast!.buckets).toEqual([{ start: '2020-01-13', end: '2020-01-13', value: 4 }, { start: '2020-01-14', end: '2020-01-14', value: 0 }, { start: '2020-01-15', end: '2020-01-15', value: 5 }]);
+      expect(weekly.salesForecast!.buckets).toEqual([13, 14, 15, 16, 17, 18, 19].map(day => ({ start: `2020-01-${day}`, end: `2020-01-${day}`, value: day === 13 ? 4 : day === 15 ? 5 : day === 16 ? 6 : 0 })));
       const yearly = await read(0, { range: 'thisYear' });
-      expect(yearly.salesForecast!.buckets).toEqual([{ start: '2020-01-01', end: '2020-01-15', value: 224 }]);
+      expect(yearly.salesForecast!.period.end).toBe('2020-12-31');
+      expect(yearly.salesForecast!.buckets).toHaveLength(12);
+      expect(yearly.salesForecast!.buckets.slice(0, 2)).toEqual([{ start: '2020-01-01', end: '2020-01-31', value: 230 }, { start: '2020-02-01', end: '2020-02-29', value: 80 }]);
+      expect(yearly.salesForecast!.buckets.slice(2).every(bucket => bucket.value === 0)).toBe(true);
       expect([monthly, weekly, yearly].map(result => result.metrics.forecastedRevenue)).toEqual([471, 471, 471]);
       const newYear = await read(0, { range: 'thisWeek' }, new Date('2021-01-01T00:00:00Z'));
-      expect(newYear.salesForecast!.buckets.map(bucket => bucket.start)).toEqual(['2020-12-28', '2020-12-29', '2020-12-30', '2020-12-31', '2021-01-01']);
+      expect(newYear.salesForecast!.buckets.map(bucket => bucket.start)).toEqual(['2020-12-28', '2020-12-29', '2020-12-30', '2020-12-31', '2021-01-01', '2021-01-02', '2021-01-03']);
     } finally { await db.deal.deleteMany({ where: { id: { in: boundaryIds } } }); }
   });
   it('preserves rounding, currency exclusions and unavailable monetary states without inventing dates', async () => {
@@ -493,6 +497,114 @@ describe('role-scoped Sales Forecast', () => {
       await db.user.update({ where: { id: ids[5] }, data: { status: 'ACTIVE' } });
       await db.user.update({ where: { id: ids[1] }, data: { role: roles[0] } });
       await db.userRole.upsert({ where: { userId_roleId_tenantId: { userId: ids[2], roleId: roleId(0), tenantId } }, create: { tenantId, userId: ids[2], roleId: roleId(0) }, update: {} });
+    }
+  });
+});
+
+describe('full-calendar Sales Forecast periods', () => {
+  const observed = new Date('2026-11-24T05:47:00Z');
+  const tenantId = 'forecast-calendar', pipelineId = 'forecast-calendar-sales';
+  const ids = ['admin', 'manager', 'a', 'b'].map(id => `forecast-calendar-${id}`);
+  const stages = ['Lead', 'Contacted', 'Qualified', 'Closed Deal', 'Cancelled'];
+  const read = (index = 0, input: DashboardQuery = { range: 'thisMonth' }) => tenantContext.run({ tenantId }, () => dashboard({
+    ...admin, userId: ids[index], tenantId,
+  }, input, observed));
+  const sum = (result: Awaited<ReturnType<typeof read>>) => result.salesForecast!.buckets.reduce((total, bucket) => total + bucket.value, 0);
+  beforeAll(async () => {
+    await db.tenant.create({ data: { id: tenantId, name: 'Calendar forecast', slug: tenantId } });
+    const definitions = await Promise.all(['Sales Admin', 'Sales Associate'].map(name => db.roleDefinition.create({ data: {
+      tenantId, name, permissions: { create: ['dashboard', 'deals'].map(module => ({ module, canView: true, canViewAll: module === 'deals' })) },
+    } })));
+    for (const [index, id] of ids.entries()) {
+      const role = index === 0 ? undefined : definitions[index === 1 ? 0 : 1];
+      await db.user.create({ data: { id, tenantId, email: `${id}@camxian.com`, firstName: id, lastName: 'Calendar',
+        role: role?.name ?? 'Client Admin', ...(role ? { userRoles: { create: { roleId: role.id } } } : {}),
+      } });
+    }
+    await db.pipeline.create({ data: { id: pipelineId, tenantId, name: 'Sales Pipeline' } });
+    await db.stage.createMany({ data: stages.map((name, index) => ({ id: `${pipelineId}-${index}`, tenantId, pipelineId, name, order: index, isWon: index === 3, isLost: index === 4 })) });
+    await db.deal.createMany({ data: [
+      { value: 45000, expectedCloseDate: new Date('2026-11-26T00:00:00Z'), assignedUserId: ids[2] },
+      { value: 10000, expectedCloseDate: new Date('2026-11-29T00:00:00Z'), assignedUserId: ids[3] },
+      { value: 5000, expectedCloseDate: new Date('2026-11-30T00:00:00Z'), assignedUserId: null },
+    ].map((data, index) => ({ id: `forecast-calendar-deal-${index}`, tenantId, pipelineId, stageId: `${pipelineId}-2`, title: 'Future forecast fixture', currency: 'PHP', createdAt: new Date('2026-11-01T00:00:00Z'), ...data })) });
+  });
+  it('includes November 26, 29 and 30 in six monthly buckets while historical metrics stop on November 24', async () => {
+    const result = await read();
+    expect(result.period).toMatchObject({ start: '2026-11-01', end: '2026-11-24' });
+    expect(result.salesForecast).toEqual({ period: { start: '2026-11-01', end: '2026-11-30', timezone: 'Asia/Manila', interval: 'week' }, buckets: [
+      { start: '2026-11-01', end: '2026-11-01', value: 0 }, { start: '2026-11-02', end: '2026-11-08', value: 0 },
+      { start: '2026-11-09', end: '2026-11-15', value: 0 }, { start: '2026-11-16', end: '2026-11-22', value: 0 },
+      { start: '2026-11-23', end: '2026-11-29', value: 55000 }, { start: '2026-11-30', end: '2026-11-30', value: 5000 },
+    ] });
+    expect(result.metrics.forecastedRevenue).toBe(60000);
+    const historical = await read(0, { range: 'custom', start: '2026-11-01', end: '2026-11-24' });
+    for (const key of ['period', 'metrics', 'trend', 'distribution', 'leadSourcePerformance', 'conversion', 'leaderboard', 'actions'] as const) expect(result[key]).toEqual(historical[key]);
+    expect(result.leadSourcePerformance!.period.end).toBe('2026-11-24');
+    expect(result.conversion!.period.end).toBe('2026-11-24');
+  });
+  it('retains company and assigned-only scopes for future dates in every current calendar period', async () => {
+    for (const range of ['thisWeek', 'thisMonth', 'thisYear'] as const) {
+      for (const [index, total] of [[0, 60000], [1, 60000], [2, 45000], [3, 10000]]) {
+        const result = await read(index, { range });
+        expect(result.metrics.forecastedRevenue).toBe(total);
+        expect(sum(result)).toBe(range === 'thisWeek' && index < 2 ? 55000 : total);
+      }
+    }
+    const weekly = await read(0, { range: 'thisWeek' });
+    expect(weekly.salesForecast!.period).toMatchObject({ start: '2026-11-23', end: '2026-11-29', interval: 'day' });
+    expect(weekly.salesForecast!.buckets.map(bucket => bucket.value)).toEqual([0, 0, 0, 45000, 0, 0, 10000]);
+    expect(weekly.period.end).toBe('2026-11-24');
+    const yearly = await read(0, { range: 'thisYear' });
+    expect(yearly.salesForecast!.buckets).toHaveLength(12);
+    expect(yearly.salesForecast!.buckets.at(-1)).toEqual({ start: '2026-12-01', end: '2026-12-31', value: 0 });
+    expect(yearly.period.end).toBe('2026-11-24');
+  });
+  it('includes the final Manila millisecond and excludes the next period without overlaps or duplicate values', async () => {
+    const dates = ['2026-11-30T15:59:59.999Z', '2026-11-30T16:00:00Z', '2026-10-31T15:59:59.999Z', '2026-10-31T16:00:00Z', '2026-11-29T15:59:59.999Z', '2026-11-29T16:00:00Z'];
+    const boundaryIds = dates.map((_, index) => `forecast-calendar-boundary-${index}`);
+    try {
+      await db.deal.createMany({ data: dates.map((date, index) => ({ id: boundaryIds[index], tenantId, pipelineId, stageId: `${pipelineId}-2`, title: 'Midnight boundary', value: 2 ** index, currency: 'PHP', expectedCloseDate: new Date(date) })) });
+      const monthly = await read();
+      expect(monthly.salesForecast!.buckets.map(bucket => bucket.value)).toEqual([8, 0, 0, 0, 55016, 5033]);
+      expect(sum(monthly)).toBe(60057);
+      expect(monthly.metrics.forecastedRevenue).toBe(60063);
+      expect(sum(await read(0, { range: 'thisWeek' }))).toBe(55016);
+    } finally { await db.deal.deleteMany({ where: { id: { in: boundaryIds } } }); }
+  });
+  it('includes December 31 through its final Manila millisecond without narrowing the all-current KPI', async () => {
+    const yearIds = ['forecast-calendar-december', 'forecast-calendar-january', 'forecast-calendar-undated'];
+    try {
+      await db.deal.createMany({ data: [
+        { value: 1234.56, expectedCloseDate: new Date('2026-12-31T15:59:59.999Z') },
+        { value: 100, expectedCloseDate: new Date('2026-12-31T16:00:00Z') }, { value: 200, expectedCloseDate: null },
+      ].map((data, index) => ({ id: yearIds[index], tenantId, pipelineId, stageId: `${pipelineId}-2`, title: 'Year boundary', currency: 'PHP', ...data })) });
+      const yearly = await read(0, { range: 'thisYear' });
+      expect(yearly.salesForecast!.buckets.at(-1)).toEqual({ start: '2026-12-01', end: '2026-12-31', value: 1234.56 });
+      expect(sum(yearly)).toBe(61234.56);
+      const monthly = await read();
+      expect(sum(monthly)).toBe(60000);
+      expect([yearly, monthly].map(result => result.metrics.forecastedRevenue)).toEqual([61534.56, 61534.56]);
+    } finally { await db.deal.deleteMany({ where: { id: { in: yearIds } } }); }
+  });
+  it.each([
+    ['thisWeek', '2026-11-24T05:47:00Z', '2026-11-23', '2026-11-29'],
+    ['thisWeek', '2026-11-01T00:00:00Z', '2026-10-26', '2026-11-01'],
+    ['thisWeek', '2027-01-01T00:00:00Z', '2026-12-28', '2027-01-03'],
+    ['thisMonth', '2024-02-10T00:00:00Z', '2024-02-01', '2024-02-29'],
+    ['thisMonth', '2025-02-10T00:00:00Z', '2025-02-01', '2025-02-28'],
+    ['thisMonth', '2026-11-30T16:00:00Z', '2026-12-01', '2026-12-31'],
+    ['thisYear', '2026-11-24T05:47:00Z', '2026-01-01', '2026-12-31'],
+  ] as const)('resolves %s at %s using calendar boundaries %s through %s', (range, instant, start, end) => {
+    const result = dashboardForecastPeriod({ range }, new Date(instant));
+    expect(result).toMatchObject({ start, end, timezone: 'Asia/Manila' });
+    expect(result.from.toISOString()).toBe(new Date(`${start}T00:00:00+08:00`).toISOString());
+    expect(+result.until).toBe(+new Date(`${end}T00:00:00+08:00`) + 86400000);
+  });
+  it('preserves every legacy/historical reporting range and custom date boundary', () => {
+    for (const range of ['today', 'last7', 'last30', 'lastMonth', 'last3', 'last6', 'custom'] as const) {
+      const input = { range, ...(range === 'custom' ? { start: '2026-09-15', end: '2026-10-03' } : {}) };
+      expect(dashboardForecastPeriod(input, observed)).toEqual(dashboardPeriod(input, observed));
     }
   });
 });

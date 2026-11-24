@@ -4,6 +4,7 @@ exports.DashboardQuerySchema = exports.FUNNEL_RANGES = exports.REVENUE_INTERVALS
 exports.dashboardToday = dashboardToday;
 exports.dashboardFunnelPeriod = dashboardFunnelPeriod;
 exports.dashboardPeriod = dashboardPeriod;
+exports.dashboardForecastPeriod = dashboardForecastPeriod;
 exports.dashboardCsv = dashboardCsv;
 const crm_export_1 = require("./crm-export");
 const zod_1 = require("zod");
@@ -87,6 +88,21 @@ function dashboardPeriod(query, now = new Date()) {
     if (+until - +from > 732 * 86400000)
         throw new Error('Choose a reporting period of at most two years.');
     return { start, end, from, until, timezone: exports.DASHBOARD_TIMEZONE, interval: (+until - +from > 93 * 86400000 ? 'month' : 'day') };
+}
+/** Forecasts include the full current calendar period; historical reports remain to-date. */
+function dashboardForecastPeriod(query, now = new Date()) {
+    const period = dashboardPeriod(query, now);
+    let end = period.end;
+    if (query.range === 'thisWeek')
+        end = new Date(Date.parse(period.start) + 6 * 86400000).toISOString().slice(0, 10);
+    if (query.range === 'thisMonth') {
+        const lastDay = new Date(`${period.start}T00:00:00Z`);
+        lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+        end = lastDay.toISOString().slice(0, 10);
+    }
+    if (query.range === 'thisYear')
+        end = `${period.start.slice(0, 4)}-12-31`;
+    return dashboardPeriod({ range: 'custom', start: period.start, end }, now);
 }
 /** Excel-compatible escaping, including formula injection through whitespace. */
 function dashboardCsv(report) {

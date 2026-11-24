@@ -9,7 +9,7 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
   const money = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
   const current = await http('/reporting/dashboard?range=thisMonth');
   const today = current.period.end;
-  const future = new Date(`${today}T00:00:00Z`); future.setUTCMonth(future.getUTCMonth() + 2);
+  const future = new Date(`${Number(today.slice(0, 4)) + 2}-01-01T00:00:00Z`);
   async function role(name, deals = true) {
     return prisma.roleDefinition.create({ data: { tenantId: tenant.id, name, permissions: { create: [
       { module: 'dashboard', canView: true },
@@ -41,7 +41,7 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
     return prisma.deal.create({ data: { tenantId: tenant.id, pipelineId: pipeline.id, stageId: stages[2].id,
       title: `Forecast fixture ${value}`, value, currency: 'PHP', assignedUserId, expectedCloseDate: date ? new Date(date) : null } });
   }
-  const aDeal = await deal(10000, associateA.id);
+  const aDeal = await deal(10000, associateA.id, `${current.salesForecast.period.end}T00:00:00Z`);
   await deal(15000, associateB.id); await deal(20000, manager.id); await deal(5000, null);
   await deal(7000, associateA.id, null); await deal(3000, associateB.id, future.toISOString());
   async function open(user) {
@@ -76,6 +76,10 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
     const injected = await aPage.request.get(`${base}/api/proxy/reporting/dashboard?assignedUserId=${associateB.id}`);
     assert.equal(injected.status(), 400);
     record('Separate authenticated role sessions enforce forecast-only company, assigned, custom and restricted scopes');
+    assert.equal(current.salesForecast.period.start, `${today.slice(0, 7)}-01`);
+    const [year, month] = today.split('-').map(Number);
+    assert.equal(current.salesForecast.period.end, new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10));
+    record('Full-month forecast includes month-end Expected Close Dates after today without changing the KPI');
 
     for (const [label, range, interval] of [['Weekly', 'thisWeek', 'day'], ['Yearly', 'thisYear', 'month'], ['Monthly', 'thisMonth', 'week']]) {
       await page.getByRole('button', { name: 'Dashboard date range', exact: true }).click();
@@ -83,8 +87,14 @@ export async function verifyDashboardForecast({ page, session, prisma, http, ten
       await page.getByRole('menuitemradio', { name: label, exact: true }).click();
       const data = (await (await response).json()).data;
       assert.equal(data.salesForecast.period.interval, interval); assert.equal(data.metrics.forecastedRevenue, 60000);
-      assert.equal(data.salesForecast.period.end, today);
-      await expectForecast(page, 60000, 50000);
+      const expectedEnd = range === 'thisWeek' ? new Date(Date.parse(data.salesForecast.period.start) + 6 * 86400000).toISOString().slice(0, 10)
+        : range === 'thisMonth' ? current.salesForecast.period.end : `${today.slice(0, 4)}-12-31`;
+      assert.equal(data.salesForecast.period.end, expectedEnd);
+      assert.equal(data.salesForecast.buckets.at(-1).end, expectedEnd);
+      assert.equal(data.salesForecast.buckets.length, range === 'thisWeek' ? 7 : range === 'thisYear' ? 12 : current.salesForecast.buckets.length);
+      assert.equal(data.period.end, today);
+      assert.equal(data.leadSourcePerformance.period.end, today);
+      await expectForecast(page, 60000, range === 'thisWeek' && current.salesForecast.period.end > expectedEnd ? 40000 : 50000);
     }
     record('Main Weekly, Monthly and Yearly selector controls forecast grouping while KPI remains current');
 
